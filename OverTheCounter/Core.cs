@@ -1,66 +1,82 @@
+using Il2CppInterop.Runtime.Injection;
 using MelonLoader;
+using MelonLoader.Utils;
+using OverTheCounter.Apps;
 using OverTheCounter.Logic;
+using S1API.PhoneApp;
+using System.IO;
+using System.Reflection;
 using UnityEngine;
-using UnityEngine.UI;
-using Il2CppTMPro;
-using Il2CppScheduleOne.Quests;
-using Il2CppScheduleOne.Product;
-using Il2CppScheduleOne.UI;
-using Il2CppScheduleOne.ItemFramework;
-using System.Collections.Generic;
-using System.Linq;
 
 [assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.0.0", "mrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace OverTheCounter
 {
-    /// <summary>
-    /// The main entry point for the MelonLoader Mod.
-    /// This class handles the initialization and the game loop hooks.
-    /// </summary>
     public class Core : MelonMod
     {
-        // Reference to our logic manager
         private NotificationManager _notificationManager;
+        private CustomersApp _customersApp;
 
-        /// <summary>
-        /// Called once when the mod is loaded.
-        /// </summary>
         public override void OnInitializeMelon()
         {
             LoggerInstance.Msg("OverTheCounter Initialized.");
 
-            // Initialize our logic manager
+            ExtractIcons();
             _notificationManager = new NotificationManager(LoggerInstance);
         }
 
-        /// <summary>
-        /// Called every frame, after the standard Update loop.
-        /// We use LateUpdate to ensure the game has finished its own processing 
-        /// of the UI/Contracts before we modify them.
-        /// </summary>
         public override void OnLateUpdate()
         {
             try
             {
-                // Delegate the heavy lifting to the manager
                 _notificationManager.ProcessContractState();
             }
             catch (System.Exception ex)
             {
-                // Catching errors here prevents the entire mod loop from crashing the game
                 LoggerInstance.Error($"Error in OnLateUpdate: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
-        /// <summary>
-        /// Called when the mod is unloaded or the game closes.
-        /// </summary>
         public override void OnDeinitializeMelon()
         {
-            // Ensure we clean up any UI we created so we don't leave ghosts behind
             _notificationManager?.Cleanup();
+        }
+
+        /// <summary>
+        /// Extracts the embedded icon file to the S1API Icons folder so the phone can read it.
+        /// </summary>
+        private void ExtractIcons()
+        {
+            string iconDir = Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons");
+            if (!Directory.Exists(iconDir))
+            {
+                Directory.CreateDirectory(iconDir);
+            }
+
+            string targetPath = Path.Combine(iconDir, "CustomersIcon.png");
+
+            if (!File.Exists(targetPath))
+            {
+                LoggerInstance.Msg("Extracting app icon...");
+                string resourceName = "OverTheCounter.Resources.CustomersIcon.png";
+
+                using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
+                {
+                    if (stream != null)
+                    {
+                        using (FileStream fileStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write))
+                        {
+                            stream.CopyTo(fileStream);
+                        }
+                        LoggerInstance.Msg("Icon extracted successfully.");
+                    }
+                    else
+                    {
+                        LoggerInstance.Error($"Could not find embedded resource '{resourceName}'.");
+                    }
+                }
+            }
         }
     }
 }

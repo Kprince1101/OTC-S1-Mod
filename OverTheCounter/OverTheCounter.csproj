@@ -13,6 +13,9 @@
 		<LangVersion>latest</LangVersion>
 		<ImplicitUsings>enable</ImplicitUsings>
 	</PropertyGroup>
+	<ItemGroup>
+	  <None Remove="Resources\CustomersIcon.png" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<Reference Include="Assembly-CSharp-firstpass">
@@ -182,6 +185,12 @@
 		</Reference>
 		<Reference Include="Il2Cpp__Generated">
 			<HintPath>C:\Program Files (x86)\Steam\steamapps\common\Schedule I\MelonLoader\Il2CppAssemblies\Il2Cpp__Generated.dll</HintPath>
+		</Reference>
+		<Reference Include="S1API">
+		  <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Schedule I\Mods\S1API.dll</HintPath>
+		</Reference>
+		<Reference Include="S1APILoader">
+		  <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Schedule I\Plugins\S1APILoader.dll</HintPath>
 		</Reference>
 		<Reference Include="Unity.AI.Navigation">
 			<HintPath>C:\Program Files (x86)\Steam\steamapps\common\Schedule I\MelonLoader\Il2CppAssemblies\Unity.AI.Navigation.dll</HintPath>
@@ -465,12 +474,6 @@
 		<Reference Include="Il2CppInterop.Common">
 			<HintPath>C:\Program Files (x86)\Steam\steamapps\common\Schedule I\MelonLoader\net6\Il2CppInterop.Common.dll</HintPath>
 		</Reference>
-		<Reference Include="S1API.Il2Cpp.MelonLoader">
-			<HintPath>C:\Program Files (x86)\Steam\steamapps\common\Schedule I\Mods\S1API.Il2Cpp.MelonLoader.dll</HintPath>
-		</Reference>
-		<Reference Include="S1APILoader.MelonLoader">
-			<HintPath>C:\Program Files (x86)\Steam\steamapps\common\Schedule I\Plugins\S1APILoader.MelonLoader.dll</HintPath>
-		</Reference>
 
 	</ItemGroup>
 
@@ -480,10 +483,18 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<Compile Include="Apps\CustomersApp.cs" />
 		<Compile Include="Core.cs" />
+		<Compile Include="Utilities\CustomerLocator.cs" />
 		<Compile Include="Utilities\FormatUtils.cs" />
 		<Compile Include="Logic\NotificationManager.cs" />
 		<Compile Include="Logic\ConsolidatedQuest.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <EmbeddedResource Include="Resources\CustomersIcon.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
 	</ItemGroup>
 	
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
