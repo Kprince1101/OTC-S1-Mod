@@ -27,3 +27,15 @@ msbuild.binlog
 # OS files
 .DS_Store
 Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+
+# Development tools
+tools/
+
+# Documentation (tracked but not committed by default)
+# To commit these, explicitly git add them
+docs/
+

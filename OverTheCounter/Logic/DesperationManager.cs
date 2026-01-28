@@ -1,0 +1,867 @@
+using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.Product;
+using Il2CppScheduleOne.Quests;
+using MelonLoader;
+using S1API.GameTime;
+using S1API.Items;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+
+namespace OverTheCounter.Logic
+{
+    /// <summary>
+    /// The "Director" system that manages Desperation events.
+    /// Randomly triggers high-addiction customers to demand immediate product during the day.
+    /// </summary>
+    public class DesperationManager
+    {
+        // Configuration Constants
+        private const float FIEND_ADDICTION_THRESHOLD = 0.67f;  // Addiction level to qualify as "Fiend"
+        private const float TRIGGER_CHANCE_PER_HOUR = 0.12f;    // 12% chance per hour
+        private const int MAX_EVENTS_PER_DAY = 3;               // Hard cap on daily events
+        private const int RESPONSE_DEADLINE_MINUTES = 60;       // 1 in-game hour to respond
+        private const int DEADLINE_MINUTES = 120;               // 2 in-game hours to deliver after accepting
+        private const float BONUS_MULTIPLIER = 0.45f;           // 45% bonus payment
+        private const float RELATIONSHIP_PENALTY = -15f;        // Relationship hit on failure
+        private const int COOLDOWN_MINUTES = 1440;              // 24-hour lockout on failure
+
+        // Day phase boundaries (24-hour format: 800 = 8:00 AM)
+        private const int DAY_START_HOUR = 800;
+        private const int DAY_END_HOUR = 2100;  // Before typical curfew
+
+        private readonly MelonLogger.Instance _logger;
+
+        // Active desperation events: CustomerID -> Deadline (in elapsed minutes)
+        private readonly Dictionary<string, DesperationEvent> _activeEvents = new();
+
+        // Customers on cooldown: CustomerID -> Cooldown end time (elapsed minutes)
+        private readonly Dictionary<string, int> _customerCooldowns = new();
+
+        // Daily tracking
+        private int _dailyEventsTriggered = 0;
+        private int _lastDayTracked = -1;
+        private int _lastHourChecked = -1;
+
+        // Static instance for access from Harmony patches
+        public static DesperationManager Instance { get; private set; }
+
+        public DesperationManager(MelonLogger.Instance logger)
+        {
+            _logger = logger;
+            Instance = this;
+
+            // Subscribe to time events
+            TimeManager.OnTick += OnTimeTick;
+            TimeManager.OnDayPass += OnDayPass;
+
+        }
+
+        /// <summary>
+        /// Called every game tick to check for hourly updates and deadline expirations.
+        /// </summary>
+        private void OnTimeTick()
+        {
+            try
+            {
+                int currentTime = TimeManager.CurrentTime;
+                int currentHour = currentTime / 100;  // Extract hour from 24-hour format
+
+                // Check for hourly director roll (only during day phase)
+                if (currentHour != _lastHourChecked && IsDayPhase(currentTime))
+                {
+                    _lastHourChecked = currentHour;
+                    TryTriggerDesperationEvent();
+                }
+
+                // Check for expired deadlines
+                CheckExpiredDeadlines();
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[DesperationManager] OnTimeTick error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Called when a new day starts - reset daily counters.
+        /// </summary>
+        private void OnDayPass()
+        {
+            int currentDay = TimeManager.ElapsedDays;
+            if (currentDay != _lastDayTracked)
+            {
+                _lastDayTracked = currentDay;
+                _dailyEventsTriggered = 0;
+                _lastHourChecked = -1;
+            }
+        }
+
+        /// <summary>
+        /// Checks if the current time is within the day phase (8 AM to 9 PM).
+        /// </summary>
+        private bool IsDayPhase(int time24h)
+        {
+            return time24h >= DAY_START_HOUR && time24h < DAY_END_HOUR;
+        }
+
+        /// <summary>
+        /// The Director's hourly roll - attempts to trigger a desperation event.
+        /// </summary>
+        private void TryTriggerDesperationEvent()
+        {
+            // Check daily cap
+            if (_dailyEventsTriggered >= MAX_EVENTS_PER_DAY)
+            {
+                return;
+            }
+
+            // Roll the dice (12% chance)
+            float roll = UnityEngine.Random.value;
+            if (roll > TRIGGER_CHANCE_PER_HOUR)
+            {
+                return;
+            }
+
+            // Find eligible customers
+            var eligibleCustomers = GetEligibleFiends();
+            if (eligibleCustomers.Count == 0)
+                            {
+                                // Success - contract offered
+                                return;
+                            }
+
+            // Pick a random eligible customer
+            int index = UnityEngine.Random.Range(0, eligibleCustomers.Count);
+            var customer = eligibleCustomers[index];
+
+            // Trigger the event
+            TriggerDesperationEvent(customer);
+        }
+
+        /// <summary>
+        /// Gets all customers eligible for a desperation event.
+        /// Criteria: Fiend addiction level, idle (no contract), not already desperate, not on cooldown.
+        /// </summary>
+        private List<Customer> GetEligibleFiends()
+        {
+            var eligible = new List<Customer>();
+            var unlocked = Customer.UnlockedCustomers;
+
+            if (unlocked == null) return eligible;
+
+            int currentMinutes = GetCurrentElapsedMinutes();
+
+            for (int i = 0; i < unlocked.Count; i++)
+            {
+                var customer = unlocked[i];
+                if (customer == null || customer.NPC == null) continue;
+
+                string customerId = customer.NPC.ID;
+
+                // Check addiction threshold (Fiend = high addiction)
+                if (customer.CurrentAddiction < FIEND_ADDICTION_THRESHOLD)
+                    continue;
+
+                // Check if idle (no active contract or pending offer)
+                if (customer.CurrentContract != null)
+                    continue;
+
+                if (customer.OfferedContractInfo != null)
+                    continue;
+
+                // Check if already in an active desperation event
+                if (_activeEvents.ContainsKey(customerId))
+                    continue;
+
+                // Check if on cooldown
+                if (_customerCooldowns.TryGetValue(customerId, out int cooldownEnd))
+                {
+                    if (currentMinutes < cooldownEnd)
+                        continue;
+                    else
+                        _customerCooldowns.Remove(customerId);  // Cooldown expired
+                }
+
+                // Check if NPC is conscious and available
+                if (!customer.NPC.IsConscious)
+                    continue;
+
+                eligible.Add(customer);
+            }
+
+            return eligible;
+        }
+
+        /// <summary>
+        /// Triggers a desperation event for the specified customer.
+        /// </summary>
+        private void TriggerDesperationEvent(Customer customer)
+        {
+            string customerId = customer.NPC.ID;
+            int responseDeadline = GetCurrentElapsedMinutes() + RESPONSE_DEADLINE_MINUTES;
+
+            // Create the event with response deadline (delivery deadline set on accept)
+            var evt = new DesperationEvent
+            {
+                Customer = customer,
+                DeadlineMinutes = responseDeadline,
+                TriggerTime = TimeManager.CurrentTime,
+                IsAccepted = false
+            };
+
+            _activeEvents[customerId] = evt;
+            _dailyEventsTriggered++;
+
+            // Force the customer to create a deal/contract request
+            ForceCustomerDealOffer(customer);
+
+            _logger.Msg($"[DesperationManager] Desperation event triggered for {customer.NPC.fullName}. " +
+                       $"Response deadline: {RESPONSE_DEADLINE_MINUTES} mins. Daily count: {_dailyEventsTriggered}/{MAX_EVENTS_PER_DAY}");
+        }
+
+        /// <summary>
+        /// Forces the customer to create a deal offer/contract.
+        /// Creates a custom contract based on customer's purchase history.
+        /// </summary>
+        private void ForceCustomerDealOffer(Customer customer)
+        {
+            try
+            {
+                // Reset timing fields to allow contract generation
+                customer.TimeSinceLastDealCompleted = 9999;
+                customer.TimeSinceLastDealOffered = 9999;
+
+                // Step 1: Get customer's most purchased products
+                string productId = GetCustomerPreferredProduct(customer);
+
+                if (string.IsNullOrEmpty(productId))
+                {
+                    _logger.Warning($"[DesperationManager] No purchase history for {customer.NPC.fullName}. " +
+                                   "Using fallback contract generation.");
+                    // Fallback to game's contract generation
+                    FallbackContractGeneration(customer);
+                    return;
+                }
+
+                // Step 2: Create contract using S1API ContractInfoBuilder
+                CreateDesperationContract(customer, productId);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[DesperationManager] ForceCustomerDealOffer failed: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        /// <summary>
+        /// Gets the customer's most purchased product from their history.
+        /// </summary>
+        private string GetCustomerPreferredProduct(Customer customer)
+        {
+            try
+            {
+                // Call CalculateTopWeeklyPurchases via reflection
+                var customerType = customer.GetType();
+
+                // Find the method - it has out parameters
+                var calcMethod = customerType.GetMethod("CalculateTopWeeklyPurchases",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+
+                if (calcMethod == null)
+                {
+                    _logger.Warning("[DesperationManager] Could not find CalculateTopWeeklyPurchases method");
+                    return null;
+                }
+
+                // Invoke with out parameters
+                object[] args = new object[] { null, 0f };
+                calcMethod.Invoke(customer, args);
+
+                // args[0] should now contain List<StringIntPair> mostPurchasedProducts
+                // Use dynamic to avoid namespace issues
+                dynamic mostPurchased = args[0];
+
+                if (mostPurchased == null)
+                {
+                    return null;
+                }
+
+                int count = (int)mostPurchased.Count;
+                if (count == 0)
+                {
+                    return null;
+                }
+
+                // Return the most purchased product ID
+                // StringIntPair has .String and .Int properties
+                dynamic topItem = mostPurchased[0];
+                string topProduct = (string)topItem.String;
+                int quantity = (int)topItem.Int;
+
+                return topProduct;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[DesperationManager] GetCustomerPreferredProduct failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Creates a desperation contract directly using game classes.
+        /// </summary>
+        private void CreateDesperationContract(Customer customer, string productId)
+        {
+            try
+            {
+                // Calculate quantity based on addiction level (higher addiction = wants more)
+                int quantity = Mathf.RoundToInt(Mathf.Lerp(1f, 5f, customer.CurrentAddiction));
+                quantity = Mathf.Max(1, quantity);
+
+                // Step 1: Get the product definition to calculate price
+                var itemDef = ItemManager.GetItemDefinition(productId);
+                var productDef = itemDef as S1API.Products.ProductDefinition;
+
+                float price = 20f; // Default fallback price
+                if (productDef != null)
+                {
+                    price = productDef.Price;
+                }
+                else
+                {
+                    _logger.Warning($"[DesperationManager] Could not get price for {productId}, using default");
+                }
+
+                float payment = price * quantity;
+
+                // Step 2: Get a delivery location from the customer's region
+                string deliveryLocationGuid = GetRandomDeliveryLocation(customer);
+                if (string.IsNullOrEmpty(deliveryLocationGuid))
+                {
+                    _logger.Warning("[DesperationManager] Could not find delivery location");
+                    FallbackContractGeneration(customer);
+                    return;
+                }
+
+                // Step 3: Create ProductList with the entry
+                var productList = new ProductList();
+                var entry = new ProductList.Entry(productId, EQuality.Standard, quantity);
+                productList.entries.Add(entry);
+
+                // Step 4: Create delivery window config (2-hour window starting now)
+                // Use ImmediateQuestWindowConfig to mark this as a desperation contract
+                int currentTime = TimeManager.CurrentTime;
+                int endTime = TimeManager.Get24HourTimeFromMinutes(
+                    TimeManager.GetMinutesFrom24HourTime(currentTime) + DEADLINE_MINUTES);
+
+                var deliveryWindow = new ImmediateQuestWindowConfig
+                {
+                    IsEnabled = true,
+                    WindowStartTime = currentTime,
+                    WindowEndTime = endTime
+                };
+
+                // Step 5: Create ContractInfo
+                // Constructor: ContractInfo(payment, productList, deliveryLocationGuid, deliveryWindow, expires, expiresAfter, pickupScheduleGroup, isCounterOffer)
+                // ExpiresAfter = 0 means same day expiry, adjusted to window end
+                var contractInfo = new ContractInfo(
+                    payment,
+                    productList,
+                    deliveryLocationGuid,
+                    deliveryWindow,
+                    true,   // expires
+                    0,      // expiresAfter (0 = same day, expiry adjusted to window end)
+                    0,      // pickupScheduleGroup
+                    false   // isCounterOffer
+                );
+
+                // Step 6: Offer the contract
+                OfferContractToCustomer(customer, contractInfo);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[DesperationManager] CreateDesperationContract failed: {ex.Message}\n{ex.StackTrace}");
+                FallbackContractGeneration(customer);
+            }
+        }
+
+        /// <summary>
+        /// Gets a random delivery location GUID from the customer's region.
+        /// </summary>
+        private string GetRandomDeliveryLocation(Customer customer)
+        {
+            try
+            {
+                // Get the Map singleton
+                var mapType = Type.GetType("Il2CppScheduleOne.Map.Map, Assembly-CSharp");
+                if (mapType == null)
+                {
+                    _logger.Warning("[DesperationManager] Could not find Map type");
+                    return null;
+                }
+
+                // Get Singleton<Map>.Instance
+                var singletonType = typeof(Il2CppScheduleOne.DevUtilities.Singleton<>).MakeGenericType(mapType);
+                var instanceProp = singletonType.GetProperty("Instance", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
+                var mapInstance = instanceProp?.GetValue(null);
+
+                if (mapInstance == null)
+                {
+                    _logger.Warning("[DesperationManager] Map instance is null");
+                    return null;
+                }
+
+                // Get region data for customer's region
+                var getRegionDataMethod = mapInstance.GetType().GetMethod("GetRegionData");
+                if (getRegionDataMethod == null)
+                {
+                    _logger.Warning("[DesperationManager] Could not find GetRegionData method");
+                    return null;
+                }
+
+                var regionData = getRegionDataMethod.Invoke(mapInstance, new object[] { customer.NPC.Region });
+                if (regionData == null)
+                {
+                    _logger.Warning($"[DesperationManager] No region data for {customer.NPC.Region}");
+                    return null;
+                }
+
+                // Get random unscheduled delivery location
+                var getLocationMethod = regionData.GetType().GetMethod("GetRandomUnscheduledDeliveryLocation");
+                if (getLocationMethod == null)
+                {
+                    _logger.Warning("[DesperationManager] Could not find GetRandomUnscheduledDeliveryLocation method");
+                    return null;
+                }
+
+                dynamic deliveryLocation = getLocationMethod.Invoke(regionData, null);
+                if (deliveryLocation == null)
+                {
+                    _logger.Warning($"[DesperationManager] No delivery locations in {customer.NPC.Region}");
+                    return null;
+                }
+
+                string guid = deliveryLocation.GUID.ToString();
+                return guid;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[DesperationManager] GetRandomDeliveryLocation failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Offers a contract to the customer, bypassing the deal window selection.
+        /// </summary>
+        private void OfferContractToCustomer(Customer customer, object contractInfo)
+        {
+            try
+            {
+                var customerType = customer.GetType();
+
+                // Find OfferContract method
+                foreach (var method in customerType.GetMethods(System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+                {
+                    if (method.Name == "OfferContract")
+                    {
+                        var parameters = method.GetParameters();
+                        if (parameters.Length == 1)
+                        {
+                            method.Invoke(customer, new object[] { contractInfo });
+                            _logger.Msg($"[DesperationManager] Contract offered to player from {customer.NPC.fullName}");
+                            return;
+                        }
+                    }
+                }
+
+                _logger.Warning("[DesperationManager] Could not find OfferContract method");
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[DesperationManager] OfferContractToCustomer failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Fallback: Use the game's built-in contract generation.
+        /// </summary>
+        private void FallbackContractGeneration(Customer customer)
+        {
+            try
+            {
+                var customerType = customer.GetType();
+
+                // Try TryGenerateContract
+                foreach (var method in customerType.GetMethods(System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+                {
+                    if (method.Name == "TryGenerateContract")
+                    {
+                        var parameters = method.GetParameters();
+                        if (parameters.Length == 1)
+                        {
+                            var contractInfo = method.Invoke(customer, new object[] { null });
+                            if (contractInfo != null)
+                            {
+                                OfferContractToCustomer(customer, contractInfo);
+                                return;
+                            }
+                            else
+                            {
+                                _logger.Warning($"[DesperationManager] Fallback TryGenerateContract returned null for {customer.NPC.fullName}");
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[DesperationManager] FallbackContractGeneration failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Sends the "desperate fiend" text message to the player.
+        /// </summary>
+        private void SendDesperationMessage(Customer customer)
+        {
+            string message = GetRandomDesperationMessage();
+
+            try
+            {
+                // Use the game's MSGConversation system to send messages
+                SendNPCTextMessage(customer.NPC, message);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[DesperationManager] Failed to send message: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Sends a text message from an NPC using S1API.Entities.NPC.SendTextMessage().
+        /// </summary>
+        private void SendNPCTextMessage(Il2CppScheduleOne.NPCs.NPC ilNpc, string message)
+        {
+            if (ilNpc == null) return;
+
+            try
+            {
+                // Get the S1API wrapper for this IL2CPP NPC
+                var s1NPC = S1API.Entities.NPC.All.FirstOrDefault(n => n.ID == ilNpc.ID);
+
+                if (s1NPC != null)
+                {
+                    // Use S1API method - NO REFLECTION!
+                    s1NPC.SendTextMessage(message);
+                }
+                else
+                {
+                    _logger.Warning($"[DesperationManager] Could not find S1API wrapper for NPC '{ilNpc.fullName}' (ID: {ilNpc.ID})");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[DesperationManager] SendNPCTextMessage failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Returns a random desperate message for variety.
+        /// </summary>
+        private string GetRandomDesperationMessage()
+        {
+            string[] messages = new[]
+            {
+                "I need a fix NOW. I'll pay extra. Don't make me call someone else.",
+                "Yo I'm DESPERATE here. Got cash ready. Need you ASAP or I'm going elsewhere.",
+                "Can't wait any longer. Premium pay if you come through RIGHT NOW.",
+                "I'm losing it here. Need product immediately. Name your price.",
+                "This is urgent. I'll make it worth your while. Don't leave me hanging."
+            };
+
+            return messages[UnityEngine.Random.Range(0, messages.Length)];
+        }
+
+        /// <summary>
+        /// Checks for expired deadlines and applies penalties.
+        /// </summary>
+        private void CheckExpiredDeadlines()
+        {
+            int currentMinutes = GetCurrentElapsedMinutes();
+            var expiredIds = new List<string>();
+
+            foreach (var kvp in _activeEvents)
+            {
+                if (currentMinutes >= kvp.Value.DeadlineMinutes)
+                {
+                    expiredIds.Add(kvp.Key);
+                }
+            }
+
+            foreach (var customerId in expiredIds)
+            {
+                var evt = _activeEvents[customerId];
+                FailEvent(evt, evt.IsAccepted ? "delivery" : "response");
+                _activeEvents.Remove(customerId);
+            }
+        }
+
+        /// <summary>
+        /// Handles a failed desperation event (deadline expired).
+        /// </summary>
+        private void FailEvent(DesperationEvent evt, string failureType)
+        {
+            var customer = evt.Customer;
+            if (customer == null || customer.NPC == null) return;
+
+            string customerId = customer.NPC.ID;
+
+            // Apply relationship penalty
+            try
+            {
+                customer.NPC.RelationData.ChangeRelationship(RELATIONSHIP_PENALTY, true);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[DesperationManager] Failed to apply relationship penalty: {ex.Message}");
+            }
+
+            // Send appropriate failure message
+            SendFailureMessage(customer, failureType);
+
+            // Put customer on cooldown (24 hours)
+            int cooldownEnd = GetCurrentElapsedMinutes() + COOLDOWN_MINUTES;
+            _customerCooldowns[customerId] = cooldownEnd;
+
+            _logger.Msg($"[DesperationManager] Desperation event FAILED ({failureType}) for {customer.NPC.fullName}. " +
+                       $"Relationship {RELATIONSHIP_PENALTY}. Cooldown until minute {cooldownEnd}.");
+        }
+
+        /// <summary>
+        /// Sends the failure message when the player misses the deadline.
+        /// </summary>
+        private void SendFailureMessage(Customer customer, string failureType)
+        {
+            string[] messages;
+
+            if (failureType == "response")
+            {
+                // Player didn't respond in time
+                messages = new[]
+                {
+                    "Too slow to respond. Found someone else.",
+                    "You snooze, you lose. Already got my fix.",
+                    "Couldn't wait forever. The Cartel was faster.",
+                    "Forget it. Called someone who actually picks up."
+                };
+            }
+            else
+            {
+                // Player accepted but didn't deliver in time
+                messages = new[]
+                {
+                    "Too slow. The Cartel boys hooked me up. Don't bother coming.",
+                    "You said you'd come through. Liar. Found someone else.",
+                    "Waited at the spot for nothing. Never trusting you again.",
+                    "Can't rely on you. Had to go to the competition."
+                };
+            }
+
+            string message = messages[UnityEngine.Random.Range(0, messages.Length)];
+
+            try
+            {
+                SendNPCTextMessage(customer.NPC, message);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[DesperationManager] Failed to send failure message: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Checks if a customer is currently in a desperation state.
+        /// Called by the ProcessHandover transpiler.
+        /// </summary>
+        public static bool IsDesperate(string customerId)
+        {
+            return Instance?._activeEvents.ContainsKey(customerId) ?? false;
+        }
+
+        /// <summary>
+        /// Gets the bonus multiplier for desperation events.
+        /// </summary>
+        public static float GetBonusMultiplier()
+        {
+            return BONUS_MULTIPLIER;
+        }
+
+        /// <summary>
+        /// Resolves a desperation event after successful delivery.
+        /// Called by the ProcessHandover transpiler.
+        /// </summary>
+        public static void ResolveEvent(string customerId)
+        {
+            if (Instance == null) return;
+
+            if (Instance._activeEvents.TryGetValue(customerId, out var evt))
+            {
+                Instance._activeEvents.Remove(customerId);
+                Instance._logger.Msg($"[DesperationManager] Desperation event RESOLVED for customer {customerId}. " +
+                                    $"Bonus applied: {BONUS_MULTIPLIER * 100}%");
+            }
+        }
+
+        /// <summary>
+        /// Gets a list of all customers currently in desperation state.
+        /// Used for UI indicators.
+        /// </summary>
+        public static List<string> GetDesperateCustomerIds()
+        {
+            return Instance?._activeEvents.Keys.ToList() ?? new List<string>();
+        }
+
+        /// <summary>
+        /// DEBUG: Force triggers a desperation event for a specific customer.
+        /// Returns true if successful, false if customer is not eligible.
+        /// </summary>
+        public static bool DebugForceTrigger(Customer customer)
+        {
+            if (Instance == null)
+            {
+                MelonLoader.MelonLogger.Msg("[DesperationManager] DEBUG: Instance is null");
+                return false;
+            }
+
+            if (customer == null || customer.NPC == null)
+            {
+                MelonLoader.MelonLogger.Msg("[DesperationManager] DEBUG: Customer or NPC is null");
+                return false;
+            }
+
+            string customerId = customer.NPC.ID;
+
+            // Check if already in desperation state
+            if (Instance._activeEvents.ContainsKey(customerId))
+            {
+                MelonLoader.MelonLogger.Msg($"[DesperationManager] DEBUG: {customer.NPC.fullName} is already desperate!");
+                return false;
+            }
+
+            // Force trigger regardless of eligibility
+            Instance.TriggerDesperationEvent(customer);
+            MelonLoader.MelonLogger.Msg($"[DesperationManager] DEBUG: Forced desperation for {customer.NPC.fullName}");
+            return true;
+        }
+
+        /// <summary>
+        /// DEBUG: Force triggers desperation on a random eligible customer.
+        /// </summary>
+        public static bool DebugForceRandomTrigger()
+        {
+            if (Instance == null) return false;
+
+            var eligible = Instance.GetEligibleFiends();
+            if (eligible.Count == 0)
+            {
+                // If no eligible fiends, try any unlocked customer
+                var unlocked = Customer.UnlockedCustomers;
+                if (unlocked == null || unlocked.Count == 0)
+                {
+                    MelonLoader.MelonLogger.Msg("[DesperationManager] DEBUG: No customers available");
+                    return false;
+                }
+
+                // Pick a random unlocked customer
+                int index = UnityEngine.Random.Range(0, unlocked.Count);
+                return DebugForceTrigger(unlocked[index]);
+            }
+
+            int idx = UnityEngine.Random.Range(0, eligible.Count);
+            return DebugForceTrigger(eligible[idx]);
+        }
+
+        /// <summary>
+        /// DEBUG: Gets current status info for logging.
+        /// </summary>
+        public static string DebugGetStatus()
+        {
+            if (Instance == null) return "DesperationManager not initialized";
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"=== Desperation Manager Status ===");
+            sb.AppendLine($"Daily Events: {Instance._dailyEventsTriggered}/{MAX_EVENTS_PER_DAY}");
+            sb.AppendLine($"Active Events: {Instance._activeEvents.Count}");
+
+            foreach (var kvp in Instance._activeEvents)
+            {
+                var evt = kvp.Value;
+                int remaining = evt.DeadlineMinutes - Instance.GetCurrentElapsedMinutes();
+                sb.AppendLine($"  - {evt.Customer?.NPC?.fullName ?? "Unknown"}: {remaining} mins remaining");
+            }
+
+            sb.AppendLine($"Customers on Cooldown: {Instance._customerCooldowns.Count}");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Calculates elapsed minutes from game start for deadline tracking.
+        /// </summary>
+        private int GetCurrentElapsedMinutes()
+        {
+            int days = TimeManager.ElapsedDays;
+            int time24h = TimeManager.CurrentTime;
+            int hours = time24h / 100;
+            int minutes = time24h % 100;
+
+            return (days * 1440) + (hours * 60) + minutes;
+        }
+
+        /// <summary>
+        /// Cleanup when mod unloads.
+        /// </summary>
+        public void Cleanup()
+        {
+            TimeManager.OnTick -= OnTimeTick;
+            TimeManager.OnDayPass -= OnDayPass;
+            _activeEvents.Clear();
+            _customerCooldowns.Clear();
+            Instance = null;
+            _logger.Msg("[DesperationManager] Cleaned up and unsubscribed from events.");
+        }
+
+        /// <summary>
+        /// Called when a desperation contract is accepted. Updates the deadline for delivery.
+        /// </summary>
+        public static void OnContractAccepted(string customerId)
+        {
+            if (Instance == null) return;
+
+            if (Instance._activeEvents.TryGetValue(customerId, out var evt))
+            {
+                // Update deadline: 120 minutes from NOW (acceptance time)
+                evt.DeadlineMinutes = Instance.GetCurrentElapsedMinutes() + DEADLINE_MINUTES;
+                evt.IsAccepted = true;
+                Instance._logger.Msg($"[DesperationManager] Contract accepted for {evt.Customer?.NPC?.fullName}. New deadline: {DEADLINE_MINUTES} minutes from now.");
+            }
+        }
+
+        /// <summary>
+        /// Internal class to track desperation event data.
+        /// </summary>
+        private class DesperationEvent
+        {
+            public Customer Customer { get; set; }
+            public int DeadlineMinutes { get; set; }  // Response deadline initially, then delivery deadline
+            public int TriggerTime { get; set; }
+            public bool IsAccepted { get; set; } = false;
+        }
+    }
+}

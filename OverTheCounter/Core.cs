@@ -7,6 +7,7 @@ using S1API.PhoneApp;
 using System.IO;
 using System.Reflection;
 using UnityEngine;
+using HarmonyLib;
 
 [assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.0.0", "mrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
@@ -16,14 +17,19 @@ namespace OverTheCounter
     public class Core : MelonMod
     {
         private NotificationManager _notificationManager;
+        private DesperationManager _desperationManager;
         private CustomersApp _customersApp;
 
         public override void OnInitializeMelon()
         {
             LoggerInstance.Msg("OverTheCounter Initialized.");
 
+            // Register custom IL2CPP types before using them
+            ImmediateQuestWindowConfig.Register();
+
             ExtractIcons();
             _notificationManager = new NotificationManager(LoggerInstance);
+            _desperationManager = new DesperationManager(LoggerInstance);
         }
 
         public override void OnLateUpdate()
@@ -41,6 +47,7 @@ namespace OverTheCounter
         public override void OnDeinitializeMelon()
         {
             _notificationManager?.Cleanup();
+            _desperationManager?.Cleanup();
         }
 
         /// <summary>

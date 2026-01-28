@@ -2,7 +2,6 @@ using Il2CppScheduleOne.Quests;
 using S1API.Items;
 using S1API.Products;
 using System.Collections.Generic;
-using System.Text;
 
 namespace OverTheCounter.Utilities
 {
@@ -12,18 +11,39 @@ namespace OverTheCounter.Utilities
     public static class FormatUtils
     {
         /// <summary>
-        /// Aggregates all contracts into a single formatted string.
+        /// Represents a product entry with its display name and quantity.
+        /// </summary>
+        public class ProductSummary
+        {
+            public string ProductID { get; set; }
+            public string DisplayName { get; set; }
+            public int Quantity { get; set; }
+        }
+
+        /// <summary>
+        /// Aggregates all contracts into a list of product summaries.
         /// Groups by Product ID only (ignores quality for simpler display).
         /// </summary>
-        public static string BuildProductBreakdownString(Il2CppSystem.Collections.Generic.List<Contract> contracts)
+        public static List<ProductSummary> GetProductSummaries(Il2CppSystem.Collections.Generic.List<Contract> contracts)
+        {
+            var contractList = new List<Contract>();
+            for (int i = 0; i < contracts.Count; i++)
+            {
+                contractList.Add(contracts[i]);
+            }
+            return GetProductSummaries(contractList);
+        }
+
+        /// <summary>
+        /// Aggregates all contracts into a list of product summaries (System.Collections version).
+        /// </summary>
+        public static List<ProductSummary> GetProductSummaries(List<Contract> contracts)
         {
             // Aggregate by ProductID only
             var productTotals = new Dictionary<string, int>();
 
-            // Use index-based loops for Il2Cpp collections to avoid enumeration issues
-            for (int i = 0; i < contracts.Count; i++)
+            foreach (var contract in contracts)
             {
-                var contract = contracts[i];
                 if (contract?.ProductList?.entries == null) continue;
 
                 var entries = contract.ProductList.entries;
@@ -43,12 +63,46 @@ namespace OverTheCounter.Utilities
                 }
             }
 
-            // Convert aggregated data into display string
-            var productStrings = new List<string>();
+            // Convert to list of ProductSummary
+            var summaries = new List<ProductSummary>();
             foreach (var kvp in productTotals)
             {
-                string productName = GetProductDisplayName(kvp.Key);
-                productStrings.Add($"{kvp.Value}x {productName}");
+                summaries.Add(new ProductSummary
+                {
+                    ProductID = kvp.Key,
+                    DisplayName = GetProductDisplayName(kvp.Key),
+                    Quantity = kvp.Value
+                });
+            }
+
+            return summaries;
+        }
+
+        /// <summary>
+        /// Aggregates all contracts into a single formatted string.
+        /// Groups by Product ID only (ignores quality for simpler display).
+        /// </summary>
+        public static string BuildProductBreakdownString(Il2CppSystem.Collections.Generic.List<Contract> contracts)
+        {
+            var contractList = new List<Contract>();
+            for (int i = 0; i < contracts.Count; i++)
+            {
+                contractList.Add(contracts[i]);
+            }
+            return BuildProductBreakdownString(contractList);
+        }
+
+        /// <summary>
+        /// Aggregates all contracts into a single formatted string (System.Collections version).
+        /// </summary>
+        public static string BuildProductBreakdownString(List<Contract> contracts)
+        {
+            var summaries = GetProductSummaries(contracts);
+            var productStrings = new List<string>();
+
+            foreach (var summary in summaries)
+            {
+                productStrings.Add($"{summary.Quantity}x {summary.DisplayName}");
             }
 
             return string.Join(", ", productStrings);
@@ -57,7 +111,7 @@ namespace OverTheCounter.Utilities
         /// <summary>
         /// Gets the display name for a product using S1API's ItemManager.
         /// </summary>
-        private static string GetProductDisplayName(string productID)
+        public static string GetProductDisplayName(string productID)
         {
             if (string.IsNullOrEmpty(productID)) return "Unknown";
 

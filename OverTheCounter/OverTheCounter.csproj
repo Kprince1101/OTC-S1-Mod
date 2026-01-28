@@ -489,6 +489,11 @@
 		<Compile Include="Utilities\FormatUtils.cs" />
 		<Compile Include="Logic\NotificationManager.cs" />
 		<Compile Include="Logic\ConsolidatedQuest.cs" />
+		<Compile Include="Logic\DesperationManager.cs" />
+		<Compile Include="Logic\ImmediateQuestWindowConfig.cs" />
+		<Compile Include="Patches\ProcessHandoverPatch.cs" />
+		<Compile Include="Patches\DesperationContractPatch.cs" />
+		<Compile Include="UI\LocationPickerUI.cs" />
 	</ItemGroup>
 
 	<ItemGroup>

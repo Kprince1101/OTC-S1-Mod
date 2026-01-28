@@ -1,4 +1,4 @@
-﻿using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Map;
@@ -11,6 +11,7 @@ using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 using OverTheCounter.Utilities;
+using OverTheCounter.Logic;
 using MelonLoader.Utils;
 using System.IO;
 using HarmonyLib;
@@ -85,7 +86,37 @@ namespace OverTheCounter.Apps
             titleRect.anchorMin = Vector2.zero;
             titleRect.anchorMax = Vector2.one;
             titleRect.offsetMin = new Vector2(15, 0);
-            titleRect.offsetMax = new Vector2(-15, 0);
+            titleRect.offsetMax = new Vector2(-120, 0);
+
+            // DEBUG: Trigger Desperation Button (right side of header) using UIFactory
+            var (debugMask, debugBtn, debugLabel) = UIFactory.RoundedButtonWithLabel(
+                "DebugBtn",
+                "DEBUG",
+                headerObj.transform,
+                new Color(0.6f, 0.2f, 0.2f),
+                100, // width
+                32,  // height
+                12,  // fontSize
+                Color.white
+            );
+
+            // Position on right side of header
+            var debugBtnRect = debugMask.GetComponent<RectTransform>();
+            debugBtnRect.anchorMin = new Vector2(1, 0.5f);
+            debugBtnRect.anchorMax = new Vector2(1, 0.5f);
+            debugBtnRect.pivot = new Vector2(1, 0.5f);
+            debugBtnRect.anchoredPosition = new Vector2(-10, 0);
+
+            debugBtn.onClick.AddListener(new System.Action(() =>
+            {
+                MelonLogger.Msg("[CustomersApp] DEBUG button clicked - triggering random desperation");
+                MelonLogger.Msg(DesperationManager.DebugGetStatus());
+                bool success = DesperationManager.DebugForceRandomTrigger();
+                if (success)
+                {
+                    RefreshCustomerList();
+                }
+            }));
 
             // 3. Legend/Key bar below header
             var legendObj = UIFactory.Panel("Legend", rootPanel.transform, new Color(0.18f, 0.18f, 0.18f));
@@ -144,102 +175,33 @@ namespace OverTheCounter.Apps
             lowRect.sizeDelta = new Vector2(35, 0);
             lowLabel.color = new Color(0.6f, 0.6f, 0.6f);
 
-            // 4. Scroll View Setup (below header and legend)
-            var scrollObj = new GameObject("ScrollView");
-            var scrollRect = scrollObj.AddComponent<ScrollRect>();
-            var scrollRectTransform = scrollObj.GetComponent<RectTransform>();
-            scrollRectTransform.SetParent(rootPanel.transform, false);
+            // 4. Scroll View Setup using UIFactory (below header and legend)
+            var contentRect = UIFactory.ScrollableVerticalList("CustomerScroll", rootPanel.transform, out ScrollRect scrollRect);
+            
+            // Position scroll view to fill remaining space below header and legend
+            var scrollRectTransform = scrollRect.GetComponent<RectTransform>();
             scrollRectTransform.anchorMin = Vector2.zero;
             scrollRectTransform.anchorMax = Vector2.one;
             scrollRectTransform.offsetMin = Vector2.zero;
             scrollRectTransform.offsetMax = new Vector2(0, -65); // Leave space for header (40) + legend (25)
 
-            // Viewport
-            var viewportObj = new GameObject("Viewport");
-            viewportObj.transform.SetParent(scrollObj.transform, false);
-            var viewportRect = viewportObj.AddComponent<RectTransform>();
-            viewportRect.anchorMin = Vector2.zero;
-            viewportRect.anchorMax = Vector2.one;
-            viewportRect.offsetMax = new Vector2(-15, 0); // Leave space for scrollbar
-            viewportRect.offsetMin = new Vector2(10, 0);
-            viewportObj.AddComponent<RectMask2D>();
-            // Add invisible image to catch mouse events for scrolling
-            var viewportImage = viewportObj.AddComponent<Image>();
-            viewportImage.color = Color.clear;
-            viewportImage.raycastTarget = true;
-            scrollRect.viewport = viewportRect;
+            // Configure the existing VerticalLayoutGroup created by ScrollableVerticalList
+            var contentLayout = contentRect.GetComponent<VerticalLayoutGroup>();
+            if (contentLayout != null)
+            {
+                contentLayout.childControlHeight = true;
+                contentLayout.childControlWidth = true;
+                contentLayout.childForceExpandHeight = false;
+                contentLayout.childForceExpandWidth = true;
+                contentLayout.childAlignment = TextAnchor.UpperCenter;
+                contentLayout.spacing = 15;
+                contentLayout.padding = new RectOffset(20, 20, 15, 15);
+            }
 
-            // Vertical Scrollbar
-            var scrollbarObj = new GameObject("Scrollbar");
-            scrollbarObj.transform.SetParent(scrollObj.transform, false);
-            var scrollbarRect = scrollbarObj.AddComponent<RectTransform>();
-            scrollbarRect.anchorMin = new Vector2(1, 0);
-            scrollbarRect.anchorMax = new Vector2(1, 1);
-            scrollbarRect.pivot = new Vector2(1, 0.5f);
-            scrollbarRect.sizeDelta = new Vector2(12, 0);
-            scrollbarRect.anchoredPosition = Vector2.zero;
-
-            var scrollbarImage = scrollbarObj.AddComponent<Image>();
-            scrollbarImage.color = new Color(0.2f, 0.2f, 0.2f, 0.5f);
-
-            var scrollbar = scrollbarObj.AddComponent<Scrollbar>();
-            scrollbar.direction = Scrollbar.Direction.BottomToTop;
-
-            // Scrollbar handle
-            var handleArea = new GameObject("Handle Slide Area");
-            handleArea.transform.SetParent(scrollbarObj.transform, false);
-            var handleAreaRect = handleArea.AddComponent<RectTransform>();
-            handleAreaRect.anchorMin = Vector2.zero;
-            handleAreaRect.anchorMax = Vector2.one;
-            handleAreaRect.offsetMin = Vector2.zero;
-            handleAreaRect.offsetMax = Vector2.zero;
-
-            var handleObj = new GameObject("Handle");
-            handleObj.transform.SetParent(handleArea.transform, false);
-            var handleRect = handleObj.AddComponent<RectTransform>();
-            handleRect.anchorMin = Vector2.zero;
-            handleRect.anchorMax = Vector2.one;
-            handleRect.offsetMin = Vector2.zero;
-            handleRect.offsetMax = Vector2.zero;
-
-            var handleImage = handleObj.AddComponent<Image>();
-            handleImage.color = new Color(0.5f, 0.5f, 0.5f, 0.8f);
-
-            scrollbar.handleRect = handleRect;
-            scrollbar.targetGraphic = handleImage;
-            scrollRect.verticalScrollbar = scrollbar;
-            scrollRect.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHideAndExpandViewport;
-
-            // Content
-            var contentObj = UIFactory.Panel("Content", viewportObj.transform, Color.clear);
-            var contentRect = contentObj.GetComponent<RectTransform>();
-
-            // Set up content to stretch horizontally and grow vertically from top
-            contentRect.anchorMin = new Vector2(0, 1);
-            contentRect.anchorMax = new Vector2(1, 1);
-            contentRect.pivot = new Vector2(0.5f, 1);
-            contentRect.anchoredPosition = Vector2.zero;
-
-            var contentLayout = contentObj.AddComponent<VerticalLayoutGroup>();
-            contentLayout.childControlHeight = true;
-            contentLayout.childControlWidth = true;
-            contentLayout.childForceExpandHeight = false;
-            contentLayout.childForceExpandWidth = true;
-            contentLayout.childAlignment = TextAnchor.UpperCenter;
-            contentLayout.spacing = 15;
-            contentLayout.padding = new RectOffset(20, 20, 15, 15);
-
-            var contentFitter = contentObj.AddComponent<ContentSizeFitter>();
-            contentFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
-            contentFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-
-            scrollRect.content = contentRect;
-            scrollRect.vertical = true;
-            scrollRect.horizontal = false;
             scrollRect.scrollSensitivity = 20f;
 
             // Store reference and Populate Data
-            _contentParent = contentObj.transform;
+            _contentParent = contentRect.transform;
             PopulateCustomerList(_contentParent);
         }
 
@@ -320,8 +282,20 @@ namespace OverTheCounter.Apps
 
         private void CreateCustomerCell(Transform gridParent, Customer customer, bool isLocked)
         {
-            // 1. Cell Container
-            var cellObj = UIFactory.Panel($"Cell_{customer.NPC.fullName}", gridParent, new Color(0.2f, 0.2f, 0.2f));
+            // Check if customer is in desperation state
+            bool isDesperate = !isLocked && DesperationManager.IsDesperate(customer.NPC.ID);
+
+            // 1. Cell Container - Red tint for desperate customers
+            Color cellColor = isDesperate ? new Color(0.4f, 0.15f, 0.15f) : new Color(0.2f, 0.2f, 0.2f);
+            var cellObj = UIFactory.Panel($"Cell_{customer.NPC.fullName}", gridParent, cellColor);
+
+            // Add red border/outline for desperate customers
+            if (isDesperate)
+            {
+                var outline = cellObj.AddComponent<Outline>();
+                outline.effectColor = new Color(0.9f, 0.2f, 0.2f, 1f);
+                outline.effectDistance = new Vector2(2f, 2f);
+            }
 
             // Add Button only if unlocked (or handle locked click differently)
             var btn = cellObj.AddComponent<Button>();
@@ -357,7 +331,20 @@ namespace OverTheCounter.Apps
             nameRect.anchoredPosition = new Vector2(0, 3);
             nameRect.sizeDelta = new Vector2(0, 20);
 
-            // 5. Locked State Styling
+            // 5. Desperation Indicator
+            if (isDesperate)
+            {
+                var urgentLabel = UIFactory.Text("UrgentLabel", "<b>URGENT!</b>", cellObj.transform, 10, TextAnchor.UpperCenter);
+                var urgentRect = urgentLabel.gameObject.GetComponent<RectTransform>();
+                urgentRect.anchorMin = new Vector2(0, 1);
+                urgentRect.anchorMax = new Vector2(1, 1);
+                urgentRect.pivot = new Vector2(0.5f, 1);
+                urgentRect.anchoredPosition = new Vector2(0, -2);
+                urgentRect.sizeDelta = new Vector2(0, 14);
+                urgentLabel.color = new Color(1f, 0.3f, 0.3f);
+            }
+
+            // 6. Locked State Styling
             if (isLocked)
             {
                 var cg = cellObj.AddComponent<CanvasGroup>();
