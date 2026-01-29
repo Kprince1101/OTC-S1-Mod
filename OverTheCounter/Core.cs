@@ -4,10 +4,10 @@ using MelonLoader.Utils;
 using OverTheCounter.Apps;
 using OverTheCounter.Logic;
 using S1API.PhoneApp;
+using System;
 using System.IO;
 using System.Reflection;
 using UnityEngine;
-using HarmonyLib;
 
 [assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.0.0", "mrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
@@ -18,13 +18,11 @@ namespace OverTheCounter
     {
         private NotificationManager _notificationManager;
         private DesperationManager _desperationManager;
-        private CustomersApp _customersApp;
 
         public override void OnInitializeMelon()
         {
             LoggerInstance.Msg("OverTheCounter Initialized.");
 
-            // Register custom IL2CPP types before using them
             ImmediateQuestWindowConfig.Register();
 
             ExtractIcons();
@@ -38,7 +36,7 @@ namespace OverTheCounter
             {
                 _notificationManager.ProcessContractState();
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 LoggerInstance.Error($"Error in OnLateUpdate: {ex.Message}\n{ex.StackTrace}");
             }
@@ -51,7 +49,7 @@ namespace OverTheCounter
         }
 
         /// <summary>
-        /// Extracts the embedded icon file to the S1API Icons folder so the phone can read it.
+        /// Extracts embedded icons to the S1API Icons folder for phone app usage.
         /// </summary>
         private void ExtractIcons()
         {

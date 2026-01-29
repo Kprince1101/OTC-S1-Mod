@@ -485,6 +485,7 @@
 	<ItemGroup>
 		<Compile Include="Apps\CustomersApp.cs" />
 		<Compile Include="Core.cs" />
+		<Compile Include="NPCs\VicNPC.cs" />
 		<Compile Include="Utilities\CustomerLocator.cs" />
 		<Compile Include="Utilities\FormatUtils.cs" />
 		<Compile Include="Logic\NotificationManager.cs" />
