@@ -3,6 +3,7 @@ using MelonLoader;
 using MelonLoader.Utils;
 using OverTheCounter.Apps;
 using OverTheCounter.Logic;
+using OverTheCounter.SaveData;
 using S1API.PhoneApp;
 using System;
 using System.IO;
@@ -35,6 +36,7 @@ namespace OverTheCounter
             try
             {
                 _notificationManager.ProcessContractState();
+                VicSaveData.Instance?.Tick();
             }
             catch (Exception ex)
             {

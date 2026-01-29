@@ -6,6 +6,7 @@ using S1API.Entities.Appearances.FaceLayerFields;
 using S1API.Entities.Appearances.BodyLayerFields;
 using S1API.Entities.Appearances.AccessoryFields;
 using Il2CppScheduleOne.VoiceOver;
+using OverTheCounter.SaveData;
 using UnityEngine;
 using MelonLoader;
 using System;
@@ -22,6 +23,11 @@ namespace OverTheCounter.NPCs
         private static readonly EVOLineType[] DismissalSounds = { EVOLineType.Angry, EVOLineType.Annoyed, EVOLineType.No };
 
         private Il2CppScheduleOne.NPCs.NPC _gameNpc;
+
+        /// <summary>
+        /// Static reference so VicSaveData can trigger a dialogue rebuild after state changes.
+        /// </summary>
+        public static VicNPC Instance { get; private set; }
 
         public override bool IsPhysical => true;
 
@@ -56,6 +62,7 @@ namespace OverTheCounter.NPCs
         protected override void OnCreated()
         {
             base.OnCreated();
+            Instance = this;
 
             _gameNpc = gameObject.GetComponent<Il2CppScheduleOne.NPCs.NPC>();
 
@@ -93,6 +100,8 @@ namespace OverTheCounter.NPCs
             EnsureVoiceDatabase();
             Schedule.Enable();
             SetupDialogue();
+
+            VicSaveData.Instance?.OnVicSpawned();
 
             Logger.Msg("Vic has spawned behind the bank");
         }
@@ -137,6 +146,49 @@ namespace OverTheCounter.NPCs
             }
         }
 
+        /// <summary>
+        /// Rebuilds the dialogue container with text based on current VicSaveData state.
+        /// Called on spawn and again when HasBeenTexted flips to true.
+        /// </summary>
+        public void RefreshDialogue()
+        {
+            bool texted = VicSaveData.Instance?.HasBeenTexted == true;
+
+            Dialogue.BuildAndRegisterContainer("VicGreeting", container =>
+            {
+                if (texted)
+                {
+                    container.AddNode("ENTRY", "Good, you showed up. Look, I work at the bank and I've seen your deposits getting flagged.", choices =>
+                    {
+                        choices.Add("CONT1", "...", "LINE2");
+                    });
+
+                    container.AddNode("LINE2", "I'm throwing a party for the bank manager and some of the other tellers.", choices =>
+                    {
+                        choices.Add("CONT2", "...", "LINE3");
+                    });
+
+                    container.AddNode("LINE3", "Bring me 40g of standard Weed and I'll help cushion your deposit limits.", choices =>
+                    {
+                        choices.Add("LEAVE", "Leave", "EXIT");
+                    });
+
+                    container.AddNode("EXIT", "Alley behind the bank. You know where to find me.");
+                }
+                else
+                {
+                    container.AddNode("ENTRY", "Vic is ignoring you.", choices =>
+                    {
+                        choices.Add("LEAVE", "Leave", "EXIT");
+                    });
+
+                    container.AddNode("EXIT", "*grunts*");
+                }
+            });
+
+            Dialogue.UseContainerOnInteract("VicGreeting");
+        }
+
         private void SetupDialogue()
         {
             Dialogue.BuildAndSetDatabase(db =>
@@ -144,22 +196,12 @@ namespace OverTheCounter.NPCs
                 db.WithModuleEntry("Responses", "IGNORE", "Vic is ignoring you.");
             });
 
-            Dialogue.BuildAndRegisterContainer("VicGreeting", container =>
-            {
-                container.AddNode("ENTRY", "Vic is ignoring you.", choices =>
-                {
-                    choices.Add("LEAVE", "Leave", "EXIT");
-                });
-
-                container.AddNode("EXIT", "*grunts*");
-            });
+            RefreshDialogue();
 
             Dialogue.OnChoiceSelected("LEAVE", () =>
             {
                 PlayDismissalSound();
             });
-
-            Dialogue.UseContainerOnInteract("VicGreeting");
         }
 
         protected override void OnDestroyed()

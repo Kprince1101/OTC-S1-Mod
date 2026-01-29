@@ -499,6 +499,7 @@
 		<Compile Include="Logic\ContractAggregator.cs" />
 		<Compile Include="UI\SmartStashOverlayUI.cs" />
 		<Compile Include="Patches\StorageMenuPatch.cs" />
+		<Compile Include="SaveData\VicSaveData.cs" />
 	</ItemGroup>
 
 	<ItemGroup>
