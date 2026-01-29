@@ -61,12 +61,18 @@ namespace OverTheCounter
                 Directory.CreateDirectory(iconDir);
             }
 
-            string targetPath = Path.Combine(iconDir, "CustomersIcon.png");
+            ExtractResource(iconDir, "CustomersIcon.png");
+            ExtractResource(iconDir, "RinseCycle.png");
+        }
+
+        private void ExtractResource(string directory, string fileName)
+        {
+            string targetPath = Path.Combine(directory, fileName);
 
             if (!File.Exists(targetPath))
             {
-                LoggerInstance.Msg("Extracting app icon...");
-                string resourceName = "OverTheCounter.Resources.CustomersIcon.png";
+                LoggerInstance.Msg($"Extracting {fileName}...");
+                string resourceName = $"OverTheCounter.Resources.{fileName}";
 
                 using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
                 {
@@ -76,7 +82,7 @@ namespace OverTheCounter
                         {
                             stream.CopyTo(fileStream);
                         }
-                        LoggerInstance.Msg("Icon extracted successfully.");
+                        LoggerInstance.Msg($"{fileName} extracted successfully.");
                     }
                     else
                     {

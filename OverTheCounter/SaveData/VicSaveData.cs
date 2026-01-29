@@ -1,5 +1,6 @@
 using MelonLoader;
 using OverTheCounter.NPCs;
+using OverTheCounter.Quests;
 using S1API.Internal.Abstraction;
 using S1API.Saveables;
 using S1API.GameTime;
@@ -36,6 +37,11 @@ namespace OverTheCounter.SaveData
         private bool _needsIntroText;
 
         /// <summary>
+        /// Runtime-only flag: true once CreateOrResumeQuest has run this session.
+        /// </summary>
+        private bool _questCreated;
+
+        /// <summary>
         /// Whether the retroactive check already ran this session.
         /// Distinguishes a load-time detection (immediate trigger) from a
         /// real-time detection during gameplay (delayed trigger).
@@ -61,6 +67,7 @@ namespace OverTheCounter.SaveData
                 _hasBeenTexted = true;
                 Logger.Msg("HasBeenTexted flipped to true — attempting intro text.");
                 TrySendIntroText();
+                CreateOrResumeQuest();
                 VicNPC.Instance?.RefreshDialogue();
             }
         }
@@ -77,7 +84,10 @@ namespace OverTheCounter.SaveData
             Logger.Msg("VicSaveData loaded.");
 
             if (_hasBeenTexted)
+            {
+                _questCreated = true; // Quest auto-loads from save via QuestPatches
                 return;
+            }
 
             // If a pending trigger was saved from a prior session, Tick() will handle firing it.
             if (_triggerPendingDay >= 0)
@@ -164,6 +174,44 @@ namespace OverTheCounter.SaveData
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Creates a new VicIntroQuest or resumes one already loaded from save.
+        /// Safe to call multiple times — guards against double-creation.
+        /// </summary>
+        public void CreateOrResumeQuest()
+        {
+            if (_questCreated) return;
+            _questCreated = true;
+
+            try
+            {
+                if (VicIntroQuest.Instance != null) return;
+
+                var quest = (VicIntroQuest)QuestManager.CreateQuest<VicIntroQuest>();
+                if (quest != null)
+                {
+                    quest.Initialize();
+                    quest.StartQuest();
+                }
+                else
+                {
+                    Logger.Error("QuestManager.CreateQuest<VicIntroQuest> returned null.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"CreateOrResumeQuest failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Called by VicNPC when the player completes the quest handover.
+        /// </summary>
+        public void OnQuestComplete()
+        {
+            _unlocked = true;
         }
 
         private void TrySendIntroText()

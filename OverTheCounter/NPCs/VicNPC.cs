@@ -6,6 +6,9 @@ using S1API.Entities.Appearances.FaceLayerFields;
 using S1API.Entities.Appearances.BodyLayerFields;
 using S1API.Entities.Appearances.AccessoryFields;
 using Il2CppScheduleOne.VoiceOver;
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Product;
+using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
 using UnityEngine;
 using MelonLoader;
@@ -147,17 +150,18 @@ namespace OverTheCounter.NPCs
         }
 
         /// <summary>
-        /// Rebuilds the dialogue container with text based on current VicSaveData state.
-        /// Called on spawn and again when HasBeenTexted flips to true.
+        /// Rebuilds the dialogue container based on VicIntroQuest stage.
+        /// Called on spawn, on conversation start, and after quest state changes.
         /// </summary>
         public void RefreshDialogue()
         {
-            bool texted = VicSaveData.Instance?.HasBeenTexted == true;
+            int stage = VicIntroQuest.Instance?.Stage ?? 0;
 
             Dialogue.BuildAndRegisterContainer("VicGreeting", container =>
             {
-                if (texted)
+                if (stage == 1)
                 {
+                    // First meeting — quest obj1 active
                     container.AddNode("ENTRY", "Good, you showed up. Look, I work at the bank and I've seen your deposits getting flagged.", choices =>
                     {
                         choices.Add("CONT1", "...", "LINE2");
@@ -168,15 +172,51 @@ namespace OverTheCounter.NPCs
                         choices.Add("CONT2", "...", "LINE3");
                     });
 
-                    container.AddNode("LINE3", "Bring me 40g of standard Weed and I'll help cushion your deposit limits.", choices =>
+                    container.AddNode("LINE3", "Bring me 40 grams of weed and I'll help cushion your deposit limits.", choices =>
+                    {
+                        choices.Add("ACCEPT", "I'll get it done.", "ACCEPT_EXIT");
+                    });
+
+                    container.AddNode("ACCEPT_EXIT", "Good. Don't keep me waiting.");
+                }
+                else if (stage == 2)
+                {
+                    // Handover stage — quest obj2 active
+                    int weedGrams = CountWeedInInventory();
+                    if (weedGrams >= 40)
+                    {
+                        container.AddNode("ENTRY", "You got the stuff?", choices =>
+                        {
+                            choices.Add("HANDOVER", "Hand it over", "HANDOVER_EXIT");
+                            choices.Add("LEAVE", "Not yet", "LEAVE_EXIT");
+                        });
+
+                        container.AddNode("HANDOVER_EXIT", "Nice doing business. Your limits just got a lot friendlier.");
+                        container.AddNode("LEAVE_EXIT", "Don't take too long.");
+                    }
+                    else
+                    {
+                        container.AddNode("ENTRY", $"You got the stuff? I need 40 grams of weed. You've got {weedGrams} grams.", choices =>
+                        {
+                            choices.Add("LEAVE", "I'll be back", "LEAVE_EXIT");
+                        });
+
+                        container.AddNode("LEAVE_EXIT", "Don't keep me waiting.");
+                    }
+                }
+                else if (stage >= 3)
+                {
+                    // Post-quest idle
+                    container.AddNode("ENTRY", "We're good for now. I'll let you know if I need anything else.", choices =>
                     {
                         choices.Add("LEAVE", "Leave", "EXIT");
                     });
 
-                    container.AddNode("EXIT", "Alley behind the bank. You know where to find me.");
+                    container.AddNode("EXIT", "*nods*");
                 }
                 else
                 {
+                    // Stage 0 / not texted
                     container.AddNode("ENTRY", "Vic is ignoring you.", choices =>
                     {
                         choices.Add("LEAVE", "Leave", "EXIT");
@@ -198,10 +238,143 @@ namespace OverTheCounter.NPCs
 
             RefreshDialogue();
 
+            Dialogue.OnConversationStart(() =>
+            {
+                RefreshDialogue();
+            });
+
             Dialogue.OnChoiceSelected("LEAVE", () =>
             {
                 PlayDismissalSound();
             });
+
+            Dialogue.OnChoiceSelected("ACCEPT", () =>
+            {
+                try
+                {
+                    VicIntroQuest.Instance?.CompleteObj1();
+                    RefreshDialogue();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"ACCEPT callback failed: {ex.Message}");
+                }
+            });
+
+            Dialogue.OnChoiceSelected("HANDOVER", () =>
+            {
+                try
+                {
+                    if (RemoveWeedFromInventory(40))
+                    {
+                        VicIntroQuest.Instance?.CompleteObj2();
+                        VicSaveData.Instance?.OnQuestComplete();
+                        RefreshDialogue();
+                    }
+                    else
+                    {
+                        Logger.Warning("HANDOVER: failed to remove 40g weed from inventory.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"HANDOVER callback failed: {ex.Message}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Returns true if the slot holds packaged weed (jar or baggie).
+        /// Checks the Il2Cpp ProductItemInstance directly: must have AppliedPackaging
+        /// and its Definition must be an Il2Cpp WeedDefinition.
+        /// </summary>
+        private bool IsPackagedWeed(Il2CppScheduleOne.ItemFramework.ItemSlot slot, out int packagingQuantity)
+        {
+            packagingQuantity = 0;
+            if (slot == null || slot.ItemInstance == null || slot.Quantity <= 0)
+                return false;
+
+            try
+            {
+                var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
+                if (productItem == null) return false;
+
+                var packaging = productItem.AppliedPackaging;
+                if (packaging == null || packaging.Quantity <= 0) return false;
+
+                // Check the definition is a weed product at the Il2Cpp level
+                if (productItem.Definition == null) return false;
+                var weedDef = productItem.Definition.TryCast<Il2CppScheduleOne.Product.WeedDefinition>();
+                if (weedDef == null) return false;
+
+                packagingQuantity = packaging.Quantity;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private int CountWeedInInventory()
+        {
+            int totalGrams = 0;
+            try
+            {
+                var playerInv = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerInventory>.Instance;
+                if (playerInv?.hotbarSlots == null) return 0;
+
+                for (int i = 0; i < playerInv.hotbarSlots.Count; i++)
+                {
+                    var slot = playerInv.hotbarSlots[i];
+                    if (!IsPackagedWeed(slot, out int multiplier)) continue;
+                    totalGrams += slot.Quantity * multiplier;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"CountWeedInInventory failed: {ex.Message}");
+            }
+            return totalGrams;
+        }
+
+        private bool RemoveWeedFromInventory(int grams)
+        {
+            int remaining = grams;
+            try
+            {
+                var playerInv = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerInventory>.Instance;
+                if (playerInv?.hotbarSlots == null) return false;
+
+                for (int i = 0; i < playerInv.hotbarSlots.Count && remaining > 0; i++)
+                {
+                    var slot = playerInv.hotbarSlots[i];
+                    if (!IsPackagedWeed(slot, out int multiplier)) continue;
+
+                    int slotGrams = slot.Quantity * multiplier;
+
+                    if (slotGrams <= remaining)
+                    {
+                        remaining -= slotGrams;
+                        slot.ClearStoredInstance();
+                    }
+                    else
+                    {
+                        int stacksToRemove = remaining / multiplier;
+                        if (remaining % multiplier != 0)
+                            stacksToRemove++;
+
+                        slot.ChangeQuantity(-stacksToRemove);
+                        remaining = 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"RemoveWeedFromInventory failed: {ex.Message}");
+                return false;
+            }
+            return remaining <= 0;
         }
 
         protected override void OnDestroyed()

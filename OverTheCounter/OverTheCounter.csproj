@@ -15,6 +15,7 @@
 	</PropertyGroup>
 	<ItemGroup>
 	  <None Remove="Resources\CustomersIcon.png" />
+	  <None Remove="Resources\RinseCycle.png" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -500,10 +501,14 @@
 		<Compile Include="UI\SmartStashOverlayUI.cs" />
 		<Compile Include="Patches\StorageMenuPatch.cs" />
 		<Compile Include="SaveData\VicSaveData.cs" />
+		<Compile Include="Quests\VicIntroQuest.cs" />
 	</ItemGroup>
 
 	<ItemGroup>
 	  <EmbeddedResource Include="Resources\CustomersIcon.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
+	  <EmbeddedResource Include="Resources\RinseCycle.png">
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
 	</ItemGroup>
