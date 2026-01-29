@@ -493,6 +493,7 @@
 		<Compile Include="Logic\ImmediateQuestWindowConfig.cs" />
 		<Compile Include="Patches\ProcessHandoverPatch.cs" />
 		<Compile Include="Patches\DesperationContractPatch.cs" />
+		<Compile Include="Patches\CompassManagerAddElementPatch.cs" />
 		<Compile Include="UI\LocationPickerUI.cs" />
 	</ItemGroup>
 

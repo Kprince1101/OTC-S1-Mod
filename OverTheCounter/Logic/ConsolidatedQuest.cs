@@ -122,7 +122,6 @@ namespace OverTheCounter.Logic
                 foreach (var summary in productSummaries)
                 {
                     var entry = AddEntry($"{summary.Quantity}x {summary.DisplayName}");
-                    // Activate the entry so it shows on the HUD
                     entry.Begin();
                 }
 
