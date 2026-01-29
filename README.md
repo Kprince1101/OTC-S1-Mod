@@ -18,11 +18,18 @@ A new mechanic designed to break the "Night Meta" and make daytime deliveries pr
 
 ### 2. Contract Aggregator & Manifest (QoL Utility)
 Solves the issue of accepted contracts clipping off the screen and streamlines inventory prep.
-* **HUD Cleanup:** Condenses multiple active contract entries into a single, clean "Pending Deliveries" list to prevent UI overflow.
+* **HUD Cleanup:** Condenses multiple active contract entries into a single, clean "Pending Deliveries" list to prevent UI overflow. Contracts are grouped by their **delivery time window** — only contracts sharing the same window are combined.
 * **Delivery Manifest:** Automatically calculates and displays the **total product required** for your current run (e.g., *"Total Loadout: 120g Coke, 45g Weed"*). You no longer need to check 5 different contracts and do mental math at your stash.
 * *Note: You still travel to each customer individually; this feature simply organizes the data.*
 
-### 3. Customer App Overhaul (UI Utility)
+### 3. Smart Stash Overlay (QoL Utility)
+A "Delivery Manifest" side-panel that appears automatically when you open any storage container.
+* **Live Manifest:** Aggregates all active contract requirements and shows what you still need, accounting for what's already in your inventory. Updates in real-time as you move items.
+* **Packaging-Aware:** Correctly accounts for jars (5x) vs baggies (1x) when calculating quantities, so your counts always match what contracts actually need.
+* **Smart Fill:** One-click button that automatically transfers the right products from the open container into your inventory. Prioritizes jars over baggies for efficiency.
+* **Include All Shifts Toggle:** Choose whether to see only the current delivery window or all upcoming contracts at once (defaults to all).
+
+### 4. Customer App Overhaul (UI Utility)
 Transforms the basic contact list into a functional CRM tool.
 * **Region Sorting:** Customers are automatically grouped by their neighborhood/region.
 * **Status Indicators:**

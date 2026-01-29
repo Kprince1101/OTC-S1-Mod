@@ -495,6 +495,9 @@
 		<Compile Include="Patches\DesperationContractPatch.cs" />
 		<Compile Include="Patches\CompassManagerAddElementPatch.cs" />
 		<Compile Include="UI\LocationPickerUI.cs" />
+		<Compile Include="Logic\ContractAggregator.cs" />
+		<Compile Include="UI\SmartStashOverlayUI.cs" />
+		<Compile Include="Patches\StorageMenuPatch.cs" />
 	</ItemGroup>
 
 	<ItemGroup>

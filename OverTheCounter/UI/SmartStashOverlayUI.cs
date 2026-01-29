@@ -1,0 +1,543 @@
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.PlayerScripts;
+using Il2CppScheduleOne.Storage;
+using Il2CppScheduleOne.UI;
+using MelonLoader;
+using OverTheCounter.Logic;
+using S1API.UI;
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace OverTheCounter.UI
+{
+    /// <summary>
+    /// Side-panel overlay shown alongside the StorageMenu.
+    /// Displays the delivery manifest (aggregated contract requirements)
+    /// and provides a Smart Fill button to transfer matching items.
+    /// </summary>
+    public static class SmartStashOverlayUI
+    {
+        private static GameObject _overlayRoot;
+        private static Transform _listContent;
+        private static bool _includeAllShifts;
+        private static Text _statusText;
+        private static Il2CppSystem.Action _refreshAction;
+        private static StorageEntity _subscribedStorageEntity;
+
+        public static void Show()
+        {
+            if (_overlayRoot != null)
+            {
+                UnityEngine.Object.Destroy(_overlayRoot);
+                _overlayRoot = null;
+            }
+
+            _includeAllShifts = true;
+            BuildUI();
+            SubscribeToChanges();
+            RefreshManifest();
+        }
+
+        public static void Hide()
+        {
+            UnsubscribeFromChanges();
+
+            if (_overlayRoot != null)
+            {
+                UnityEngine.Object.Destroy(_overlayRoot);
+                _overlayRoot = null;
+            }
+            _listContent = null;
+            _statusText = null;
+        }
+
+        private static void SubscribeToChanges()
+        {
+            _refreshAction = (Il2CppSystem.Action)new Action(OnInventoryChanged);
+
+            // Subscribe to storage entity content changes
+            try
+            {
+                var storageMenu = Singleton<StorageMenu>.Instance;
+                if (storageMenu != null && storageMenu.IsOpen)
+                {
+                    var entity = storageMenu.OpenedStorageEntity;
+                    if (entity != null)
+                    {
+                        entity.onContentsChanged += _refreshAction;
+                        _subscribedStorageEntity = entity;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Warning($"[SmartStashOverlayUI] Could not subscribe to storage changes: {ex.Message}");
+            }
+
+            // Subscribe to player hotbar slot changes
+            try
+            {
+                var playerInv = PlayerSingleton<PlayerInventory>.Instance;
+                if (playerInv?.hotbarSlots != null)
+                {
+                    var slots = playerInv.hotbarSlots;
+                    for (int i = 0; i < slots.Count; i++)
+                    {
+                        var slot = slots[i];
+                        if (slot != null)
+                            slot.onItemDataChanged += _refreshAction;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Warning($"[SmartStashOverlayUI] Could not subscribe to hotbar changes: {ex.Message}");
+            }
+        }
+
+        private static void UnsubscribeFromChanges()
+        {
+            if (_refreshAction == null) return;
+
+            // Unsubscribe from storage entity
+            try
+            {
+                if (_subscribedStorageEntity != null)
+                {
+                    _subscribedStorageEntity.onContentsChanged -= _refreshAction;
+                    _subscribedStorageEntity = null;
+                }
+            }
+            catch { }
+
+            // Unsubscribe from player hotbar slots
+            try
+            {
+                var playerInv = PlayerSingleton<PlayerInventory>.Instance;
+                if (playerInv?.hotbarSlots != null)
+                {
+                    var slots = playerInv.hotbarSlots;
+                    for (int i = 0; i < slots.Count; i++)
+                    {
+                        var slot = slots[i];
+                        if (slot != null)
+                            slot.onItemDataChanged -= _refreshAction;
+                    }
+                }
+            }
+            catch { }
+
+            _refreshAction = null;
+        }
+
+        private static void OnInventoryChanged()
+        {
+            try
+            {
+                RefreshManifest();
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Warning($"[SmartStashOverlayUI] Error during auto-refresh: {ex.Message}");
+            }
+        }
+
+        private static void BuildUI()
+        {
+            _overlayRoot = new GameObject("SmartStashOverlayRoot");
+            var canvas = _overlayRoot.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 80;
+
+            _overlayRoot.AddComponent<UnityEngine.UI.CanvasScaler>();
+
+            var panelObj = UIFactory.Panel("SmartStashPanel", _overlayRoot.transform, new Color(0.14f, 0.14f, 0.14f, 0.95f));
+
+            // Sub-canvas scopes the GraphicRaycaster to just the panel area
+            var panelCanvas = panelObj.AddComponent<Canvas>();
+            panelCanvas.overrideSorting = true;
+            panelCanvas.sortingOrder = 81;
+            panelObj.AddComponent<GraphicRaycaster>();
+            var panelRect = panelObj.GetComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(1f, 0.5f);
+            panelRect.anchorMax = new Vector2(1f, 0.5f);
+            panelRect.pivot = new Vector2(1f, 0.5f);
+            panelRect.sizeDelta = new Vector2(260f, 440f);
+            panelRect.anchoredPosition = new Vector2(-10f, 0f);
+
+            // Header
+            var headerText = UIFactory.Text("Header", "<b>Delivery Manifest</b>", panelObj.transform, 16, TextAnchor.MiddleCenter);
+            var headerRect = headerText.gameObject.GetComponent<RectTransform>();
+            headerRect.anchorMin = new Vector2(0, 1);
+            headerRect.anchorMax = new Vector2(1, 1);
+            headerRect.pivot = new Vector2(0.5f, 1);
+            headerRect.anchoredPosition = new Vector2(0, -6);
+            headerRect.sizeDelta = new Vector2(0, 28);
+
+            var listContainer = new GameObject("ManifestList");
+            listContainer.transform.SetParent(panelObj.transform, false);
+            var listRect = listContainer.AddComponent<RectTransform>();
+            listRect.anchorMin = new Vector2(0, 0);
+            listRect.anchorMax = new Vector2(1, 1);
+            listRect.offsetMin = new Vector2(12, 100);
+            listRect.offsetMax = new Vector2(-8, -38);
+
+            var contentLayout = listContainer.AddComponent<VerticalLayoutGroup>();
+            contentLayout.spacing = 3;
+            contentLayout.childControlHeight = true;
+            contentLayout.childControlWidth = true;
+            contentLayout.childForceExpandHeight = false;
+            contentLayout.childForceExpandWidth = true;
+            contentLayout.childAlignment = TextAnchor.UpperLeft;
+
+            _listContent = listContainer.transform;
+
+            var toggleObj = new GameObject("IncludeAllToggle");
+            toggleObj.transform.SetParent(panelObj.transform, false);
+            var toggleRect = toggleObj.AddComponent<RectTransform>();
+            toggleRect.anchorMin = new Vector2(0, 0);
+            toggleRect.anchorMax = new Vector2(1, 0);
+            toggleRect.pivot = new Vector2(0.5f, 0);
+            toggleRect.anchoredPosition = new Vector2(0, 68);
+            toggleRect.sizeDelta = new Vector2(0, 24);
+
+            var toggleBg = new GameObject("Background");
+            toggleBg.transform.SetParent(toggleObj.transform, false);
+            var bgImage = toggleBg.AddComponent<Image>();
+            bgImage.color = new Color(0.25f, 0.25f, 0.25f);
+            var bgRect = toggleBg.GetComponent<RectTransform>();
+            bgRect.anchorMin = new Vector2(0, 0.5f);
+            bgRect.anchorMax = new Vector2(0, 0.5f);
+            bgRect.pivot = new Vector2(0, 0.5f);
+            bgRect.anchoredPosition = new Vector2(10, 0);
+            bgRect.sizeDelta = new Vector2(18, 18);
+
+            var checkmark = new GameObject("Checkmark");
+            checkmark.transform.SetParent(toggleBg.transform, false);
+            var checkImage = checkmark.AddComponent<Image>();
+            checkImage.color = new Color(0.4f, 0.8f, 0.4f);
+            var checkRect = checkmark.GetComponent<RectTransform>();
+            checkRect.anchorMin = new Vector2(0.15f, 0.15f);
+            checkRect.anchorMax = new Vector2(0.85f, 0.85f);
+            checkRect.offsetMin = Vector2.zero;
+            checkRect.offsetMax = Vector2.zero;
+
+            var toggle = toggleObj.AddComponent<Toggle>();
+            toggle.isOn = true;
+            toggle.graphic = checkImage;
+            toggle.targetGraphic = bgImage;
+            toggle.onValueChanged.AddListener(new Action<bool>(OnToggleChanged));
+
+            var toggleLabel = UIFactory.Text("ToggleLabel", "Include All Shifts", toggleObj.transform, 13, TextAnchor.MiddleLeft);
+            toggleLabel.color = new Color(0.8f, 0.8f, 0.8f);
+            var labelRect = toggleLabel.gameObject.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0, 0);
+            labelRect.anchorMax = new Vector2(1, 1);
+            labelRect.offsetMin = new Vector2(34, 0);
+            labelRect.offsetMax = new Vector2(-4, 0);
+
+            // Smart Fill button
+            var (btnMask, btn, btnLabel) = UIFactory.RoundedButtonWithLabel(
+                "SmartFillBtn", "Smart Fill", panelObj.transform,
+                new Color(0.2f, 0.5f, 0.2f), 230, 32, 14, Color.white
+            );
+
+            var btnRect = btnMask.GetComponent<RectTransform>();
+            btnRect.anchorMin = new Vector2(0.5f, 0);
+            btnRect.anchorMax = new Vector2(0.5f, 0);
+            btnRect.pivot = new Vector2(0.5f, 0);
+            btnRect.anchoredPosition = new Vector2(0, 32);
+
+            var btnColors = btn.colors;
+            btnColors.normalColor = new Color(0.2f, 0.5f, 0.2f);
+            btnColors.highlightedColor = new Color(0.3f, 0.6f, 0.3f);
+            btnColors.pressedColor = new Color(0.15f, 0.35f, 0.15f);
+            btnColors.selectedColor = new Color(0.2f, 0.5f, 0.2f);
+            btn.colors = btnColors;
+
+            btn.onClick.AddListener(new Action(OnSmartFillClicked));
+
+            // Status text
+            _statusText = UIFactory.Text("StatusText", "", panelObj.transform, 12, TextAnchor.MiddleCenter);
+            _statusText.color = new Color(0.7f, 0.7f, 0.7f);
+            var statusRect = _statusText.gameObject.GetComponent<RectTransform>();
+            statusRect.anchorMin = new Vector2(0, 0);
+            statusRect.anchorMax = new Vector2(1, 0);
+            statusRect.pivot = new Vector2(0.5f, 0);
+            statusRect.anchoredPosition = new Vector2(0, 6);
+            statusRect.sizeDelta = new Vector2(0, 22);
+
+            _overlayRoot.SetActive(true);
+        }
+
+        private static void RefreshManifest()
+        {
+            if (_listContent == null) return;
+
+            for (int i = _listContent.childCount - 1; i >= 0; i--)
+            {
+                UnityEngine.Object.Destroy(_listContent.GetChild(i).gameObject);
+            }
+
+            List<ManifestRequirement> manifest;
+            try
+            {
+                manifest = ContractAggregator.CalculateManifest(_includeAllShifts);
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Error($"[SmartStashOverlayUI] Error calculating manifest: {ex.Message}");
+                SetStatus("Error loading manifest");
+                return;
+            }
+
+            if (manifest.Count == 0)
+            {
+                SetStatus("Nothing needed!");
+                return;
+            }
+
+            SetStatus("");
+
+            foreach (var req in manifest)
+            {
+                string label = $"{req.ProductName}: {req.AmountInInventory}/{req.AmountNeeded}";
+                Color textColor = req.Deficit <= 0 ? new Color(0.4f, 0.8f, 0.4f) : Color.white;
+
+                var rowObj = new GameObject($"Row_{req.ProductID}");
+                rowObj.transform.SetParent(_listContent, false);
+
+                var rowRect = rowObj.AddComponent<RectTransform>();
+                rowRect.sizeDelta = new Vector2(0, 20);
+
+                var rowText = rowObj.AddComponent<Text>();
+                rowText.text = label;
+                rowText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                rowText.fontSize = 13;
+                rowText.color = textColor;
+                rowText.alignment = TextAnchor.MiddleLeft;
+                rowText.horizontalOverflow = HorizontalWrapMode.Wrap;
+                rowText.verticalOverflow = VerticalWrapMode.Truncate;
+
+                var rowLayout = rowObj.AddComponent<LayoutElement>();
+                rowLayout.preferredHeight = 20f;
+                rowLayout.minHeight = 20f;
+            }
+
+            LayoutRebuilder.ForceRebuildLayoutImmediate(_listContent as RectTransform);
+        }
+
+        private static void OnToggleChanged(bool value)
+        {
+            _includeAllShifts = value;
+            RefreshManifest();
+        }
+
+        private static void OnSmartFillClicked()
+        {
+            try
+            {
+                var storageMenu = Singleton<StorageMenu>.Instance;
+                if (storageMenu == null)
+                {
+                    SetStatus("Storage menu not found");
+                    return;
+                }
+
+                if (!storageMenu.IsOpen)
+                {
+                    SetStatus("Storage not open");
+                    return;
+                }
+
+                StorageEntity openedEntity = storageMenu.OpenedStorageEntity;
+                if (openedEntity == null)
+                {
+                    SetStatus("No storage entity found");
+                    return;
+                }
+
+                var containerSlots = openedEntity.ItemSlots;
+                if (containerSlots == null)
+                {
+                    SetStatus("Cannot read storage slots");
+                    return;
+                }
+
+                var playerInv = PlayerSingleton<PlayerInventory>.Instance;
+                if (playerInv == null)
+                {
+                    SetStatus("Player inventory unavailable");
+                    return;
+                }
+
+                var hotbar = playerInv.hotbarSlots;
+                if (hotbar == null)
+                {
+                    SetStatus("Hotbar unavailable");
+                    return;
+                }
+
+                var manifest = ContractAggregator.CalculateManifest(_includeAllShifts);
+                if (manifest.Count == 0)
+                {
+                    SetStatus("Nothing needed!");
+                    return;
+                }
+
+                int totalTransferredUnits = 0;
+                bool inventoryFull = false;
+
+                foreach (var req in manifest)
+                {
+                    if (req.Deficit <= 0) continue;
+
+                    int remainingUnits = req.Deficit;
+
+                    // Build a list of matching container slot indices, sorted by packaging
+                    // multiplier descending (jars first, then baggies)
+                    var matchingSlots = new List<(int index, int multiplier)>();
+                    for (int s = 0; s < containerSlots.Count; s++)
+                    {
+                        var slot = containerSlots[s];
+                        if (slot == null || slot.ItemInstance == null) continue;
+
+                        string slotId;
+                        try { slotId = slot.ItemInstance.ID; }
+                        catch { continue; }
+
+                        if (slotId != req.ProductID) continue;
+                        if (slot.Quantity <= 0) continue;
+
+                        int mult = ContractAggregator.GetPackagingMultiplier(slot.ItemInstance);
+                        matchingSlots.Add((s, mult));
+                    }
+
+                    // Sort: higher multiplier (jars) first
+                    matchingSlots.Sort((a, b) => b.multiplier.CompareTo(a.multiplier));
+
+                    foreach (var (slotIdx, multiplier) in matchingSlots)
+                    {
+                        if (remainingUnits <= 0) break;
+
+                        var slot = containerSlots[slotIdx];
+                        if (slot == null || slot.ItemInstance == null) continue;
+
+                        int slotQty = slot.Quantity;
+                        if (slotQty <= 0) continue;
+
+                        int itemsNeeded = (remainingUnits + multiplier - 1) / multiplier;
+                        int itemsToTake = Math.Min(itemsNeeded, slotQty);
+
+                        int placed = TryPlaceInHotbar(hotbar, slot.ItemInstance, itemsToTake);
+                        if (placed <= 0)
+                        {
+                            inventoryFull = true;
+                            break;
+                        }
+
+                        try
+                        {
+                            if (placed >= slotQty)
+                                slot.ClearStoredInstance();
+                            else
+                                slot.ChangeQuantity(-placed);
+                        }
+                        catch (Exception ex)
+                        {
+                            Melon<Core>.Logger.Warning($"[SmartStashOverlayUI] Error modifying container slot: {ex.Message}");
+                        }
+
+                        int unitsTransferred = placed * multiplier;
+                        remainingUnits -= unitsTransferred;
+                        totalTransferredUnits += unitsTransferred;
+                    }
+
+                    if (inventoryFull) break;
+                }
+
+                if (totalTransferredUnits == 0)
+                    SetStatus(inventoryFull ? "Inventory full!" : "No matching items in storage");
+                else if (inventoryFull)
+                    SetStatus($"Transferred {totalTransferredUnits} units (inventory full!)");
+                else
+                    SetStatus($"Transferred {totalTransferredUnits} units");
+
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Error($"[SmartStashOverlayUI] Smart Fill error: {ex.Message}");
+                SetStatus("Transfer error!");
+            }
+        }
+
+        /// <summary>
+        /// Tries to place items into the player's hotbar, stacking first, then filling empty slots.
+        /// Works in packaged item counts (not product units).
+        /// </summary>
+        private static int TryPlaceInHotbar(Il2CppSystem.Collections.Generic.List<HotbarSlot> hotbar, ItemInstance sourceItem, int amount)
+        {
+            int placed = 0;
+
+            // First pass: stack into existing matching slots
+            for (int i = 0; i < hotbar.Count && placed < amount; i++)
+            {
+                var slot = hotbar[i];
+                if (slot == null || slot.ItemInstance == null) continue;
+
+                try
+                {
+                    if (!slot.ItemInstance.CanStackWith(sourceItem)) continue;
+
+                    int stackLimit;
+                    try { stackLimit = slot.ItemInstance.StackLimit; }
+                    catch { stackLimit = 20; }
+
+                    int canAdd = stackLimit - slot.Quantity;
+                    if (canAdd <= 0) continue;
+
+                    int toAdd = Math.Min(canAdd, amount - placed);
+                    slot.ChangeQuantity(toAdd);
+                    placed += toAdd;
+                }
+                catch { }
+            }
+
+            // Second pass: place into empty slots
+            for (int i = 0; i < hotbar.Count && placed < amount; i++)
+            {
+                var slot = hotbar[i];
+                if (slot == null) continue;
+                if (slot.ItemInstance != null) continue;
+
+                try
+                {
+                    int toPlace = amount - placed;
+
+                    int stackLimit;
+                    try { stackLimit = sourceItem.StackLimit; }
+                    catch { stackLimit = 20; }
+
+                    toPlace = Math.Min(toPlace, stackLimit);
+
+                    var clone = sourceItem.GetCopy(toPlace);
+                    slot.SetStoredItem(clone);
+
+                    placed += toPlace;
+                }
+                catch { }
+            }
+
+            return placed;
+        }
+
+        private static void SetStatus(string message)
+        {
+            if (_statusText != null)
+                _statusText.text = message;
+        }
+    }
+}
