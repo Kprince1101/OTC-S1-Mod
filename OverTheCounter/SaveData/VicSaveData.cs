@@ -31,6 +31,9 @@ namespace OverTheCounter.SaveData
         [SaveableField("vic_trigger_pending_day")]
         private int _triggerPendingDay = -1;
 
+        [SaveableField("vic_last_deposit_day")]
+        private int _lastDepositDay = -1;
+
         /// <summary>
         /// Runtime-only flag: true when the intro text needs to be sent but Vic hasn't spawned yet.
         /// </summary>
@@ -55,6 +58,7 @@ namespace OverTheCounter.SaveData
 
         public bool Unlocked => _unlocked;
         public int TrustLevel => _trustLevel;
+        public int LastDepositDay => _lastDepositDay;
 
         public bool HasBeenTexted
         {
@@ -212,6 +216,12 @@ namespace OverTheCounter.SaveData
         public void OnQuestComplete()
         {
             _unlocked = true;
+        }
+
+        public void OnLaunderComplete(int currentDay)
+        {
+            _lastDepositDay = currentDay;
+            _trustLevel++;
         }
 
         private void TrySendIntroText()

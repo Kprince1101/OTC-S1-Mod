@@ -5,6 +5,8 @@ using S1API.Entities.Appearances.CustomizationFields;
 using S1API.Entities.Appearances.FaceLayerFields;
 using S1API.Entities.Appearances.BodyLayerFields;
 using S1API.Entities.Appearances.AccessoryFields;
+using S1API.Money;
+using S1API.GameTime;
 using Il2CppScheduleOne.VoiceOver;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Product;
@@ -206,13 +208,41 @@ namespace OverTheCounter.NPCs
                 }
                 else if (stage >= 3)
                 {
-                    // Post-quest idle
-                    container.AddNode("ENTRY", "We're good for now. I'll let you know if I need anything else.", choices =>
-                    {
-                        choices.Add("LEAVE", "Leave", "EXIT");
-                    });
+                    // Post-quest: laundering service
+                    int today = TimeManager.ElapsedDays;
+                    int lastDeposit = VicSaveData.Instance?.LastDepositDay ?? -1;
+                    bool cooldownActive = lastDeposit >= 0 && lastDeposit >= today;
+                    float cash = Money.GetCashBalance();
 
-                    container.AddNode("EXIT", "*nods*");
+                    if (cooldownActive)
+                    {
+                        container.AddNode("ENTRY", "Too much heat today. Come back tomorrow.", choices =>
+                        {
+                            choices.Add("LEAVE", "Leave", "LEAVE_EXIT");
+                        });
+
+                        container.AddNode("LEAVE_EXIT", "*glances around nervously*");
+                    }
+                    else if (cash >= 500f)
+                    {
+                        container.AddNode("ENTRY", "You need some cash cleaned? I can run $500 through the books. You'll get $400 back in your account.", choices =>
+                        {
+                            choices.Add("LAUNDER", "Launder $500 (Receive $400)", "LAUNDER_EXIT");
+                            choices.Add("LEAVE", "Leave", "LEAVE_EXIT");
+                        });
+
+                        container.AddNode("LAUNDER_EXIT", "Done. Check your account -- should see a deposit from a consulting gig.");
+                        container.AddNode("LEAVE_EXIT", "You know where to find me.");
+                    }
+                    else
+                    {
+                        container.AddNode("ENTRY", "You need at least $500 in cash for me to work with. You're short.", choices =>
+                        {
+                            choices.Add("LEAVE", "Leave", "LEAVE_EXIT");
+                        });
+
+                        container.AddNode("LEAVE_EXIT", "Don't waste my time until you've got the cash.");
+                    }
                 }
                 else
                 {
@@ -279,6 +309,28 @@ namespace OverTheCounter.NPCs
                 catch (Exception ex)
                 {
                     Logger.Error($"HANDOVER callback failed: {ex.Message}");
+                }
+            });
+
+            Dialogue.OnChoiceSelected("LAUNDER", () =>
+            {
+                try
+                {
+                    int today = TimeManager.ElapsedDays;
+                    int lastDeposit = VicSaveData.Instance?.LastDepositDay ?? -1;
+                    bool cooldownActive = lastDeposit >= 0 && lastDeposit >= today;
+
+                    if (cooldownActive || Money.GetCashBalance() < 500f)
+                        return;
+
+                    Money.ChangeCashBalance(-500f, true, true);
+                    Money.CreateOnlineTransaction("Consulting Fee", 400f, 1f, "VR Services");
+                    VicSaveData.Instance?.OnLaunderComplete(today);
+                    RefreshDialogue();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"LAUNDER callback failed: {ex.Message}");
                 }
             });
         }
