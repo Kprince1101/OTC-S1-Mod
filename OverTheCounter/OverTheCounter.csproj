@@ -188,10 +188,10 @@
 			<HintPath>C:\Program Files (x86)\Steam\steamapps\common\Schedule I\MelonLoader\Il2CppAssemblies\Il2Cpp__Generated.dll</HintPath>
 		</Reference>
 		<Reference Include="S1API">
-		  <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Schedule I\Mods\S1API.dll</HintPath>
+		  <HintPath>C:\Users\mrell\AppData\Roaming\r2modmanPlus-local\ScheduleI\profiles\Default\Mods\ifBars-S1API_Forked\Mods\S1API.Il2Cpp.MelonLoader.dll</HintPath>
 		</Reference>
 		<Reference Include="S1APILoader">
-		  <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Schedule I\Plugins\S1APILoader.dll</HintPath>
+		  <HintPath>C:\Users\mrell\AppData\Roaming\r2modmanPlus-local\ScheduleI\profiles\Default\Mods\ifBars-S1API_Forked\Plugins\S1APILoader.MelonLoader.dll</HintPath>
 		</Reference>
 		<Reference Include="Unity.AI.Navigation">
 			<HintPath>C:\Program Files (x86)\Steam\steamapps\common\Schedule I\MelonLoader\Il2CppAssemblies\Unity.AI.Navigation.dll</HintPath>
@@ -520,6 +520,6 @@
 	</ItemGroup>
 	
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
-		<Exec Command="COPY &quot;$(TargetPath)&quot; &quot;C:\Program Files (x86)\Steam\steamapps\common\Schedule I\Mods&quot;" />
+		<Exec Command="COPY &quot;$(TargetPath)&quot; &quot;C:\Users\mrell\AppData\Roaming\r2modmanPlus-local\ScheduleI\profiles\Default\Mods\mrell-OverTheCounter&quot;" />
 	</Target>
 </Project>
