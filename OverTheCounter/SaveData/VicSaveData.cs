@@ -5,6 +5,7 @@ using S1API.Internal.Abstraction;
 using S1API.Saveables;
 using S1API.GameTime;
 using S1API.Quests;
+using S1API.Quests.Constants;
 using S1API.Quests.Identifiers;
 using System;
 using System.Linq;
@@ -25,8 +26,8 @@ namespace OverTheCounter.SaveData
         private int _trustLevel;
 
         /// <summary>
-        /// The in-game day when the Clean Cash quest was first detected during gameplay.
-        /// -1 means not yet detected. Used to implement the ~24-hour text delay.
+        /// The in-game day when the Clean Cash quest was first detected.
+        /// -1 means not yet detected. Set to 0 once detected; intro fires on next sleep.
         /// </summary>
         [SaveableField("vic_trigger_pending_day")]
         private int _triggerPendingDay = -1;
@@ -34,31 +35,33 @@ namespace OverTheCounter.SaveData
         [SaveableField("vic_last_deposit_day")]
         private int _lastDepositDay = -1;
 
-        /// <summary>
-        /// Runtime-only flag: true when the intro text needs to be sent but Vic hasn't spawned yet.
-        /// </summary>
+        [SaveableField("vic_tier2_intro_shown")]
+        private bool _tier2IntroShown;
+
+        // Runtime-only: intro text deferred until Vic spawns.
         private bool _needsIntroText;
 
-        /// <summary>
-        /// Runtime-only flag: true once CreateOrResumeQuest has run this session.
-        /// </summary>
+        // Runtime-only: guards against double quest creation per session.
         private bool _questCreated;
 
-        /// <summary>
-        /// Whether the retroactive check already ran this session.
-        /// Distinguishes a load-time detection (immediate trigger) from a
-        /// real-time detection during gameplay (delayed trigger).
-        /// </summary>
-        private bool _retroactiveCheckDone;
+        // Runtime-only: defers trigger from OnSleepEnd to next Tick()
+        // because NPCs aren't accessible during the sleep transition.
+        private bool _fireOnNextTick;
+
+        // Runtime-only: ensures we do the stale-data check exactly once per session.
+        private bool _staleCheckDone;
 
         private int _tickCounter;
         private const int TICK_INTERVAL = 300; // ~5 seconds at 60fps
+
+        private static bool _sleepEndSubscribed;
 
         public static VicSaveData Instance { get; private set; }
 
         public bool Unlocked => _unlocked;
         public int TrustLevel => _trustLevel;
         public int LastDepositDay => _lastDepositDay;
+        public bool Tier2IntroShown => _tier2IntroShown;
 
         public bool HasBeenTexted
         {
@@ -69,7 +72,6 @@ namespace OverTheCounter.SaveData
                 if (!value) return;
 
                 _hasBeenTexted = true;
-                Logger.Msg("HasBeenTexted flipped to true — attempting intro text.");
                 TrySendIntroText();
                 CreateOrResumeQuest();
                 VicNPC.Instance?.RefreshDialogue();
@@ -79,34 +81,31 @@ namespace OverTheCounter.SaveData
         public VicSaveData()
         {
             Instance = this;
+
+            if (!_sleepEndSubscribed)
+            {
+                TimeManager.OnSleepEnd += (_) => Instance?.OnPlayerWokeUp();
+                _sleepEndSubscribed = true;
+            }
         }
 
         protected override void OnLoaded()
         {
             Instance = this;
-            _retroactiveCheckDone = false;
-            Logger.Msg("VicSaveData loaded.");
 
             if (_hasBeenTexted)
             {
-                _questCreated = true; // Quest auto-loads from save via QuestPatches
+                _questCreated = true;
                 return;
             }
 
-            // If a pending trigger was saved from a prior session, Tick() will handle firing it.
             if (_triggerPendingDay >= 0)
-            {
                 return;
-            }
 
-            // Attempt retroactive trigger — quest systems may not be ready yet,
-            // so Tick() retries if this returns false.
+            // Clean Cash was active before this session but we never recorded
+            // a pending day. Flag it so the next sleep triggers the intro.
             if (IsCleanCashQuestStarted())
-            {
-                Logger.Msg("Retroactive: Clean Cash quest detected on load — triggering immediately.");
-                _retroactiveCheckDone = true;
-                HasBeenTexted = true;
-            }
+                _triggerPendingDay = 0;
         }
 
         /// <summary>
@@ -115,74 +114,70 @@ namespace OverTheCounter.SaveData
         public void OnVicSpawned()
         {
             if (!_needsIntroText) return;
-
-            Logger.Msg("Vic spawned — retrying deferred intro text.");
             _needsIntroText = false;
             TrySendIntroText();
         }
 
-        /// <summary>
-        /// Called every frame from Core.OnLateUpdate(). Throttled internally.
-        /// Handles both retroactive detection (if OnLoaded missed it due to timing)
-        /// and real-time detection with a ~24-hour in-game delay.
-        /// </summary>
-        public void Tick()
+        private void OnPlayerWokeUp()
         {
             if (_hasBeenTexted) return;
 
-            if (++_tickCounter < TICK_INTERVAL) return;
-            _tickCounter = 0;
-
-            // If a trigger day is pending, check if enough time has passed (next in-game day).
-            if (_triggerPendingDay >= 0)
+            if (_triggerPendingDay >= 0 || IsCleanCashQuestStarted())
             {
-                try
-                {
-                    int today = TimeManager.ElapsedDays;
-                    if (today > _triggerPendingDay)
-                    {
-                        Logger.Msg($"Trigger delay elapsed (pending day {_triggerPendingDay}, now day {today}). Sending Vic intro.");
-                        HasBeenTexted = true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning($"Tick: Could not read ElapsedDays: {ex.Message}");
-                }
-                return;
-            }
-
-            // Poll for Clean Cash quest.
-            if (IsCleanCashQuestStarted())
-            {
-                if (!_retroactiveCheckDone)
-                {
-                    // This is the retroactive path — OnLoaded() missed it (timing issue).
-                    // Trigger immediately since the quest was already active before this session.
-                    Logger.Msg("Retroactive (deferred): Clean Cash quest detected in Tick — triggering immediately.");
-                    _retroactiveCheckDone = true;
-                    HasBeenTexted = true;
-                }
-                else
-                {
-                    // Real-time: quest just became active during gameplay.
-                    // Schedule the text for the next in-game day (~24 hours).
-                    try
-                    {
-                        _triggerPendingDay = TimeManager.ElapsedDays;
-                        Logger.Msg($"Clean Cash quest detected on day {_triggerPendingDay}. Vic will text next day.");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning($"Tick: Could not read ElapsedDays for pending: {ex.Message}");
-                    }
-                }
+                _triggerPendingDay = 0;
+                _fireOnNextTick = true;
             }
         }
 
         /// <summary>
+        /// Called every frame from Core.OnLateUpdate(). Throttled internally.
+        /// Polls for the Clean Cash quest and keeps Vic's dialogue up to date.
+        /// </summary>
+        public void Tick()
+        {
+            // If HasBeenTexted was loaded as true but Clean Cash isn't actually
+            // started, this is stale data carried over from a prior save. Reset.
+            if (!_staleCheckDone && _hasBeenTexted)
+            {
+                _staleCheckDone = true;
+                if (!IsCleanCashQuestStarted())
+                {
+                    _hasBeenTexted = false;
+                    _triggerPendingDay = -1;
+                    _questCreated = false;
+                    _needsIntroText = false;
+                    _fireOnNextTick = false;
+                }
+                return;
+            }
+
+            // Deferred trigger from OnSleepEnd.
+            if (_fireOnNextTick)
+            {
+                _fireOnNextTick = false;
+                if (!_hasBeenTexted)
+                    HasBeenTexted = true;
+                return;
+            }
+
+            if (++_tickCounter < TICK_INTERVAL) return;
+            _tickCounter = 0;
+
+            // Keep Vic's dialogue fresh so players see current values.
+            if (_hasBeenTexted)
+            {
+                VicNPC.Instance?.RefreshDialogue();
+                return;
+            }
+
+            if (_triggerPendingDay >= 0) return;
+
+            if (IsCleanCashQuestStarted())
+                _triggerPendingDay = 0;
+        }
+
+        /// <summary>
         /// Creates a new VicIntroQuest or resumes one already loaded from save.
-        /// Safe to call multiple times — guards against double-creation.
         /// </summary>
         public void CreateOrResumeQuest()
         {
@@ -210,9 +205,6 @@ namespace OverTheCounter.SaveData
             }
         }
 
-        /// <summary>
-        /// Called by VicNPC when the player completes the quest handover.
-        /// </summary>
         public void OnQuestComplete()
         {
             _unlocked = true;
@@ -224,6 +216,11 @@ namespace OverTheCounter.SaveData
             _trustLevel++;
         }
 
+        public void MarkTier2IntroShown()
+        {
+            _tier2IntroShown = true;
+        }
+
         private void TrySendIntroText()
         {
             try
@@ -233,11 +230,10 @@ namespace OverTheCounter.SaveData
                 {
                     vic.SendTextMessage("Hey, I noticed you've been hitting your weekly deposit limits. Meet me in the alley behind the bank. I might be able to help.");
                     _needsIntroText = false;
-                    Logger.Msg("Intro text sent from Vic.");
                 }
                 else
                 {
-                    Logger.Warning("Vic NPC not found in NPC.All — deferring intro text until spawn.");
+                    Logger.Warning("Vic NPC not found — deferring intro text until spawn.");
                     _needsIntroText = true;
                 }
             }
@@ -253,8 +249,16 @@ namespace OverTheCounter.SaveData
             try
             {
                 var quest = QuestManager.Get<CleanCash>();
-                if (quest != null)
-                    return true;
+                if (quest == null) return false;
+
+                var entries = quest.QuestEntries;
+                if (entries == null || entries.Count == 0) return false;
+
+                foreach (var entry in entries)
+                {
+                    if (entry.State == QuestState.Active || entry.State == QuestState.Completed)
+                        return true;
+                }
             }
             catch (Exception ex)
             {

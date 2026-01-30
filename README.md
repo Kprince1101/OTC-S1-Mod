@@ -37,6 +37,12 @@ Transforms the basic contact list into a functional CRM tool.
     * **Addiction:** Clear visual tiers for addiction status.
 * **GPS Locator:** Clicking a customer in the app highlights their location in-world, fixing a missing feature from the base game.
 
+### 5. Cash Laundering Alternative
+Addresses the single-player economy bottleneck by introducing a manual laundering option before you own legitimate businesses.
+* **"Rinse Cycle" Quest:** Hitting the standard $10k weekly deposit limit triggers an introduction to Vic, a corrupt bank associate looking for a side hustle.
+* **Manual Laundering:** A daily interaction that lets you clean extra cash beyond the ATM limit. It comes with a significant "Risk Fee" (15-20%) and requires physical travel, balancing the extra capacity with effort.
+* **Trust Progression:** Regular visits increase your standing with Vic, eventually unlocking better rates and raising the daily cap - enough to bridge the gap to the mid-game without breaking the economy.
+
 ## 🛠️ Requirements & Installation
 
 1.  Ensure you are on the **IL2CPP Branch** of *ScheduleOne*.
