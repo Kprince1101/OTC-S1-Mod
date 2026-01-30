@@ -20,9 +20,9 @@ namespace OverTheCounter.Apps
 {
     public class CustomersApp : PhoneApp
     {
-        protected override string AppName => "CustomersApp";
-        protected override string AppTitle => "Customers";
-        protected override string IconLabel => "Customers";
+        protected override string AppName => "OverTheCounterApp";
+        protected override string AppTitle => "OverTheCounter";
+        protected override string IconLabel => "OTC";
         // Using Horizontal - vertical orientation has layout issues with S1API
         protected override EOrientation Orientation => EOrientation.Horizontal;
 
@@ -81,7 +81,7 @@ namespace OverTheCounter.Apps
             headerRect.sizeDelta = new Vector2(0, 40);
 
             // Header Title
-            var titleObj = UIFactory.Text("Title", "<b>Customers</b>", headerObj.transform, 24, TextAnchor.MiddleLeft);
+            var titleObj = UIFactory.Text("Title", "<b>OverTheCounter</b>", headerObj.transform, 24, TextAnchor.MiddleLeft);
             var titleRect = titleObj.gameObject.GetComponent<RectTransform>();
             titleRect.anchorMin = Vector2.zero;
             titleRect.anchorMax = Vector2.one;

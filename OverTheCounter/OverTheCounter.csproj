@@ -486,6 +486,7 @@
 	<ItemGroup>
 		<Compile Include="Apps\CustomersApp.cs" />
 		<Compile Include="Core.cs" />
+		<Compile Include="DebugHelpers.cs" />
 		<Compile Include="NPCs\VicNPC.cs" />
 		<Compile Include="Utilities\CustomerLocator.cs" />
 		<Compile Include="Utilities\FormatUtils.cs" />
@@ -501,7 +502,10 @@
 		<Compile Include="UI\SmartStashOverlayUI.cs" />
 		<Compile Include="Patches\StorageMenuPatch.cs" />
 		<Compile Include="SaveData\VicSaveData.cs" />
+		<Compile Include="SaveData\StaticSaveData.cs" />
+		<Compile Include="NPCs\StaticNPC.cs" />
 		<Compile Include="Quests\VicIntroQuest.cs" />
+		<Compile Include="Quests\StaticIntroQuest.cs" />
 	</ItemGroup>
 
 	<ItemGroup>

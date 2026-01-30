@@ -25,10 +25,25 @@ namespace OverTheCounter
             LoggerInstance.Msg("OverTheCounter Initialized.");
 
             ImmediateQuestWindowConfig.Register();
+#if DEBUG
+            DebugHelpers.Register();
+#endif
 
             ExtractIcons();
             _notificationManager = new NotificationManager(LoggerInstance);
             _desperationManager = new DesperationManager(LoggerInstance);
+        }
+
+        public override void OnSceneWasLoaded(int buildIndex, string sceneName)
+        {
+#if DEBUG
+            if (!GameObject.Find("DebugController"))
+            {
+                var go = new GameObject("DebugController");
+                go.AddComponent<DebugHelpers>();
+                GameObject.DontDestroyOnLoad(go);
+            }
+#endif
         }
 
         public override void OnLateUpdate()
@@ -37,6 +52,7 @@ namespace OverTheCounter
             {
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
+                StaticSaveData.Instance?.Tick();
             }
             catch (Exception ex)
             {
