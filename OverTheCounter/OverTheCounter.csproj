@@ -506,6 +506,8 @@
 		<Compile Include="NPCs\StaticNPC.cs" />
 		<Compile Include="Quests\VicIntroQuest.cs" />
 		<Compile Include="Quests\StaticIntroQuest.cs" />
+		<Compile Include="Quests\StaticUpgrade1Quest.cs" />
+		<Compile Include="Quests\StaticUpgrade2Quest.cs" />
 	</ItemGroup>
 
 	<ItemGroup>

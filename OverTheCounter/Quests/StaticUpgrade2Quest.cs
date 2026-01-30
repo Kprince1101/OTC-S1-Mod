@@ -1,35 +1,36 @@
 using MelonLoader;
 using MelonLoader.Utils;
 using S1API.Quests;
+using S1API.Quests.Constants;
 using S1API.Saveables;
 using S1API.Utils;
+using System;
 using System.IO;
 using System.Reflection;
 using UnityEngine;
 
 namespace OverTheCounter.Quests
 {
-    public class VicIntroQuest : Quest
+    public class StaticUpgrade2Quest : Quest
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("VicIntroQuest");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("StaticUpgrade2Quest");
 
-        protected override string Title => "Rinse Cycle";
-        protected override string Description => "Help Vic with his party supplies and he'll loosen your deposit limits.";
+        protected override string Title => "Full Scale";
+        protected override string Description => "Static has the final tier-3 enterprise upgrade available. Bring premium meth and go all in.";
         protected override bool AutoBegin => false;
         protected override Sprite QuestIcon => ImageUtils.LoadImage(
             Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "RinseCycle.png"));
 
-        [SaveableField("vic_quest_stage")]
-        private int _stage; // 0=not started, 1=obj1 (meet Vic), 2=obj2 (bring weed), 3=done
+        [SaveableField("static_upgrade2_stage")]
+        private int _stage; // 0=not started, 1=active, 2=done
 
-        private QuestEntry _meetVicEntry;
-        private QuestEntry _bringWeedEntry;
+        private QuestEntry _bringSuppliesEntry;
 
-        public static VicIntroQuest Instance { get; private set; }
+        public static StaticUpgrade2Quest Instance { get; private set; }
 
         public int Stage => _stage;
 
-        private static readonly Vector3 VicPosition = new Vector3(72.08f, 0.97f, 31.71f);
+        private static readonly Vector3 StaticPosition = new Vector3(13.72f, 5.16f, 95.96f);
 
         private void TriggerInternalInit()
         {
@@ -41,9 +42,9 @@ namespace OverTheCounter.Quests
                 var s1Quest = s1QuestField.GetValue(this) as Il2CppScheduleOne.Quests.Quest;
                 if (s1Quest == null) return;
 
-                s1Quest.InitializeQuest(Title, Description, System.Array.Empty<Il2CppScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
+                s1Quest.InitializeQuest(Title, Description, Array.Empty<Il2CppScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 Logger.Error($"TriggerInternalInit failed: {ex.Message}");
             }
@@ -55,10 +56,9 @@ namespace OverTheCounter.Quests
             {
                 TriggerInternalInit();
 
-                _meetVicEntry = AddEntry("Meet Vic in the alleyway behind the bank", VicPosition);
-                _bringWeedEntry = AddEntry("Bring Vic 40 grams of weed", VicPosition);
+                _bringSuppliesEntry = AddEntry("Bring Static $12,000 and 10 grams of premium meth", StaticPosition);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 Logger.Error($"Initialize failed: {ex.Message}");
             }
@@ -70,9 +70,9 @@ namespace OverTheCounter.Quests
             {
                 _stage = 1;
                 Begin();
-                _meetVicEntry?.Begin();
+                _bringSuppliesEntry?.Begin();
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 Logger.Error($"StartQuest failed: {ex.Message}");
             }
@@ -83,25 +83,11 @@ namespace OverTheCounter.Quests
             try
             {
                 _stage = 2;
-                _meetVicEntry?.Complete();
-                _bringWeedEntry?.Begin();
+                _bringSuppliesEntry?.Complete();
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 Logger.Error($"CompleteObj1 failed: {ex.Message}");
-            }
-        }
-
-        public void CompleteObj2()
-        {
-            try
-            {
-                _stage = 3;
-                _bringWeedEntry?.Complete();
-            }
-            catch (System.Exception ex)
-            {
-                Logger.Error($"CompleteObj2 failed: {ex.Message}");
             }
         }
 
@@ -120,21 +106,15 @@ namespace OverTheCounter.Quests
             {
                 // Entries aren't restored from save — rebuild them
                 QuestEntries.Clear();
-                _meetVicEntry = AddEntry("Meet Vic in the alleyway behind the bank", VicPosition);
-                _bringWeedEntry = AddEntry("Bring Vic 40 grams of weed", VicPosition);
+                _bringSuppliesEntry = AddEntry("Bring Static $12,000 and 10 grams of premium meth", StaticPosition);
 
                 // Restore entry states based on saved stage
                 if (_stage >= 1)
-                    _meetVicEntry?.Begin();
+                    _bringSuppliesEntry?.Begin();
                 if (_stage >= 2)
-                {
-                    _meetVicEntry?.Complete();
-                    _bringWeedEntry?.Begin();
-                }
-                if (_stage >= 3)
-                    _bringWeedEntry?.Complete();
+                    _bringSuppliesEntry?.Complete();
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 Logger.Warning($"OnLoaded rebuild failed: {ex.Message}");
             }

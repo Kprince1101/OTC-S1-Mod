@@ -1,8 +1,11 @@
 using MelonLoader;
+using MelonLoader.Utils;
 using S1API.Quests;
 using S1API.Quests.Constants;
 using S1API.Saveables;
+using S1API.Utils;
 using System;
+using System.IO;
 using System.Reflection;
 using UnityEngine;
 
@@ -15,11 +18,14 @@ namespace OverTheCounter.Quests
         protected override string Title => "Crimeware as a Service";
         protected override string Description => "Someone at the casino noticed your deposits. Find Static after 4 PM when the casino opens.";
         protected override bool AutoBegin => false;
+        protected override Sprite QuestIcon => ImageUtils.LoadImage(
+            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "RinseCycle.png"));
 
         [SaveableField("static_quest_stage")]
-        private int _stage; // 0=not started, 1=obj1 active (talk to Static), 2=done
+        private int _stage; // 0=not started, 1=talk to Static, 2=bring supplies, 3=done
 
         private QuestEntry _talkToStaticEntry;
+        private QuestEntry _bringSuppliesEntry;
 
         public static StaticIntroQuest Instance { get; private set; }
 
@@ -52,6 +58,7 @@ namespace OverTheCounter.Quests
                 TriggerInternalInit();
 
                 _talkToStaticEntry = AddEntry("Talk to Static in the casino after 4 PM", StaticPosition);
+                _bringSuppliesEntry = AddEntry("Bring Static $3,000 and 20 grams of weed", StaticPosition);
             }
             catch (Exception ex)
             {
@@ -79,10 +86,24 @@ namespace OverTheCounter.Quests
             {
                 _stage = 2;
                 _talkToStaticEntry?.Complete();
+                _bringSuppliesEntry?.Begin();
             }
             catch (Exception ex)
             {
                 Logger.Error($"CompleteObj1 failed: {ex.Message}");
+            }
+        }
+
+        public void CompleteObj2()
+        {
+            try
+            {
+                _stage = 3;
+                _bringSuppliesEntry?.Complete();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"CompleteObj2 failed: {ex.Message}");
             }
         }
 
@@ -97,22 +118,27 @@ namespace OverTheCounter.Quests
             base.OnLoaded();
             Instance = this;
 
-            if (QuestEntries.Count >= 1)
-            {
-                _talkToStaticEntry = QuestEntries[0];
-            }
-
             try
             {
-                if (_stage >= 2 && _talkToStaticEntry != null
-                    && _talkToStaticEntry.State != QuestState.Completed)
+                // Entries aren't restored from save — rebuild them
+                QuestEntries.Clear();
+                _talkToStaticEntry = AddEntry("Talk to Static in the casino after 4 PM", StaticPosition);
+                _bringSuppliesEntry = AddEntry("Bring Static $3,000 and 20 grams of weed", StaticPosition);
+
+                // Restore entry states based on saved stage
+                if (_stage >= 1)
+                    _talkToStaticEntry?.Begin();
+                if (_stage >= 2)
                 {
-                    _talkToStaticEntry.Complete();
+                    _talkToStaticEntry?.Complete();
+                    _bringSuppliesEntry?.Begin();
                 }
+                if (_stage >= 3)
+                    _bringSuppliesEntry?.Complete();
             }
             catch (Exception ex)
             {
-                Logger.Warning($"OnLoaded safety-sync failed: {ex.Message}");
+                Logger.Warning($"OnLoaded rebuild failed: {ex.Message}");
             }
         }
     }

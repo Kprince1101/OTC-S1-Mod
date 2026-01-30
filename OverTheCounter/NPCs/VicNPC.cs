@@ -34,6 +34,8 @@ namespace OverTheCounter.NPCs
         /// </summary>
         public static VicNPC Instance { get; private set; }
 
+        public bool DialogueReady { get; private set; }
+
         public override bool IsPhysical => true;
 
         protected override void ConfigurePrefab(NPCPrefabBuilder builder)
@@ -105,6 +107,7 @@ namespace OverTheCounter.NPCs
             EnsureVoiceDatabase();
             Schedule.Enable();
             SetupDialogue();
+            DialogueReady = true;
 
             VicSaveData.Instance?.OnVicSpawned();
 

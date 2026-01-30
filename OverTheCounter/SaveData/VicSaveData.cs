@@ -74,7 +74,8 @@ namespace OverTheCounter.SaveData
                 _hasBeenTexted = true;
                 TrySendIntroText();
                 CreateOrResumeQuest();
-                VicNPC.Instance?.RefreshDialogue();
+                if (VicNPC.Instance != null && VicNPC.Instance.DialogueReady)
+                    VicNPC.Instance.RefreshDialogue();
             }
         }
 
@@ -166,7 +167,8 @@ namespace OverTheCounter.SaveData
             // Keep Vic's dialogue fresh so players see current values.
             if (_hasBeenTexted)
             {
-                VicNPC.Instance?.RefreshDialogue();
+                if (VicNPC.Instance != null && VicNPC.Instance.DialogueReady)
+                    VicNPC.Instance.RefreshDialogue();
                 return;
             }
 
