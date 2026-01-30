@@ -162,6 +162,10 @@ namespace OverTheCounter.NPCs
             bool saasActive = StaticSaveData.Instance?.SaasActive ?? false;
             int crmTier = StaticSaveData.Instance?.CrmTier ?? 0;
             bool upgradeAvailable = StaticSaveData.Instance?.UpgradeAvailable ?? false;
+            bool earlyVisitSeen = StaticSaveData.Instance?.EarlyVisitSeen ?? true;
+            int currentTime;
+            try { currentTime = TimeManager.CurrentTime; }
+            catch { currentTime = 0; }
 
             Dialogue.BuildAndRegisterContainer("StaticGreeting", container =>
             {
@@ -174,143 +178,251 @@ namespace OverTheCounter.NPCs
 
                     container.AddNode("LEAVE_EXIT", "*turns away*");
                 }
-                else if (!introCompleted)
+                else if (!earlyVisitSeen && currentTime >= 700 && currentTime < 1600)
                 {
-                    container.AddNode("ENTRY", "You've been pushing volume. I noticed. I'm Static \u2014 I keep things... running. We should talk business.", choices =>
+                    // ── Early Visit: player glitched into casino before 4pm ──
+                    container.AddNode("ENTRY", "*jumps back* \u2014 What the \u2014 how did you get in here? Doors don't unlock until four. *stares at door* ...Did you clip through? You actually noclipped through the collision mesh?", choices =>
                     {
-                        choices.Add("ACCEPT", "I'm listening.", "ACCEPT_EXIT");
-                        choices.Add("LEAVE", "Not now.", "LEAVE_EXIT");
+                        choices.Add("EARLY_MAYBE", "Maybe.", "EARLY_REACT");
+                        choices.Add("EARLY_DENY", "The door was open.", "EARLY_DENY_RESP");
                     });
 
-                    container.AddNode("ACCEPT_EXIT", "Good. I'll be in touch.");
-                    container.AddNode("LEAVE_EXIT", "You know where to find me.");
+                    container.AddNode("EARLY_REACT", "*rubs eyes* \u2014 That's not \u2014 the navmesh boundary is hardcoded. The trigger volume should've \u2014 *sniffs* ...you know what, I'm not even mad. That's a client-side exploit. Respect. But come back after four. I'm still compiling.");
+                    container.AddNode("EARLY_DENY_RESP", "*squints* \u2014 No it wasn't. I wrote the access scheduler myself. Cron job fires at 1600 sharp. *scratches neck* ...Unless someone's injecting frames at the seam. Huh. Come back after four \u2014 I need to patch this.");
+                }
+                else if (!introCompleted)
+                {
+                    // ── Intro: Multi-step sales pitch ──
+                    container.AddNode("ENTRY", "*sniffs* \u2014 You. Yeah, you. You've been setting off every tripwire on my network. Big deposits, open channels \u2014 you might as well be screaming. I'm Static. I build things. Useful things. For people like you.", choices =>
+                    {
+                        choices.Add("PITCH_START", "What kind of things?", "PITCH1");
+                        choices.Add("LEAVE", "Not interested.", "LEAVE_EXIT");
+                    });
+
+                    container.AddNode("PITCH1", "Software. Customer intel \u2014 scrapes police bands, cross-references buyer patterns, flags desperation levels. A whole CRM for your... *glances around* ...actual business.", choices =>
+                    {
+                        choices.Add("PITCH1_NEXT", "Keep talking.", "PITCH2");
+                    });
+
+                    container.AddNode("PITCH2", "*leans in* \u2014 Look, right now I've only got clean signal in Northtown and Westville. The other zones? Firmware's fried. Bad receivers, packet loss \u2014 total garbage. But those two? Crystal. Clear.", choices =>
+                    {
+                        choices.Add("PITCH2_NEXT", "What's it cost?", "COST");
+                    });
+
+                    container.AddNode("COST", "Three grand \u2014 bank transfer, not cash, I don't touch paper \u2014 and 20 grams of weed. Call the weed a licensing fee. *sniffs* Bring both and I'll get you set up.", choices =>
+                    {
+                        choices.Add("ACCEPT", "Deal.", "ACCEPT_EXIT");
+                        choices.Add("LEAVE", "I'll think about it.", "LEAVE_EXIT");
+                    });
+
+                    container.AddNode("ACCEPT_EXIT", "*taps temple* Good. I'll ping you.");
+                    container.AddNode("LEAVE_EXIT", "*scratches neck* You know where I am. Don't take forever.");
                 }
                 else if (crmTier == 0)
                 {
-                    // Post-intro: waiting for initial purchase ($3000 + 20g weed)
-                    float cash = Money.GetCashBalance();
+                    // ── Initial Purchase: bank transfer + weed ──
+                    float bankBalance = Money.GetOnlineBalance();
                     int weedGrams = CountWeedInInventory();
 
-                    if (cash >= 3000f && weedGrams >= 20)
+                    if (bankBalance >= 3000f && weedGrams >= 20)
                     {
-                        container.AddNode("ENTRY", $"You got the package? $3,000 and 20 grams of weed. You're holding {weedGrams} grams and ${cash:N0} cash.", choices =>
+                        container.AddNode("ENTRY", $"*sniffs* You got it? Three grand in the bank, 20 grams. I'm showing {weedGrams}g on you and ${bankBalance:N0} in your account. We doing this or what?", choices =>
                         {
-                            choices.Add("BUY_INITIAL", "Buy Software ($3,000 + 20 grams Weed)", "BUY_INITIAL_EXIT");
+                            choices.Add("BUY_INITIAL", "Buy Software ($3,000 transfer + 20g Weed)", "BUY_INITIAL_EXIT");
                             choices.Add("LEAVE", "Not yet.", "LEAVE_EXIT");
                         });
 
-                        container.AddNode("BUY_INITIAL_EXIT", "Package deployed. Your service is live. I'll bill you weekly \u2014 $1,000 from your bank account. Don't let it run dry.");
+                        container.AddNode("BUY_INITIAL_EXIT", "*cracks knuckles* \u2014 Package is live. Northtown, Westville \u2014 those are your clean zones. I'm billing $1,000 a week from your bank. Automatic. Don't let it run dry or I cut the feed.");
                     }
                     else
                     {
-                        container.AddNode("ENTRY", $"You've only got ${cash:N0} and {weedGrams} grams of weed. I need $3,000 and 20 grams. Come back when you have the full amounts.", choices =>
+                        container.AddNode("ENTRY", $"*taps foot* \u2014 I need three grand in your bank and 20 grams of weed. You're sitting on ${bankBalance:N0} and {weedGrams}g. That's not enough. Come back ready.", choices =>
                         {
                             choices.Add("LEAVE", "I'll be back.", "LEAVE_EXIT");
                         });
                     }
 
-                    container.AddNode("LEAVE_EXIT", "Don't keep me waiting.");
+                    container.AddNode("LEAVE_EXIT", "*waves dismissively* \u2014 Tick tock.");
                 }
                 else if (!saasActive)
                 {
-                    // Subscription suspended
-                    container.AddNode("ENTRY", "Service is down. You missed a payment. Want to get back online?", choices =>
+                    // ── Suspended: Terms + App Question restore flow ──
+                    container.AddNode("ENTRY", "*flat tone* \u2014 Service is dead. You let the payment lapse. I don't run a charity.", choices =>
                     {
-                        choices.Add("REACTIVATE", "Pay Back-Rent ($1,000)", "REACTIVATE_EXIT");
+                        choices.Add("RESTORE_FINAL", "Restore Service ($1,000)", "RESTORE_TERMS");
                         choices.Add("LEAVE", "Not now.", "LEAVE_EXIT");
                     });
 
-                    container.AddNode("REACTIVATE_EXIT", "Good. We're back in business.");
-                    container.AddNode("LEAVE_EXIT", "Your call. But the clock's ticking.");
+                    container.AddNode("RESTORE_TERMS", "*pulls out crumpled paper* \u2014 New terms before I flip anything. Section 14-B: all outbound data routes through my relay node. Section 22: no third-party scraping of the feed. And Section 9-F: you waive all dispute rights on billing cycles. *sniffs* Standard stuff.", choices =>
+                    {
+                        choices.Add("RESTORE_ACCEPT", "Fine. Whatever. Turn it on.", "RESTORE_APP_Q");
+                        choices.Add("RESTORE_PUSH", "That's ridiculous.", "RESTORE_PRESSURE");
+                    });
+
+                    container.AddNode("RESTORE_PRESSURE", "*leans forward* \u2014 Ridiculous? You know what's ridiculous? Your customers are out there right now buying from someone else. Take the terms or walk.", choices =>
+                    {
+                        choices.Add("RESTORE_ACCEPT", "Fine.", "RESTORE_APP_Q");
+                    });
+
+                    container.AddNode("RESTORE_APP_Q", "*typing on phone* \u2014 Processing...", choices =>
+                    {
+                        choices.Add("APP_WHY", "Why can't I just do this in the app?", "APP_REASON");
+                        choices.Add("RESTORE_FINAL", "Whatever. Just do it.", "RESTORE_EXIT");
+                    });
+
+                    container.AddNode("APP_REASON", "*sighs heavily* \u2014 The app runs on client-side rendering. Reactivation needs a kernel-level handshake with my relay server \u2014 can't initiate that from a sandboxed UI thread. Has to be done at the hardware layer. In person. *taps phone* It's an architecture thing.", choices =>
+                    {
+                        choices.Add("APP_DEFLECT_Q", "That makes no sense.", "APP_DEFLECT");
+                        choices.Add("RESTORE_FINAL", "Whatever. Just do it.", "RESTORE_EXIT");
+                    });
+
+                    container.AddNode("APP_DEFLECT", "*sniffs* \u2014 Makes perfect sense if you understood mesh networking. Which you don't. Are we done here?", choices =>
+                    {
+                        choices.Add("RESTORE_FINAL", "Just turn it on.", "RESTORE_EXIT");
+                    });
+
+                    container.AddNode("RESTORE_EXIT", "*nods once* \u2014 You're back online. Don't let the balance dry up again. I won't be this nice next time.");
+                    container.AddNode("LEAVE_EXIT", "*waves dismissively* \u2014 Tick tock.");
                 }
                 else if (upgradeAvailable && crmTier == 1)
                 {
-                    // Upgrade 1 available ($6000 + 5g meth)
-                    float cash = Money.GetCashBalance();
+                    // ── Tier 1→2 Upgrade: Private Server pitch with fee misdirection ──
+                    float bankBalance = Money.GetOnlineBalance();
                     int methGrams = CountMethInInventory();
 
-                    if (cash >= 6000f && methGrams >= 5)
+                    if (bankBalance >= 6000f && methGrams >= 5)
                     {
-                        container.AddNode("ENTRY", $"Premium tier's unlocked. I texted you what I need. You're holding {methGrams} grams meth and ${cash:N0} cash. We good?", choices =>
+                        container.AddNode("ENTRY", $"*rubs hands together* \u2014 Hey. Hey. I've been up all night. Cracked something. Fix for those dead zones.", choices =>
                         {
-                            choices.Add("BUY_UPGRADE", "Upgrade to Premium ($6,000 + 5 grams Meth)", "BUY_UPGRADE_EXIT");
-                            choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
-                            choices.Add("LEAVE", "Not yet.", "LEAVE_EXIT");
+                            choices.Add("T2_PITCH_Q", "What fix?", "T2_PITCH");
                         });
 
-                        container.AddNode("BUY_UPGRADE_EXIT", "Premium's live. Faster throughput, deeper access. You're moving up.");
+                        container.AddNode("T2_PITCH", "Private server. Dedicated box \u2014 bypasses the firmware garbage. Every region lights up, not just the two. Plus I'm adding addiction tracking per customer. *sniffs* The whole picture.", choices =>
+                        {
+                            choices.Add("T2_FEE_Q", "What about the weekly fee?", "T2_FEE");
+                        });
+
+                        container.AddNode("T2_FEE", "*waves hand* \u2014 The grand a week? Yeah, that might drop off once the hardware pays for itself. No promises, but... it's on my list. Probably.", choices =>
+                        {
+                            choices.Add("T2_COST_Q", "What do you need?", "T2_COST");
+                        });
+
+                        container.AddNode("T2_COST", $"Six grand, bank transfer. And 5 grams of meth \u2014 server maintenance runs hot, I need to stay sharp. You've got {methGrams}g on you and ${bankBalance:N0} in the bank.", choices =>
+                        {
+                            choices.Add("BUY_UPGRADE", "Upgrade to Premium ($6,000 + 5g Meth)", "BUY_UPGRADE_EXIT");
+                            choices.Add("LEAVE", "Not yet.", "LEAVE_EXIT");
+                            choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
+                        });
+
+                        container.AddNode("BUY_UPGRADE_EXIT", "*pupils dilate* \u2014 Private server's spinning. Full coverage, addiction metrics \u2014 you're Premium. You're welcome.");
                     }
                     else
                     {
-                        container.AddNode("ENTRY", $"Premium tier's ready. You've only got ${cash:N0} and {methGrams} grams of meth. I need $6,000 and 5 grams. Come back when you have the full amounts.", choices =>
+                        container.AddNode("ENTRY", $"*jittery* \u2014 Premium's unlocked. Six grand in the bank, 5 grams of meth. You're not there yet.", choices =>
                         {
+                            choices.Add("T2_PITCH_SHORT_Q", "What's the upgrade?", "T2_PITCH_SHORT");
                             choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
+                        });
+
+                        container.AddNode("T2_PITCH_SHORT", "Private server. Nukes the dead zones, full coverage. Fee might drop once it's paid off. *scratches jaw* ...Probably.", choices =>
+                        {
                             choices.Add("LEAVE", "I'll get it.", "LEAVE_EXIT");
                         });
                     }
 
-                    container.AddNode("CANCEL_WARN", "You sure? You pull the plug, you lose access. No refunds. I don't do chargebacks.", choices =>
+                    container.AddNode("CANCEL_WARN", "*stops fidgeting* \u2014 You pull the plug, everything goes dark. No refunds. No chargebacks. I don't negotiate with quitters.", choices =>
                     {
                         choices.Add("CANCEL_CONFIRM", "Cancel it.", "CANCEL_EXIT");
                         choices.Add("CANCEL_BACK", "Never mind.", "LEAVE_EXIT");
                     });
-                    container.AddNode("CANCEL_EXIT", "Your loss. Service is dead. You want back in, it's gonna cost you.");
-                    container.AddNode("LEAVE_EXIT", "Opportunity doesn't wait forever.");
+                    container.AddNode("CANCEL_EXIT", "*shrugs* \u2014 Your funeral. Service is dead. You want back in, it'll cost you. And I'll remember this.");
+                    container.AddNode("LEAVE_EXIT", "*nods, twitches*");
                 }
                 else if (upgradeAvailable && crmTier == 2)
                 {
-                    // Upgrade 2 available ($12000 + 10g high-quality meth)
-                    float cash = Money.GetCashBalance();
+                    // ── Tier 2→3 Upgrade: THE TRAP — fee is permanent ──
+                    float bankBalance = Money.GetOnlineBalance();
                     int methGrams = CountMethInInventory(EQuality.Premium);
 
-                    if (cash >= 12000f && methGrams >= 10)
+                    if (bankBalance >= 12000f && methGrams >= 10)
                     {
-                        container.AddNode("ENTRY", $"Enterprise tier. The final level. I texted you the cost. You're holding {methGrams} grams of premium meth and ${cash:N0} cash. Ready to go full scale?", choices =>
+                        container.AddNode("ENTRY", "*bouncing on heels* \u2014 Final tier. Enterprise. This is the big one.", choices =>
                         {
-                            choices.Add("BUY_UPGRADE", "Upgrade to Enterprise ($12,000 + 10 grams Premium Meth)", "BUY_UPGRADE_EXIT");
-                            choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
+                            choices.Add("T3_PITCH_Q", "What does it do?", "T3_PITCH");
+                        });
+
+                        container.AddNode("T3_PITCH", "GPS. Every customer, pinned live on your map. You see them walking around. Route to them, hit the desperate ones first. *sniffs* Never miss a sale again.", choices =>
+                        {
+                            choices.Add("T3_REVEAL_Q", "What about dropping the weekly fee?", "T3_REVEAL");
+                        });
+
+                        container.AddNode("T3_REVEAL", "*stops bouncing* ...Yeah. About that. The GPS pings? They're not automated. I'm doing those by hand \u2014 triangulating towers, spoofing cell data. That's labor. My labor.", choices =>
+                        {
+                            choices.Add("T3_TRAP_Q", "So the fee stays?", "T3_TRAP");
+                        });
+
+                        container.AddNode("T3_TRAP", "*dead stare* \u2014 The thousand a week is permanent. Protection money. You're paying for the infrastructure and the guy running it \u2014 *points to self* \u2014 which is me. That's the deal. That was always the deal.", choices =>
+                        {
+                            choices.Add("T3_COST_Q", "Fine. What do you need?", "T3_COST");
+                            choices.Add("T3_SCAM_Q", "That's a scam.", "T3_SCAM");
+                        });
+
+                        container.AddNode("T3_COST", $"Twelve grand, bank transfer. 10 grams of premium meth \u2014 not that stepped-on garbage, the real thing. You've got {methGrams}g premium and ${bankBalance:N0} in the bank.", choices =>
+                        {
+                            choices.Add("BUY_UPGRADE", "Upgrade to Enterprise ($12,000 + 10g Premium Meth)", "BUY_UPGRADE_EXIT");
                             choices.Add("LEAVE", "Not yet.", "LEAVE_EXIT");
                         });
 
-                        container.AddNode("BUY_UPGRADE_EXIT", "Enterprise grade. Full scale. You're running the whole stack now.");
+                        container.AddNode("T3_SCAM", "*laughs* \u2014 Scam? You've been running three tiers of my intel and your operation's still standing. Call it whatever helps you sleep. You want GPS tracking or not?", choices =>
+                        {
+                            choices.Add("T3_COST_Q", "Fine. What do you need?", "T3_COST");
+                            choices.Add("LEAVE", "I'm out.", "LEAVE_EXIT");
+                        });
+
+                        container.AddNode("BUY_UPGRADE_EXIT", "Enterprise. Full stack \u2014 GPS, addiction data, every region, every customer. *sniffs* And yeah. The thousand a week stays. Every week. Forever. Welcome aboard.");
                     }
                     else
                     {
-                        container.AddNode("ENTRY", $"Final tier's unlocked. You've only got ${cash:N0} and {methGrams} grams of premium meth. I need $12,000 and 10 grams of premium or better. Come back when you have the full amounts.", choices =>
+                        container.AddNode("ENTRY", $"*pacing* \u2014 Enterprise. Twelve grand in the bank. 10 grams premium meth. You're short.", choices =>
                         {
+                            choices.Add("T3_PITCH_SHORT_Q", "Tell me about it.", "T3_PITCH_SHORT");
                             choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
-                            choices.Add("LEAVE", "I'll get it.", "LEAVE_EXIT");
+                        });
+
+                        container.AddNode("T3_PITCH_SHORT", "GPS tracking. Every customer on the map. *pauses* ...But I'll level with you \u2014 the weekly fee? Permanent. Protection money. Non-negotiable. That's the price of the full stack.", choices =>
+                        {
+                            choices.Add("LEAVE", "I'll get the goods.", "LEAVE_EXIT");
                         });
                     }
 
-                    container.AddNode("CANCEL_WARN", "You sure? You pull the plug, you lose access. No refunds. I don't do chargebacks.", choices =>
+                    container.AddNode("CANCEL_WARN", "*stops fidgeting* \u2014 You pull the plug, everything goes dark. No refunds. No chargebacks. I don't negotiate with quitters.", choices =>
                     {
                         choices.Add("CANCEL_CONFIRM", "Cancel it.", "CANCEL_EXIT");
                         choices.Add("CANCEL_BACK", "Never mind.", "LEAVE_EXIT");
                     });
-                    container.AddNode("CANCEL_EXIT", "Your loss. Service is dead. You want back in, it's gonna cost you.");
-                    container.AddNode("LEAVE_EXIT", "Last chance to go full scale. Don't sit on it.");
+                    container.AddNode("CANCEL_EXIT", "*shrugs* \u2014 Your funeral. Service is dead. You want back in, it'll cost you. And I'll remember this.");
+                    container.AddNode("LEAVE_EXIT", "*nods, twitches*");
                 }
                 else
                 {
-                    // Active, no upgrade pending
+                    // ── Active, no upgrade pending ──
                     int daysLeft = (StaticSaveData.Instance?.SaasNextPaymentDay ?? 0) - TimeManager.ElapsedDays;
                     if (daysLeft < 0) daysLeft = 0;
 
                     string tierLabel = crmTier == 3 ? "Enterprise" : crmTier == 2 ? "Premium" : "Standard";
-                    container.AddNode("ENTRY", $"Service is running \u2014 {tierLabel} tier. Next payment in {daysLeft} days. Stay sharp.", choices =>
+                    container.AddNode("ENTRY", $"*fidgeting* \u2014 Service is running. {tierLabel} tier. Next bill in {daysLeft} days. Don't overthink it.", choices =>
                     {
                         choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
                         choices.Add("LEAVE", "Leave", "LEAVE_EXIT");
                     });
 
-                    container.AddNode("CANCEL_WARN", "You sure? You pull the plug, you lose access. No refunds. I don't do chargebacks.", choices =>
+                    container.AddNode("CANCEL_WARN", "*stops fidgeting* \u2014 You pull the plug, everything goes dark. No refunds. No chargebacks. I don't negotiate with quitters.", choices =>
                     {
                         choices.Add("CANCEL_CONFIRM", "Cancel it.", "CANCEL_EXIT");
                         choices.Add("CANCEL_BACK", "Never mind.", "LEAVE_EXIT");
                     });
-                    container.AddNode("CANCEL_EXIT", "Your loss. Service is dead. You want back in, it's gonna cost you.");
-                    container.AddNode("LEAVE_EXIT", "*nods*");
+                    container.AddNode("CANCEL_EXIT", "*shrugs* \u2014 Your funeral. Service is dead. You want back in, it'll cost you. And I'll remember this.");
+                    container.AddNode("LEAVE_EXIT", "*nods, twitches*");
                 }
             });
 
@@ -336,6 +448,16 @@ namespace OverTheCounter.NPCs
                 PlayDismissalSound();
             });
 
+            Dialogue.OnChoiceSelected("EARLY_MAYBE", () =>
+            {
+                StaticSaveData.Instance?.OnEarlyVisitSeen();
+            });
+
+            Dialogue.OnChoiceSelected("EARLY_DENY", () =>
+            {
+                StaticSaveData.Instance?.OnEarlyVisitSeen();
+            });
+
             Dialogue.OnChoiceSelected("ACCEPT", () =>
             {
                 try
@@ -353,10 +475,10 @@ namespace OverTheCounter.NPCs
             {
                 try
                 {
-                    if (Money.GetCashBalance() < 3000f || CountWeedInInventory() < 20)
+                    if (Money.GetOnlineBalance() < 3000f || CountWeedInInventory() < 20)
                         return;
 
-                    Money.ChangeCashBalance(-3000f, true, true);
+                    Money.CreateOnlineTransaction("OTC License", -3000f, 1f, "Static Services");
                     RemoveWeedFromInventory(20);
                     StaticSaveData.Instance?.PurchaseInitial();
                     TriggerCocaineConsumption();
@@ -376,18 +498,18 @@ namespace OverTheCounter.NPCs
 
                     if (tier == 1)
                     {
-                        if (Money.GetCashBalance() < 6000f || CountMethInInventory() < 5)
+                        if (Money.GetOnlineBalance() < 6000f || CountMethInInventory() < 5)
                             return;
 
-                        Money.ChangeCashBalance(-6000f, true, true);
+                        Money.CreateOnlineTransaction("OTC Premium", -6000f, 1f, "Static Services");
                         RemoveMethFromInventory(5);
                     }
                     else if (tier == 2)
                     {
-                        if (Money.GetCashBalance() < 12000f || CountMethInInventory(EQuality.Premium) < 10)
+                        if (Money.GetOnlineBalance() < 12000f || CountMethInInventory(EQuality.Premium) < 10)
                             return;
 
-                        Money.ChangeCashBalance(-12000f, true, true);
+                        Money.CreateOnlineTransaction("OTC Enterprise", -12000f, 1f, "Static Services");
                         RemoveMethFromInventory(10, EQuality.Premium);
                     }
                     else
@@ -405,16 +527,17 @@ namespace OverTheCounter.NPCs
                 }
             });
 
-            Dialogue.OnChoiceSelected("REACTIVATE", () =>
+            Dialogue.OnChoiceSelected("RESTORE_FINAL", () =>
             {
                 try
                 {
                     StaticSaveData.Instance?.ReactivateSubscription();
+                    TriggerCocaineConsumption();
                     RefreshDialogue();
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"REACTIVATE callback failed: {ex.Message}");
+                    Logger.Error($"RESTORE_FINAL callback failed: {ex.Message}");
                 }
             });
 
@@ -423,6 +546,7 @@ namespace OverTheCounter.NPCs
                 try
                 {
                     StaticSaveData.Instance?.CancelSubscription();
+                    TriggerCocaineConsumption();
                     RefreshDialogue();
                 }
                 catch (Exception ex)

@@ -247,7 +247,7 @@ namespace OverTheCounter.Apps
                 if (displayDays < 0) displayDays = 0;
 
                 if (displayDays <= 1)
-                    _billingText.text = "<b>Subscription renews at 5a.m</b>  <color=#4CAF50><b>($1,000)</b></color>";
+                    _billingText.text = "<b>Subscription renews at 5 AM</b>  <color=#4CAF50><b>($1,000)</b></color>";
                 else
                     _billingText.text = $"<b>Subscription renews in {displayDays} days</b>  <color=#4CAF50><b>($1,000)</b></color>";
             }

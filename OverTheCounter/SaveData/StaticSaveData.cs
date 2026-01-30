@@ -36,6 +36,9 @@ namespace OverTheCounter.SaveData
         [SaveableField("static_upgrade_available")]
         private bool _upgradeAvailable;
 
+        [SaveableField("static_early_visit_seen")]
+        private bool _earlyVisitSeen;
+
         private const float SAAS_WEEKLY_COST = 1000f;
         private const int SAAS_CYCLE_DAYS = 7;
 
@@ -60,6 +63,7 @@ namespace OverTheCounter.SaveData
         public int SaasNextPaymentDay => _saasNextPaymentDay;
         public int DayPassCount => _dayPassCount;
         public bool UpgradeAvailable => _upgradeAvailable;
+        public bool EarlyVisitSeen => _earlyVisitSeen;
 
         public StaticSaveData()
         {
@@ -181,8 +185,13 @@ namespace OverTheCounter.SaveData
             }
         }
 
+        public void OnEarlyVisitSeen()
+        {
+            _earlyVisitSeen = true;
+        }
+
         /// <summary>
-        /// Called when player accepts intro dialogue ("I'm listening").
+        /// Called when player accepts intro dialogue ("Deal.").
         /// Marks intro complete, completes quest objective, and sends the first purchase offer via text.
         /// </summary>
         public void OnIntroCompleted()
@@ -293,7 +302,7 @@ namespace OverTheCounter.SaveData
                     {
                         Money.CreateOnlineTransaction("OTC Server Rent", -SAAS_WEEKLY_COST, 1f, "Static Services");
                         _saasNextPaymentDay += SAAS_CYCLE_DAYS;
-                        SendStaticText("Server rent paid. We're live.");
+                        SendStaticText("[0x52E1] server r3nt cleared. nod3s onl1ne.\n\n\u2014 ST4T1C_SYS");
 
                         if (_crmTier < 3 && !_upgradeAvailable)
                         {
@@ -305,7 +314,7 @@ namespace OverTheCounter.SaveData
                     else
                     {
                         _saasActive = false;
-                        SendStaticText("Payment failed. Service suspended.");
+                        SendStaticText("[0xDEAD] paym3nt fa1led. serv1ce suspended. r3store in p3rson.\n\n\u2014 ST4T1C_SYS");
                     }
                 }
                 catch (Exception ex)
@@ -360,11 +369,11 @@ namespace OverTheCounter.SaveData
         {
             if (_crmTier == 1)
             {
-                SendStaticText("[0x9FA1] pr3m1um t13r unl0ck3d. c0st: $6,000 + 5g m3th.\n\ns4m3 sp0t.\n\n\u2014 ST4T1C_SYS");
+                SendStaticText("[0x9FA1] pr1v4t3 s3rv3r r34dy. c0st: $6,000 + 5g m3th.\nfull r3g10n c0v3r4g3. s4m3 sp0t.\n\n\u2014 ST4T1C_SYS");
             }
             else if (_crmTier == 2)
             {
-                SendStaticText("[0xB2D8] f1n4l upgr4d3. t13r-3 c0st: $12,000 + 10g pr3m1um m3th.\n\nl4st ch4nc3. full sc4l3.\n\n\u2014 ST4T1C_SYS");
+                SendStaticText("[0xB2D8] 3nt3rpr1s3 t13r. GPS tr4ck1ng. c0st: $12,000 + 10g pr3m1um m3th.\nl4st upgr4d3. c4s1n0.\n\n\u2014 ST4T1C_SYS");
             }
         }
 
