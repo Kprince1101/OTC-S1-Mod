@@ -679,6 +679,11 @@ namespace OverTheCounter.NPCs
 
         protected override void OnDestroyed()
         {
+            if (Instance == this)
+            {
+                DialogueReady = false;
+                Instance = null;
+            }
             base.OnDestroyed();
         }
     }

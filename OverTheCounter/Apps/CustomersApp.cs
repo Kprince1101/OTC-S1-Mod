@@ -12,6 +12,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using OverTheCounter.Utilities;
 using OverTheCounter.Logic;
+using OverTheCounter.SaveData;
 using MelonLoader.Utils;
 using System.IO;
 using HarmonyLib;
@@ -36,6 +37,20 @@ namespace OverTheCounter.Apps
         // Store reference for refresh
         private Transform _contentParent;
 
+        // Tier-gated UI references
+        private GameObject _legendObj;
+        private Text _headerTitle;
+
+        // Billing bar (fixed, outside scroll view)
+        private GameObject _billingBar;
+        private Text _billingText;
+        private RectTransform _scrollRectTransform;
+
+        // Icon visibility: hide home-screen icon until the player has purchased from Static
+        private GameObject _iconObject;
+        private bool _iconSearchDone;
+        private int _iconSearchFrames;
+
         // Static instance for access from other classes
         public static CustomersApp Instance { get; private set; }
 
@@ -43,6 +58,93 @@ namespace OverTheCounter.Apps
         {
             base.OnCreated();
             Instance = this;
+        }
+
+        /// <summary>
+        /// Called every frame from Core.OnLateUpdate().
+        /// Finds the home-screen icon (once) and shows/hides it based on CrmTier.
+        /// </summary>
+        public void UpdateIconVisibility()
+        {
+            if (!_iconSearchDone)
+            {
+                // Throttle: search every 30 frames, give up after ~10 seconds
+                if (++_iconSearchFrames % 30 != 0) return;
+                if (_iconSearchFrames > 600)
+                {
+                    _iconSearchDone = true;
+                    MelonLogger.Warning("[CustomersApp] Could not find phone icon object after 10s.");
+                    return;
+                }
+
+                _iconObject = FindIconObject();
+                if (_iconObject != null)
+                    _iconSearchDone = true;
+                else
+                    return;
+            }
+
+            if (_iconObject == null) return;
+
+            bool shouldShow = StaticSaveData.Instance != null && StaticSaveData.Instance.CrmTier > 0;
+            if (_iconObject.activeSelf != shouldShow)
+                _iconObject.SetActive(shouldShow);
+        }
+
+        /// <summary>
+        /// Attempts to locate the home-screen icon button for this app.
+        /// Strategy 1: reflection on PhoneApp fields for a GameObject/Transform.
+        /// Strategy 2: scene search for a Text component matching our IconLabel.
+        /// </summary>
+        private GameObject FindIconObject()
+        {
+            // Strategy 1: Reflection – look for icon/button fields on PhoneApp
+            try
+            {
+                var flags = BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public;
+                foreach (var field in typeof(PhoneApp).GetFields(flags))
+                {
+                    var value = field.GetValue(this);
+                    if (value is GameObject go)
+                    {
+                        string fn = field.Name.ToLowerInvariant();
+                        if (fn.Contains("icon") || fn.Contains("button") || fn.Contains("appbtn"))
+                            return go;
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                MelonLogger.Warning($"[CustomersApp] Reflection search failed: {ex.Message}");
+            }
+
+            // Strategy 2: Find our icon label "OTC" among all Text components
+            try
+            {
+                foreach (var text in UnityEngine.Object.FindObjectsOfType<Text>(true))
+                {
+                    if (text.text != IconLabel) continue;
+
+                    // Walk up to the nearest ancestor that has a Button – that's the icon button
+                    var current = text.transform.parent;
+                    while (current != null)
+                    {
+                        if (current.GetComponent<Button>() != null)
+                            return current.gameObject;
+                        current = current.parent;
+                    }
+
+                    // No Button ancestor found – return the label's immediate parent
+                    if (text.transform.parent != null)
+                        return text.transform.parent.gameObject;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                MelonLogger.Warning($"[CustomersApp] Label search failed: {ex.Message}");
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -57,11 +159,113 @@ namespace OverTheCounter.Apps
         }
 
         /// <summary>
+        /// Returns 0 if StaticSaveData is null or SaaS inactive; otherwise returns CrmTier (1-3).
+        /// </summary>
+        private int GetEffectiveTier()
+        {
+            if (StaticSaveData.Instance == null || !StaticSaveData.Instance.SaasActive)
+                return 0;
+            return StaticSaveData.Instance.CrmTier;
+        }
+
+        /// <summary>
+        /// Returns whether the given region is unlocked for the effective tier.
+        /// Tier 0: always false. Tier 1: Northtown and Westville only. Tier 2+: all regions.
+        /// </summary>
+        private bool IsRegionUnlocked(int effectiveTier, EMapRegion region)
+        {
+            if (effectiveTier <= 0) return false;
+            if (effectiveTier == 1)
+                return region == EMapRegion.Northtown || region == EMapRegion.Westville;
+            return true;
+        }
+
+        /// <summary>
+        /// Renders a paywall screen when no active subscription exists.
+        /// </summary>
+        private void ShowPaywallScreen(Transform contentParent)
+        {
+            var titleObj = UIFactory.Text("PaywallTitle", "<b>SERVICE OFFLINE</b>", contentParent, 22, TextAnchor.MiddleCenter);
+            titleObj.color = new Color(0.7f, 0.2f, 0.2f);
+            var titleLayout = titleObj.gameObject.AddComponent<LayoutElement>();
+            titleLayout.preferredHeight = 40;
+            titleLayout.flexibleWidth = 1;
+
+            var subtitleObj = UIFactory.Text("PaywallSubtitle",
+                "Active subscription required.\nVisit Static at the Casino to activate.",
+                contentParent, 14, TextAnchor.MiddleCenter);
+            subtitleObj.color = new Color(0.6f, 0.6f, 0.6f);
+            var subtitleLayout = subtitleObj.gameObject.AddComponent<LayoutElement>();
+            subtitleLayout.preferredHeight = 50;
+            subtitleLayout.flexibleWidth = 1;
+        }
+
+        /// <summary>
         /// Refreshes the customer list - called via Harmony patch when app opens
         /// </summary>
         private void RefreshCustomerList()
         {
             if (_contentParent == null) return;
+
+            int tier = GetEffectiveTier();
+
+            // Update header title with tier suffix
+            if (_headerTitle != null)
+            {
+                switch (tier)
+                {
+                    case 1:
+                        _headerTitle.text = "<b>OverTheCounter</b> <color=#999999><size=16>Lite</size></color>";
+                        break;
+                    case 2:
+                        _headerTitle.text = "<b>OverTheCounter</b> <color=#2ABFBF><size=16>Pro</size></color>";
+                        break;
+                    case 3:
+                        _headerTitle.text = "<b>OverTheCounter</b> <color=#FFD700><size=16>Enterprise</size></color>";
+                        break;
+                    default:
+                        _headerTitle.text = "<b>OverTheCounter</b>";
+                        break;
+                }
+            }
+
+            // Show/hide legend based on tier (visible at tier 2+)
+            bool showLegend = tier >= 2;
+            if (_legendObj != null)
+                _legendObj.SetActive(showLegend);
+
+            // Update billing bar
+            bool showBilling = tier > 0;
+            if (_billingBar != null)
+                _billingBar.SetActive(showBilling);
+
+            if (showBilling && _billingText != null)
+            {
+                int payDay = StaticSaveData.Instance?.SaasNextPaymentDay ?? 0;
+                int passes = StaticSaveData.Instance?.DayPassCount ?? 0;
+                int displayDays = payDay - passes;
+                if (displayDays < 0) displayDays = 0;
+
+                if (displayDays <= 1)
+                    _billingText.text = "<b>Subscription renews at 5a.m</b>  <color=#4CAF50><b>($1,000)</b></color>";
+                else
+                    _billingText.text = $"<b>Subscription renews in {displayDays} days</b>  <color=#4CAF50><b>($1,000)</b></color>";
+            }
+
+            // Dynamically position billing bar and scroll view based on visible bars
+            float yOffset = -40f; // header always 40px
+            if (showLegend) yOffset -= 25f;
+
+            if (showBilling && _billingBar != null)
+            {
+                var billingRt = _billingBar.GetComponent<RectTransform>();
+                billingRt.anchoredPosition = new Vector2(0, yOffset);
+                yOffset -= 32f;
+            }
+
+            if (_scrollRectTransform != null)
+                _scrollRectTransform.offsetMax = new Vector2(0, yOffset);
+
             ClearChildren(_contentParent);
             PopulateCustomerList(_contentParent);
         }
@@ -87,6 +291,7 @@ namespace OverTheCounter.Apps
             titleRect.anchorMax = Vector2.one;
             titleRect.offsetMin = new Vector2(15, 0);
             titleRect.offsetMax = new Vector2(-120, 0);
+            _headerTitle = titleObj;
 
             // DEBUG: Trigger Desperation Button (right side of header) using UIFactory
             var (debugMask, debugBtn, debugLabel) = UIFactory.RoundedButtonWithLabel(
@@ -126,6 +331,7 @@ namespace OverTheCounter.Apps
             legendRect.pivot = new Vector2(0.5f, 1);
             legendRect.anchoredPosition = new Vector2(0, -40);
             legendRect.sizeDelta = new Vector2(0, 25);
+            _legendObj = legendObj;
 
             // Legend content - "Addiction:" label + color key
             var legendText = UIFactory.Text("LegendText", "Addiction:", legendObj.transform, 12, TextAnchor.MiddleLeft);
@@ -175,15 +381,36 @@ namespace OverTheCounter.Apps
             lowRect.sizeDelta = new Vector2(35, 0);
             lowLabel.color = new Color(0.6f, 0.6f, 0.6f);
 
-            // 4. Scroll View Setup using UIFactory (below header and legend)
+            // 4. Billing bar (fixed, between legend and scroll area)
+            var billingBarObj = UIFactory.Panel("BillingBar", rootPanel.transform, new Color(0.15f, 0.15f, 0.15f));
+            var billingBarRt = billingBarObj.GetComponent<RectTransform>();
+            billingBarRt.anchorMin = new Vector2(0, 1);
+            billingBarRt.anchorMax = new Vector2(1, 1);
+            billingBarRt.pivot = new Vector2(0.5f, 1);
+            billingBarRt.anchoredPosition = new Vector2(0, -65); // below legend
+            billingBarRt.sizeDelta = new Vector2(0, 32);
+            _billingBar = billingBarObj;
+
+            var billingTextComp = UIFactory.Text("BillingText", "", billingBarObj.transform, 16, TextAnchor.MiddleLeft);
+            billingTextComp.supportRichText = true;
+            billingTextComp.horizontalOverflow = HorizontalWrapMode.Wrap;
+            billingTextComp.color = new Color(0.85f, 0.85f, 0.85f);
+            var btRect = billingTextComp.gameObject.GetComponent<RectTransform>();
+            btRect.anchorMin = Vector2.zero;
+            btRect.anchorMax = Vector2.one;
+            btRect.offsetMin = new Vector2(12, 0);
+            btRect.offsetMax = new Vector2(-12, 0);
+            _billingText = billingTextComp;
+
+            // 5. Scroll View Setup using UIFactory (below header, legend, and billing bar)
             var contentRect = UIFactory.ScrollableVerticalList("CustomerScroll", rootPanel.transform, out ScrollRect scrollRect);
-            
-            // Position scroll view to fill remaining space below header and legend
-            var scrollRectTransform = scrollRect.GetComponent<RectTransform>();
-            scrollRectTransform.anchorMin = Vector2.zero;
-            scrollRectTransform.anchorMax = Vector2.one;
-            scrollRectTransform.offsetMin = Vector2.zero;
-            scrollRectTransform.offsetMax = new Vector2(0, -65); // Leave space for header (40) + legend (25)
+
+            // Position scroll view to fill remaining space (adjusted dynamically in RefreshCustomerList)
+            _scrollRectTransform = scrollRect.GetComponent<RectTransform>();
+            _scrollRectTransform.anchorMin = Vector2.zero;
+            _scrollRectTransform.anchorMax = Vector2.one;
+            _scrollRectTransform.offsetMin = Vector2.zero;
+            _scrollRectTransform.offsetMax = new Vector2(0, -97); // header(40) + legend(25) + billing(32)
 
             // Configure the existing VerticalLayoutGroup created by ScrollableVerticalList
             var contentLayout = contentRect.GetComponent<VerticalLayoutGroup>();
@@ -195,7 +422,7 @@ namespace OverTheCounter.Apps
                 contentLayout.childForceExpandWidth = true;
                 contentLayout.childAlignment = TextAnchor.UpperCenter;
                 contentLayout.spacing = 15;
-                contentLayout.padding = new RectOffset(20, 20, 15, 15);
+                contentLayout.padding = new RectOffset(10, 10, 5, 15);
             }
 
             scrollRect.scrollSensitivity = 20f;
@@ -207,6 +434,15 @@ namespace OverTheCounter.Apps
 
         private void PopulateCustomerList(Transform contentParent)
         {
+            int effectiveTier = GetEffectiveTier();
+
+            // Paywall: no active subscription
+            if (effectiveTier == 0)
+            {
+                ShowPaywallScreen(contentParent);
+                return;
+            }
+
             // Fetch Lists
             var unlocked = Customer.UnlockedCustomers;
             var locked = Customer.LockedCustomers;
@@ -238,15 +474,28 @@ namespace OverTheCounter.Apps
             // Create sections for each region
             foreach (var group in grouped)
             {
-                string headerTitle = group.Key.ToString();
-                CreateNeighborhoodSection(contentParent, headerTitle, group.ToList());
+                CreateNeighborhoodSection(contentParent, group.Key.ToString(), group.ToList(), effectiveTier, group.Key);
             }
         }
 
-        private void CreateNeighborhoodSection(Transform parent, string regionName, List<CustomerDisplayData> dataList)
+        private void CreateNeighborhoodSection(Transform parent, string regionName, List<CustomerDisplayData> dataList, int effectiveTier, EMapRegion region)
         {
-            // Header
-            var headerObj = UIFactory.Text($"Header_{regionName}", $"<b>{regionName}</b>", parent, 18, TextAnchor.MiddleCenter);
+            bool regionUnlocked = IsRegionUnlocked(effectiveTier, region);
+
+            // Locked regions: show only the header, no customer cells
+            if (!regionUnlocked)
+            {
+                var lockedHeader = UIFactory.Text($"Header_{regionName}",
+                    $"<b>{regionName}</b> <color=#666666>[NO SIGNAL]</color>",
+                    parent, 18, TextAnchor.MiddleCenter);
+                lockedHeader.color = new Color(0.5f, 0.5f, 0.5f);
+                var lockedLayout = lockedHeader.gameObject.AddComponent<LayoutElement>();
+                lockedLayout.flexibleWidth = 1;
+                return;
+            }
+
+            string headerText = $"<b>{regionName}</b>";
+            var headerObj = UIFactory.Text($"Header_{regionName}", headerText, parent, 18, TextAnchor.MiddleCenter);
             headerObj.color = new Color(0.8f, 0.8f, 0.8f);
 
             // Make header stretch full width
@@ -276,11 +525,11 @@ namespace OverTheCounter.Apps
             // Items
             foreach (var item in dataList)
             {
-                CreateCustomerCell(gridObj.transform, item.Customer, item.IsLocked);
+                CreateCustomerCell(gridObj.transform, item.Customer, item.IsLocked, effectiveTier);
             }
         }
 
-        private void CreateCustomerCell(Transform gridParent, Customer customer, bool isLocked)
+        private void CreateCustomerCell(Transform gridParent, Customer customer, bool isLocked, int effectiveTier)
         {
             // Check if customer is in desperation state
             bool isDesperate = !isLocked && DesperationManager.IsDesperate(customer.NPC.ID);
@@ -297,7 +546,7 @@ namespace OverTheCounter.Apps
                 outline.effectDistance = new Vector2(2f, 2f);
             }
 
-            // Add Button only if unlocked (or handle locked click differently)
+            // Add Button component
             var btn = cellObj.AddComponent<Button>();
 
             // 2. Avatar
@@ -318,12 +567,16 @@ namespace OverTheCounter.Apps
             // Call the sprite creator
             CreateCustomerSprite(avatarPanel.transform, customer.NPC);
 
-            // 3. Addiction Progress Bar
-            var addiction = Mathf.Clamp01(customer.CurrentAddiction);
-            CreateAddictionBar(cellObj.transform, addiction);
+            // 3. Addiction Progress Bar - only visible at tier 2+
+            if (effectiveTier >= 2)
+            {
+                var addiction = Mathf.Clamp01(customer.CurrentAddiction);
+                CreateAddictionBar(cellObj.transform, addiction);
+            }
 
             // 4. Name Label
             var nameObj = UIFactory.Text("Name", customer.NPC.FirstName, cellObj.transform, 12, TextAnchor.UpperCenter);
+            nameObj.color = Color.white;
             var nameRect = nameObj.gameObject.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0, 0);
             nameRect.anchorMax = new Vector2(1, 0);
@@ -344,21 +597,50 @@ namespace OverTheCounter.Apps
                 urgentLabel.color = new Color(1f, 0.3f, 0.3f);
             }
 
-            // 6. Locked State Styling
+            // 6. GPS Button - Tier 3 only
+            if (effectiveTier >= 3 && !isLocked)
+            {
+                var (gpsMask, gpsBtn, gpsLabel) = UIFactory.RoundedButtonWithLabel(
+                    "GPSBtn",
+                    "GPS",
+                    cellObj.transform,
+                    new Color(0.15f, 0.35f, 0.45f), // Teal
+                    50,  // width
+                    20,  // height
+                    10,  // fontSize
+                    Color.white
+                );
+
+                // Position top-right of cell
+                var gpsRect = gpsMask.GetComponent<RectTransform>();
+                gpsRect.anchorMin = new Vector2(1, 1);
+                gpsRect.anchorMax = new Vector2(1, 1);
+                gpsRect.pivot = new Vector2(1, 1);
+                gpsRect.anchoredPosition = new Vector2(-4, -4);
+
+                gpsBtn.onClick.AddListener(new System.Action(() =>
+                {
+                    CustomerLocator.PinCustomerToMap(customer);
+                }));
+            }
+
+            // 7. Cell interactivity based on tier
             if (isLocked)
             {
+                // Game-locked customer: dim and disable
                 var cg = cellObj.AddComponent<CanvasGroup>();
-                cg.alpha = 0.5f; // Dim the cell
-                btn.interactable = false; // Disable clicking
+                cg.alpha = 0.5f;
+                btn.interactable = false;
             }
-            else
+            else if (effectiveTier >= 3)
             {
-                // Click to pin customer on map (cast to System.Action for Il2Cpp compatibility)
+                // Tier 3: cell click pins to map
                 btn.onClick.AddListener(new System.Action(() =>
                 {
                     CustomerLocator.PinCustomerToMap(customer);
                 }));
             }
+            // Tier 1-2 unlocked: no click handler (cell looks normal but does nothing)
         }
 
         /// <summary>

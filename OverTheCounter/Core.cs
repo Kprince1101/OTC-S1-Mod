@@ -50,6 +50,9 @@ namespace OverTheCounter
         {
             try
             {
+                // Show/hide OTC phone icon based on subscription state
+                CustomersApp.Instance?.UpdateIconVisibility();
+
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
                 StaticSaveData.Instance?.Tick();

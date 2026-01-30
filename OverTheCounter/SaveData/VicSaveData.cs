@@ -167,8 +167,16 @@ namespace OverTheCounter.SaveData
             // Keep Vic's dialogue fresh so players see current values.
             if (_hasBeenTexted)
             {
-                if (VicNPC.Instance != null && VicNPC.Instance.DialogueReady)
-                    VicNPC.Instance.RefreshDialogue();
+                try
+                {
+                    if (VicNPC.Instance != null && VicNPC.Instance.DialogueReady)
+                        VicNPC.Instance.RefreshDialogue();
+                }
+                catch (System.Exception)
+                {
+                    // NPC's underlying Il2Cpp GameObject was destroyed (e.g. save reload).
+                    // OnDestroyed will clear the stale Instance on next spawn.
+                }
                 return;
             }
 

@@ -28,7 +28,10 @@ namespace OverTheCounter.SaveData
         private bool _saasActive;
 
         [SaveableField("static_saas_next_payment_day")]
-        private int _saasNextPaymentDay; // ElapsedDays when next payment is due (-1 = unset)
+        private int _saasNextPaymentDay; // _dayPassCount value when next payment is due
+
+        [SaveableField("static_saas_day_pass_count")]
+        private int _dayPassCount;       // Incremented every OnDayPass while subscription is active
 
         [SaveableField("static_upgrade_available")]
         private bool _upgradeAvailable;
@@ -55,6 +58,7 @@ namespace OverTheCounter.SaveData
         public int CrmTier => _crmTier;
         public bool SaasActive => _saasActive;
         public int SaasNextPaymentDay => _saasNextPaymentDay;
+        public int DayPassCount => _dayPassCount;
         public bool UpgradeAvailable => _upgradeAvailable;
 
         public StaticSaveData()
@@ -63,7 +67,7 @@ namespace OverTheCounter.SaveData
 
             if (!_dayPassSubscribed)
             {
-                TimeManager.OnDayPass += () => Instance?.CheckSubscriptionStatus();
+                TimeManager.OnDayPass += () => Instance?.OnDayPass();
                 _dayPassSubscribed = true;
             }
         }
@@ -105,8 +109,17 @@ namespace OverTheCounter.SaveData
             }
 
             // Keep dialogue fresh once triggered
-            if (StaticNPC.Instance != null && StaticNPC.Instance.DialogueReady)
-                StaticNPC.Instance.RefreshDialogue();
+            try
+            {
+                if (StaticNPC.Instance != null && StaticNPC.Instance.DialogueReady)
+                    StaticNPC.Instance.RefreshDialogue();
+            }
+            catch (Exception)
+            {
+                // NPC's underlying GameObject was destroyed (e.g. save reload).
+                // Silently ignore — OnDestroyed will clear the stale Instance,
+                // and OnCreated will reinitialize on next spawn.
+            }
         }
 
         public void CreateOrResumeQuest()
@@ -196,7 +209,7 @@ namespace OverTheCounter.SaveData
         {
             _crmTier = 1;
             _saasActive = true;
-            _saasNextPaymentDay = TimeManager.ElapsedDays + SAAS_CYCLE_DAYS;
+            _saasNextPaymentDay = _dayPassCount + SAAS_CYCLE_DAYS;
 
             try
             {
@@ -242,7 +255,7 @@ namespace OverTheCounter.SaveData
 
                 Money.CreateOnlineTransaction("OTC Back-Rent", -SAAS_WEEKLY_COST, 1f, "Static Services");
                 _saasActive = true;
-                _saasNextPaymentDay = TimeManager.ElapsedDays + SAAS_CYCLE_DAYS;
+                _saasNextPaymentDay = _dayPassCount + SAAS_CYCLE_DAYS;
                 return true;
             }
             catch (Exception ex)
@@ -258,11 +271,21 @@ namespace OverTheCounter.SaveData
             _upgradeAvailable = false;
         }
 
+        /// <summary>
+        /// Called every OnDayPass (each sleep). Increments our own day counter
+        /// and checks whether the subscription payment is due.
+        /// </summary>
+        private void OnDayPass()
+        {
+            _dayPassCount++;
+            CheckSubscriptionStatus();
+        }
+
         public void CheckSubscriptionStatus()
         {
             if (!_saasActive) return;
 
-            if (TimeManager.ElapsedDays >= _saasNextPaymentDay)
+            if (_dayPassCount >= _saasNextPaymentDay)
             {
                 try
                 {

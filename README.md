@@ -29,15 +29,16 @@ A "Delivery Manifest" side-panel that appears automatically when you open any st
 * **Smart Fill:** One-click button that automatically transfers the right products from the open container into your inventory. Prioritizes jars over baggies for efficiency.
 * **Include All Shifts Toggle:** Choose whether to see only the current delivery window or all upcoming contracts at once (defaults to all).
 
-### 4. Customer App Overhaul (UI Utility)
-Transforms the basic contact list into a functional CRM tool.
-* **Region Sorting:** Customers are automatically grouped by their neighborhood/region.
-* **Status Indicators:**
-    * **Locked:** Greyed out for quick progression tracking.
-    * **Addiction:** Clear visual tiers for addiction status.
-* **GPS Locator:** Clicking a customer in the app highlights their location in-world, fixing a missing feature from the base game.
+### 4. "Hustle as a Service" Quest & OTC App (Progression & UI)
+The customer list is no longer a default feature. It is now a bootleg app called "OverTheCounter" (OTC), acquired via a new questline.
+* **The Quest:** Static sells the software on a predatory subscription model. You must pay an upfront install fee per tier, plus a recurring $1,000/month "Server Rent." Failure to pay disables the app features.
+* **The "SaaS" Trap:** Clicking a customer in the app highlights their location in-world, fixing a missing feature from the base game.
+* **Software Tiers:**
+    * **v0.1 "Early Access" ($3,000):** Unlocks Region Sorting for Northtown and Westville only.
+    * **v1.0 "Pro License" ($6,000):** Unlocks Global Region Sorting and adds Addiction Status Indicators next to customer names.
+    * **v2.0 "Enterprise" ($12,000):** Unlocks the GPS Locator (click to highlight in-world) and the Desperation Filter.
 
-### 5. Cash Laundering Alternative
+### 5. Cash Laundering Alternative (Progression)
 Addresses the single-player economy bottleneck by introducing a manual laundering option before you own legitimate businesses.
 * **"Rinse Cycle" Quest:** Hitting the standard $10k weekly deposit limit triggers an introduction to Vic, a corrupt bank associate looking for a side hustle.
 * **Manual Laundering:** A daily interaction that lets you clean extra cash beyond the ATM limit. It comes with a significant "Risk Fee" (15-20%) and requires physical travel, balancing the extra capacity with effort.
