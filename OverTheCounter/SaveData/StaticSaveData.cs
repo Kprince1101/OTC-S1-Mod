@@ -39,8 +39,6 @@ namespace OverTheCounter.SaveData
         [SaveableField("static_early_visit_seen")]
         private bool _earlyVisitSeen;
 
-        private const float SAAS_WEEKLY_COST = 1000f;
-        private const int SAAS_CYCLE_DAYS = 7;
 
         private int _tickCounter;
         private const int TICK_INTERVAL = 300;
@@ -98,7 +96,7 @@ namespace OverTheCounter.SaveData
             {
                 try
                 {
-                    if (Il2CppScheduleOne.Money.ATM.WeeklyDepositSum >= 5000f)
+                    if (Il2CppScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value)
                     {
                         _questTriggered = true;
                         TrySendIntroText();
@@ -207,7 +205,7 @@ namespace OverTheCounter.SaveData
                 Logger.Error($"OnIntroCompleted quest completion failed: {ex.Message}");
             }
 
-            SendStaticText("[0x7A3F] s0ftw4r3 p4ck4g3 r34dy. c0st: $3,000 + 20g w33d.\n\nbr1ng t0 c4s1n0.\n\n\u2014 ST4T1C_SYS");
+            SendStaticText($"[0x7A3F] s0ftw4r3 p4ck4g3 r34dy. c0st: ${Config.StaticTier1BankCost.Value:N0} + {Config.StaticTier1WeedGrams.Value}g w33d.\n\nbr1ng t0 c4s1n0.\n\n\u2014 ST4T1C_SYS");
         }
 
         /// <summary>
@@ -218,7 +216,7 @@ namespace OverTheCounter.SaveData
         {
             _crmTier = 1;
             _saasActive = true;
-            _saasNextPaymentDay = _dayPassCount + SAAS_CYCLE_DAYS;
+            _saasNextPaymentDay = _dayPassCount + Config.SaasCycleDays.Value;
 
             try
             {
@@ -259,12 +257,12 @@ namespace OverTheCounter.SaveData
         {
             try
             {
-                if (Money.GetOnlineBalance() < SAAS_WEEKLY_COST)
+                if (Money.GetOnlineBalance() < Config.SaasWeeklyCost.Value)
                     return false;
 
-                Money.CreateOnlineTransaction("OTC Back-Rent", -SAAS_WEEKLY_COST, 1f, "Static Services");
+                Money.CreateOnlineTransaction("OTC Back-Rent", -Config.SaasWeeklyCost.Value, 1f, "Static Services");
                 _saasActive = true;
-                _saasNextPaymentDay = _dayPassCount + SAAS_CYCLE_DAYS;
+                _saasNextPaymentDay = _dayPassCount + Config.SaasCycleDays.Value;
                 return true;
             }
             catch (Exception ex)
@@ -298,10 +296,10 @@ namespace OverTheCounter.SaveData
             {
                 try
                 {
-                    if (Money.GetOnlineBalance() >= SAAS_WEEKLY_COST)
+                    if (Money.GetOnlineBalance() >= Config.SaasWeeklyCost.Value)
                     {
-                        Money.CreateOnlineTransaction("OTC Server Rent", -SAAS_WEEKLY_COST, 1f, "Static Services");
-                        _saasNextPaymentDay += SAAS_CYCLE_DAYS;
+                        Money.CreateOnlineTransaction("OTC Server Rent", -Config.SaasWeeklyCost.Value, 1f, "Static Services");
+                        _saasNextPaymentDay += Config.SaasCycleDays.Value;
                         SendStaticText("[0x52E1] server r3nt cleared. nod3s onl1ne.\n\n\u2014 ST4T1C_SYS");
 
                         if (_crmTier < 3 && !_upgradeAvailable)
@@ -369,11 +367,11 @@ namespace OverTheCounter.SaveData
         {
             if (_crmTier == 1)
             {
-                SendStaticText("[0x9FA1] pr1v4t3 s3rv3r r34dy. c0st: $6,000 + 5g m3th.\nfull r3g10n c0v3r4g3. s4m3 sp0t.\n\n\u2014 ST4T1C_SYS");
+                SendStaticText($"[0x9FA1] pr1v4t3 s3rv3r r34dy. c0st: ${Config.StaticTier2BankCost.Value:N0} + {Config.StaticTier2MethGrams.Value}g m3th.\nfull r3g10n c0v3r4g3. s4m3 sp0t.\n\n\u2014 ST4T1C_SYS");
             }
             else if (_crmTier == 2)
             {
-                SendStaticText("[0xB2D8] 3nt3rpr1s3 t13r. GPS tr4ck1ng. c0st: $12,000 + 10g pr3m1um m3th.\nl4st upgr4d3. c4s1n0.\n\n\u2014 ST4T1C_SYS");
+                SendStaticText($"[0xB2D8] 3nt3rpr1s3 t13r. GPS tr4ck1ng. c0st: ${Config.StaticTier3BankCost.Value:N0} + {Config.StaticTier3PremiumMethGrams.Value}g pr3m1um m3th.\nl4st upgr4d3. c4s1n0.\n\n\u2014 ST4T1C_SYS");
             }
         }
 

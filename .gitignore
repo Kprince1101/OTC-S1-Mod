@@ -35,6 +35,9 @@ __pycache__/
 # Development tools
 tools/
 
+# Local build paths (per-developer, not committed)
+LocalPaths.targets
+
 # Documentation (tracked but not committed by default)
 # To commit these, explicitly git add them
 docs/

@@ -34,7 +34,7 @@ namespace OverTheCounter.NPCs
 
         private bool CanTalkToStatic =>
             (StaticSaveData.Instance?.QuestTriggered ?? false) ||
-            Il2CppScheduleOne.Money.ATM.WeeklyDepositSum >= 5000f;
+            Il2CppScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value;
 
         protected override void ConfigurePrefab(NPCPrefabBuilder builder)
         {
@@ -209,7 +209,7 @@ namespace OverTheCounter.NPCs
                         choices.Add("PITCH2_NEXT", "What's it cost?", "COST");
                     });
 
-                    container.AddNode("COST", "Three grand \u2014 bank transfer, not cash, I don't touch paper \u2014 and 20 grams of weed. Call the weed a licensing fee. *sniffs* Bring both and I'll get you set up.", choices =>
+                    container.AddNode("COST", $"${Config.StaticTier1BankCost.Value:N0} \u2014 bank transfer, not cash, I don't touch paper \u2014 and {Config.StaticTier1WeedGrams.Value} grams of weed. Call the weed a licensing fee. *sniffs* Bring both and I'll get you set up.", choices =>
                     {
                         choices.Add("ACCEPT", "Deal.", "ACCEPT_EXIT");
                         choices.Add("LEAVE", "I'll think about it.", "LEAVE_EXIT");
@@ -224,19 +224,19 @@ namespace OverTheCounter.NPCs
                     float bankBalance = Money.GetOnlineBalance();
                     int weedGrams = CountWeedInInventory();
 
-                    if (bankBalance >= 3000f && weedGrams >= 20)
+                    if (bankBalance >= Config.StaticTier1BankCost.Value && weedGrams >= Config.StaticTier1WeedGrams.Value)
                     {
-                        container.AddNode("ENTRY", $"*sniffs* You got it? Three grand in the bank, 20 grams. I'm showing {weedGrams}g on you and ${bankBalance:N0} in your account. We doing this or what?", choices =>
+                        container.AddNode("ENTRY", $"*sniffs* You got it? ${Config.StaticTier1BankCost.Value:N0} in the bank, {Config.StaticTier1WeedGrams.Value} grams. I'm showing {weedGrams}g on you and ${bankBalance:N0} in your account. We doing this or what?", choices =>
                         {
-                            choices.Add("BUY_INITIAL", "Buy Software ($3,000 transfer + 20g Weed)", "BUY_INITIAL_EXIT");
+                            choices.Add("BUY_INITIAL", $"Buy Software (${Config.StaticTier1BankCost.Value:N0} transfer + {Config.StaticTier1WeedGrams.Value}g Weed)", "BUY_INITIAL_EXIT");
                             choices.Add("LEAVE", "Not yet.", "LEAVE_EXIT");
                         });
 
-                        container.AddNode("BUY_INITIAL_EXIT", "*cracks knuckles* \u2014 Package is live. Northtown, Westville \u2014 those are your clean zones. I'm billing $1,000 a week from your bank. Automatic. Don't let it run dry or I cut the feed.");
+                        container.AddNode("BUY_INITIAL_EXIT", $"*cracks knuckles* \u2014 Package is live. Northtown, Westville \u2014 those are your clean zones. I'm billing ${Config.SaasWeeklyCost.Value:N0} a week from your bank. Automatic. Don't let it run dry or I cut the feed.");
                     }
                     else
                     {
-                        container.AddNode("ENTRY", $"*taps foot* \u2014 I need three grand in your bank and 20 grams of weed. You're sitting on ${bankBalance:N0} and {weedGrams}g. That's not enough. Come back ready.", choices =>
+                        container.AddNode("ENTRY", $"*taps foot* \u2014 I need ${Config.StaticTier1BankCost.Value:N0} in your bank and {Config.StaticTier1WeedGrams.Value} grams of weed. You're sitting on ${bankBalance:N0} and {weedGrams}g. That's not enough. Come back ready.", choices =>
                         {
                             choices.Add("LEAVE", "I'll be back.", "LEAVE_EXIT");
                         });
@@ -249,7 +249,7 @@ namespace OverTheCounter.NPCs
                     // ── Suspended: Terms + App Question restore flow ──
                     container.AddNode("ENTRY", "*flat tone* \u2014 Service is dead. You let the payment lapse. I don't run a charity.", choices =>
                     {
-                        choices.Add("RESTORE_FINAL", "Restore Service ($1,000)", "RESTORE_TERMS");
+                        choices.Add("RESTORE_FINAL", $"Restore Service (${Config.SaasWeeklyCost.Value:N0})", "RESTORE_TERMS");
                         choices.Add("LEAVE", "Not now.", "LEAVE_EXIT");
                     });
 
@@ -290,7 +290,7 @@ namespace OverTheCounter.NPCs
                     float bankBalance = Money.GetOnlineBalance();
                     int methGrams = CountMethInInventory();
 
-                    if (bankBalance >= 6000f && methGrams >= 5)
+                    if (bankBalance >= Config.StaticTier2BankCost.Value && methGrams >= Config.StaticTier2MethGrams.Value)
                     {
                         container.AddNode("ENTRY", $"*rubs hands together* \u2014 Hey. Hey. I've been up all night. Cracked something. Fix for those dead zones.", choices =>
                         {
@@ -307,9 +307,9 @@ namespace OverTheCounter.NPCs
                             choices.Add("T2_COST_Q", "What do you need?", "T2_COST");
                         });
 
-                        container.AddNode("T2_COST", $"Six grand, bank transfer. And 5 grams of meth \u2014 server maintenance runs hot, I need to stay sharp. You've got {methGrams}g on you and ${bankBalance:N0} in the bank.", choices =>
+                        container.AddNode("T2_COST", $"${Config.StaticTier2BankCost.Value:N0}, bank transfer. And {Config.StaticTier2MethGrams.Value} grams of meth \u2014 server maintenance runs hot, I need to stay sharp. You've got {methGrams}g on you and ${bankBalance:N0} in the bank.", choices =>
                         {
-                            choices.Add("BUY_UPGRADE", "Upgrade to Premium ($6,000 + 5g Meth)", "BUY_UPGRADE_EXIT");
+                            choices.Add("BUY_UPGRADE", $"Upgrade to Premium (${Config.StaticTier2BankCost.Value:N0} + {Config.StaticTier2MethGrams.Value}g Meth)", "BUY_UPGRADE_EXIT");
                             choices.Add("LEAVE", "Not yet.", "LEAVE_EXIT");
                             choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
                         });
@@ -318,7 +318,7 @@ namespace OverTheCounter.NPCs
                     }
                     else
                     {
-                        container.AddNode("ENTRY", $"*jittery* \u2014 Premium's unlocked. Six grand in the bank, 5 grams of meth. You're not there yet.", choices =>
+                        container.AddNode("ENTRY", $"*jittery* \u2014 Premium's unlocked. ${Config.StaticTier2BankCost.Value:N0} in the bank, {Config.StaticTier2MethGrams.Value} grams of meth. You're not there yet.", choices =>
                         {
                             choices.Add("T2_PITCH_SHORT_Q", "What's the upgrade?", "T2_PITCH_SHORT");
                             choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
@@ -344,7 +344,7 @@ namespace OverTheCounter.NPCs
                     float bankBalance = Money.GetOnlineBalance();
                     int methGrams = CountMethInInventory(EQuality.Premium);
 
-                    if (bankBalance >= 12000f && methGrams >= 10)
+                    if (bankBalance >= Config.StaticTier3BankCost.Value && methGrams >= Config.StaticTier3PremiumMethGrams.Value)
                     {
                         container.AddNode("ENTRY", "*bouncing on heels* \u2014 Final tier. Enterprise. This is the big one.", choices =>
                         {
@@ -367,9 +367,9 @@ namespace OverTheCounter.NPCs
                             choices.Add("T3_SCAM_Q", "That's a scam.", "T3_SCAM");
                         });
 
-                        container.AddNode("T3_COST", $"Twelve grand, bank transfer. 10 grams of premium meth \u2014 not that stepped-on garbage, the real thing. You've got {methGrams}g premium and ${bankBalance:N0} in the bank.", choices =>
+                        container.AddNode("T3_COST", $"${Config.StaticTier3BankCost.Value:N0}, bank transfer. {Config.StaticTier3PremiumMethGrams.Value} grams of premium meth \u2014 not that stepped-on garbage, the real thing. You've got {methGrams}g premium and ${bankBalance:N0} in the bank.", choices =>
                         {
-                            choices.Add("BUY_UPGRADE", "Upgrade to Enterprise ($12,000 + 10g Premium Meth)", "BUY_UPGRADE_EXIT");
+                            choices.Add("BUY_UPGRADE", $"Upgrade to Enterprise (${Config.StaticTier3BankCost.Value:N0} + {Config.StaticTier3PremiumMethGrams.Value}g Premium Meth)", "BUY_UPGRADE_EXIT");
                             choices.Add("LEAVE", "Not yet.", "LEAVE_EXIT");
                         });
 
@@ -383,7 +383,7 @@ namespace OverTheCounter.NPCs
                     }
                     else
                     {
-                        container.AddNode("ENTRY", $"*pacing* \u2014 Enterprise. Twelve grand in the bank. 10 grams premium meth. You're short.", choices =>
+                        container.AddNode("ENTRY", $"*pacing* \u2014 Enterprise. ${Config.StaticTier3BankCost.Value:N0} in the bank. {Config.StaticTier3PremiumMethGrams.Value} grams premium meth. You're short.", choices =>
                         {
                             choices.Add("T3_PITCH_SHORT_Q", "Tell me about it.", "T3_PITCH_SHORT");
                             choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
@@ -475,11 +475,11 @@ namespace OverTheCounter.NPCs
             {
                 try
                 {
-                    if (Money.GetOnlineBalance() < 3000f || CountWeedInInventory() < 20)
+                    if (Money.GetOnlineBalance() < Config.StaticTier1BankCost.Value || CountWeedInInventory() < Config.StaticTier1WeedGrams.Value)
                         return;
 
-                    Money.CreateOnlineTransaction("OTC License", -3000f, 1f, "Static Services");
-                    RemoveWeedFromInventory(20);
+                    Money.CreateOnlineTransaction("OTC License", -Config.StaticTier1BankCost.Value, 1f, "Static Services");
+                    RemoveWeedFromInventory(Config.StaticTier1WeedGrams.Value);
                     StaticSaveData.Instance?.PurchaseInitial();
                     TriggerCocaineConsumption();
                     RefreshDialogue();
@@ -498,19 +498,19 @@ namespace OverTheCounter.NPCs
 
                     if (tier == 1)
                     {
-                        if (Money.GetOnlineBalance() < 6000f || CountMethInInventory() < 5)
+                        if (Money.GetOnlineBalance() < Config.StaticTier2BankCost.Value || CountMethInInventory() < Config.StaticTier2MethGrams.Value)
                             return;
 
-                        Money.CreateOnlineTransaction("OTC Premium", -6000f, 1f, "Static Services");
-                        RemoveMethFromInventory(5);
+                        Money.CreateOnlineTransaction("OTC Premium", -Config.StaticTier2BankCost.Value, 1f, "Static Services");
+                        RemoveMethFromInventory(Config.StaticTier2MethGrams.Value);
                     }
                     else if (tier == 2)
                     {
-                        if (Money.GetOnlineBalance() < 12000f || CountMethInInventory(EQuality.Premium) < 10)
+                        if (Money.GetOnlineBalance() < Config.StaticTier3BankCost.Value || CountMethInInventory(EQuality.Premium) < Config.StaticTier3PremiumMethGrams.Value)
                             return;
 
-                        Money.CreateOnlineTransaction("OTC Enterprise", -12000f, 1f, "Static Services");
-                        RemoveMethFromInventory(10, EQuality.Premium);
+                        Money.CreateOnlineTransaction("OTC Enterprise", -Config.StaticTier3BankCost.Value, 1f, "Static Services");
+                        RemoveMethFromInventory(Config.StaticTier3PremiumMethGrams.Value, EQuality.Premium);
                     }
                     else
                     {

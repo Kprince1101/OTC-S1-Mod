@@ -16,7 +16,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class NotificationManager
     {
-        private const int CONSOLIDATION_THRESHOLD = 5;
         private readonly MelonLogger.Instance _logger;
 
         // State tracking
@@ -68,7 +67,7 @@ namespace OverTheCounter.Logic
             }
 
             // MODE 1: A window group exceeds threshold -> Consolidate that group
-            if (largestGroup.HasValue && largestCount > CONSOLIDATION_THRESHOLD)
+            if (largestGroup.HasValue && largestCount > Config.ConsolidationThreshold.Value)
             {
                 var windowKey = largestGroup.Value.Key;
                 var groupContracts = largestGroup.Value.Value;
@@ -232,17 +231,41 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Re-enables the game's default quest notifications.
+        /// Iterates live contracts rather than stored references to avoid stale Il2Cpp objects.
         /// </summary>
         private void RestoreIndividualHUDs()
         {
+            // Restore from stored references (may still be valid)
             foreach (var hud in _hiddenHUDs)
             {
-                if (hud != null && hud.gameObject != null)
+                try
                 {
-                    hud.gameObject.SetActive(true);
+                    if (hud != null && hud.gameObject != null)
+                    {
+                        hud.gameObject.SetActive(true);
+                    }
                 }
+                catch { }
             }
             _hiddenHUDs.Clear();
+
+            // Also scan all live contracts to catch any HUDs we missed
+            var contracts = Contract.Contracts;
+            if (contracts == null) return;
+
+            for (int i = 0; i < contracts.Count; i++)
+            {
+                try
+                {
+                    var contract = contracts[i];
+                    if (contract == null) continue;
+                    if (contract.hudUI != null && contract.hudUI.gameObject != null && !contract.hudUI.gameObject.activeSelf)
+                    {
+                        contract.hudUI.gameObject.SetActive(true);
+                    }
+                }
+                catch { }
+            }
         }
 
         /// <summary>

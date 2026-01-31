@@ -58,7 +58,7 @@ namespace OverTheCounter.Quests
                 TriggerInternalInit();
 
                 _talkToStaticEntry = AddEntry("Talk to Static in the casino after 4 PM", StaticPosition);
-                _bringSuppliesEntry = AddEntry("Bring Static $3,000 and 20 grams of weed", StaticPosition);
+                _bringSuppliesEntry = AddEntry($"Bring Static ${Config.StaticTier1BankCost.Value:N0} and {Config.StaticTier1WeedGrams.Value} grams of weed", StaticPosition);
             }
             catch (Exception ex)
             {
@@ -123,7 +123,7 @@ namespace OverTheCounter.Quests
                 // Entries aren't restored from save — rebuild them
                 QuestEntries.Clear();
                 _talkToStaticEntry = AddEntry("Talk to Static in the casino after 4 PM", StaticPosition);
-                _bringSuppliesEntry = AddEntry("Bring Static $3,000 and 20 grams of weed", StaticPosition);
+                _bringSuppliesEntry = AddEntry($"Bring Static ${Config.StaticTier1BankCost.Value:N0} and {Config.StaticTier1WeedGrams.Value} grams of weed", StaticPosition);
 
                 // Restore entry states based on saved stage
                 if (_stage >= 1)

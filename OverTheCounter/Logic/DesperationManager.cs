@@ -19,20 +19,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class DesperationManager
     {
-        // Configuration Constants
-        private const float FIEND_ADDICTION_THRESHOLD = 0.67f;  // Addiction level to qualify as "Fiend"
-        private const float TRIGGER_CHANCE_PER_HOUR = 0.12f;    // 12% chance per hour
-        private const int MAX_EVENTS_PER_DAY = 3;               // Hard cap on daily events
-        private const int RESPONSE_DEADLINE_MINUTES = 60;       // 1 in-game hour to respond
-        private const int DEADLINE_MINUTES = 120;               // 2 in-game hours to deliver after accepting
-        private const float BONUS_MULTIPLIER = 0.45f;           // 45% bonus payment
-        private const float RELATIONSHIP_PENALTY = -15f;        // Relationship hit on failure
-        private const int COOLDOWN_MINUTES = 1440;              // 24-hour lockout on failure
-
-        // Day phase boundaries (24-hour format: 800 = 8:00 AM)
-        private const int DAY_START_HOUR = 800;
-        private const int DAY_END_HOUR = 2100;  // Before typical curfew
-
         private readonly MelonLogger.Instance _logger;
 
         // Active desperation events: CustomerID -> Deadline (in elapsed minutes)
@@ -105,7 +91,7 @@ namespace OverTheCounter.Logic
         /// </summary>
         private bool IsDayPhase(int time24h)
         {
-            return time24h >= DAY_START_HOUR && time24h < DAY_END_HOUR;
+            return time24h >= Config.DayStartHour.Value && time24h < Config.DayEndHour.Value;
         }
 
         /// <summary>
@@ -114,14 +100,14 @@ namespace OverTheCounter.Logic
         private void TryTriggerDesperationEvent()
         {
             // Check daily cap
-            if (_dailyEventsTriggered >= MAX_EVENTS_PER_DAY)
+            if (_dailyEventsTriggered >= Config.MaxEventsPerDay.Value)
             {
                 return;
             }
 
             // Roll the dice (12% chance)
             float roll = UnityEngine.Random.value;
-            if (roll > TRIGGER_CHANCE_PER_HOUR)
+            if (roll > Config.TriggerChancePerHour.Value)
             {
                 return;
             }
@@ -163,7 +149,7 @@ namespace OverTheCounter.Logic
                 string customerId = customer.NPC.ID;
 
                 // Check addiction threshold (Fiend = high addiction)
-                if (customer.CurrentAddiction < FIEND_ADDICTION_THRESHOLD)
+                if (customer.CurrentAddiction < Config.FiendAddictionThreshold.Value)
                     continue;
 
                 // Check if idle (no active contract or pending offer)
@@ -202,7 +188,7 @@ namespace OverTheCounter.Logic
         private void TriggerDesperationEvent(Customer customer)
         {
             string customerId = customer.NPC.ID;
-            int responseDeadline = GetCurrentElapsedMinutes() + RESPONSE_DEADLINE_MINUTES;
+            int responseDeadline = GetCurrentElapsedMinutes() + Config.ResponseDeadlineMinutes.Value;
 
             // Create the event with response deadline (delivery deadline set on accept)
             var evt = new DesperationEvent
@@ -220,7 +206,7 @@ namespace OverTheCounter.Logic
             ForceCustomerDealOffer(customer);
 
             _logger.Msg($"[DesperationManager] Desperation event triggered for {customer.NPC.fullName}. " +
-                       $"Response deadline: {RESPONSE_DEADLINE_MINUTES} mins. Daily count: {_dailyEventsTriggered}/{MAX_EVENTS_PER_DAY}");
+                       $"Response deadline: {Config.ResponseDeadlineMinutes.Value} mins. Daily count: {_dailyEventsTriggered}/{Config.MaxEventsPerDay.Value}");
         }
 
         /// <summary>
@@ -355,7 +341,7 @@ namespace OverTheCounter.Logic
                 // Use ImmediateQuestWindowConfig to mark this as a desperation contract
                 int currentTime = TimeManager.CurrentTime;
                 int endTime = TimeManager.Get24HourTimeFromMinutes(
-                    TimeManager.GetMinutesFrom24HourTime(currentTime) + DEADLINE_MINUTES);
+                    TimeManager.GetMinutesFrom24HourTime(currentTime) + Config.DeadlineMinutes.Value);
 
                 var deliveryWindow = new ImmediateQuestWindowConfig
                 {
@@ -626,7 +612,7 @@ namespace OverTheCounter.Logic
             // Apply relationship penalty
             try
             {
-                customer.NPC.RelationData.ChangeRelationship(RELATIONSHIP_PENALTY, true);
+                customer.NPC.RelationData.ChangeRelationship(Config.RelationshipPenalty.Value, true);
             }
             catch (Exception ex)
             {
@@ -637,11 +623,11 @@ namespace OverTheCounter.Logic
             SendFailureMessage(customer, failureType);
 
             // Put customer on cooldown (24 hours)
-            int cooldownEnd = GetCurrentElapsedMinutes() + COOLDOWN_MINUTES;
+            int cooldownEnd = GetCurrentElapsedMinutes() + Config.CooldownMinutes.Value;
             _customerCooldowns[customerId] = cooldownEnd;
 
             _logger.Msg($"[DesperationManager] Desperation event FAILED ({failureType}) for {customer.NPC.fullName}. " +
-                       $"Relationship {RELATIONSHIP_PENALTY}. Cooldown until minute {cooldownEnd}.");
+                       $"Relationship {Config.RelationshipPenalty.Value}. Cooldown until minute {cooldownEnd}.");
         }
 
         /// <summary>
@@ -700,7 +686,7 @@ namespace OverTheCounter.Logic
         /// </summary>
         public static float GetBonusMultiplier()
         {
-            return BONUS_MULTIPLIER;
+            return Config.BonusMultiplier.Value;
         }
 
         /// <summary>
@@ -715,7 +701,7 @@ namespace OverTheCounter.Logic
             {
                 Instance._activeEvents.Remove(customerId);
                 Instance._logger.Msg($"[DesperationManager] Desperation event RESOLVED for customer {customerId}. " +
-                                    $"Bonus applied: {BONUS_MULTIPLIER * 100}%");
+                                    $"Bonus applied: {Config.BonusMultiplier.Value * 100}%");
             }
         }
 
@@ -797,7 +783,7 @@ namespace OverTheCounter.Logic
 
             var sb = new System.Text.StringBuilder();
             sb.AppendLine($"=== Desperation Manager Status ===");
-            sb.AppendLine($"Daily Events: {Instance._dailyEventsTriggered}/{MAX_EVENTS_PER_DAY}");
+            sb.AppendLine($"Daily Events: {Instance._dailyEventsTriggered}/{Config.MaxEventsPerDay.Value}");
             sb.AppendLine($"Active Events: {Instance._activeEvents.Count}");
 
             foreach (var kvp in Instance._activeEvents)
@@ -847,9 +833,9 @@ namespace OverTheCounter.Logic
             if (Instance._activeEvents.TryGetValue(customerId, out var evt))
             {
                 // Update deadline: 120 minutes from NOW (acceptance time)
-                evt.DeadlineMinutes = Instance.GetCurrentElapsedMinutes() + DEADLINE_MINUTES;
+                evt.DeadlineMinutes = Instance.GetCurrentElapsedMinutes() + Config.DeadlineMinutes.Value;
                 evt.IsAccepted = true;
-                Instance._logger.Msg($"[DesperationManager] Contract accepted for {evt.Customer?.NPC?.fullName}. New deadline: {DEADLINE_MINUTES} minutes from now.");
+                Instance._logger.Msg($"[DesperationManager] Contract accepted for {evt.Customer?.NPC?.fullName}. New deadline: {Config.DeadlineMinutes.Value} minutes from now.");
             }
         }
 

@@ -133,9 +133,9 @@ namespace OverTheCounter.Patches
                         int currentDay = TimeManager.ElapsedDays;
                         int currentTime = TimeManager.CurrentTime;
 
-                        // Add 120 minutes to current time
+                        // Add deadline minutes to current time
                         int expiryTime = TimeManager.Get24HourTimeFromMinutes(
-                            TimeManager.GetMinutesFrom24HourTime(currentTime) + 120);
+                            TimeManager.GetMinutesFrom24HourTime(currentTime) + Config.DeadlineMinutes.Value);
 
                         // Check if we wrapped to next day
                         int expiryDay = currentDay;

@@ -22,6 +22,8 @@ namespace OverTheCounter
 
         public override void OnInitializeMelon()
         {
+            Config.Initialize();
+
             LoggerInstance.Msg("OverTheCounter Initialized.");
 
             ImmediateQuestWindowConfig.Register();

@@ -225,9 +225,9 @@ namespace OverTheCounter.NPCs
                     float cash = Money.GetCashBalance();
 
                     int trustLevel = VicSaveData.Instance?.TrustLevel ?? 0;
-                    bool tier2 = trustLevel >= 7;
-                    float requiredCash = tier2 ? 900f : 500f;
-                    float returnAmount = tier2 ? 750f : 400f;
+                    bool tier2 = trustLevel >= Config.VicTier2TrustUnlock.Value;
+                    float requiredCash = tier2 ? Config.VicTier2Cost.Value : Config.VicTier1Cost.Value;
+                    float returnAmount = tier2 ? Config.VicTier2Return.Value : Config.VicTier1Return.Value;
 
                     if (cooldownActive)
                     {
@@ -244,12 +244,12 @@ namespace OverTheCounter.NPCs
                         {
                             bool tier2IntroShown = VicSaveData.Instance?.Tier2IntroShown ?? false;
                             string entryText = tier2IntroShown
-                                ? "Ready to move some cash? Same deal — $900 in, $750 back clean."
-                                : "You're reliable. We can move more. I'll run $900 through the books — you'll get $750 back clean.";
+                                ? $"Ready to move some cash? Same deal — ${Config.VicTier2Cost.Value:N0} in, ${Config.VicTier2Return.Value:N0} back clean."
+                                : $"You're reliable. We can move more. I'll run ${Config.VicTier2Cost.Value:N0} through the books — you'll get ${Config.VicTier2Return.Value:N0} back clean.";
 
                             container.AddNode("ENTRY", entryText, choices =>
                             {
-                                choices.Add("LAUNDER", "Launder $900 (Receive $750)", "LAUNDER_EXIT");
+                                choices.Add("LAUNDER", $"Launder ${Config.VicTier2Cost.Value:N0} (Receive ${Config.VicTier2Return.Value:N0})", "LAUNDER_EXIT");
                                 choices.Add("LEAVE", "Leave", "LEAVE_EXIT");
                             });
 
@@ -257,9 +257,9 @@ namespace OverTheCounter.NPCs
                         }
                         else
                         {
-                            container.AddNode("ENTRY", "You need some cash cleaned? I can run $500 through the books. You'll get $400 back in your account.", choices =>
+                            container.AddNode("ENTRY", $"You need some cash cleaned? I can run ${Config.VicTier1Cost.Value:N0} through the books. You'll get ${Config.VicTier1Return.Value:N0} back in your account.", choices =>
                             {
-                                choices.Add("LAUNDER", "Launder $500 (Receive $400)", "LAUNDER_EXIT");
+                                choices.Add("LAUNDER", $"Launder ${Config.VicTier1Cost.Value:N0} (Receive ${Config.VicTier1Return.Value:N0})", "LAUNDER_EXIT");
                                 choices.Add("LEAVE", "Leave", "LEAVE_EXIT");
                             });
 
@@ -271,14 +271,14 @@ namespace OverTheCounter.NPCs
                     {
                         if (tier2)
                         {
-                            container.AddNode("ENTRY", "You need at least $900 in cash for me to work with. You're short.", choices =>
+                            container.AddNode("ENTRY", $"You need at least ${Config.VicTier2Cost.Value:N0} in cash for me to work with. You're short.", choices =>
                             {
                                 choices.Add("LEAVE", "Leave", "LEAVE_EXIT");
                             });
                         }
                         else
                         {
-                            container.AddNode("ENTRY", "You need at least $500 in cash for me to work with. You're short.", choices =>
+                            container.AddNode("ENTRY", $"You need at least ${Config.VicTier1Cost.Value:N0} in cash for me to work with. You're short.", choices =>
                             {
                                 choices.Add("LEAVE", "Leave", "LEAVE_EXIT");
                             });
@@ -364,9 +364,9 @@ namespace OverTheCounter.NPCs
                     bool cooldownActive = lastDeposit >= 0 && lastDeposit >= today;
 
                     int trustLevel = VicSaveData.Instance?.TrustLevel ?? 0;
-                    bool tier2 = trustLevel >= 7;
-                    float cost = tier2 ? 900f : 500f;
-                    float payout = tier2 ? 750f : 400f;
+                    bool tier2 = trustLevel >= Config.VicTier2TrustUnlock.Value;
+                    float cost = tier2 ? Config.VicTier2Cost.Value : Config.VicTier1Cost.Value;
+                    float payout = tier2 ? Config.VicTier2Return.Value : Config.VicTier1Return.Value;
 
                     if (cooldownActive || Money.GetCashBalance() < cost)
                         return;

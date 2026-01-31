@@ -31,6 +31,12 @@ namespace OverTheCounter.Logic
         // Flag to track if we've initialized
         private bool _initialized = false;
 
+        private Il2CppScheduleOne.Quests.Quest GetS1Quest()
+        {
+            var field = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            return field?.GetValue(this) as Il2CppScheduleOne.Quests.Quest;
+        }
+
         /// <summary>
         /// Manually trigger internal initialization that QuestManager should have done.
         /// This is a workaround for QuestManager.CreateQuest not calling CreateInternal.
@@ -39,11 +45,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                // Get the internal S1Quest field via reflection
-                var s1QuestField = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (s1QuestField == null) return;
-
-                var s1Quest = s1QuestField.GetValue(this) as Il2CppScheduleOne.Quests.Quest;
+                var s1Quest = GetS1Quest();
                 if (s1Quest == null) return;
 
                 // Call InitializeQuest to register with the game's UI
@@ -111,6 +113,7 @@ namespace OverTheCounter.Logic
 
             // Update count for title
             _currentCount = deliveryCount;
+            UpdateTitle();
 
             // Clear existing entries and add new ones
             try
@@ -262,16 +265,34 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Updates the quest title on the underlying S1Quest.
+        /// Needed because the game caches the title at initialization time.
+        /// </summary>
+        private void UpdateTitle()
+        {
+            try
+            {
+                var s1Quest = GetS1Quest();
+                if (s1Quest == null) return;
+
+                s1Quest.InitializeQuest(Title, _description,
+                    System.Array.Empty<Il2CppScheduleOne.Persistence.Datas.QuestEntryData>(),
+                    s1Quest.StaticGUID);
+            }
+            catch (System.Exception ex)
+            {
+                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] UpdateTitle failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Sets the quest subtitle via reflection on the underlying S1Quest.
         /// </summary>
         private void SetSubtitleViaReflection(string subtitle)
         {
             try
             {
-                var s1QuestField = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (s1QuestField == null) return;
-
-                var s1Quest = s1QuestField.GetValue(this) as Il2CppScheduleOne.Quests.Quest;
+                var s1Quest = GetS1Quest();
                 if (s1Quest == null) return;
 
                 // Call SetSubtitle on the game's Quest object
@@ -290,26 +311,15 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                // Get the S1Quest field via reflection (it's internal in S1API)
-                var s1QuestField = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (s1QuestField == null)
-                {
-                    Melon<Core>.Logger.Warning("[ConsolidatedQuest] ClearAllEntries: S1Quest field not found");
-                    QuestEntries.Clear();
-                    return;
-                }
-
-                var s1Quest = s1QuestField.GetValue(this) as Il2CppScheduleOne.Quests.Quest;
+                var s1Quest = GetS1Quest();
                 if (s1Quest == null)
                 {
-                    Melon<Core>.Logger.Warning("[ConsolidatedQuest] ClearAllEntries: S1Quest is null");
                     QuestEntries.Clear();
                     return;
                 }
 
                 if (s1Quest.Entries == null)
                 {
-                    Melon<Core>.Logger.Warning("[ConsolidatedQuest] ClearAllEntries: S1Quest.Entries is null");
                     QuestEntries.Clear();
                     return;
                 }
@@ -340,43 +350,9 @@ namespace OverTheCounter.Logic
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] ClearAllEntries failed: {ex.Message}\n{ex.StackTrace}");
+                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] ClearAllEntries failed: {ex.Message}");
                 // Still try to clear the wrapper list
                 try { QuestEntries.Clear(); } catch { }
-            }
-        }
-
-        /// <summary>
-        /// Overload for backward compatibility - accepts string breakdown.
-        /// </summary>
-        public void UpdateSummary(int deliveryCount, string productBreakdown)
-        {
-            // Ensure initialized
-            if (!_initialized)
-            {
-                Initialize();
-            }
-
-            // Update count for title
-            _currentCount = deliveryCount;
-
-            try
-            {
-                // Clear both the wrapper list AND the game's internal entries list
-                ClearAllEntries();
-
-                // Add the breakdown as a single entry and activate it
-                if (!string.IsNullOrEmpty(productBreakdown))
-                {
-                    var entry = AddEntry(productBreakdown);
-                    entry.Begin();
-                }
-
-                _description = $"Products needed: {productBreakdown}";
-            }
-            catch (System.Exception ex)
-            {
-                Melon<Core>.Logger.Error($"[ConsolidatedQuest] UpdateSummary failed: {ex.Message}");
             }
         }
 
