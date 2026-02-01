@@ -191,6 +191,9 @@
 		<Reference Include="S1API">
 		  <HintPath>$(S1APIModsPath)\S1API.Il2Cpp.MelonLoader.dll</HintPath>
 		</Reference>
+		<Reference Include="SteamNetworkLib">
+		  <HintPath>$(SteamNetworkLibPath)\SteamNetworkLib-IL2Cpp.dll</HintPath>
+		</Reference>
 		<Reference Include="S1APILoader">
 		  <HintPath>$(S1APIPluginsPath)\S1APILoader.MelonLoader.dll</HintPath>
 		</Reference>
@@ -491,6 +494,7 @@
 		<Compile Include="NPCs\VicNPC.cs" />
 		<Compile Include="Utilities\CustomerLocator.cs" />
 		<Compile Include="Utilities\FormatUtils.cs" />
+		<Compile Include="Utilities\NetworkHelper.cs" />
 		<Compile Include="Logic\NotificationManager.cs" />
 		<Compile Include="Logic\ConsolidatedQuest.cs" />
 		<Compile Include="Logic\DesperationManager.cs" />
@@ -510,6 +514,9 @@
 		<Compile Include="Quests\StaticUpgrade1Quest.cs" />
 		<Compile Include="Quests\StaticUpgrade2Quest.cs" />
 		<Compile Include="Config.cs" />
+		<Compile Include="Utilities\ConfigEntry.cs" />
+		<Compile Include="SaveData\ConfigSyncData.cs" />
+		<Compile Include="Patches\ConfigSyncPatch.cs" />
 	</ItemGroup>
 
 	<ItemGroup>

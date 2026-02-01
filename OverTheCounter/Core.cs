@@ -3,6 +3,7 @@ using MelonLoader;
 using MelonLoader.Utils;
 using OverTheCounter.Apps;
 using OverTheCounter.Logic;
+using OverTheCounter.Patches;
 using OverTheCounter.SaveData;
 using S1API.PhoneApp;
 using System;
@@ -23,6 +24,7 @@ namespace OverTheCounter
         public override void OnInitializeMelon()
         {
             Config.Initialize();
+            ConfigSyncPatch.TryApply(HarmonyInstance);
 
             LoggerInstance.Msg("OverTheCounter Initialized.");
 
@@ -52,8 +54,14 @@ namespace OverTheCounter
         {
             try
             {
+                // Initialize SteamNetworkLib on first tick (Steam is ready by now).
+                // Must run on both host and client, independent of Saveable lifecycle.
+                ConfigSyncData.EnsureNetworkReady();
+
                 // Show/hide OTC phone icon based on subscription state
                 CustomersApp.Instance?.UpdateIconVisibility();
+
+                ConfigSyncData.NetworkClient?.ProcessIncomingMessages();
 
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
@@ -67,6 +75,8 @@ namespace OverTheCounter
 
         public override void OnDeinitializeMelon()
         {
+            ConfigSyncData.NetworkClient?.Dispose();
+            ConfigSyncData.NetworkClient = null;
             _notificationManager?.Cleanup();
             _desperationManager?.Cleanup();
         }

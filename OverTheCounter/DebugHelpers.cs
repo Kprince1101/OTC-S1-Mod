@@ -112,7 +112,7 @@ namespace OverTheCounter
         {
             if (!_menuVisible) return;
 
-            GUILayout.BeginArea(new Rect(10, 10, 260, 440), "DEV TOOLS", GUI.skin.window);
+            GUILayout.BeginArea(new Rect(10, 10, 260, 500), "DEV TOOLS", GUI.skin.window);
 
             if (GUILayout.Button("+$1000 Cash"))
                 Money.ChangeCashBalance(1000f, true, true);
@@ -154,7 +154,50 @@ namespace OverTheCounter
             if (GUILayout.Button("+5 Premium Meth Baggies (1g)"))
                 SpawnPackagedProduct(_cachedMethDef, "baggie", 1, 5, "premium meth baggies", Il2CppScheduleOne.ItemFramework.EQuality.Premium);
 
+            GUILayout.Space(8);
+
+            if (GUILayout.Button(_speedBoosted ? "Speed: BOOSTED (2.4x)" : "Speed Boost (2.4x)"))
+                ToggleSpeedBoost();
+
+            GUILayout.Space(8);
+
+            if (GUILayout.Button("Copy Position to Clipboard"))
+            {
+                try
+                {
+                    var player = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerMovement>.Instance;
+                    if (player != null)
+                    {
+                        var pos = player.transform.position;
+                        var rot = player.transform.rotation.eulerAngles;
+                        string text = $"new Vector3({pos.x:F2}f, {pos.y:F2}f, {pos.z:F2}f)  Rot: ({rot.x:F1}, {rot.y:F1}, {rot.z:F1})";
+                        GUIUtility.systemCopyBuffer = text;
+                        Logger.Msg($"Position copied: {text}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"Copy position failed: {ex.Message}");
+                }
+            }
+
             GUILayout.EndArea();
+        }
+
+        private bool _speedBoosted;
+
+        private void ToggleSpeedBoost()
+        {
+            try
+            {
+                _speedBoosted = !_speedBoosted;
+                ConsoleHelper.SetPlayerMoveSpeedMultiplier(_speedBoosted ? 2.4f : 1f);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Speed boost failed: {ex.Message}");
+                _speedBoosted = false;
+            }
         }
 
         private static void SpawnPackagedProduct(ProductDefinition productDef, string packagingId, int gramsPerUnit, int count, string label,

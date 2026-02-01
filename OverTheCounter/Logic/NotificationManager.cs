@@ -1,7 +1,6 @@
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Quests;
 using Il2CppScheduleOne.NPCs;
-using Il2CppScheduleOne.UI;
 using MelonLoader;
 using OverTheCounter.Utilities;
 using System.Collections.Generic;
@@ -18,11 +17,8 @@ namespace OverTheCounter.Logic
     {
         private readonly MelonLogger.Instance _logger;
 
-        // State tracking
         private bool _isConsolidated = false;
-
-        // Keep track of which HUDs we have hidden so we can restore them later
-        private readonly List<QuestHUDUI> _hiddenHUDs = new();
+        private int _pendingRestoreFrames;
 
         // Reference to our S1API Quest
         private ConsolidatedQuest _summaryQuest;
@@ -46,6 +42,14 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void ProcessContractState()
         {
+            // Multi-frame restore retry: after deconsolidation, the game may
+            // recreate HUD objects over several frames. Keep restoring until done.
+            if (_pendingRestoreFrames > 0)
+            {
+                _pendingRestoreFrames--;
+                RestoreAllContractHUDs();
+            }
+
             // Get the list of active contracts from the game
             var contracts = Contract.Contracts;
             if (contracts == null) return;
@@ -190,19 +194,25 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Switches back to standard game behavior.
+        /// Restores individual HUDs BEFORE dismissing the summary quest so
+        /// Fail()/Dismiss() cannot destroy the contract HUD objects first.
         /// </summary>
         private void DeactivateConsolidatedMode()
         {
-            // Dismiss the quest
+            RestoreAllContractHUDs();
+
             _summaryQuest?.Dismiss();
             _summaryQuest = null;
 
-            RestoreIndividualHUDs();
             _consolidatedWindowStart = -1;
             _consolidatedWindowEnd = -1;
             _lastContractCount = -1;
             _lastProductHash = "";
             _isConsolidated = false;
+
+            // Retry restoration for a few frames in case HUDs are rebuilt by the game.
+            _pendingRestoreFrames = 3;
+
             _logger.Msg("Restored individual notifications.");
         }
 
@@ -215,41 +225,21 @@ namespace OverTheCounter.Logic
             {
                 if (contract == null) continue;
 
-                // Check if the HUD exists, is valid, and is currently visible
-                if (contract.hudUI != null && contract.hudUI.gameObject != null && contract.hudUI.gameObject.activeSelf)
+                try
                 {
-                    contract.hudUI.gameObject.SetActive(false);
-
-                    // Add to our tracker so we can turn it back on later
-                    if (!_hiddenHUDs.Contains(contract.hudUI))
-                    {
-                        _hiddenHUDs.Add(contract.hudUI);
-                    }
+                    if (contract.hudUI != null && contract.hudUI.gameObject != null && contract.hudUI.gameObject.activeSelf)
+                        contract.hudUI.gameObject.SetActive(false);
                 }
+                catch { }
             }
         }
 
         /// <summary>
-        /// Re-enables the game's default quest notifications.
-        /// Iterates live contracts rather than stored references to avoid stale Il2Cpp objects.
+        /// Re-enables HUDs on all live contracts. Scans the game's contract list
+        /// directly to avoid holding stale Il2Cpp references.
         /// </summary>
-        private void RestoreIndividualHUDs()
+        private void RestoreAllContractHUDs()
         {
-            // Restore from stored references (may still be valid)
-            foreach (var hud in _hiddenHUDs)
-            {
-                try
-                {
-                    if (hud != null && hud.gameObject != null)
-                    {
-                        hud.gameObject.SetActive(true);
-                    }
-                }
-                catch { }
-            }
-            _hiddenHUDs.Clear();
-
-            // Also scan all live contracts to catch any HUDs we missed
             var contracts = Contract.Contracts;
             if (contracts == null) return;
 
@@ -260,9 +250,7 @@ namespace OverTheCounter.Logic
                     var contract = contracts[i];
                     if (contract == null) continue;
                     if (contract.hudUI != null && contract.hudUI.gameObject != null && !contract.hudUI.gameObject.activeSelf)
-                    {
                         contract.hudUI.gameObject.SetActive(true);
-                    }
                 }
                 catch { }
             }

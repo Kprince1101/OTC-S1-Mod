@@ -9,6 +9,7 @@ using S1API.Items;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using OverTheCounter.Utilities;
 using UnityEngine;
 
 namespace OverTheCounter.Logic
@@ -51,6 +52,8 @@ namespace OverTheCounter.Logic
         /// </summary>
         private void OnTimeTick()
         {
+            if (!NetworkHelper.IsHost) return;
+
             try
             {
                 int currentTime = TimeManager.CurrentTime;
@@ -77,6 +80,8 @@ namespace OverTheCounter.Logic
         /// </summary>
         private void OnDayPass()
         {
+            if (!NetworkHelper.IsHost) return;
+
             int currentDay = TimeManager.ElapsedDays;
             if (currentDay != _lastDayTracked)
             {
@@ -604,6 +609,8 @@ namespace OverTheCounter.Logic
         /// </summary>
         private void FailEvent(DesperationEvent evt, string failureType)
         {
+            if (!NetworkHelper.IsHost) return;
+
             var customer = evt.Customer;
             if (customer == null || customer.NPC == null) return;
 
@@ -696,6 +703,7 @@ namespace OverTheCounter.Logic
         public static void ResolveEvent(string customerId)
         {
             if (Instance == null) return;
+            if (!NetworkHelper.IsHost) return;
 
             if (Instance._activeEvents.TryGetValue(customerId, out var evt))
             {
@@ -829,6 +837,7 @@ namespace OverTheCounter.Logic
         public static void OnContractAccepted(string customerId)
         {
             if (Instance == null) return;
+            if (!NetworkHelper.IsHost) return;
 
             if (Instance._activeEvents.TryGetValue(customerId, out var evt))
             {

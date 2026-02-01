@@ -8,6 +8,7 @@ using S1API.Quests;
 using S1API.Quests.Constants;
 using S1API.Quests.Identifiers;
 using System;
+using OverTheCounter.Utilities;
 using System.Linq;
 
 namespace OverTheCounter.SaveData
@@ -25,6 +26,9 @@ namespace OverTheCounter.SaveData
         [SaveableField("vic_trust_level")]
         private int _trustLevel;
 
+        [SaveableField("vic_quest_accepted")]
+        private bool _questAccepted;
+
         /// <summary>
         /// The in-game day when the Clean Cash quest was first detected.
         /// -1 means not yet detected. Set to 0 once detected; intro fires on next sleep.
@@ -34,6 +38,9 @@ namespace OverTheCounter.SaveData
 
         [SaveableField("vic_last_deposit_day")]
         private int _lastDepositDay = -1;
+
+        [SaveableField("vic_last_trust_increment_day")]
+        private int _lastTrustIncrementDay = -1;
 
         [SaveableField("vic_tier2_intro_shown")]
         private bool _tier2IntroShown;
@@ -53,12 +60,14 @@ namespace OverTheCounter.SaveData
 
         private int _tickCounter;
         private const int TICK_INTERVAL = 300; // ~5 seconds at 60fps
+        private bool _positionLogged;
 
         private static bool _sleepEndSubscribed;
 
         public static VicSaveData Instance { get; private set; }
 
         public bool Unlocked => _unlocked;
+        public bool QuestAccepted => _questAccepted;
         public int TrustLevel => _trustLevel;
         public int LastDepositDay => _lastDepositDay;
         public bool Tier2IntroShown => _tier2IntroShown;
@@ -74,6 +83,7 @@ namespace OverTheCounter.SaveData
                 _hasBeenTexted = true;
                 TrySendIntroText();
                 CreateOrResumeQuest();
+                ConfigSyncData.Instance?.PublishGameState();
                 if (VicNPC.Instance != null && VicNPC.Instance.DialogueReady)
                     VicNPC.Instance.RefreshDialogue();
             }
@@ -93,6 +103,9 @@ namespace OverTheCounter.SaveData
         protected override void OnLoaded()
         {
             Instance = this;
+
+            if (_questAccepted)
+                _questCreated = true;
 
             if (_hasBeenTexted)
             {
@@ -121,6 +134,10 @@ namespace OverTheCounter.SaveData
 
         private void OnPlayerWokeUp()
         {
+            if (!NetworkHelper.IsHost) return;
+
+            _positionLogged = false;
+
             if (_hasBeenTexted) return;
 
             if (_triggerPendingDay >= 0 || IsCleanCashQuestStarted())
@@ -136,9 +153,8 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void Tick()
         {
-            // If HasBeenTexted was loaded as true but Clean Cash isn't actually
-            // started, this is stale data carried over from a prior save. Reset.
-            if (!_staleCheckDone && _hasBeenTexted)
+            // Stale data check: host-only since client state comes from ApplyHostState.
+            if (NetworkHelper.IsHost && !_staleCheckDone && _hasBeenTexted)
             {
                 _staleCheckDone = true;
                 if (!IsCleanCashQuestStarted())
@@ -152,7 +168,7 @@ namespace OverTheCounter.SaveData
                 return;
             }
 
-            // Deferred trigger from OnSleepEnd.
+            // Deferred trigger from OnSleepEnd (host-only path).
             if (_fireOnNextTick)
             {
                 _fireOnNextTick = false;
@@ -164,6 +180,16 @@ namespace OverTheCounter.SaveData
             if (++_tickCounter < TICK_INTERVAL) return;
             _tickCounter = 0;
 
+            // Position fix (host only): the schedule's WalkTo uses NavMesh pathfinding
+            // which can drag the NPC to the wrong NavMesh point. Warp back once after
+            // the schedule settles. Client doesn't run the schedule, so no fix needed.
+            if (NetworkHelper.IsHost && !_positionLogged && VicNPC.Instance != null)
+            {
+                _positionLogged = true;
+                try { VicNPC.Instance.ForceToSpawnPosition(); }
+                catch (Exception) { }
+            }
+
             // Keep Vic's dialogue fresh so players see current values.
             if (_hasBeenTexted)
             {
@@ -172,13 +198,12 @@ namespace OverTheCounter.SaveData
                     if (VicNPC.Instance != null && VicNPC.Instance.DialogueReady)
                         VicNPC.Instance.RefreshDialogue();
                 }
-                catch (System.Exception)
-                {
-                    // NPC's underlying Il2Cpp GameObject was destroyed (e.g. save reload).
-                    // OnDestroyed will clear the stale Instance on next spawn.
-                }
+                catch (Exception) { }
                 return;
             }
+
+            // Quest polling: host-only since client state comes from ApplyHostState.
+            if (!NetworkHelper.IsHost) return;
 
             if (_triggerPendingDay >= 0) return;
 
@@ -215,15 +240,108 @@ namespace OverTheCounter.SaveData
             }
         }
 
+        /// <summary>
+        /// Called by ConfigSyncData when the client receives game state from the host.
+        /// Syncs all flags, advances quest objectives, and refreshes dialogue.
+        /// </summary>
+        public void ApplyHostState(bool hasBeenTexted = false, bool questAccepted = false, bool unlocked = false, int trustLevel = -1)
+        {
+            bool changed = false;
+
+            // Determine if the intro quest is already fully completed in the
+            // incoming state so we can skip quest creation / objective noise.
+            bool questAlreadyDone = unlocked;
+
+            if (hasBeenTexted && !_hasBeenTexted)
+            {
+                _hasBeenTexted = true;
+                if (!questAlreadyDone)
+                    CreateOrResumeQuest();
+                changed = true;
+            }
+
+            if (questAccepted && !_questAccepted)
+            {
+                _questAccepted = true;
+                _questCreated = true;
+                if (!questAlreadyDone)
+                {
+                    try { VicIntroQuest.Instance?.CompleteObj1(); }
+                    catch (Exception ex) { Logger.Warning($"Client VicIntroQuest CompleteObj1 failed: {ex.Message}"); }
+                }
+                changed = true;
+            }
+
+            if (unlocked && !_unlocked)
+            {
+                _unlocked = true;
+                changed = true;
+            }
+
+            if (trustLevel >= 0 && trustLevel != _trustLevel)
+            {
+                _trustLevel = trustLevel;
+                changed = true;
+            }
+
+            if (changed && VicNPC.Instance != null && VicNPC.Instance.DialogueReady)
+                VicNPC.Instance.RefreshDialogue();
+        }
+
         public void OnQuestComplete()
         {
             _unlocked = true;
+            ConfigSyncData.Instance?.PublishGameState();
         }
 
         public void OnLaunderComplete(int currentDay)
         {
             _lastDepositDay = currentDay;
-            _trustLevel++;
+            if (_lastTrustIncrementDay < currentDay)
+            {
+                _lastTrustIncrementDay = currentDay;
+                _trustLevel++;
+            }
+            ConfigSyncData.Instance?.PublishGameState();
+        }
+
+        /// <summary>
+        /// Called on the host when a client sends a quest action via P2P.
+        /// Applies state-only transitions (no text messages, no player-local
+        /// money/inventory ops — those already ran on the client).
+        /// </summary>
+        public void HandleRemoteAction(string action)
+        {
+            switch (action)
+            {
+                case "VIC_QUEST_ACCEPTED":
+                    _questAccepted = true;
+                    _questCreated = true;
+                    try { VicIntroQuest.Instance?.CompleteObj1(); }
+                    catch (Exception ex) { Logger.Warning($"Remote VicIntroQuest CompleteObj1 failed: {ex.Message}"); }
+                    break;
+
+                case "VIC_QUEST_COMPLETE":
+                    _unlocked = true;
+                    try { VicIntroQuest.Instance?.CompleteObj2(); }
+                    catch (Exception ex) { Logger.Warning($"Remote VicIntroQuest CompleteObj2 failed: {ex.Message}"); }
+                    break;
+
+                case "VIC_LAUNDER":
+                    int launderDay = TimeManager.ElapsedDays;
+                    if (_lastTrustIncrementDay < launderDay)
+                    {
+                        _lastTrustIncrementDay = launderDay;
+                        _trustLevel++;
+                    }
+                    break;
+
+                default:
+                    Logger.Warning($"VicSaveData: unknown remote action '{action}'");
+                    return;
+            }
+
+            ConfigSyncData.Instance?.PublishGameState();
         }
 
         public void MarkTier2IntroShown()
@@ -233,6 +351,8 @@ namespace OverTheCounter.SaveData
 
         private void TrySendIntroText()
         {
+            if (!NetworkHelper.IsHost) return;
+
             try
             {
                 var vic = S1API.Entities.NPC.All?.FirstOrDefault(n => n.ID == "vic_bank_teller");

@@ -12,6 +12,7 @@ using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.Product;
 using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using UnityEngine;
 using MelonLoader;
 using System;
@@ -30,7 +31,38 @@ namespace OverTheCounter.NPCs
 
         public bool DialogueReady { get; private set; }
 
+        public Vector3? CurrentPosition
+        {
+            get
+            {
+                try { return _gameNpc?.transform.position; }
+                catch { return null; }
+            }
+        }
+
         public override bool IsPhysical => true;
+
+        private static readonly Vector3 SpawnPosition = new Vector3(13.72f, 5.16f, 95.96f);
+        private static readonly Quaternion SpawnRotation = Quaternion.Euler(0.0f, 230.7f, 0.0f);
+
+        /// <summary>
+        /// Teleports Static to the exact spawn position (host only).
+        /// The schedule's WalkTo uses NavMesh pathfinding which can place the NPC
+        /// at the wrong elevation. Client doesn't run the schedule, so no fix needed.
+        /// </summary>
+        public void ForceToSpawnPosition()
+        {
+            try
+            {
+                Movement.Warp(SpawnPosition);
+                Movement.Stop();
+                Movement.FaceDirection(SpawnRotation * Vector3.forward);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"ForceToSpawnPosition failed: {ex.Message}");
+            }
+        }
 
         private bool CanTalkToStatic =>
             (StaticSaveData.Instance?.QuestTriggered ?? false) ||
@@ -38,12 +70,11 @@ namespace OverTheCounter.NPCs
 
         protected override void ConfigurePrefab(NPCPrefabBuilder builder)
         {
-            var spawnPosition = new Vector3(13.72f, 5.16f, 95.96f);
-            var spawnRotation = Quaternion.Euler(0.0f, 230.7f, 0.0f);
+            Logger.Msg("StaticNPC.ConfigurePrefab() called");
 
             builder
                 .WithIdentity("static_casino_fixer", "Static", "")
-                .WithSpawnPosition(spawnPosition, spawnRotation)
+                .WithSpawnPosition(SpawnPosition, SpawnRotation)
                 .WithAppearanceDefaults(av =>
                 {
                     av.Gender = 0.0f;
@@ -61,7 +92,7 @@ namespace OverTheCounter.NPCs
                 })
                 .WithSchedule(plan =>
                 {
-                    plan.WalkTo(spawnPosition, 10);
+                    plan.WalkTo(SpawnPosition, 10);
                 });
         }
 
@@ -103,7 +134,13 @@ namespace OverTheCounter.NPCs
             }
 
             EnsureVoiceDatabase();
-            Schedule.Enable();
+
+            if (NetworkHelper.IsHost)
+            {
+                Schedule.Enable();
+                Schedule.EnforceState();
+            }
+
             SetupDialogue();
             DialogueReady = true;
 
@@ -114,6 +151,20 @@ namespace OverTheCounter.NPCs
             catch (Exception ex)
             {
                 Logger.Warning($"Failed to register onConsumeDone listener: {ex.Message}");
+            }
+
+            // Saveables aren't created on the client for new games (S1API loads
+            // them via NPCsLoader which only runs on host). Create a local
+            // instance so game state sync from the host can be applied.
+            if (StaticSaveData.Instance == null)
+            {
+                try
+                {
+                    new StaticSaveData();
+                    // Apply any game state that arrived from the host before this instance existed.
+                    ConfigSyncData.ApplyPendingGameState();
+                }
+                catch (Exception ex) { Logger.Warning($"Client StaticSaveData fallback failed: {ex.Message}"); }
             }
 
             StaticSaveData.Instance?.OnStaticSpawned();
@@ -158,6 +209,8 @@ namespace OverTheCounter.NPCs
 
         public void RefreshDialogue()
         {
+            if (Dialogue.IsDialogueInProgress) return;
+
             bool introCompleted = StaticSaveData.Instance?.IntroCompleted ?? false;
             bool saasActive = StaticSaveData.Instance?.SaasActive ?? false;
             int crmTier = StaticSaveData.Instance?.CrmTier ?? 0;
@@ -181,6 +234,9 @@ namespace OverTheCounter.NPCs
                 else if (!earlyVisitSeen && currentTime >= 700 && currentTime < 1600)
                 {
                     // ── Early Visit: player glitched into casino before 4pm ──
+                    // Mark seen immediately so it never triggers again.
+                    StaticSaveData.Instance?.OnEarlyVisitSeen();
+
                     container.AddNode("ENTRY", "*jumps back* \u2014 What the \u2014 how did you get in here? Doors don't unlock until four. *stares at door* ...Did you clip through? You actually noclipped through the collision mesh?", choices =>
                     {
                         choices.Add("EARLY_MAYBE", "Maybe.", "EARLY_REACT");
@@ -406,7 +462,7 @@ namespace OverTheCounter.NPCs
                 else
                 {
                     // ── Active, no upgrade pending ──
-                    int daysLeft = (StaticSaveData.Instance?.SaasNextPaymentDay ?? 0) - TimeManager.ElapsedDays;
+                    int daysLeft = (StaticSaveData.Instance?.SaasNextPaymentDay ?? 0) - (StaticSaveData.Instance?.DayPassCount ?? 0);
                     if (daysLeft < 0) daysLeft = 0;
 
                     string tierLabel = crmTier == 3 ? "Enterprise" : crmTier == 2 ? "Premium" : "Standard";
@@ -438,11 +494,6 @@ namespace OverTheCounter.NPCs
 
             RefreshDialogue();
 
-            Dialogue.OnConversationStart(() =>
-            {
-                RefreshDialogue();
-            });
-
             Dialogue.OnChoiceSelected("LEAVE", () =>
             {
                 PlayDismissalSound();
@@ -463,6 +514,7 @@ namespace OverTheCounter.NPCs
                 try
                 {
                     StaticSaveData.Instance?.OnIntroCompleted();
+                    ConfigSyncData.SendQuestAction("STATIC_INTRO_COMPLETED");
                     RefreshDialogue();
                 }
                 catch (Exception ex)
@@ -481,6 +533,8 @@ namespace OverTheCounter.NPCs
                     Money.CreateOnlineTransaction("OTC License", -Config.StaticTier1BankCost.Value, 1f, "Static Services");
                     RemoveWeedFromInventory(Config.StaticTier1WeedGrams.Value);
                     StaticSaveData.Instance?.PurchaseInitial();
+                    ConfigSyncData.SendQuestAction("STATIC_PURCHASE_INITIAL");
+
                     TriggerCocaineConsumption();
                     RefreshDialogue();
                 }
@@ -518,6 +572,8 @@ namespace OverTheCounter.NPCs
                     }
 
                     StaticSaveData.Instance?.PurchaseUpgrade();
+                    ConfigSyncData.SendQuestAction("STATIC_PURCHASE_UPGRADE");
+
                     TriggerCocaineConsumption();
                     RefreshDialogue();
                 }
@@ -532,6 +588,8 @@ namespace OverTheCounter.NPCs
                 try
                 {
                     StaticSaveData.Instance?.ReactivateSubscription();
+                    ConfigSyncData.SendQuestAction("STATIC_REACTIVATE");
+
                     TriggerCocaineConsumption();
                     RefreshDialogue();
                 }
@@ -546,6 +604,8 @@ namespace OverTheCounter.NPCs
                 try
                 {
                     StaticSaveData.Instance?.CancelSubscription();
+                    ConfigSyncData.SendQuestAction("STATIC_CANCEL");
+
                     TriggerCocaineConsumption();
                     RefreshDialogue();
                 }

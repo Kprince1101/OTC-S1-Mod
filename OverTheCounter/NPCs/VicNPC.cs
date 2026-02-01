@@ -12,6 +12,7 @@ using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Product;
 using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using UnityEngine;
 using MelonLoader;
 using System;
@@ -27,6 +28,9 @@ namespace OverTheCounter.NPCs
         private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("VicNPC");
         private static readonly EVOLineType[] DismissalSounds = { EVOLineType.Angry, EVOLineType.Annoyed, EVOLineType.No };
 
+        private static readonly Vector3 SpawnPosition = new Vector3(67.75f, 0.97f, 32.36f);
+        private static readonly Quaternion SpawnRotation = Quaternion.Euler(0f, 87.6f, 0f);
+
         private Il2CppScheduleOne.NPCs.NPC _gameNpc;
 
         /// <summary>
@@ -36,16 +40,41 @@ namespace OverTheCounter.NPCs
 
         public bool DialogueReady { get; private set; }
 
+        public Vector3? CurrentPosition
+        {
+            get
+            {
+                try { return _gameNpc?.transform.position; }
+                catch { return null; }
+            }
+        }
+
         public override bool IsPhysical => true;
+
+        /// <summary>
+        /// Teleports Vic to the exact spawn position (host only).
+        /// The schedule's WalkTo uses NavMesh pathfinding which can place the NPC
+        /// at the wrong elevation. Client doesn't run the schedule, so no fix needed.
+        /// </summary>
+        public void ForceToSpawnPosition()
+        {
+            try
+            {
+                Movement.Warp(SpawnPosition);
+                Movement.Stop();
+                Movement.FaceDirection(SpawnRotation * Vector3.forward);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"ForceToSpawnPosition failed: {ex.Message}");
+            }
+        }
 
         protected override void ConfigurePrefab(NPCPrefabBuilder builder)
         {
-            var spawnPosition = new Vector3(72.08f, 0.97f, 31.71f);
-            var spawnRotation = Quaternion.Euler(0f, 330f, 0f);
-
             builder
                 .WithIdentity("vic_bank_teller", "Vic", "Reynolds")
-                .WithSpawnPosition(spawnPosition, spawnRotation)
+                .WithSpawnPosition(SpawnPosition, SpawnRotation)
                 .WithAppearanceDefaults(av =>
                 {
                     av.Gender = 0.0f;
@@ -62,7 +91,7 @@ namespace OverTheCounter.NPCs
                 })
                 .WithSchedule(plan =>
                 {
-                    plan.WalkTo(spawnPosition, 10);
+                    plan.WalkTo(SpawnPosition, 10, true, 1f, true);
                 });
         }
 
@@ -105,13 +134,30 @@ namespace OverTheCounter.NPCs
             }
 
             EnsureVoiceDatabase();
-            Schedule.Enable();
+
+            if (NetworkHelper.IsHost)
+            {
+                Schedule.Enable();
+                Schedule.EnforceState();
+            }
+
             SetupDialogue();
             DialogueReady = true;
 
-            VicSaveData.Instance?.OnVicSpawned();
+            // Saveables aren't created on the client for new games (S1API loads
+            // them via NPCsLoader which only runs on host). Create a local
+            // instance so Tick() runs and the quest trigger works on clients.
+            if (VicSaveData.Instance == null)
+            {
+                try
+                {
+                    new VicSaveData();
+                    ConfigSyncData.ApplyPendingGameState();
+                }
+                catch (Exception ex) { Logger.Warning($"Client VicSaveData fallback failed: {ex.Message}"); }
+            }
 
-            Logger.Msg("Vic has spawned behind the bank");
+            VicSaveData.Instance?.OnVicSpawned();
         }
 
         /// <summary>
@@ -160,6 +206,8 @@ namespace OverTheCounter.NPCs
         /// </summary>
         public void RefreshDialogue()
         {
+            if (Dialogue.IsDialogueInProgress) return;
+
             int stage = VicIntroQuest.Instance?.Stage ?? 0;
 
             // If the quest was just created but Instance isn't ready yet,
@@ -311,11 +359,6 @@ namespace OverTheCounter.NPCs
 
             RefreshDialogue();
 
-            Dialogue.OnConversationStart(() =>
-            {
-                RefreshDialogue();
-            });
-
             Dialogue.OnChoiceSelected("LEAVE", () =>
             {
                 PlayDismissalSound();
@@ -326,6 +369,7 @@ namespace OverTheCounter.NPCs
                 try
                 {
                     VicIntroQuest.Instance?.CompleteObj1();
+                    ConfigSyncData.SendQuestAction("VIC_QUEST_ACCEPTED");
                     RefreshDialogue();
                 }
                 catch (Exception ex)
@@ -342,6 +386,7 @@ namespace OverTheCounter.NPCs
                     {
                         VicIntroQuest.Instance?.CompleteObj2();
                         VicSaveData.Instance?.OnQuestComplete();
+                        ConfigSyncData.SendQuestAction("VIC_QUEST_COMPLETE");
                         RefreshDialogue();
                     }
                     else
@@ -373,8 +418,11 @@ namespace OverTheCounter.NPCs
 
                     Money.ChangeCashBalance(-cost, true, true);
                     Money.CreateOnlineTransaction("Consulting Fee", payout, 1f, "VR Services");
+
                     VicSaveData.Instance?.OnLaunderComplete(today);
+                    ConfigSyncData.SendQuestAction("VIC_LAUNDER");
                     if (tier2) VicSaveData.Instance?.MarkTier2IntroShown();
+
                     RefreshDialogue();
                 }
                 catch (Exception ex)

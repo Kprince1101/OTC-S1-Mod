@@ -7,6 +7,7 @@ using S1API.Money;
 using S1API.Saveables;
 using S1API.Quests;
 using System;
+using OverTheCounter.Utilities;
 using System.Linq;
 
 namespace OverTheCounter.SaveData
@@ -42,6 +43,7 @@ namespace OverTheCounter.SaveData
 
         private int _tickCounter;
         private const int TICK_INTERVAL = 300;
+        private bool _positionLogged;
 
         // Runtime-only: guards against double quest creation per session.
         private bool _questCreated;
@@ -91,7 +93,17 @@ namespace OverTheCounter.SaveData
             if (++_tickCounter < TICK_INTERVAL) return;
             _tickCounter = 0;
 
-            // Check ATM trigger
+            // Position fix (host only): the schedule's WalkTo uses NavMesh pathfinding
+            // which can drag the NPC to the wrong NavMesh point. Warp back once after
+            // the schedule settles. Client doesn't run the schedule, so no fix needed.
+            if (NetworkHelper.IsHost && !_positionLogged && StaticNPC.Instance != null)
+            {
+                _positionLogged = true;
+                try { StaticNPC.Instance.ForceToSpawnPosition(); }
+                catch (Exception) { }
+            }
+
+            // Check ATM trigger (either peer can hit the deposit threshold)
             if (!_questTriggered)
             {
                 try
@@ -99,8 +111,17 @@ namespace OverTheCounter.SaveData
                     if (Il2CppScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value)
                     {
                         _questTriggered = true;
-                        TrySendIntroText();
                         CreateOrResumeQuest();
+
+                        if (NetworkHelper.IsHost)
+                        {
+                            TrySendIntroText();
+                            ConfigSyncData.Instance?.PublishGameState();
+                        }
+                        else
+                        {
+                            ConfigSyncData.SendQuestAction("STATIC_ATM_TRIGGERED");
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -151,6 +172,100 @@ namespace OverTheCounter.SaveData
         }
 
         /// <summary>
+        /// Called by ConfigSyncData when the client receives game state from the host.
+        /// Syncs all flags, advances quest objectives, and refreshes dialogue.
+        /// </summary>
+        public void ApplyHostState(
+            bool questTriggered = false,
+            bool introCompleted = false,
+            int crmTier = -1,
+            bool? saasActive = null,
+            bool? upgradeAvailable = null,
+            int saasNextPaymentDay = -1,
+            int dayPassCount = -1)
+        {
+            bool changed = false;
+
+            // Determine if the intro quest is already fully completed in the
+            // incoming state so we can skip quest creation / objective noise.
+            bool questAlreadyDone = crmTier >= 1;
+
+            if (questTriggered && !_questTriggered)
+            {
+                _questTriggered = true;
+                if (!questAlreadyDone)
+                    CreateOrResumeQuest();
+                changed = true;
+            }
+
+            if (introCompleted && !_introCompleted)
+            {
+                _introCompleted = true;
+                if (!questAlreadyDone)
+                {
+                    try { StaticIntroQuest.Instance?.CompleteObj1(); }
+                    catch (Exception ex) { Logger.Warning($"Client CompleteObj1 failed: {ex.Message}"); }
+                }
+                changed = true;
+            }
+
+            if (crmTier >= 0 && crmTier != _crmTier)
+            {
+                int previousTier = _crmTier;
+                _crmTier = crmTier;
+
+                // Only advance quest objectives for live tier transitions,
+                // not when catching up to an already-completed state.
+                if (previousTier == 0 && crmTier == 1)
+                {
+                    try { StaticIntroQuest.Instance?.CompleteObj2(); }
+                    catch (Exception ex) { Logger.Warning($"Client CompleteObj2 failed: {ex.Message}"); }
+                }
+                if (previousTier == 1 && crmTier == 2)
+                {
+                    try { StaticUpgrade1Quest.Instance?.CompleteObj1(); }
+                    catch (Exception ex) { Logger.Warning($"Client Upgrade1 CompleteObj1 failed: {ex.Message}"); }
+                }
+                if (previousTier == 2 && crmTier == 3)
+                {
+                    try { StaticUpgrade2Quest.Instance?.CompleteObj1(); }
+                    catch (Exception ex) { Logger.Warning($"Client Upgrade2 CompleteObj1 failed: {ex.Message}"); }
+                }
+
+                changed = true;
+            }
+
+            if (saasActive.HasValue && saasActive.Value != _saasActive)
+            {
+                _saasActive = saasActive.Value;
+                changed = true;
+            }
+
+            if (upgradeAvailable.HasValue && upgradeAvailable.Value != _upgradeAvailable)
+            {
+                _upgradeAvailable = upgradeAvailable.Value;
+                if (_upgradeAvailable)
+                    CreateUpgradeQuest();
+                changed = true;
+            }
+
+            if (saasNextPaymentDay >= 0 && saasNextPaymentDay != _saasNextPaymentDay)
+            {
+                _saasNextPaymentDay = saasNextPaymentDay;
+                changed = true;
+            }
+
+            if (dayPassCount >= 0 && dayPassCount != _dayPassCount)
+            {
+                _dayPassCount = dayPassCount;
+                changed = true;
+            }
+
+            if (changed && StaticNPC.Instance != null && StaticNPC.Instance.DialogueReady)
+                StaticNPC.Instance.RefreshDialogue();
+        }
+
+        /// <summary>
         /// Called by StaticNPC.OnCreated() to retry a deferred intro text once Static exists.
         /// </summary>
         public void OnStaticSpawned()
@@ -162,6 +277,8 @@ namespace OverTheCounter.SaveData
 
         private void TrySendIntroText()
         {
+            if (!NetworkHelper.IsHost) return;
+
             try
             {
                 var staticNpc = S1API.Entities.NPC.All?.FirstOrDefault(n => n.ID == "static_casino_fixer");
@@ -206,6 +323,7 @@ namespace OverTheCounter.SaveData
             }
 
             SendStaticText($"[0x7A3F] s0ftw4r3 p4ck4g3 r34dy. c0st: ${Config.StaticTier1BankCost.Value:N0} + {Config.StaticTier1WeedGrams.Value}g w33d.\n\nbr1ng t0 c4s1n0.\n\n\u2014 ST4T1C_SYS");
+            ConfigSyncData.Instance?.PublishGameState();
         }
 
         /// <summary>
@@ -226,6 +344,8 @@ namespace OverTheCounter.SaveData
             {
                 Logger.Error($"PurchaseInitial quest completion failed: {ex.Message}");
             }
+
+            ConfigSyncData.Instance?.PublishGameState();
         }
 
         /// <summary>
@@ -251,6 +371,8 @@ namespace OverTheCounter.SaveData
             {
                 Logger.Error($"PurchaseUpgrade quest completion failed: {ex.Message}");
             }
+
+            ConfigSyncData.Instance?.PublishGameState();
         }
 
         public bool ReactivateSubscription()
@@ -263,6 +385,7 @@ namespace OverTheCounter.SaveData
                 Money.CreateOnlineTransaction("OTC Back-Rent", -Config.SaasWeeklyCost.Value, 1f, "Static Services");
                 _saasActive = true;
                 _saasNextPaymentDay = _dayPassCount + Config.SaasCycleDays.Value;
+                ConfigSyncData.Instance?.PublishGameState();
                 return true;
             }
             catch (Exception ex)
@@ -276,6 +399,72 @@ namespace OverTheCounter.SaveData
         {
             _saasActive = false;
             _upgradeAvailable = false;
+            ConfigSyncData.Instance?.PublishGameState();
+        }
+
+        /// <summary>
+        /// Called on the host when a client sends a quest action via P2P.
+        /// Applies state-only transitions (no text messages, no player-local
+        /// money/inventory ops — those already ran on the client).
+        /// </summary>
+        public void HandleRemoteAction(string action)
+        {
+            switch (action)
+            {
+                case "STATIC_ATM_TRIGGERED":
+                    if (!_questTriggered)
+                    {
+                        _questTriggered = true;
+                        TrySendIntroText();
+                        CreateOrResumeQuest();
+                    }
+                    break;
+
+                case "STATIC_INTRO_COMPLETED":
+                    _introCompleted = true;
+                    try { StaticIntroQuest.Instance?.CompleteObj1(); }
+                    catch (Exception ex) { Logger.Warning($"Remote CompleteObj1 failed: {ex.Message}"); }
+                    break;
+
+                case "STATIC_PURCHASE_INITIAL":
+                    _crmTier = 1;
+                    _saasActive = true;
+                    _saasNextPaymentDay = _dayPassCount + Config.SaasCycleDays.Value;
+                    try { StaticIntroQuest.Instance?.CompleteObj2(); }
+                    catch (Exception ex) { Logger.Warning($"Remote CompleteObj2 failed: {ex.Message}"); }
+                    break;
+
+                case "STATIC_PURCHASE_UPGRADE":
+                    if (_crmTier >= 3) return;
+                    int previousTier = _crmTier;
+                    _crmTier++;
+                    _upgradeAvailable = false;
+                    try
+                    {
+                        if (previousTier == 1)
+                            StaticUpgrade1Quest.Instance?.CompleteObj1();
+                        else if (previousTier == 2)
+                            StaticUpgrade2Quest.Instance?.CompleteObj1();
+                    }
+                    catch (Exception ex) { Logger.Warning($"Remote PurchaseUpgrade quest failed: {ex.Message}"); }
+                    break;
+
+                case "STATIC_REACTIVATE":
+                    _saasActive = true;
+                    _saasNextPaymentDay = _dayPassCount + Config.SaasCycleDays.Value;
+                    break;
+
+                case "STATIC_CANCEL":
+                    _saasActive = false;
+                    _upgradeAvailable = false;
+                    break;
+
+                default:
+                    Logger.Warning($"StaticSaveData: unknown remote action '{action}'");
+                    return;
+            }
+
+            ConfigSyncData.Instance?.PublishGameState();
         }
 
         /// <summary>
@@ -284,6 +473,10 @@ namespace OverTheCounter.SaveData
         /// </summary>
         private void OnDayPass()
         {
+            if (!NetworkHelper.IsHost) return;
+
+            _positionLogged = false;
+
             _dayPassCount++;
             CheckSubscriptionStatus();
         }
@@ -314,6 +507,8 @@ namespace OverTheCounter.SaveData
                         _saasActive = false;
                         SendStaticText("[0xDEAD] paym3nt fa1led. serv1ce suspended. r3store in p3rson.\n\n\u2014 ST4T1C_SYS");
                     }
+
+                    ConfigSyncData.Instance?.PublishGameState();
                 }
                 catch (Exception ex)
                 {
