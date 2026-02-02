@@ -418,6 +418,8 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void Hide()
         {
+            _shown = false;
+
             try
             {
                 var s1Quest = GetS1Quest();
@@ -440,11 +442,16 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Shows a previously hidden quest HUD.
+        /// Tracks visibility state to avoid per-frame overhead once visible.
+        /// Reset by Hide() so re-showing works correctly.
         /// </summary>
         private bool _showDebugLogged;
+        private bool _shown;
 
         public void Show()
         {
+            if (_shown) return;
+
             try
             {
                 var s1Quest = GetS1Quest();
@@ -487,6 +494,8 @@ namespace OverTheCounter.Logic
                 var le = go.GetComponent<LayoutElement>();
                 if (le != null)
                     le.ignoreLayout = false;
+
+                _shown = true;
             }
             catch (System.Exception ex)
             {
@@ -523,6 +532,7 @@ namespace OverTheCounter.Logic
                 int stateAfter = (int)s1Quest.State;
                 Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: Fail(false) returned — state changed {stateBefore} → {stateAfter}");
 
+#if DEBUG
                 // Verify removal from game registries
                 bool inQuestQuests = false;
                 try
@@ -540,6 +550,7 @@ namespace OverTheCounter.Logic
                 catch { }
 
                 Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: post-Fail registry check — stillInGameQuestsList={inQuestQuests}");
+#endif
             }
             catch (System.Exception ex)
             {

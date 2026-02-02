@@ -191,6 +191,8 @@ namespace OverTheCounter.Patches
     [HarmonyPatch(typeof(Contract), "UpdateTiming")]
     public static class ContractUpdateTimingPatch
     {
+        private static bool _errorLogged;
+
         /// <summary>
         /// Postfix: Override the subtitle for desperation contracts with urgent red text.
         /// </summary>
@@ -218,7 +220,11 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[ContractUpdateTimingPatch] Error: {ex.Message}");
+                if (!_errorLogged)
+                {
+                    Melon<Core>.Logger.Warning($"[ContractUpdateTimingPatch] Error: {ex.Message}");
+                    _errorLogged = true;
+                }
             }
         }
     }

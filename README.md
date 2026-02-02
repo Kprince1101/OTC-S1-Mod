@@ -1,6 +1,6 @@
-# OverTheCounter for ScheduleOne
+# OverTheCounter for Schedule I
 
-**OverTheCounter** is a Quality of Life, Utility, and Balance overhaul for *ScheduleOne*. It focuses on streamlining logistics, modernizing the UI, and rebalancing the gameplay loop to make the day phase strategically viable.
+**OverTheCounter** is a Quality of Life, Utility, and Balance overhaul for *Schedule I*. It focuses on streamlining logistics, modernizing the UI, and rebalancing the gameplay loop to make the day phase strategically viable.
 
 > [!WARNING]
 > **COMPATIBILITY NOTICE:**
@@ -8,7 +8,7 @@
 > It utilizes Harmony patching that is **NOT compatible with the Mono branch**.
 > Do not attempt to use this on Mono builds; it will crash or fail to load.
 
-## 📦 Features
+## Features
 
 ### 1. The "Desperation" System (Balance Change)
 A new mechanic designed to break the "Night Meta" and make daytime deliveries profitable.
@@ -44,20 +44,27 @@ Addresses the single-player economy bottleneck by introducing a manual launderin
 * **Manual Laundering:** A daily interaction that lets you clean extra cash beyond the ATM limit. It comes with a significant "Risk Fee" (15-20%) and requires physical travel, balancing the extra capacity with effort.
 * **Trust Progression:** Regular visits increase your standing with Vic, eventually unlocking better rates and raising the daily cap - enough to bridge the gap to the mid-game without breaking the economy.
 
-## 🛠️ Requirements & Installation
+### Multiplayer Support
+All features are fully multiplayer compatible with host-authoritative state sync. Quest progress, NPC interactions, and config settings synchronize across host and clients via Steam lobby data.
 
-1.  Ensure you are on the **IL2CPP Branch** of *ScheduleOne*.
-2.  Install **MelonLoader v0.7.0** (or newer).
-3.  Download the latest `OverTheCounter.dll` from Releases.
-4.  Drop the `.dll` file into your `\Mods` folder.
-5.  Launch the game.
+## Requirements & Installation
 
-## ⚙️ Configuration
+1.  Ensure you are on the **IL2CPP Branch** of *Schedule I*.
+2.  Install **MelonLoader v0.7.0**.
+3.  Install **S1API** (ifBars fork) — modding API layer.
+4.  Install **SteamNetworkLib IL2CPP** — required for multiplayer sync.
+5.  Download the latest `OverTheCounter.dll` from Releases.
+6.  Drop the `.dll` file into your `Mods` folder.
+7.  Launch the game.
+
+> If installing via Thunderstore mod manager, S1API and SteamNetworkLib are installed automatically as dependencies.
+
+## Configuration
 A `Config.cfg` is generated upon first launch to tweak the Desperation balance:
 * `HourlyChance`: Probability of a Desperation event triggering (Default: 0.12).
 * `MaxDailyEvents`: Hard cap on daily stress events (Default: 3).
 
-## � License
+## License
 **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)**
 
 You are free to:
@@ -65,6 +72,6 @@ You are free to:
 * **Adapt** — remix, transform, and build upon the material.
 
 Under the following terms:
-* **Attribution** — You must give appropriate credit to the original author (Me) and indicate if changes were made. You may not suggest I endorse you or your use.
+* **Attribution** — You must give appropriate credit to the original author (hdlmrell) and indicate if changes were made. You may not suggest the author endorses you or your use.
 * **NonCommercial** — You may not use the material for commercial purposes.
 * **ShareAlike** — If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original.
