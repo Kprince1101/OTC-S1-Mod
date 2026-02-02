@@ -60,9 +60,14 @@ All features are fully multiplayer compatible with host-authoritative state sync
 > If installing via Thunderstore mod manager, S1API and SteamNetworkLib are installed automatically as dependencies.
 
 ## Configuration
-A `Config.cfg` is generated upon first launch to tweak the Desperation balance:
-* `HourlyChance`: Probability of a Desperation event triggering (Default: 0.12).
-* `MaxDailyEvents`: Hard cap on daily stress events (Default: 3).
+All settings are managed through the **MelonLoader Mod Settings** interface in-game. Settings are organized into four categories:
+
+* **Desperation System** — Fiend addiction threshold, trigger chance per hour, max daily events, response/delivery deadlines, bonus multiplier, relationship penalty, cooldown, and active hours.
+* **Vic Laundering** — Tier costs, returns, trust unlock threshold, and intro quest requirements.
+* **Static Subscription** — Weekly billing cost, cycle length, ATM deposit trigger, and tier upgrade costs/requirements.
+* **Contract Notifications** — Consolidation threshold (minimum contracts before grouping kicks in).
+
+In multiplayer, the host's settings are automatically synced to all clients (except local-only preferences like consolidation threshold).
 
 ## License
 **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)**
