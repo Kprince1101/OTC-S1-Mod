@@ -14,6 +14,7 @@ using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using UnityEngine;
+using UnityEngine.AI;
 using MelonLoader;
 using System;
 
@@ -52,21 +53,30 @@ namespace OverTheCounter.NPCs
         public override bool IsPhysical => true;
 
         /// <summary>
-        /// Teleports Vic to the exact spawn position (host only).
-        /// The schedule's WalkTo uses NavMesh pathfinding which can place the NPC
-        /// at the wrong elevation. Client doesn't run the schedule, so no fix needed.
+        /// Warps Vic to the spawn position on the host.
+        /// Movement.Warp() snaps to the NavMesh surface (correct Y) and
+        /// sends a FishNet RPC that syncs the position to all clients.
+        /// Must only be called on the host.
         /// </summary>
-        public void ForceToSpawnPosition()
+        public void WarpToSpawn()
         {
             try
             {
-                Movement.Warp(SpawnPosition);
+                // Pre-snap position to NavMesh surface so the Warp RPC sends
+                // the correct ground-level Y to clients. Without this, clients
+                // with a disabled NavMeshAgent receive the raw SpawnPosition Y
+                // and the NPC floats above ground.
+                Vector3 warpPos = SpawnPosition;
+                if (NavMesh.SamplePosition(SpawnPosition, out NavMeshHit hit, 10f, NavMesh.AllAreas))
+                    warpPos = hit.position;
+
+                Movement.Warp(warpPos);
                 Movement.Stop();
                 Movement.FaceDirection(SpawnRotation * Vector3.forward);
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ForceToSpawnPosition failed: {ex.Message}");
+                Logger.Warning($"WarpToSpawn failed: {ex.Message}");
             }
         }
 
@@ -135,6 +145,10 @@ namespace OverTheCounter.NPCs
 
             EnsureVoiceDatabase();
 
+            // Schedule + pathfinding run on host only. The host's Movement.Warp()
+            // sends a FishNet RPC to sync position to clients. WarpToSpawn()
+            // pre-snaps Y via NavMesh.SamplePosition so the RPC sends correct
+            // ground-level coordinates regardless of client NavMeshAgent state.
             if (NetworkHelper.IsHost)
             {
                 Schedule.Enable();
@@ -232,7 +246,7 @@ namespace OverTheCounter.NPCs
                         choices.Add("CONT2", "...", "LINE3");
                     });
 
-                    container.AddNode("LINE3", "Bring me 40 grams of weed and I'll help cushion your deposit limits.", choices =>
+                    container.AddNode("LINE3", $"Bring me {Config.VicIntroWeedGrams.Value} grams of weed and I'll help cushion your deposit limits.", choices =>
                     {
                         choices.Add("ACCEPT", "I'll get it done.", "ACCEPT_EXIT");
                     });
@@ -243,7 +257,7 @@ namespace OverTheCounter.NPCs
                 {
                     // Handover stage — quest obj2 active
                     int weedGrams = CountWeedInInventory();
-                    if (weedGrams >= 40)
+                    if (weedGrams >= Config.VicIntroWeedGrams.Value)
                     {
                         container.AddNode("ENTRY", "You got the stuff?", choices =>
                         {
@@ -256,7 +270,7 @@ namespace OverTheCounter.NPCs
                     }
                     else
                     {
-                        container.AddNode("ENTRY", $"You got the stuff? I need 40 grams of weed. You've got {weedGrams} grams.", choices =>
+                        container.AddNode("ENTRY", $"You got the stuff? I need {Config.VicIntroWeedGrams.Value} grams of weed. You've got {weedGrams} grams.", choices =>
                         {
                             choices.Add("LEAVE", "I'll be back", "LEAVE_EXIT");
                         });
@@ -368,8 +382,15 @@ namespace OverTheCounter.NPCs
             {
                 try
                 {
-                    VicIntroQuest.Instance?.CompleteObj1();
-                    ConfigSyncData.SendQuestAction("VIC_QUEST_ACCEPTED");
+                    if (NetworkHelper.IsHost)
+                    {
+                        VicSaveData.Instance?.HandleRemoteAction("VIC_QUEST_ACCEPTED");
+                    }
+                    else
+                    {
+                        ConfigSyncData.SendQuestAction("VIC_QUEST_ACCEPTED");
+                    }
+
                     RefreshDialogue();
                 }
                 catch (Exception ex)
@@ -382,17 +403,22 @@ namespace OverTheCounter.NPCs
             {
                 try
                 {
-                    if (RemoveWeedFromInventory(40))
+                    if (!RemoveWeedFromInventory(Config.VicIntroWeedGrams.Value))
                     {
-                        VicIntroQuest.Instance?.CompleteObj2();
-                        VicSaveData.Instance?.OnQuestComplete();
-                        ConfigSyncData.SendQuestAction("VIC_QUEST_COMPLETE");
-                        RefreshDialogue();
+                        Logger.Warning($"HANDOVER: failed to remove {Config.VicIntroWeedGrams.Value}g weed from inventory.");
+                        return;
+                    }
+
+                    if (NetworkHelper.IsHost)
+                    {
+                        VicSaveData.Instance?.HandleRemoteAction("VIC_QUEST_COMPLETE");
                     }
                     else
                     {
-                        Logger.Warning("HANDOVER: failed to remove 40g weed from inventory.");
+                        ConfigSyncData.SendQuestAction("VIC_QUEST_COMPLETE");
                     }
+
+                    RefreshDialogue();
                 }
                 catch (Exception ex)
                 {
@@ -416,12 +442,20 @@ namespace OverTheCounter.NPCs
                     if (cooldownActive || Money.GetCashBalance() < cost)
                         return;
 
+                    // Local player effects — always execute (it's this player's money).
                     Money.ChangeCashBalance(-cost, true, true);
                     Money.CreateOnlineTransaction("Consulting Fee", payout, 1f, "VR Services");
 
-                    VicSaveData.Instance?.OnLaunderComplete(today);
-                    ConfigSyncData.SendQuestAction("VIC_LAUNDER");
-                    if (tier2) VicSaveData.Instance?.MarkTier2IntroShown();
+                    if (NetworkHelper.IsHost)
+                    {
+                        VicSaveData.Instance?.OnLaunderComplete(today);
+                        if (tier2)
+                            VicSaveData.Instance?.MarkTier2IntroShown();
+                    }
+                    else
+                    {
+                        ConfigSyncData.SendQuestAction("VIC_LAUNDER");
+                    }
 
                     RefreshDialogue();
                 }

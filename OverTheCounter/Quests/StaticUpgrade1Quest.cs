@@ -56,12 +56,21 @@ namespace OverTheCounter.Quests
             {
                 TriggerInternalInit();
 
-                _bringSuppliesEntry = AddEntry("Bring Static $6,000 and 5 grams of meth", StaticPosition);
+                _bringSuppliesEntry = AddEntry(GetSuppliesText(), StaticPosition);
             }
             catch (Exception ex)
             {
                 Logger.Error($"Initialize failed: {ex.Message}");
             }
+        }
+
+        private static string GetSuppliesText() =>
+            $"Bring Static ${Config.StaticTier2BankCost.Value:N0} and {Config.StaticTier2MethGrams.Value} grams of meth";
+
+        public void RefreshEntryText()
+        {
+            if (_bringSuppliesEntry != null && _stage >= 1 && _stage < 2)
+                _bringSuppliesEntry.Title = GetSuppliesText();
         }
 
         public void StartQuest()
@@ -106,7 +115,7 @@ namespace OverTheCounter.Quests
             {
                 // Entries aren't restored from save — rebuild them
                 QuestEntries.Clear();
-                _bringSuppliesEntry = AddEntry("Bring Static $6,000 and 5 grams of meth", StaticPosition);
+                _bringSuppliesEntry = AddEntry(GetSuppliesText(), StaticPosition);
 
                 // Restore entry states based on saved stage
                 if (_stage >= 1)

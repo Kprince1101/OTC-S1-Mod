@@ -56,12 +56,21 @@ namespace OverTheCounter.Quests
                 TriggerInternalInit();
 
                 _meetVicEntry = AddEntry("Meet Vic in the alleyway behind the bank", VicPosition);
-                _bringWeedEntry = AddEntry("Bring Vic 40 grams of weed", VicPosition);
+                _bringWeedEntry = AddEntry(GetWeedText(), VicPosition);
             }
             catch (System.Exception ex)
             {
                 Logger.Error($"Initialize failed: {ex.Message}");
             }
+        }
+
+        private static string GetWeedText() =>
+            $"Bring Vic {Config.VicIntroWeedGrams.Value} grams of weed";
+
+        public void RefreshEntryText()
+        {
+            if (_bringWeedEntry != null && _stage >= 1 && _stage < 3)
+                _bringWeedEntry.Title = GetWeedText();
         }
 
         public void StartQuest()
@@ -121,7 +130,7 @@ namespace OverTheCounter.Quests
                 // Entries aren't restored from save — rebuild them
                 QuestEntries.Clear();
                 _meetVicEntry = AddEntry("Meet Vic in the alleyway behind the bank", VicPosition);
-                _bringWeedEntry = AddEntry("Bring Vic 40 grams of weed", VicPosition);
+                _bringWeedEntry = AddEntry(GetWeedText(), VicPosition);
 
                 // Restore entry states based on saved stage
                 if (_stage >= 1)

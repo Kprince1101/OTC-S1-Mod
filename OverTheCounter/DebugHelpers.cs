@@ -6,6 +6,7 @@ using S1API.GameTime;
 using S1API.Items;
 using S1API.Money;
 using S1API.Products;
+using OverTheCounter.Logic;
 using UnityEngine;
 using MelonLoader;
 using System;
@@ -158,6 +159,31 @@ namespace OverTheCounter
 
             if (GUILayout.Button(_speedBoosted ? "Speed: BOOSTED (2.4x)" : "Speed Boost (2.4x)"))
                 ToggleSpeedBoost();
+
+            GUILayout.Space(8);
+
+            if (GUILayout.Button("Force Desperation (Meth)"))
+            {
+                try
+                {
+                    RefreshCachedDefinitions();
+                    if (_cachedMethDef != null)
+                    {
+                        DesperationManager.DebugProductId = _cachedMethDef.ID;
+                        if (!DesperationManager.DebugForceRandomTrigger())
+                            DesperationManager.DebugProductId = null;
+                    }
+                    else
+                    {
+                        Logger.Warning("No meth definition cached for desperation debug");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"Force Desperation failed: {ex.Message}");
+                    DesperationManager.DebugProductId = null;
+                }
+            }
 
             GUILayout.Space(8);
 

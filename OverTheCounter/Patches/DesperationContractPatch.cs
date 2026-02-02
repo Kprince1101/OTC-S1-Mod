@@ -59,11 +59,8 @@ namespace OverTheCounter.Patches
             // Check if this is a desperation deal
             if (DesperationManager.IsDesperate(customerId))
             {
-
-                // Show our custom location picker
                 LocationPickerUI.Show(__instance, (locationGuid) =>
                 {
-                    // Callback when location is selected
                     FinalizeDesperationDeal(__instance, locationGuid);
                 });
 
@@ -86,8 +83,6 @@ namespace OverTheCounter.Patches
                     return;
                 }
 
-
-                // Store our immediate window times before they get overwritten
                 var offeredWindow = customer.OfferedContractInfo.DeliveryWindow;
                 if (offeredWindow == null)
                 {
@@ -98,14 +93,12 @@ namespace OverTheCounter.Patches
                 int immediateStart = offeredWindow.WindowStartTime;
                 int immediateEnd = offeredWindow.WindowEndTime;
 
-
                 // Update the contract with the selected location
                 customer.OfferedContractInfo.DeliveryLocationGUID = locationGuid;
 
-                // Call ContractAccepted - this will override the window times, but we'll fix that
+                // ContractAccepted overrides window times; we restore them below
                 customer.ContractAccepted(EDealWindow.Morning, true, dealer: null);
 
-                // Log what happened after ContractAccepted
                 if (customer.CurrentContract != null)
                 {
                     var contract = customer.CurrentContract;
@@ -113,38 +106,27 @@ namespace OverTheCounter.Patches
 
                     if (currentWindow != null)
                     {
-
-                        // Restore our immediate window times
                         currentWindow.WindowStartTime = immediateStart;
                         currentWindow.WindowEndTime = immediateEnd;
-
                     }
                     else
                     {
                         Melon<Core>.Logger.Error("[AcceptContractClickedPatch] CurrentContract.DeliveryWindow is NULL after accept!");
                     }
 
-                    // Fix the expiry time - this controls the "Begins in X hrs" display
-                    // The HUD calculates: minsUntilExpiry - 360 = time until window begins
-                    // For immediate contracts, we want expiry in ~2 hours
+                    // Set expiry to current time + deadline so the HUD countdown is correct
                     try
                     {
-                        // Calculate expiry: current time + 120 minutes (2 hours)
                         int currentDay = TimeManager.ElapsedDays;
                         int currentTime = TimeManager.CurrentTime;
 
-                        // Add deadline minutes to current time
                         int expiryTime = TimeManager.Get24HourTimeFromMinutes(
                             TimeManager.GetMinutesFrom24HourTime(currentTime) + Config.DeadlineMinutes.Value);
 
-                        // Check if we wrapped to next day
                         int expiryDay = currentDay;
                         if (expiryTime < currentTime)
-                        {
-                            expiryDay++; // Wrapped to next day
-                        }
+                            expiryDay++;
 
-                        // Set expiry using Quest.ConfigureExpiry (Contract inherits from Quest)
                         var expiryDate = new Il2CppScheduleOne.GameTime.GameDateTime(expiryDay, expiryTime);
                         contract.ConfigureExpiry(true, expiryDate);
                     }
@@ -157,7 +139,6 @@ namespace OverTheCounter.Patches
                 {
                     Melon<Core>.Logger.Error("[AcceptContractClickedPatch] CurrentContract is NULL after accept!");
                 }
-
 
                 // Clear the message responses (the accept/decline buttons)
                 if (customer.NPC.MSGConversation != null)
@@ -210,10 +191,6 @@ namespace OverTheCounter.Patches
     [HarmonyPatch(typeof(Contract), "UpdateTiming")]
     public static class ContractUpdateTimingPatch
     {
-        // Throttle logging
-        private static int _logThrottle = 0;
-        private static bool _hasLoggedOnce = false;
-
         /// <summary>
         /// Postfix: Override the subtitle for desperation contracts with urgent red text.
         /// </summary>
@@ -221,61 +198,27 @@ namespace OverTheCounter.Patches
         {
             if (__instance == null) return;
 
-            _logThrottle++;
-            bool shouldLog = !_hasLoggedOnce || (_logThrottle >= 600); // Log once, then every ~10 seconds
-            if (shouldLog) _logThrottle = 0;
-
             try
             {
-                // Get the customer from the contract
                 var customerObj = __instance.Customer;
                 if (customerObj == null) return;
 
                 var customer = customerObj.TryCast<Customer>();
                 if (customer?.NPC == null) return;
 
-                string customerId = customer.NPC.ID;
+                if (!DesperationManager.IsDesperate(customer.NPC.ID))
+                    return;
 
-                // Check if this is a desperation deal
-                bool isDesperate = DesperationManager.IsDesperate(customerId);
+                int minsUntilExpiry = __instance.GetMinsUntilExpiry();
+                int hours = Mathf.FloorToInt((float)minsUntilExpiry / 60f);
+                int mins = minsUntilExpiry % 60;
 
-                if (shouldLog && !_hasLoggedOnce)
-                {
-                    _hasLoggedOnce = true;
-                }
-
-                if (isDesperate)
-                {
-                    // Calculate time remaining
-                    int minsUntilExpiry = __instance.GetMinsUntilExpiry();
-                    int hours = Mathf.FloorToInt((float)minsUntilExpiry / 60f);
-                    int mins = minsUntilExpiry % 60;
-
-                    string timeText;
-                    if (hours > 0)
-                    {
-                        timeText = $"{hours}h {mins}m";
-                    }
-                    else
-                    {
-                        timeText = $"{mins} min";
-                    }
-
-                    // Set urgent red subtitle
-                    string subtitle = $"<color=#FF4444>URGENT - {timeText} left!</color>";
-                    __instance.SetSubtitle(subtitle);
-
-                    if (shouldLog)
-                    {
-                    }
-                }
+                string timeText = hours > 0 ? $"{hours}h {mins}m" : $"{mins} min";
+                __instance.SetSubtitle($"<color=#FF4444>URGENT - {timeText} left!</color>");
             }
             catch (Exception ex)
             {
-                if (shouldLog)
-                {
-                    Melon<Core>.Logger.Warning($"[ContractUpdateTimingPatch] Error: {ex.Message}");
-                }
+                Melon<Core>.Logger.Warning($"[ContractUpdateTimingPatch] Error: {ex.Message}");
             }
         }
     }

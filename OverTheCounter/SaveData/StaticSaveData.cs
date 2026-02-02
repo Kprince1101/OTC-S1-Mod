@@ -43,7 +43,7 @@ namespace OverTheCounter.SaveData
 
         private int _tickCounter;
         private const int TICK_INTERVAL = 300;
-        private bool _positionLogged;
+        private bool _positionFixed;
 
         // Runtime-only: guards against double quest creation per session.
         private bool _questCreated;
@@ -93,13 +93,12 @@ namespace OverTheCounter.SaveData
             if (++_tickCounter < TICK_INTERVAL) return;
             _tickCounter = 0;
 
-            // Position fix (host only): the schedule's WalkTo uses NavMesh pathfinding
-            // which can drag the NPC to the wrong NavMesh point. Warp back once after
-            // the schedule settles. Client doesn't run the schedule, so no fix needed.
-            if (NetworkHelper.IsHost && !_positionLogged && StaticNPC.Instance != null)
+            // Deferred position fix: runs once after TICK_INTERVAL (~5s) to
+            // ensure the NavMeshAgent is fully initialized before warping.
+            if (NetworkHelper.IsHost && !_positionFixed && StaticNPC.Instance != null)
             {
-                _positionLogged = true;
-                try { StaticNPC.Instance.ForceToSpawnPosition(); }
+                _positionFixed = true;
+                try { StaticNPC.Instance.WarpToSpawn(); }
                 catch (Exception) { }
             }
 
@@ -270,6 +269,11 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void OnStaticSpawned()
         {
+            // Reset so the next TICK_INTERVAL fires a position fix
+            // (deferred ~5s to let NavMeshAgent fully initialize).
+            if (NetworkHelper.IsHost)
+                _positionFixed = false;
+
             if (!_needsIntroText) return;
             _needsIntroText = false;
             TrySendIntroText();
@@ -475,7 +479,8 @@ namespace OverTheCounter.SaveData
         {
             if (!NetworkHelper.IsHost) return;
 
-            _positionLogged = false;
+            // Reset so the next TICK_INTERVAL fires a position fix after sleep.
+            _positionFixed = false;
 
             _dayPassCount++;
             CheckSubscriptionStatus();

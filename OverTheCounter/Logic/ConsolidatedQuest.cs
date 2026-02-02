@@ -4,6 +4,8 @@ using S1API.Quests;
 using S1API.GameTime;
 using System.Collections.Generic;
 using System.Reflection;
+using UnityEngine;
+using UnityEngine.UI;
 
 namespace OverTheCounter.Logic
 {
@@ -36,6 +38,14 @@ namespace OverTheCounter.Logic
             var field = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
             return field?.GetValue(this) as Il2CppScheduleOne.Quests.Quest;
         }
+
+        /// <summary>
+        /// Cached instance ID of the underlying game quest, set during Initialize().
+        /// Used by NotificationManager to distinguish our active quests from stale ones.
+        /// Explicit backing field required — auto-properties lose values in IL2CPP-inherited classes.
+        /// </summary>
+        private int _gameQuestInstanceId = -1;
+        public int GameQuestInstanceId => _gameQuestInstanceId;
 
         /// <summary>
         /// Manually trigger internal initialization that QuestManager should have done.
@@ -77,6 +87,18 @@ namespace OverTheCounter.Logic
                 }
 
                 _initialized = true;
+
+                // Cache the instance ID for stale cleanup identification
+                try
+                {
+                    var s1Quest = GetS1Quest();
+                    if (s1Quest != null)
+                    {
+                        _gameQuestInstanceId = s1Quest.GetInstanceID();
+                        Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Cached GameQuestInstanceId={_gameQuestInstanceId}");
+                    }
+                }
+                catch { }
             }
             catch (System.Exception ex)
             {
@@ -97,52 +119,52 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Updates the quest with current delivery information and window timing.
-        /// Uses QuestEntries to show each product as a separate line.
+        /// Reuses existing entries where possible to avoid destroy/recreate issues
+        /// with the game's QuestHUDUI referencing stale entry UIs.
         /// </summary>
-        /// <param name="deliveryCount">Number of pending deliveries</param>
-        /// <param name="productSummaries">List of products and their quantities</param>
-        /// <param name="windowStart">Window start time (game time, e.g. 600 = 10:00)</param>
-        /// <param name="windowEnd">Window end time (game time, e.g. 1200 = 20:00)</param>
         public void UpdateSummary(int deliveryCount, List<FormatUtils.ProductSummary> productSummaries, int windowStart, int windowEnd)
         {
-            // Ensure initialized
             if (!_initialized)
-            {
                 Initialize();
-            }
 
-            // Update count for title
             _currentCount = deliveryCount;
             UpdateTitle();
+            Melon<Core>.Logger.Msg($"[ConsolidatedQuest] UpdateSummary: count={deliveryCount}, products={productSummaries.Count}, title='{Title}'");
 
-            // Clear existing entries and add new ones
             try
             {
-                // Clear both the wrapper list AND the game's internal entries list
-                ClearAllEntries();
+                int existingCount = QuestEntries.Count;
+                int newCount = productSummaries.Count;
 
-                // Add an entry for each product and activate it
-                foreach (var summary in productSummaries)
+                // Update existing entries in place (no destroy/recreate needed)
+                for (int i = 0; i < System.Math.Min(existingCount, newCount); i++)
                 {
-                    var entry = AddEntry($"{summary.Quantity}x {summary.DisplayName}");
+                    string newTitle = $"{productSummaries[i].Quantity}x {productSummaries[i].DisplayName}";
+                    if (QuestEntries[i].Title != newTitle)
+                        QuestEntries[i].Title = newTitle;
+                }
+
+                // Add new entries if we need more
+                for (int i = existingCount; i < newCount; i++)
+                {
+                    var entry = AddEntry($"{productSummaries[i].Quantity}x {productSummaries[i].DisplayName}");
                     entry.Begin();
                 }
+
+                // Remove excess entries from the end
+                if (existingCount > newCount)
+                    RemoveExcessEntries(newCount);
 
                 // Update description for journal
                 var descParts = new List<string>();
                 foreach (var summary in productSummaries)
-                {
                     descParts.Add($"{summary.Quantity}x {summary.DisplayName}");
-                }
                 _description = descParts.Count > 0
                     ? "Products needed:\n" + string.Join("\n", descParts)
                     : "No products pending";
 
-                // Update timing subtitle
                 if (windowStart >= 0 && windowEnd >= 0)
-                {
                     UpdateTiming(windowStart, windowEnd);
-                }
             }
             catch (System.Exception ex)
             {
@@ -265,8 +287,9 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Updates the quest title on the underlying S1Quest.
-        /// Needed because the game caches the title at initialization time.
+        /// Updates the quest title directly on the underlying S1Quest without
+        /// reinitializing. The HUD picks up the new title on the next UI refresh
+        /// (triggered by SetSubtitle in UpdateTiming or SetEntryTitle on entries).
         /// </summary>
         private void UpdateTitle()
         {
@@ -274,10 +297,7 @@ namespace OverTheCounter.Logic
             {
                 var s1Quest = GetS1Quest();
                 if (s1Quest == null) return;
-
-                s1Quest.InitializeQuest(Title, _description,
-                    System.Array.Empty<Il2CppScheduleOne.Persistence.Datas.QuestEntryData>(),
-                    s1Quest.StaticGUID);
+                s1Quest.title = Title;
             }
             catch (System.Exception ex)
             {
@@ -288,6 +308,8 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Sets the quest subtitle via reflection on the underlying S1Quest.
         /// </summary>
+        private bool _subtitleDebugLogged;
+
         private void SetSubtitleViaReflection(string subtitle)
         {
             try
@@ -295,8 +317,19 @@ namespace OverTheCounter.Logic
                 var s1Quest = GetS1Quest();
                 if (s1Quest == null) return;
 
-                // Call SetSubtitle on the game's Quest object
+                // Set subtitle via the game's method (fires onSubtitleChanged event)
                 s1Quest.SetSubtitle(subtitle);
+
+                // Force-update the HUD label as a fallback in case the
+                // onSubtitleChanged event wasn't properly wired up.
+                if (s1Quest.hudUI != null)
+                    s1Quest.hudUI.UpdateMainLabel();
+
+                if (!_subtitleDebugLogged)
+                {
+                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] SetSubtitle: '{subtitle}', hudUI={s1Quest.hudUI != null}, Subtitle='{s1Quest.Subtitle}'");
+                    _subtitleDebugLogged = true;
+                }
             }
             catch (System.Exception ex)
             {
@@ -305,69 +338,212 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Clears all quest entries from both the wrapper list and the game's internal list.
+        /// Removes entries from the end when fewer products are needed.
+        /// Uses DestroyImmediate so the QuestHUDUI doesn't reference stale objects.
+        /// </summary>
+        private void RemoveExcessEntries(int keepCount)
+        {
+            try
+            {
+                var s1Quest = GetS1Quest();
+                for (int i = QuestEntries.Count - 1; i >= keepCount; i--)
+                {
+                    try
+                    {
+                        if (s1Quest != null && s1Quest.Entries != null && i < s1Quest.Entries.Count)
+                        {
+                            var entry = s1Quest.Entries[i];
+                            if (entry != null)
+                            {
+                                if (entry.entryUI != null && entry.entryUI.gameObject != null)
+                                    UnityEngine.Object.DestroyImmediate(entry.entryUI.gameObject);
+                                if (entry.gameObject != null)
+                                    UnityEngine.Object.DestroyImmediate(entry.gameObject);
+                            }
+                            s1Quest.Entries.RemoveAt(i);
+                        }
+                    }
+                    catch { }
+
+                    if (i < QuestEntries.Count)
+                        QuestEntries.RemoveAt(i);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] RemoveExcessEntries failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Clears all quest entries. Uses DestroyImmediate to avoid stale
+        /// QuestEntryHUDUI references within the same frame.
         /// </summary>
         private void ClearAllEntries()
         {
             try
             {
                 var s1Quest = GetS1Quest();
-                if (s1Quest == null)
+                if (s1Quest == null || s1Quest.Entries == null)
                 {
                     QuestEntries.Clear();
                     return;
                 }
 
-                if (s1Quest.Entries == null)
-                {
-                    QuestEntries.Clear();
-                    return;
-                }
-
-                // Destroy each entry's GameObject and remove from list
                 int count = s1Quest.Entries.Count;
                 for (int i = count - 1; i >= 0; i--)
                 {
                     var entry = s1Quest.Entries[i];
                     if (entry != null)
                     {
-                        // Destroy the entry's UI if it exists
                         if (entry.entryUI != null && entry.entryUI.gameObject != null)
-                        {
-                            UnityEngine.Object.Destroy(entry.entryUI.gameObject);
-                        }
-                        // Destroy the entry's GameObject
+                            UnityEngine.Object.DestroyImmediate(entry.entryUI.gameObject);
                         if (entry.gameObject != null)
-                        {
-                            UnityEngine.Object.Destroy(entry.gameObject);
-                        }
+                            UnityEngine.Object.DestroyImmediate(entry.gameObject);
                     }
                 }
                 s1Quest.Entries.Clear();
-
-                // Clear the S1API wrapper list
                 QuestEntries.Clear();
             }
             catch (System.Exception ex)
             {
                 Melon<Core>.Logger.Warning($"[ConsolidatedQuest] ClearAllEntries failed: {ex.Message}");
-                // Still try to clear the wrapper list
                 try { QuestEntries.Clear(); } catch { }
             }
         }
 
         /// <summary>
-        /// Helper to cleanly remove the quest when we switch back to normal mode.
+        /// Hides the quest HUD without destroying the quest.
+        /// Uses CanvasGroup + LayoutElement so the quest can be shown again later.
         /// </summary>
-        public void Dismiss()
+        public void Hide()
         {
             try
             {
-                this.Fail();
+                var s1Quest = GetS1Quest();
+                if (s1Quest?.hudUI?.gameObject == null) return;
+
+                var go = s1Quest.hudUI.gameObject;
+                var cg = go.GetComponent<CanvasGroup>() ?? go.AddComponent<CanvasGroup>();
+                cg.alpha = 0f;
+                cg.blocksRaycasts = false;
+                cg.interactable = false;
+
+                var le = go.GetComponent<LayoutElement>() ?? go.AddComponent<LayoutElement>();
+                le.ignoreLayout = true;
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Quest may not have been fully initialized, ignore
+                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] Hide failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Shows a previously hidden quest HUD.
+        /// </summary>
+        private bool _showDebugLogged;
+
+        public void Show()
+        {
+            try
+            {
+                var s1Quest = GetS1Quest();
+                if (s1Quest == null)
+                {
+                    if (!_showDebugLogged) { Melon<Core>.Logger.Warning("[ConsolidatedQuest] Show: s1Quest is null"); _showDebugLogged = true; }
+                    return;
+                }
+                if (s1Quest.hudUI == null)
+                {
+                    if (!_showDebugLogged) { Melon<Core>.Logger.Warning("[ConsolidatedQuest] Show: hudUI is null (HUD not created yet by game)"); _showDebugLogged = true; }
+                    return;
+                }
+                if (s1Quest.hudUI.gameObject == null)
+                {
+                    if (!_showDebugLogged) { Melon<Core>.Logger.Warning("[ConsolidatedQuest] Show: hudUI.gameObject is null"); _showDebugLogged = true; }
+                    return;
+                }
+
+                var go = s1Quest.hudUI.gameObject;
+
+                if (!_showDebugLogged)
+                {
+                    var cg0 = go.GetComponent<CanvasGroup>();
+                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Show: hudUI exists, active={go.activeSelf}, alpha={cg0?.alpha}, title='{s1Quest.title}', entries={s1Quest.Entries?.Count}");
+                    _showDebugLogged = true;
+                }
+
+                if (!go.activeSelf)
+                    go.SetActive(true);
+
+                var cg = go.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 1f;
+                    cg.blocksRaycasts = true;
+                    cg.interactable = true;
+                }
+
+                var le = go.GetComponent<LayoutElement>();
+                if (le != null)
+                    le.ignoreLayout = false;
+            }
+            catch (System.Exception ex)
+            {
+                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] Show failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Cleanly removes the quest when the mod unloads.
+        /// Clears entries first to avoid stale HUD references during Fail().
+        /// </summary>
+        public void Dismiss()
+        {
+            Melon<Core>.Logger.Msg("[ConsolidatedQuest] Dismiss() called");
+
+            try { ClearAllEntries(); }
+            catch (System.Exception ex) { Melon<Core>.Logger.Warning($"[ConsolidatedQuest] Dismiss: ClearAllEntries threw: {ex.Message}"); }
+
+            try
+            {
+                var s1Quest = GetS1Quest();
+                if (s1Quest == null)
+                {
+                    Melon<Core>.Logger.Warning("[ConsolidatedQuest] Dismiss: GetS1Quest() returned null — cannot Fail");
+                    return;
+                }
+
+                int stateBefore = (int)s1Quest.State;
+                string titleBefore = s1Quest.title ?? "(null)";
+                Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: calling Fail(false) — state={stateBefore}, title='{titleBefore}', GUID='{s1Quest.StaticGUID}'");
+
+                s1Quest.Fail(false);
+
+                int stateAfter = (int)s1Quest.State;
+                Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: Fail(false) returned — state changed {stateBefore} → {stateAfter}");
+
+                // Verify removal from game registries
+                bool inQuestQuests = false;
+                try
+                {
+                    var gameQuests = Il2CppScheduleOne.Quests.Quest.Quests;
+                    if (gameQuests != null)
+                    {
+                        for (int i = 0; i < gameQuests.Count; i++)
+                        {
+                            if (gameQuests[i]?.GetInstanceID() == s1Quest.GetInstanceID())
+                            { inQuestQuests = true; break; }
+                        }
+                    }
+                }
+                catch { }
+
+                Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: post-Fail registry check — stillInGameQuestsList={inQuestQuests}");
+            }
+            catch (System.Exception ex)
+            {
+                Melon<Core>.Logger.Error($"[ConsolidatedQuest] Dismiss: Fail threw: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }

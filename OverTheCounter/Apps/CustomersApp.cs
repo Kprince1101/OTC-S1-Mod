@@ -293,6 +293,7 @@ namespace OverTheCounter.Apps
             titleRect.offsetMax = new Vector2(-120, 0);
             _headerTitle = titleObj;
 
+#if DEBUG
             // DEBUG: Trigger Desperation Button (right side of header) using UIFactory
             var (debugMask, debugBtn, debugLabel) = UIFactory.RoundedButtonWithLabel(
                 "DebugBtn",
@@ -322,6 +323,7 @@ namespace OverTheCounter.Apps
                     RefreshCustomerList();
                 }
             }));
+#endif
 
             // 3. Legend/Key bar below header
             var legendObj = UIFactory.Panel("Legend", rootPanel.transform, new Color(0.18f, 0.18f, 0.18f));
@@ -716,15 +718,6 @@ namespace OverTheCounter.Apps
             {
                 MelonLoader.MelonLogger.Warning($"MugshotSprite is null for NPC: {customer.fullName}");
             }
-        }
-
-        private void SetupRectTransform(RectTransform rt, Transform parent)
-        {
-            rt.SetParent(parent, false);
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
         }
 
         // Helper class to wrap the data

@@ -30,6 +30,7 @@ namespace OverTheCounter
         public static ConfigEntry<int> VicTier2TrustUnlock;
         public static ConfigEntry<float> VicTier2Cost;
         public static ConfigEntry<float> VicTier2Return;
+        public static ConfigEntry<int> VicIntroWeedGrams;
 
         // ── Static Subscription ──
         private static MelonPreferences_Category _subscription;
@@ -52,6 +53,13 @@ namespace OverTheCounter
         // All entries for bulk operations
         private static readonly Dictionary<string, ConfigEntry<float>> _floatEntries = new();
         private static readonly Dictionary<string, ConfigEntry<int>> _intEntries = new();
+
+        // Settings that are purely local (cosmetic/UI) and should never be
+        // synced from host to client. Each client reads their own preference.
+        private static readonly HashSet<string> _localOnlyKeys = new()
+        {
+            "ConsolidationThreshold"
+        };
 
         public static void Initialize()
         {
@@ -92,6 +100,8 @@ namespace OverTheCounter
                 "Cash required for tier-2 laundering"));
             VicTier2Return = Register(_laundering.CreateEntry("VicTier2Return", 750f, "Tier 2 Return",
                 "Clean money returned for tier-2 laundering"));
+            VicIntroWeedGrams = Register(_laundering.CreateEntry("VicIntroWeedGrams", 40, "Intro Quest Weed Grams",
+                "Grams of weed required to complete Vic's intro quest"));
 
             // ── Static Subscription ──
             _subscription = MelonPreferences.CreateCategory("OverTheCounter_Subscription", "Static Subscription");
@@ -142,13 +152,21 @@ namespace OverTheCounter
         /// </summary>
         public static string SerializeAll()
         {
+            // Always serialize the raw MelonPreference values, not overrides.
+            // The host is the authority — overrides are for clients only.
             var parts = new List<string>();
 
             foreach (var kvp in _floatEntries)
-                parts.Add($"{kvp.Key}={kvp.Value.Value.ToString(CultureInfo.InvariantCulture)}");
+            {
+                if (_localOnlyKeys.Contains(kvp.Key)) continue;
+                parts.Add($"{kvp.Key}={kvp.Value.RawEntry.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
 
             foreach (var kvp in _intEntries)
-                parts.Add($"{kvp.Key}={kvp.Value.Value.ToString(CultureInfo.InvariantCulture)}");
+            {
+                if (_localOnlyKeys.Contains(kvp.Key)) continue;
+                parts.Add($"{kvp.Key}={kvp.Value.RawEntry.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
 
             return string.Join("|", parts);
         }
@@ -161,6 +179,8 @@ namespace OverTheCounter
         {
             foreach (var kvp in data)
             {
+                if (_localOnlyKeys.Contains(kvp.Key)) continue;
+
                 if (_floatEntries.TryGetValue(kvp.Key, out var floatEntry))
                 {
                     if (float.TryParse(kvp.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out float fVal))

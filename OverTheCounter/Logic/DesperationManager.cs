@@ -6,9 +6,11 @@ using Il2CppScheduleOne.Quests;
 using MelonLoader;
 using S1API.GameTime;
 using S1API.Items;
+using S1API.Products;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using UnityEngine;
 
@@ -35,6 +37,10 @@ namespace OverTheCounter.Logic
 
         // Static instance for access from Harmony patches
         public static DesperationManager Instance { get; private set; }
+
+        // Debug override: when set, ForceCustomerDealOffer uses this product ID
+        // instead of looking up purchase history. Cleared after use.
+        internal static string DebugProductId;
 
         public DesperationManager(MelonLogger.Instance logger)
         {
@@ -110,7 +116,7 @@ namespace OverTheCounter.Logic
                 return;
             }
 
-            // Roll the dice (12% chance)
+            // Roll the dice
             float roll = UnityEngine.Random.value;
             if (roll > Config.TriggerChancePerHour.Value)
             {
@@ -120,10 +126,7 @@ namespace OverTheCounter.Logic
             // Find eligible customers
             var eligibleCustomers = GetEligibleFiends();
             if (eligibleCustomers.Count == 0)
-                            {
-                                // Success - contract offered
-                                return;
-                            }
+                return;
 
             // Pick a random eligible customer
             int index = UnityEngine.Random.Range(0, eligibleCustomers.Count);
@@ -174,7 +177,7 @@ namespace OverTheCounter.Logic
                     if (currentMinutes < cooldownEnd)
                         continue;
                     else
-                        _customerCooldowns.Remove(customerId);  // Cooldown expired
+                        _customerCooldowns.Remove(customerId);
                 }
 
                 // Check if NPC is conscious and available
@@ -210,6 +213,9 @@ namespace OverTheCounter.Logic
             // Force the customer to create a deal/contract request
             ForceCustomerDealOffer(customer);
 
+            // Sync desperate IDs to clients
+            ConfigSyncData.Instance?.PublishGameState();
+
             _logger.Msg($"[DesperationManager] Desperation event triggered for {customer.NPC.fullName}. " +
                        $"Response deadline: {Config.ResponseDeadlineMinutes.Value} mins. Daily count: {_dailyEventsTriggered}/{Config.MaxEventsPerDay.Value}");
         }
@@ -226,24 +232,65 @@ namespace OverTheCounter.Logic
                 customer.TimeSinceLastDealCompleted = 9999;
                 customer.TimeSinceLastDealOffered = 9999;
 
-                // Step 1: Get customer's most purchased products
-                string productId = GetCustomerPreferredProduct(customer);
+                // Priority: DebugProductId → actively listed → customer preference
+                string productId = DebugProductId;
+                DebugProductId = null;
+
+                if (string.IsNullOrEmpty(productId))
+                    productId = GetActivelyListedProduct();
+
+                if (string.IsNullOrEmpty(productId))
+                    productId = GetCustomerPreferredProduct(customer);
 
                 if (string.IsNullOrEmpty(productId))
                 {
                     _logger.Warning($"[DesperationManager] No purchase history for {customer.NPC.fullName}. " +
                                    "Using fallback contract generation.");
-                    // Fallback to game's contract generation
                     FallbackContractGeneration(customer);
                     return;
                 }
 
-                // Step 2: Create contract using S1API ContractInfoBuilder
                 CreateDesperationContract(customer, productId);
             }
             catch (Exception ex)
             {
                 _logger.Error($"[DesperationManager] ForceCustomerDealOffer failed: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        /// <summary>
+        /// Gets a random product ID from the player's listed products (ProductManager.ListedProducts).
+        /// Ensures desperation events request something the player is actually selling.
+        /// </summary>
+        private string GetActivelyListedProduct()
+        {
+            try
+            {
+                var listedProducts = Il2CppScheduleOne.Product.ProductManager.ListedProducts;
+                if (listedProducts == null || listedProducts.Count == 0)
+                {
+                    _logger.Warning("[DesperationManager] GetActivelyListedProduct: no listed products found");
+                    return null;
+                }
+
+                // Pick a random listed product
+                int idx = UnityEngine.Random.Range(0, listedProducts.Count);
+                var product = listedProducts[idx];
+                if (product == null) return null;
+
+                string productId = product.ID;
+                if (!string.IsNullOrEmpty(productId))
+                {
+                    _logger.Msg($"[DesperationManager] GetActivelyListedProduct: picked '{productId}' from {listedProducts.Count} listed product(s)");
+                    return productId;
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[DesperationManager] GetActivelyListedProduct failed: {ex.Message}");
+                return null;
             }
         }
 
@@ -290,8 +337,6 @@ namespace OverTheCounter.Logic
                 // StringIntPair has .String and .Int properties
                 dynamic topItem = mostPurchased[0];
                 string topProduct = (string)topItem.String;
-                int quantity = (int)topItem.Int;
-
                 return topProduct;
             }
             catch (Exception ex)
@@ -351,7 +396,7 @@ namespace OverTheCounter.Logic
                 var deliveryWindow = new ImmediateQuestWindowConfig
                 {
                     IsEnabled = true,
-                    WindowStartTime = currentTime,
+                    WindowStartTime = 0,
                     WindowEndTime = endTime
                 };
 
@@ -536,7 +581,9 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Sends a text message from an NPC using S1API.Entities.NPC.SendTextMessage().
+        /// Sends a text message from an NPC using the IL2CPP NPC directly.
+        /// Game NPCs (customers) aren't in S1API.Entities.NPC.All, so we
+        /// call the IL2CPP SendTextMessage method instead.
         /// </summary>
         private void SendNPCTextMessage(Il2CppScheduleOne.NPCs.NPC ilNpc, string message)
         {
@@ -544,22 +591,11 @@ namespace OverTheCounter.Logic
 
             try
             {
-                // Get the S1API wrapper for this IL2CPP NPC
-                var s1NPC = S1API.Entities.NPC.All.FirstOrDefault(n => n.ID == ilNpc.ID);
-
-                if (s1NPC != null)
-                {
-                    // Use S1API method - NO REFLECTION!
-                    s1NPC.SendTextMessage(message);
-                }
-                else
-                {
-                    _logger.Warning($"[DesperationManager] Could not find S1API wrapper for NPC '{ilNpc.fullName}' (ID: {ilNpc.ID})");
-                }
+                ilNpc.SendTextMessage(message);
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] SendNPCTextMessage failed: {ex.Message}");
+                _logger.Error($"[DesperationManager] SendNPCTextMessage failed for '{ilNpc.fullName}': {ex.Message}");
             }
         }
 
@@ -602,6 +638,9 @@ namespace OverTheCounter.Logic
                 FailEvent(evt, evt.IsAccepted ? "delivery" : "response");
                 _activeEvents.Remove(customerId);
             }
+
+            if (expiredIds.Count > 0)
+                ConfigSyncData.Instance?.PublishGameState();
         }
 
         /// <summary>
@@ -679,13 +718,42 @@ namespace OverTheCounter.Logic
             }
         }
 
+        // Client-side set of desperate customer IDs, populated via StateVar sync.
+        private static readonly HashSet<string> _clientDesperateIds = new();
+
         /// <summary>
         /// Checks if a customer is currently in a desperation state.
-        /// Called by the ProcessHandover transpiler.
+        /// Works on both host (checks _activeEvents) and client (checks synced IDs).
         /// </summary>
         public static bool IsDesperate(string customerId)
         {
-            return Instance?._activeEvents.ContainsKey(customerId) ?? false;
+            if (Instance?._activeEvents.ContainsKey(customerId) == true)
+                return true;
+            return _clientDesperateIds.Contains(customerId);
+        }
+
+        /// <summary>
+        /// Called by ConfigSyncData on clients to update the set of desperate customer IDs.
+        /// </summary>
+        public static void UpdateClientDesperateIds(HashSet<string> ids)
+        {
+            _clientDesperateIds.Clear();
+            if (ids != null)
+            {
+                foreach (var id in ids)
+                    _clientDesperateIds.Add(id);
+            }
+        }
+
+        /// <summary>
+        /// Returns a comma-separated string of desperate customer IDs for state sync.
+        /// Called by ConfigSyncData.SerializeGameState() on the host.
+        /// </summary>
+        public static string GetDesperateIdsForSync()
+        {
+            if (Instance == null || Instance._activeEvents.Count == 0)
+                return "";
+            return string.Join(",", Instance._activeEvents.Keys);
         }
 
         /// <summary>
@@ -708,6 +776,7 @@ namespace OverTheCounter.Logic
             if (Instance._activeEvents.TryGetValue(customerId, out var evt))
             {
                 Instance._activeEvents.Remove(customerId);
+                ConfigSyncData.Instance?.PublishGameState();
                 Instance._logger.Msg($"[DesperationManager] Desperation event RESOLVED for customer {customerId}. " +
                                     $"Bonus applied: {Config.BonusMultiplier.Value * 100}%");
             }
@@ -757,6 +826,7 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// DEBUG: Force triggers desperation on a random eligible customer.
+        /// If DebugProductId is not set, auto-finds a meth product to use.
         /// </summary>
         public static bool DebugForceRandomTrigger()
         {
@@ -770,10 +840,10 @@ namespace OverTheCounter.Logic
                 if (unlocked == null || unlocked.Count == 0)
                 {
                     MelonLoader.MelonLogger.Msg("[DesperationManager] DEBUG: No customers available");
+                    DebugProductId = null;
                     return false;
                 }
 
-                // Pick a random unlocked customer
                 int index = UnityEngine.Random.Range(0, unlocked.Count);
                 return DebugForceTrigger(unlocked[index]);
             }

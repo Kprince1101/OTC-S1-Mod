@@ -5,31 +5,39 @@ using MelonLoader;
 using OverTheCounter.Utilities;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
+using UnityEngine.UI;
 
 namespace OverTheCounter.Logic
 {
     /// <summary>
     /// Handles the decision making: When to hide original HUDs and when to show the summary.
-    /// Only consolidates contracts that share the same delivery window.
+    /// Consolidates contracts that share the same delivery window when the group size
+    /// meets or exceeds the configured threshold. Multiple windows can be consolidated
+    /// simultaneously, each with its own summary quest.
     /// Desperation contracts (ImmediateQuestWindowConfig) are never consolidated.
     /// </summary>
     public class NotificationManager
     {
         private readonly MelonLogger.Instance _logger;
 
-        private bool _isConsolidated = false;
-        private int _pendingRestoreFrames;
+        /// <summary>
+        /// Per-window consolidated group state.
+        /// </summary>
+        private class ConsolidatedGroup
+        {
+            public ConsolidatedQuest Quest;
+            public int GameQuestInstanceId = -1;
+            public int LastContractCount = -1;
+            public string LastProductHash = "";
+            public bool DebugUpdateLogged;
+        }
 
-        // Reference to our S1API Quest
-        private ConsolidatedQuest _summaryQuest;
+        // Active consolidated groups, keyed by (windowStart, windowEnd)
+        private readonly Dictionary<(int, int), ConsolidatedGroup> _activeGroups = new();
 
-        // Track the current consolidated window for comparison
-        private int _consolidatedWindowStart = -1;
-        private int _consolidatedWindowEnd = -1;
-
-        // Track last contract count to avoid unnecessary updates
-        private int _lastContractCount = -1;
-        private string _lastProductHash = "";
+        private bool _staleCleaned;
+        private int _staleCleanupFrame;
 
         public NotificationManager(MelonLogger.Instance logger)
         {
@@ -38,16 +46,91 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Main logic loop. Checks contract count and switches modes accordingly.
-        /// Groups contracts by delivery window and only consolidates matching windows.
+        /// Groups contracts by delivery window and consolidates each qualifying group.
         /// </summary>
         public void ProcessContractState()
         {
-            // Multi-frame restore retry: after deconsolidation, the game may
-            // recreate HUD objects over several frames. Keep restoring until done.
-            if (_pendingRestoreFrames > 0)
+            // Stale cleanup: dismiss any ConsolidatedQuest left in the game's
+            // Quest.Quests registry from a previous session's save data.
+            // S1API registers loaded quests via QuestStart (Unity Start lifecycle)
+            // which fires AFTER Quest.Quests is populated, so we scan repeatedly
+            // every ~0.5s for 5 seconds to catch late arrivals.
+            if (!_staleCleaned)
             {
-                _pendingRestoreFrames--;
-                RestoreAllContractHUDs();
+                try
+                {
+                    var gameQuests = Il2CppScheduleOne.Quests.Quest.Quests;
+                    if (gameQuests == null || gameQuests.Count == 0)
+                        return; // game not loaded yet
+
+                    _staleCleanupFrame++;
+
+                    // Scan every 30 frames (~0.5s)
+                    bool shouldScan = (_staleCleanupFrame % 30 == 0);
+                    // Give up after 300 frames (~5s)
+                    bool timedOut = (_staleCleanupFrame >= 300);
+
+                    if (timedOut)
+                    {
+                        _staleCleaned = true;
+                        _logger.Msg($"[StaleCleanup] Window closed after {_staleCleanupFrame} frames. Quest.Quests count={gameQuests.Count}");
+                    }
+                    else if (shouldScan)
+                    {
+                        // Collect instance IDs of our own active quests to avoid failing them.
+                        // Read from ConsolidatedGroup (pure managed class), NOT from the quest
+                        // object (IL2CPP-inherited, fields get clobbered).
+                        var ownQuestIds = new HashSet<int>();
+                        foreach (var g in _activeGroups.Values)
+                        {
+                            if (g.GameQuestInstanceId != -1)
+                                ownQuestIds.Add(g.GameQuestInstanceId);
+                        }
+
+                        _logger.Msg($"[StaleCleanup] Scan at frame {_staleCleanupFrame}: Quest.Quests={gameQuests.Count}, ownQuestIds=[{string.Join(", ", ownQuestIds)}], activeGroups={_activeGroups.Count}");
+
+                        for (int i = gameQuests.Count - 1; i >= 0; i--)
+                        {
+                            try
+                            {
+                                var quest = gameQuests[i];
+                                if (quest?.Title == null) continue;
+
+                                if (quest.Title.Contains("Deliveries"))
+                                {
+                                    int questId = quest.GetInstanceID();
+
+                                    // Skip our own active quests
+                                    if (ownQuestIds.Contains(questId))
+                                    {
+                                        _logger.Msg($"[StaleCleanup] Skipping own active quest '{quest.Title}' (id={questId}) at frame {_staleCleanupFrame}");
+                                        continue;
+                                    }
+
+                                    int state = -1;
+                                    try { state = (int)quest.State; } catch { }
+
+                                    _logger.Msg($"[StaleCleanup] Found stale '{quest.Title}' (state={state}, id={questId}) at frame {_staleCleanupFrame} — calling Fail(false)");
+                                    quest.Fail(false);
+
+                                    int stateAfter = -1;
+                                    try { stateAfter = (int)quest.State; } catch { }
+                                    _logger.Msg($"[StaleCleanup] Fail returned: state {state} → {stateAfter}. Marking cleaned.");
+                                    _staleCleaned = true;
+                                    break; // Done — don't continue failing more quests in this scan
+                                }
+                            }
+                            catch (System.Exception ex)
+                            {
+                                _logger.Warning($"[StaleCleanup] Quest[{i}] threw: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.Warning($"[StaleCleanup] Exception: {ex.Message}");
+                }
             }
 
             // Get the list of active contracts from the game
@@ -57,51 +140,43 @@ namespace OverTheCounter.Logic
             // Group contracts by their delivery window (excluding desperation/immediate contracts)
             var windowGroups = GroupContractsByWindow(contracts);
 
-            // Find the largest group that exceeds the threshold
-            KeyValuePair<(int, int), List<Contract>>? largestGroup = null;
-            int largestCount = 0;
+            int threshold = Config.ConsolidationThreshold.Value;
 
+            // Determine which windows currently qualify for consolidation
+            var qualifyingWindows = new HashSet<(int, int)>();
             foreach (var group in windowGroups)
             {
-                if (group.Value.Count > largestCount)
-                {
-                    largestCount = group.Value.Count;
-                    largestGroup = group;
-                }
+                if (group.Value.Count >= threshold && group.Value.Count > 0)
+                    qualifyingWindows.Add(group.Key);
             }
 
-            // MODE 1: A window group exceeds threshold -> Consolidate that group
-            if (largestGroup.HasValue && largestCount > Config.ConsolidationThreshold.Value)
+            // Deactivate groups whose window no longer qualifies
+            var toRemove = new List<(int, int)>();
+            foreach (var kvp in _activeGroups)
             {
-                var windowKey = largestGroup.Value.Key;
-                var groupContracts = largestGroup.Value.Value;
+                if (!qualifyingWindows.Contains(kvp.Key))
+                    toRemove.Add(kvp.Key);
+            }
+            foreach (var key in toRemove)
+            {
+                DeactivateGroup(key);
+            }
 
-                // Check if we need to switch to a different window group
-                bool windowChanged = _consolidatedWindowStart != windowKey.Item1 ||
-                                     _consolidatedWindowEnd != windowKey.Item2;
+            // Activate or update each qualifying group
+            foreach (var windowKey in qualifyingWindows)
+            {
+                var groupContracts = windowGroups[windowKey];
 
-                // If not consolidated or window changed, (re)activate consolidated mode
-                if (!_isConsolidated || windowChanged)
+                if (!_activeGroups.ContainsKey(windowKey))
                 {
-                    if (_isConsolidated)
-                    {
-                        // Deactivate first if switching windows
-                        DeactivateConsolidatedMode();
-                    }
-                    ActivateConsolidatedMode(groupContracts, windowKey.Item1, windowKey.Item2);
+                    ActivateGroup(windowKey, groupContracts);
                 }
 
-                // Update the consolidated view
-                if (_isConsolidated)
+                if (_activeGroups.TryGetValue(windowKey, out var group))
                 {
                     HideGroupHUDs(groupContracts);
-                    UpdateSummaryData(groupContracts);
+                    UpdateGroupSummary(windowKey, group, groupContracts);
                 }
-            }
-            // MODE 2: No group exceeds threshold -> Show individual notifications
-            else if (_isConsolidated)
-            {
-                DeactivateConsolidatedMode();
             }
         }
 
@@ -173,70 +248,88 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Switches to the custom summary quest for a specific window group.
+        /// Creates a new ConsolidatedQuest for a window group.
         /// </summary>
-        private void ActivateConsolidatedMode(List<Contract> contracts, int windowStart, int windowEnd)
+        private void ActivateGroup((int, int) windowKey, List<Contract> contracts)
         {
-            // Create the S1API quest using the proper registration method
-            _summaryQuest = (ConsolidatedQuest)S1API.Quests.QuestManager.CreateQuest<ConsolidatedQuest>();
+            _logger.Msg($"[Activate] Creating ConsolidatedQuest for {contracts.Count} contracts, window {windowKey.Item1}-{windowKey.Item2}");
 
-            if (_summaryQuest != null)
+            var quest = (ConsolidatedQuest)S1API.Quests.QuestManager.CreateQuest<ConsolidatedQuest>();
+            if (quest != null)
             {
-                // Initialize the quest entry after creation
-                _summaryQuest.Initialize();
+                quest.Initialize();
+                _logger.Msg("[Activate] Quest created and initialized.");
+            }
+            else
+            {
+                _logger.Error("[Activate] CreateQuest<ConsolidatedQuest> returned null!");
+                return;
             }
 
-            _consolidatedWindowStart = windowStart;
-            _consolidatedWindowEnd = windowEnd;
-            _isConsolidated = true;
-            _logger.Msg($"Consolidated {contracts.Count} delivery notifications for window {windowStart}-{windowEnd}.");
+            // Read the instance ID right now while it's fresh — storing it in our
+            // own managed class avoids IL2CPP field clobbering on the quest object.
+            int instanceId = quest.GameQuestInstanceId;
+            _logger.Msg($"[Activate] Stored GameQuestInstanceId={instanceId} for window {windowKey}");
+
+            _activeGroups[windowKey] = new ConsolidatedGroup { Quest = quest, GameQuestInstanceId = instanceId };
         }
 
         /// <summary>
-        /// Switches back to standard game behavior.
-        /// Restores individual HUDs BEFORE dismissing the summary quest so
-        /// Fail()/Dismiss() cannot destroy the contract HUD objects first.
+        /// Removes a consolidated group and restores its contract HUDs.
         /// </summary>
-        private void DeactivateConsolidatedMode()
+        private void DeactivateGroup((int, int) windowKey)
         {
+            if (!_activeGroups.TryGetValue(windowKey, out var group))
+                return;
+
+            _logger.Msg($"[Deactivate] Removing group window {windowKey.Item1}-{windowKey.Item2}");
+
+            // Restore all contract HUDs — the next frame's HideGroupHUDs will
+            // re-hide contracts that are still in other active groups.
             RestoreAllContractHUDs();
 
-            _summaryQuest?.Dismiss();
-            _summaryQuest = null;
+            if (group.Quest != null)
+            {
+                group.Quest.Dismiss();
+            }
 
-            _consolidatedWindowStart = -1;
-            _consolidatedWindowEnd = -1;
-            _lastContractCount = -1;
-            _lastProductHash = "";
-            _isConsolidated = false;
-
-            // Retry restoration for a few frames in case HUDs are rebuilt by the game.
-            _pendingRestoreFrames = 3;
-
-            _logger.Msg("Restored individual notifications.");
+            _activeGroups.Remove(windowKey);
+            _logger.Msg("[Deactivate] Group removed.");
         }
 
         /// <summary>
         /// Hides the HUDs for contracts in the consolidated group.
+        /// Uses CanvasGroup + LayoutElement instead of SetActive(false) to keep
+        /// GameObjects active (prevents the game from destroying them).
         /// </summary>
         private void HideGroupHUDs(List<Contract> contracts)
         {
             foreach (var contract in contracts)
             {
-                if (contract == null) continue;
+                if (contract?.hudUI?.gameObject == null) continue;
 
                 try
                 {
-                    if (contract.hudUI != null && contract.hudUI.gameObject != null && contract.hudUI.gameObject.activeSelf)
-                        contract.hudUI.gameObject.SetActive(false);
+                    var go = contract.hudUI.gameObject;
+
+                    // Make invisible (keep active so game doesn't destroy the HUD)
+                    var cg = go.GetComponent<CanvasGroup>() ?? go.AddComponent<CanvasGroup>();
+                    cg.alpha = 0f;
+                    cg.blocksRaycasts = false;
+                    cg.interactable = false;
+
+                    // Collapse layout space
+                    var le = go.GetComponent<LayoutElement>() ?? go.AddComponent<LayoutElement>();
+                    le.ignoreLayout = true;
                 }
                 catch { }
             }
         }
 
         /// <summary>
-        /// Re-enables HUDs on all live contracts. Scans the game's contract list
-        /// directly to avoid holding stale Il2Cpp references.
+        /// Re-enables HUDs on all live contracts. Reverses CanvasGroup/LayoutElement
+        /// hiding and also re-activates any that were deactivated via SetActive(false)
+        /// from older code or game internals.
         /// </summary>
         private void RestoreAllContractHUDs()
         {
@@ -248,42 +341,80 @@ namespace OverTheCounter.Logic
                 try
                 {
                     var contract = contracts[i];
-                    if (contract == null) continue;
-                    if (contract.hudUI != null && contract.hudUI.gameObject != null && !contract.hudUI.gameObject.activeSelf)
-                        contract.hudUI.gameObject.SetActive(true);
+                    if (contract?.hudUI?.gameObject == null) continue;
+
+                    var go = contract.hudUI.gameObject;
+
+                    // Re-activate if disabled (legacy or game-internal)
+                    if (!go.activeSelf)
+                        go.SetActive(true);
+
+                    // Restore CanvasGroup visibility
+                    var cg = go.GetComponent<CanvasGroup>();
+                    if (cg != null)
+                    {
+                        cg.alpha = 1f;
+                        cg.blocksRaycasts = true;
+                        cg.interactable = true;
+                    }
+
+                    // Restore layout participation
+                    var le = go.GetComponent<LayoutElement>();
+                    if (le != null)
+                        le.ignoreLayout = false;
                 }
                 catch { }
             }
         }
 
         /// <summary>
-        /// Calculates totals and updates the quest text for the consolidated group.
+        /// Updates the summary quest for a specific consolidated group.
         /// Only updates if the data has actually changed.
         /// </summary>
-        private void UpdateSummaryData(List<Contract> contracts)
+        private void UpdateGroupSummary((int, int) windowKey, ConsolidatedGroup group, List<Contract> contracts)
         {
-            if (_summaryQuest == null) return;
+            if (group.Quest == null)
+            {
+                if (!group.DebugUpdateLogged) { _logger.Warning($"[UpdateGroupSummary] Quest is null for window {windowKey}"); group.DebugUpdateLogged = true; }
+                return;
+            }
 
             // Get product summaries for individual entries
             var productSummaries = FormatUtils.GetProductSummaries(contracts);
 
-            // Create a hash of the current state to detect changes
-            string currentHash = string.Join("|", productSummaries.Select(p => $"{p.ProductID}:{p.Quantity}"));
-
-            // Only update if count or products have changed
-            if (contracts.Count == _lastContractCount && currentHash == _lastProductHash)
+            // If there are no products to display, deconsolidate instead of showing a blank quest.
+            if (productSummaries.Count == 0 || contracts.Count == 0)
             {
-                // Still update timing even if products haven't changed
-                _summaryQuest.UpdateTiming(_consolidatedWindowStart, _consolidatedWindowEnd);
+                _logger.Warning($"[UpdateGroupSummary] Empty products for window {windowKey}, deactivating group");
+                DeactivateGroup(windowKey);
                 return;
             }
 
-            // Update tracking
-            _lastContractCount = contracts.Count;
-            _lastProductHash = currentHash;
+            // Create a hash of the current state to detect changes
+            string currentHash = string.Join("|", productSummaries.Select(p => $"{p.ProductID}:{p.Quantity}"));
 
-            // Update the quest with count, product summaries, and window times
-            _summaryQuest.UpdateSummary(contracts.Count, productSummaries, _consolidatedWindowStart, _consolidatedWindowEnd);
+            if (contracts.Count != group.LastContractCount || currentHash != group.LastProductHash)
+            {
+                if (!group.DebugUpdateLogged)
+                {
+                    _logger.Msg($"[UpdateGroupSummary] Window {windowKey}: data changed, count={contracts.Count}, products={productSummaries.Count}");
+                    group.DebugUpdateLogged = true;
+                }
+                // Data changed — update tracking and quest content
+                group.LastContractCount = contracts.Count;
+                group.LastProductHash = currentHash;
+                group.Quest.UpdateSummary(contracts.Count, productSummaries, windowKey.Item1, windowKey.Item2);
+            }
+            else
+            {
+                // Data unchanged — still update timing (countdown text)
+                group.Quest.UpdateTiming(windowKey.Item1, windowKey.Item2);
+            }
+
+            // Always call Show(): on the first frame after quest creation the game's
+            // hudUI doesn't exist yet so Show() silently no-ops. Calling every frame
+            // retries until the HUD is actually visible. Once visible this is a no-op.
+            group.Quest.Show();
         }
 
         /// <summary>
@@ -291,10 +422,13 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void Cleanup()
         {
-            if (_isConsolidated)
+            RestoreAllContractHUDs();
+
+            foreach (var group in _activeGroups.Values)
             {
-                DeactivateConsolidatedMode();
+                group.Quest?.Dismiss();
             }
+            _activeGroups.Clear();
         }
     }
 }

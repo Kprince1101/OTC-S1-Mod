@@ -14,6 +14,7 @@ using Il2CppScheduleOne.Product;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using UnityEngine;
+using UnityEngine.AI;
 using MelonLoader;
 using System;
 
@@ -46,21 +47,30 @@ namespace OverTheCounter.NPCs
         private static readonly Quaternion SpawnRotation = Quaternion.Euler(0.0f, 230.7f, 0.0f);
 
         /// <summary>
-        /// Teleports Static to the exact spawn position (host only).
-        /// The schedule's WalkTo uses NavMesh pathfinding which can place the NPC
-        /// at the wrong elevation. Client doesn't run the schedule, so no fix needed.
+        /// Warps Static to the spawn position on the host.
+        /// Movement.Warp() snaps to the NavMesh surface (correct Y) and
+        /// sends a FishNet RPC that syncs the position to all clients.
+        /// Must only be called on the host.
         /// </summary>
-        public void ForceToSpawnPosition()
+        public void WarpToSpawn()
         {
             try
             {
-                Movement.Warp(SpawnPosition);
+                // Pre-snap position to NavMesh surface so the Warp RPC sends
+                // the correct ground-level Y to clients. Without this, clients
+                // with a disabled NavMeshAgent receive the raw SpawnPosition Y
+                // and the NPC floats above ground.
+                Vector3 warpPos = SpawnPosition;
+                if (NavMesh.SamplePosition(SpawnPosition, out NavMeshHit hit, 10f, NavMesh.AllAreas))
+                    warpPos = hit.position;
+
+                Movement.Warp(warpPos);
                 Movement.Stop();
                 Movement.FaceDirection(SpawnRotation * Vector3.forward);
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ForceToSpawnPosition failed: {ex.Message}");
+                Logger.Warning($"WarpToSpawn failed: {ex.Message}");
             }
         }
 
@@ -70,8 +80,6 @@ namespace OverTheCounter.NPCs
 
         protected override void ConfigurePrefab(NPCPrefabBuilder builder)
         {
-            Logger.Msg("StaticNPC.ConfigurePrefab() called");
-
             builder
                 .WithIdentity("static_casino_fixer", "Static", "")
                 .WithSpawnPosition(SpawnPosition, SpawnRotation)
@@ -92,7 +100,7 @@ namespace OverTheCounter.NPCs
                 })
                 .WithSchedule(plan =>
                 {
-                    plan.WalkTo(SpawnPosition, 10);
+                    plan.WalkTo(SpawnPosition, 10, true, 1f, true);
                 });
         }
 
@@ -135,6 +143,10 @@ namespace OverTheCounter.NPCs
 
             EnsureVoiceDatabase();
 
+            // Schedule + pathfinding run on host only. The host's Movement.Warp()
+            // sends a FishNet RPC to sync position to clients. WarpToSpawn()
+            // pre-snaps Y via NavMesh.SamplePosition so the RPC sends correct
+            // ground-level coordinates regardless of client NavMeshAgent state.
             if (NetworkHelper.IsHost)
             {
                 Schedule.Enable();
@@ -513,8 +525,11 @@ namespace OverTheCounter.NPCs
             {
                 try
                 {
-                    StaticSaveData.Instance?.OnIntroCompleted();
-                    ConfigSyncData.SendQuestAction("STATIC_INTRO_COMPLETED");
+                    if (NetworkHelper.IsHost)
+                        StaticSaveData.Instance?.OnIntroCompleted();
+                    else
+                        ConfigSyncData.SendQuestAction("STATIC_INTRO_COMPLETED");
+
                     RefreshDialogue();
                 }
                 catch (Exception ex)
@@ -530,10 +545,14 @@ namespace OverTheCounter.NPCs
                     if (Money.GetOnlineBalance() < Config.StaticTier1BankCost.Value || CountWeedInInventory() < Config.StaticTier1WeedGrams.Value)
                         return;
 
+                    // Local player effects — always execute (it's this player's money/inventory).
                     Money.CreateOnlineTransaction("OTC License", -Config.StaticTier1BankCost.Value, 1f, "Static Services");
                     RemoveWeedFromInventory(Config.StaticTier1WeedGrams.Value);
-                    StaticSaveData.Instance?.PurchaseInitial();
-                    ConfigSyncData.SendQuestAction("STATIC_PURCHASE_INITIAL");
+
+                    if (NetworkHelper.IsHost)
+                        StaticSaveData.Instance?.PurchaseInitial();
+                    else
+                        ConfigSyncData.SendQuestAction("STATIC_PURCHASE_INITIAL");
 
                     TriggerCocaineConsumption();
                     RefreshDialogue();
@@ -571,8 +590,10 @@ namespace OverTheCounter.NPCs
                         return;
                     }
 
-                    StaticSaveData.Instance?.PurchaseUpgrade();
-                    ConfigSyncData.SendQuestAction("STATIC_PURCHASE_UPGRADE");
+                    if (NetworkHelper.IsHost)
+                        StaticSaveData.Instance?.PurchaseUpgrade();
+                    else
+                        ConfigSyncData.SendQuestAction("STATIC_PURCHASE_UPGRADE");
 
                     TriggerCocaineConsumption();
                     RefreshDialogue();
@@ -587,8 +608,10 @@ namespace OverTheCounter.NPCs
             {
                 try
                 {
-                    StaticSaveData.Instance?.ReactivateSubscription();
-                    ConfigSyncData.SendQuestAction("STATIC_REACTIVATE");
+                    if (NetworkHelper.IsHost)
+                        StaticSaveData.Instance?.ReactivateSubscription();
+                    else
+                        ConfigSyncData.SendQuestAction("STATIC_REACTIVATE");
 
                     TriggerCocaineConsumption();
                     RefreshDialogue();
@@ -603,8 +626,10 @@ namespace OverTheCounter.NPCs
             {
                 try
                 {
-                    StaticSaveData.Instance?.CancelSubscription();
-                    ConfigSyncData.SendQuestAction("STATIC_CANCEL");
+                    if (NetworkHelper.IsHost)
+                        StaticSaveData.Instance?.CancelSubscription();
+                    else
+                        ConfigSyncData.SendQuestAction("STATIC_CANCEL");
 
                     TriggerCocaineConsumption();
                     RefreshDialogue();

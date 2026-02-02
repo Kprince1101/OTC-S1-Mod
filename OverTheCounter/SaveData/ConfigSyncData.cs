@@ -1,5 +1,7 @@
 using Il2CppSteamworks;
 using MelonLoader;
+using OverTheCounter.Logic;
+using OverTheCounter.Quests;
 using OverTheCounter.Utilities;
 using S1API.Internal.Abstraction;
 using S1API.Saveables;
@@ -10,6 +12,21 @@ using System.Collections.Generic;
 
 namespace OverTheCounter.SaveData
 {
+    /// <summary>
+    /// Pass-through serializer that avoids JSON encoding. SteamNetworkLib's
+    /// default JsonSyncSerializer wraps strings in quotes which get lost in
+    /// the Steam lobby data round-trip (IL2CPP marshaling), causing
+    /// "Invalid JSON string format" on deserialization. Since our SyncVars
+    /// only carry pipe-delimited strings we serialize ourselves, JSON adds
+    /// no value — raw pass-through is correct.
+    /// </summary>
+    internal class RawStringSerializer : ISyncSerializer
+    {
+        public string Serialize<T>(T value) => value?.ToString() ?? "";
+        public T Deserialize<T>(string data) => (T)(object)(data ?? "");
+        public bool CanSerialize(Type type) => type == typeof(string);
+    }
+
     public class ConfigSyncData : Saveable
     {
         private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ConfigSync");
@@ -22,17 +39,30 @@ namespace OverTheCounter.SaveData
         private static Dictionary<string, string> _pendingGameState;
 
         private static bool _networkInitialized;
+        private static bool _initialSyncDone;
+
+        // SteamNetworkLib client and SyncVars.
+        private static SteamNetworkClient _netClient;
+        private static HostSyncVar<string> _configVar;   // Host → Client: pipe-delimited config
+        private static HostSyncVar<string> _stateVar;    // Host → Client: pipe-delimited state
+        private static ClientSyncVar<string> _actionVar; // Client → Host: "seq:ACTION"
+
+        private static readonly NetworkSyncOptions _syncOptions = new NetworkSyncOptions
+        {
+            KeyPrefix = "OTC_",
+            Serializer = new RawStringSerializer()
+        };
 
         // Lobby member data for client→host quest action sync.
-        private static CSteamID _lobbyId;
-        private static Callback<LobbyDataUpdate_t> _lobbyDataCallback;
         private static int _actionSeq;
         private static readonly Dictionary<ulong, string> _processedActions = new Dictionary<ulong, string>();
 
+        // Fallback polling for ClientSyncVar: LobbyDataUpdate_t may not fire for
+        // member data changes in IL2CPP. Host polls Refresh() periodically instead.
+        private static long _lastActionPollTick;
+        private const long ACTION_POLL_INTERVAL_MS = 1000;
+
         public static ConfigSyncData Instance { get; private set; }
-        public static SteamNetworkClient NetworkClient { get; set; }
-        public static HostSyncVar<string> ConfigVar { get; private set; }
-        public static HostSyncVar<string> StateVar { get; private set; }
 
         public ConfigSyncData()
         {
@@ -43,128 +73,266 @@ namespace OverTheCounter.SaveData
         {
             Instance = this;
 
-            if (NetworkHelper.IsHost)
+            // Apply saveable fallback first. On the client this is the host's
+            // config from the save file — a valid override source. On the host
+            // it re-applies its own stale config (harmless, Config already has
+            // the current values). We do this unconditionally because
+            // NetworkHelper.IsHost (FishNet) is unreliable during early loading.
+            if (!string.IsNullOrEmpty(_payload))
             {
-                _payload = Config.SerializeAll();
-                if (ConfigVar != null)
-                    ConfigVar.Value = _payload;
-                if (StateVar != null)
-                    StateVar.Value = SerializeGameState();
-                Logger.Msg("Host config and game state published via SyncVars.");
-            }
-            else if (!string.IsNullOrEmpty(_payload))
-            {
-                // Saveable fallback for config (SyncVar may have applied already)
                 var data = ParsePayload(_payload);
                 Config.ApplyOverrides(data);
-                Logger.Msg($"Client applied {data.Count} config overrides from saveable fallback.");
+                Logger.Msg($"Applied {data.Count} config overrides from saveable payload.");
+            }
+
+            // Push current config + state via SyncVar. On the host this
+            // publishes the fresh config to clients. On the client the
+            // HostSyncVar silently ignores the write (not lobby owner).
+            if (_configVar != null)
+            {
+                _configVar.Value = Config.SerializeAll();
+                _stateVar.Value = SerializeGameState();
+                Logger.Msg("Pushed config and game state to SyncVars.");
             }
         }
 
         /// <summary>
-        /// Initializes SteamNetworkClient and creates SyncVars. Called from
-        /// Core.OnLateUpdate() so it runs on BOTH host and client regardless
-        /// of whether the Saveable lifecycle fires.
+        /// Initializes SteamNetworkClient and SyncVars. Called from Core.OnLateUpdate()
+        /// so it runs on BOTH host and client regardless of whether the
+        /// Saveable lifecycle fires.
         /// </summary>
         public static void EnsureNetworkReady()
         {
             if (_networkInitialized) return;
             _networkInitialized = true;
 
-            if (NetworkClient == null)
+            try
             {
+                _netClient = new SteamNetworkClient();
+                if (!_netClient.Initialize())
+                {
+                    Logger.Warning("SteamNetworkClient.Initialize() returned false (single-player?).");
+                    _netClient = null;
+                    return;
+                }
+
+                _configVar = _netClient.CreateHostSyncVar("cfg", "", _syncOptions);
+                _stateVar = _netClient.CreateHostSyncVar("state", "", _syncOptions);
+                _actionVar = _netClient.CreateClientSyncVar("action", "", _syncOptions);
+
+                // Diagnostic error handlers — surface silent SyncVar failures.
+                _configVar.OnSyncError += (ex) => Logger.Warning($"Config SyncVar error: {ex.Message}");
+                _stateVar.OnSyncError += (ex) => Logger.Warning($"State SyncVar error: {ex.Message}");
+                _actionVar.OnSyncError += (ex) => Logger.Warning($"Action SyncVar error: {ex.Message}");
+                _configVar.OnWriteIgnored += (_) => Logger.Warning("Config SyncVar write ignored (not lobby owner).");
+                _stateVar.OnWriteIgnored += (_) => Logger.Warning("State SyncVar write ignored (not lobby owner).");
+
+                // Client callbacks: receive config and state from host.
+                _configVar.OnValueChanged += OnConfigChanged;
+                _stateVar.OnValueChanged += OnStateChanged;
+
+                // Host callback: receive quest actions from clients.
+                _actionVar.OnValueChanged += OnActionChanged;
+
+                // NOTE: Initial value push is deferred to ProcessMessages() after lobby
+                // discovery. SyncVar writes before _currentLobby is set fail silently.
+
+                Logger.Msg($"SteamNetworkLib SyncVars initialized (inLobby={_netClient.IsInLobby}).");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Failed to initialize SteamNetworkLib: {ex.Message}");
+                _netClient = null;
+            }
+        }
+
+        /// <summary>
+        /// Processes incoming SyncVar messages (both host and client).
+        /// Called from Core.OnLateUpdate() every frame.
+        ///
+        /// On the first frame where IsInLobby becomes true (after LobbyEnter_t
+        /// is delivered by ProcessIncomingMessages), pushes initial values AND
+        /// refreshes from lobby data. We do BOTH unconditionally because
+        /// NetworkHelper.IsHost (FishNet) is not yet reliable this early —
+        /// HostSyncVar silently ignores non-host writes internally, so the
+        /// push is safe on clients (no-op), and refresh is safe on the host
+        /// (reads own values).
+        /// </summary>
+        public static void ProcessMessages()
+        {
+            if (_netClient == null) return;
+            _netClient.ProcessIncomingMessages();
+
+            if (!_initialSyncDone && _netClient.IsInLobby)
+            {
+                _initialSyncDone = true;
                 try
                 {
-                    var client = new SteamNetworkClient();
-                    if (client.Initialize())
-                    {
-                        NetworkClient = client;
-                        Logger.Msg("SteamNetworkClient initialized.");
-                    }
-                    else
-                    {
-                        Logger.Warning("SteamNetworkClient.Initialize() returned false.");
-                        return;
-                    }
+                    // Push — succeeds on host (lobby owner), silently ignored on client.
+                    // Config.SerializeAll() is static; Config.Initialize() runs in
+                    // OnInitializeMelon() long before lobby discovery, so it's always ready.
+                    string cfg = Config.SerializeAll();
+                    if (!string.IsNullOrEmpty(cfg) && _configVar != null)
+                        _configVar.Value = cfg;
+
+                    string state = SerializeGameState();
+                    if (!string.IsNullOrEmpty(state) && _stateVar != null)
+                        _stateVar.Value = state;
+
+                    // Refresh — picks up values already in lobby data (covers
+                    // client reading host values, and host reading its own on rejoin).
+                    _configVar?.Refresh();
+                    _stateVar?.Refresh();
+                    _actionVar?.Refresh();
+
+                    Logger.Msg($"Initial SyncVar sync after lobby discovery (lobbyHost={_netClient.IsHost}).");
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"SteamNetworkClient init failed: {ex.Message}");
-                    return;
+                    Logger.Warning($"Post-lobby-discovery sync failed: {ex.Message}");
                 }
             }
 
-            try
+            // Fallback polling for ClientSyncVar on the host. LobbyDataUpdate_t
+            // callbacks fire reliably for lobby data (HostSyncVar) in IL2CPP but
+            // may not fire for member data (ClientSyncVar). Refresh() clears the
+            // internal cache; GetAllValues() then re-reads fresh member data from
+            // Steam for each lobby member. We process the values explicitly here
+            // since Refresh() does NOT fire OnValueChanged callbacks.
+            if (_netClient.IsHost && _actionVar != null && _initialSyncDone)
             {
-                ConfigVar = NetworkClient.CreateHostSyncVar<string>("otc_cfg", "");
-                StateVar = NetworkClient.CreateHostSyncVar<string>("otc_state", "");
-
-                if (!NetworkHelper.IsHost)
+                long now = Environment.TickCount64;
+                if (now - _lastActionPollTick >= ACTION_POLL_INTERVAL_MS)
                 {
-                    ConfigVar.OnValueChanged += OnConfigVarChanged;
-                    StateVar.OnValueChanged += OnStateVarChanged;
-
-                    // Read initial state immediately if the host already published
-                    string statePayload = StateVar.Value;
-                    if (!string.IsNullOrEmpty(statePayload))
+                    _lastActionPollTick = now;
+                    try
                     {
-                        var state = ParsePayload(statePayload);
-                        _pendingGameState = state;
-                        ApplyGameState(state);
-                        Logger.Msg($"Client applied {state.Count} game state values on network init.");
+                        _actionVar.Refresh();
+                        var allValues = _actionVar.GetAllValues();
+                        foreach (var kvp in allValues)
+                        {
+                            if (kvp.Key.m_SteamID == _netClient.LocalPlayerId.m_SteamID) continue;
+                            string val = kvp.Value;
+                            if (string.IsNullOrEmpty(val)) continue;
+
+                            // Deduplicate: skip if we already processed this exact value from this sender.
+                            if (_processedActions.TryGetValue(kvp.Key.m_SteamID, out string last) && last == val)
+                                continue;
+                            _processedActions[kvp.Key.m_SteamID] = val;
+
+                            // Parse "seq:ACTION_NAME"
+                            int colonIdx = val.IndexOf(':');
+                            if (colonIdx <= 0 || colonIdx >= val.Length - 1) continue;
+                            string action = val.Substring(colonIdx + 1);
+
+                            Logger.Msg($"Host received quest action '{action}' from {kvp.Key} (polled)");
+                            ProcessQuestAction(action);
+                        }
                     }
-
-                    string cfgPayload = ConfigVar.Value;
-                    if (!string.IsNullOrEmpty(cfgPayload))
+                    catch (Exception ex)
                     {
-                        var data = ParsePayload(cfgPayload);
-                        Config.ApplyOverrides(data);
-                        Logger.Msg($"Client applied {data.Count} config overrides on network init.");
+                        Logger.Warning($"Action poll failed: {ex.Message}");
                     }
                 }
-
-                _lobbyDataCallback = Callback<LobbyDataUpdate_t>.Create(
-                    new System.Action<LobbyDataUpdate_t>(OnLobbyDataUpdate));
-
-                ConfigVar.OnSyncError += ex =>
-                    Logger.Warning($"Config SyncVar error: {ex.Message}");
-                StateVar.OnSyncError += ex =>
-                    Logger.Warning($"State SyncVar error: {ex.Message}");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"Failed to create SyncVars: {ex.Message}");
             }
         }
 
-        private static void OnConfigVarChanged(string oldVal, string newVal)
+        /// <summary>
+        /// Disposes the SteamNetworkClient and resets all SyncVar references.
+        /// Called from Core.OnDeinitializeMelon().
+        /// </summary>
+        public static void Cleanup()
         {
-            if (string.IsNullOrEmpty(newVal)) return;
             try
             {
-                var data = ParsePayload(newVal);
-                Config.ApplyOverrides(data);
-                Logger.Msg($"Applied {data.Count} config overrides (live sync).");
+                _netClient?.Dispose();
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to apply synced config: {ex.Message}");
+                Logger.Warning($"Cleanup failed: {ex.Message}");
+            }
+
+            _netClient = null;
+            _configVar = null;
+            _stateVar = null;
+            _actionVar = null;
+            _networkInitialized = false;
+            _initialSyncDone = false;
+        }
+
+        /// <summary>
+        /// Client callback when host config SyncVar changes.
+        /// </summary>
+        private static void OnConfigChanged(string oldValue, string newValue)
+        {
+            if (_netClient?.IsHost == true) return;
+            if (string.IsNullOrEmpty(newValue)) return;
+
+            try
+            {
+                var cfgData = ParsePayload(newValue);
+                Config.ApplyOverrides(cfgData);
+                RefreshQuestText();
+                Logger.Msg($"Client applied {cfgData.Count} config overrides from SyncVar.");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"OnConfigChanged failed: {ex.Message}");
             }
         }
 
-        private static void OnStateVarChanged(string oldVal, string newVal)
+        /// <summary>
+        /// Client callback when host state SyncVar changes.
+        /// </summary>
+        private static void OnStateChanged(string oldValue, string newValue)
         {
-            if (string.IsNullOrEmpty(newVal)) return;
+            if (_netClient?.IsHost == true) return;
+            if (string.IsNullOrEmpty(newValue)) return;
+
             try
             {
-                var state = ParsePayload(newVal);
+                var state = ParsePayload(newValue);
                 _pendingGameState = state;
                 ApplyGameState(state);
-                Logger.Msg($"Applied {state.Count} game state values from host.");
+                Logger.Msg($"Client applied {state.Count} game state values from SyncVar.");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to apply game state: {ex.Message}");
+                Logger.Warning($"OnStateChanged failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Host callback when any client's action SyncVar changes.
+        /// </summary>
+        private static void OnActionChanged(CSteamID sender, string oldValue, string newValue)
+        {
+            if (_netClient?.IsHost != true) return;
+            if (string.IsNullOrEmpty(newValue)) return;
+
+            ulong senderId = sender.m_SteamID;
+
+            // Ignore own actions (host doesn't send actions to itself).
+            if (_netClient != null && senderId == _netClient.LocalPlayerId.m_SteamID) return;
+
+            try
+            {
+                // Deduplicate: track last processed value per sender.
+                if (_processedActions.TryGetValue(senderId, out string last) && last == newValue)
+                    return;
+                _processedActions[senderId] = newValue;
+
+                // Parse "seq:ACTION_NAME"
+                int colonIdx = newValue.IndexOf(':');
+                if (colonIdx <= 0 || colonIdx >= newValue.Length - 1) return;
+                string action = newValue.Substring(colonIdx + 1);
+
+                Logger.Msg($"Host received quest action '{action}' from {sender}");
+                ProcessQuestAction(action);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"OnActionChanged failed: {ex.Message}");
             }
         }
 
@@ -177,8 +345,29 @@ namespace OverTheCounter.SaveData
             if (!NetworkHelper.IsHost) return;
             _payload = Config.SerializeAll();
 
-            if (ConfigVar != null)
-                ConfigVar.Value = _payload;
+            if (_configVar != null)
+                _configVar.Value = _payload;
+
+            RefreshQuestText();
+        }
+
+        /// <summary>
+        /// Updates quest entry text on all active quests to reflect current Config values.
+        /// Called after config changes on both host and client.
+        /// </summary>
+        private static void RefreshQuestText()
+        {
+            try
+            {
+                VicIntroQuest.Instance?.RefreshEntryText();
+                StaticIntroQuest.Instance?.RefreshEntryText();
+                StaticUpgrade1Quest.Instance?.RefreshEntryText();
+                StaticUpgrade2Quest.Instance?.RefreshEntryText();
+            }
+            catch (System.Exception ex)
+            {
+                Logger.Warning($"RefreshQuestText failed: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -188,11 +377,12 @@ namespace OverTheCounter.SaveData
         public void PublishGameState()
         {
             if (!NetworkHelper.IsHost) return;
-            if (StateVar == null) return;
 
             try
             {
-                StateVar.Value = SerializeGameState();
+                string statePayload = SerializeGameState();
+                if (_stateVar != null)
+                    _stateVar.Value = statePayload;
             }
             catch (Exception ex)
             {
@@ -201,7 +391,7 @@ namespace OverTheCounter.SaveData
         }
 
         /// <summary>
-        /// Sends a quest action to the host via Steam lobby member data.
+        /// Sends a quest action to the host via ClientSyncVar.
         /// No-ops on the host (host executes state changes directly).
         /// Uses a sequence counter so repeated actions (e.g. VIC_LAUNDER)
         /// are not deduplicated away.
@@ -212,70 +402,19 @@ namespace OverTheCounter.SaveData
 
             try
             {
-                if (!_lobbyId.IsValid())
+                if (_actionVar == null)
                 {
-                    Logger.Warning($"SendQuestAction({action}): No lobby ID captured yet.");
+                    Logger.Warning($"SendQuestAction({action}): SyncVar not initialized yet.");
                     return;
                 }
 
                 string value = $"{++_actionSeq}:{action}";
-                SteamMatchmaking.SetLobbyMemberData(_lobbyId, "otc_action", value);
-                Logger.Msg($"Sent quest action via lobby member data: {value}");
+                _actionVar.Value = value;
+                Logger.Msg($"Sent quest action via SyncVar: {value}");
             }
             catch (Exception ex)
             {
                 Logger.Warning($"SendQuestAction({action}) failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Steam callback for lobby data updates. Captures the lobby ID on first
-        /// fire, and on the host, reads client member data for quest actions.
-        /// </summary>
-        private static void OnLobbyDataUpdate(LobbyDataUpdate_t data)
-        {
-            // Capture lobby ID from any lobby data update.
-            if (!_lobbyId.IsValid() && data.m_ulSteamIDLobby != 0)
-            {
-                _lobbyId = new CSteamID(data.m_ulSteamIDLobby);
-                Logger.Msg($"Captured lobby ID: {_lobbyId}");
-            }
-
-            // Only the host processes quest actions from clients.
-            if (!NetworkHelper.IsHost) return;
-
-            // m_ulSteamIDMember == m_ulSteamIDLobby means lobby-level data changed, not member data.
-            if (data.m_ulSteamIDMember == data.m_ulSteamIDLobby) return;
-
-            // Ignore our own member data changes.
-            ulong senderId = data.m_ulSteamIDMember;
-            CSteamID senderSteamId = new CSteamID(senderId);
-            CSteamID localId = SteamUser.GetSteamID();
-            if (senderId == localId.m_SteamID) return;
-
-            try
-            {
-                string raw = SteamMatchmaking.GetLobbyMemberData(
-                    new CSteamID(data.m_ulSteamIDLobby), senderSteamId, "otc_action");
-
-                if (string.IsNullOrEmpty(raw)) return;
-
-                // Deduplicate: track last processed value per sender.
-                if (_processedActions.TryGetValue(senderId, out string last) && last == raw)
-                    return;
-                _processedActions[senderId] = raw;
-
-                // Parse "seq:ACTION_NAME"
-                int colonIdx = raw.IndexOf(':');
-                if (colonIdx <= 0 || colonIdx >= raw.Length - 1) return;
-                string action = raw.Substring(colonIdx + 1);
-
-                Logger.Msg($"Host received quest action '{action}' from {senderSteamId}");
-                ProcessQuestAction(action);
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"OnLobbyDataUpdate quest action failed: {ex.Message}");
             }
         }
 
@@ -339,6 +478,10 @@ namespace OverTheCounter.SaveData
                 parts.Add($"vic_trust={VicSaveData.Instance.TrustLevel}");
             }
 
+            string despIds = DesperationManager.GetDesperateIdsForSync();
+            if (!string.IsNullOrEmpty(despIds))
+                parts.Add($"desp_ids={despIds}");
+
             return string.Join("|", parts);
         }
 
@@ -377,6 +520,18 @@ namespace OverTheCounter.SaveData
                     unlocked: unlocked,
                     trustLevel: trust);
             }
+
+            // Sync desperation customer IDs to client
+            var despIds = new HashSet<string>();
+            if (state.TryGetValue("desp_ids", out var despStr) && !string.IsNullOrEmpty(despStr))
+            {
+                foreach (var id in despStr.Split(','))
+                {
+                    if (!string.IsNullOrEmpty(id))
+                        despIds.Add(id);
+                }
+            }
+            DesperationManager.UpdateClientDesperateIds(despIds);
         }
 
         private static string BoolToStr(bool v) => v ? "1" : "0";

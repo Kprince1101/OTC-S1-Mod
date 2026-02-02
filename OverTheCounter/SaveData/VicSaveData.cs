@@ -60,7 +60,7 @@ namespace OverTheCounter.SaveData
 
         private int _tickCounter;
         private const int TICK_INTERVAL = 300; // ~5 seconds at 60fps
-        private bool _positionLogged;
+        private bool _positionFixed;
 
         private static bool _sleepEndSubscribed;
 
@@ -127,6 +127,11 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void OnVicSpawned()
         {
+            // Reset so the next TICK_INTERVAL fires a position fix
+            // (deferred ~5s to let NavMeshAgent fully initialize).
+            if (NetworkHelper.IsHost)
+                _positionFixed = false;
+
             if (!_needsIntroText) return;
             _needsIntroText = false;
             TrySendIntroText();
@@ -134,9 +139,11 @@ namespace OverTheCounter.SaveData
 
         private void OnPlayerWokeUp()
         {
+            // Host-only: re-warp after sleep so the NPC snaps to the correct
+            // NavMesh position. The Warp RPC syncs to clients via FishNet.
             if (!NetworkHelper.IsHost) return;
 
-            _positionLogged = false;
+            _positionFixed = false;
 
             if (_hasBeenTexted) return;
 
@@ -180,13 +187,12 @@ namespace OverTheCounter.SaveData
             if (++_tickCounter < TICK_INTERVAL) return;
             _tickCounter = 0;
 
-            // Position fix (host only): the schedule's WalkTo uses NavMesh pathfinding
-            // which can drag the NPC to the wrong NavMesh point. Warp back once after
-            // the schedule settles. Client doesn't run the schedule, so no fix needed.
-            if (NetworkHelper.IsHost && !_positionLogged && VicNPC.Instance != null)
+            // Deferred position fix: runs once after TICK_INTERVAL (~5s) to
+            // ensure the NavMeshAgent is fully initialized before warping.
+            if (NetworkHelper.IsHost && !_positionFixed && VicNPC.Instance != null)
             {
-                _positionLogged = true;
-                try { VicNPC.Instance.ForceToSpawnPosition(); }
+                _positionFixed = true;
+                try { VicNPC.Instance.WarpToSpawn(); }
                 catch (Exception) { }
             }
 
@@ -275,6 +281,8 @@ namespace OverTheCounter.SaveData
             if (unlocked && !_unlocked)
             {
                 _unlocked = true;
+                try { VicIntroQuest.Instance?.CompleteObj2(); }
+                catch (Exception ex) { Logger.Warning($"Client VicIntroQuest CompleteObj2 failed: {ex.Message}"); }
                 changed = true;
             }
 

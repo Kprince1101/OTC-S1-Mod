@@ -54,14 +54,15 @@ namespace OverTheCounter
         {
             try
             {
-                // Initialize SteamNetworkLib on first tick (Steam is ready by now).
+                // Initialize lobby data callbacks on first tick (Steam is ready by now).
                 // Must run on both host and client, independent of Saveable lifecycle.
                 ConfigSyncData.EnsureNetworkReady();
 
+                // Process incoming SyncVar messages (both host and client).
+                ConfigSyncData.ProcessMessages();
+
                 // Show/hide OTC phone icon based on subscription state
                 CustomersApp.Instance?.UpdateIconVisibility();
-
-                ConfigSyncData.NetworkClient?.ProcessIncomingMessages();
 
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
@@ -75,8 +76,7 @@ namespace OverTheCounter
 
         public override void OnDeinitializeMelon()
         {
-            ConfigSyncData.NetworkClient?.Dispose();
-            ConfigSyncData.NetworkClient = null;
+            ConfigSyncData.Cleanup();
             _notificationManager?.Cleanup();
             _desperationManager?.Cleanup();
         }
