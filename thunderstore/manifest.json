@@ -1,0 +1,11 @@
+{
+    "name": "OverTheCounter",
+    "version_number": "1.0.0",
+    "website_url": "",
+    "description": "QoL, balance, and progression overhaul. Desperation deals, contract aggregator, smart stash overlay, OTC customer app with SaaS tiers, and cash laundering via Vic.",
+    "dependencies": [
+        "LavaGang-MelonLoader-0.7.0",
+        "ifBars-S1API_Forked-2.9.3",
+        "ifBars-SteamNetworkLib_Il2Cpp-1.2.0"
+    ]
+}
