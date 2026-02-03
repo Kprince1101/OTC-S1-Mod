@@ -35,6 +35,10 @@ __pycache__/
 # Development tools
 tools/
 
+# Platform packaging
+thunderstore/
+nexusmods/
+
 # Local build paths (per-developer, not committed)
 LocalPaths.targets
 
