@@ -11,7 +11,7 @@ using System.IO;
 using System.Reflection;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.0.1", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.0.2", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace OverTheCounter
@@ -40,6 +40,12 @@ namespace OverTheCounter
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
         {
+            // Clear stale singletons on every scene transition so save data
+            // from a previous save never bleeds into the next one.
+            // S1API recreates these from the save file after the scene loads.
+            StaticSaveData.ResetInstance();
+            VicSaveData.ResetInstance();
+
 #if DEBUG
             if (!GameObject.Find("DebugController"))
             {

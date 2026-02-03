@@ -31,6 +31,7 @@ namespace OverTheCounter.NPCs
         public static StaticNPC Instance { get; private set; }
 
         public bool DialogueReady { get; private set; }
+        public bool IsInDialogue => Dialogue?.IsDialogueInProgress ?? false;
 
         public Vector3? CurrentPosition
         {
@@ -165,18 +166,14 @@ namespace OverTheCounter.NPCs
                 Logger.Warning($"Failed to register onConsumeDone listener: {ex.Message}");
             }
 
-            // Saveables aren't created on the client for new games (S1API loads
-            // them via NPCsLoader which only runs on host). Create a local
-            // instance so game state sync from the host can be applied.
             if (StaticSaveData.Instance == null)
             {
                 try
                 {
                     new StaticSaveData();
-                    // Apply any game state that arrived from the host before this instance existed.
                     ConfigSyncData.ApplyPendingGameState();
                 }
-                catch (Exception ex) { Logger.Warning($"Client StaticSaveData fallback failed: {ex.Message}"); }
+                catch (Exception ex) { Logger.Warning($"StaticSaveData fallback creation failed: {ex.Message}"); }
             }
 
             StaticSaveData.Instance?.OnStaticSpawned();
@@ -893,6 +890,7 @@ namespace OverTheCounter.NPCs
                 DialogueReady = false;
                 Instance = null;
             }
+            StaticSaveData.ResetInstance();
             base.OnDestroyed();
         }
     }

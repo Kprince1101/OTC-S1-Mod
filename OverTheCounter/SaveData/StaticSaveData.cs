@@ -45,6 +45,8 @@ namespace OverTheCounter.SaveData
         private const int TICK_INTERVAL = 300;
         private bool _positionFixed;
 
+        private bool _dialogueStale;
+
         // Runtime-only: guards against double quest creation per session.
         private bool _questCreated;
 
@@ -55,6 +57,8 @@ namespace OverTheCounter.SaveData
         private static bool _dayPassSubscribed;
 
         public static StaticSaveData Instance { get; private set; }
+
+        internal static void ResetInstance() => Instance = null;
 
         public bool IntroCompleted => _introCompleted;
         public bool QuestTriggered => _questTriggered;
@@ -90,6 +94,14 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void Tick()
         {
+            if (_dialogueStale && StaticNPC.Instance != null
+                && StaticNPC.Instance.DialogueReady && !StaticNPC.Instance.IsInDialogue)
+            {
+                _dialogueStale = false;
+                try { StaticNPC.Instance.RefreshDialogue(); }
+                catch (Exception) { }
+            }
+
             if (++_tickCounter < TICK_INTERVAL) return;
             _tickCounter = 0;
 
@@ -315,6 +327,7 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void OnIntroCompleted()
         {
+            if (_introCompleted) return;
             _introCompleted = true;
 
             try
@@ -327,6 +340,7 @@ namespace OverTheCounter.SaveData
             }
 
             SendStaticText($"[0x7A3F] s0ftw4r3 p4ck4g3 r34dy. c0st: ${Config.StaticTier1BankCost.Value:N0} + {Config.StaticTier1WeedGrams.Value}g w33d.\n\nbr1ng t0 c4s1n0.\n\n\u2014 ST4T1C_SYS");
+            _dialogueStale = true;
             ConfigSyncData.Instance?.PublishGameState();
         }
 
@@ -336,6 +350,7 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void PurchaseInitial()
         {
+            if (_crmTier >= 1) return;
             _crmTier = 1;
             _saasActive = true;
             _saasNextPaymentDay = _dayPassCount + Config.SaasCycleDays.Value;
@@ -349,6 +364,7 @@ namespace OverTheCounter.SaveData
                 Logger.Error($"PurchaseInitial quest completion failed: {ex.Message}");
             }
 
+            _dialogueStale = true;
             ConfigSyncData.Instance?.PublishGameState();
         }
 
@@ -376,6 +392,7 @@ namespace OverTheCounter.SaveData
                 Logger.Error($"PurchaseUpgrade quest completion failed: {ex.Message}");
             }
 
+            _dialogueStale = true;
             ConfigSyncData.Instance?.PublishGameState();
         }
 
@@ -389,6 +406,7 @@ namespace OverTheCounter.SaveData
                 Money.CreateOnlineTransaction("OTC Back-Rent", -Config.SaasWeeklyCost.Value, 1f, "Static Services");
                 _saasActive = true;
                 _saasNextPaymentDay = _dayPassCount + Config.SaasCycleDays.Value;
+                _dialogueStale = true;
                 ConfigSyncData.Instance?.PublishGameState();
                 return true;
             }
@@ -403,6 +421,7 @@ namespace OverTheCounter.SaveData
         {
             _saasActive = false;
             _upgradeAvailable = false;
+            _dialogueStale = true;
             ConfigSyncData.Instance?.PublishGameState();
         }
 

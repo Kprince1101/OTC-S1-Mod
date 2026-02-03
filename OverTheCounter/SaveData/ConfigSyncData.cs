@@ -72,6 +72,7 @@ namespace OverTheCounter.SaveData
         protected override void OnLoaded()
         {
             Instance = this;
+            _pendingGameState = null; // Prevent stale state from previous save
 
             // Apply saveable fallback first. On the client this is the host's
             // config from the save file — a valid override source. On the host
@@ -256,6 +257,8 @@ namespace OverTheCounter.SaveData
             _configVar = null;
             _stateVar = null;
             _actionVar = null;
+            _pendingGameState = null;
+            _processedActions.Clear();
             _networkInitialized = false;
             _initialSyncDone = false;
         }
@@ -452,6 +455,7 @@ namespace OverTheCounter.SaveData
         {
             if (_pendingGameState == null || _pendingGameState.Count == 0) return;
             ApplyGameState(_pendingGameState);
+            _pendingGameState = null;
             Logger.Msg("Applied pending game state to newly created SaveData.");
         }
 

@@ -158,9 +158,6 @@ namespace OverTheCounter.NPCs
             SetupDialogue();
             DialogueReady = true;
 
-            // Saveables aren't created on the client for new games (S1API loads
-            // them via NPCsLoader which only runs on host). Create a local
-            // instance so Tick() runs and the quest trigger works on clients.
             if (VicSaveData.Instance == null)
             {
                 try
@@ -168,7 +165,7 @@ namespace OverTheCounter.NPCs
                     new VicSaveData();
                     ConfigSyncData.ApplyPendingGameState();
                 }
-                catch (Exception ex) { Logger.Warning($"Client VicSaveData fallback failed: {ex.Message}"); }
+                catch (Exception ex) { Logger.Warning($"VicSaveData fallback creation failed: {ex.Message}"); }
             }
 
             VicSaveData.Instance?.OnVicSpawned();
@@ -567,6 +564,7 @@ namespace OverTheCounter.NPCs
                 DialogueReady = false;
                 Instance = null;
             }
+            VicSaveData.ResetInstance();
             base.OnDestroyed();
         }
     }

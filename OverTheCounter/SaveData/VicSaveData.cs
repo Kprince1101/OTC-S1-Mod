@@ -63,8 +63,9 @@ namespace OverTheCounter.SaveData
         private bool _positionFixed;
 
         private static bool _sleepEndSubscribed;
-
         public static VicSaveData Instance { get; private set; }
+
+        internal static void ResetInstance() => Instance = null;
 
         public bool Unlocked => _unlocked;
         public bool QuestAccepted => _questAccepted;
