@@ -455,7 +455,6 @@ namespace OverTheCounter.SaveData
         {
             if (_pendingGameState == null || _pendingGameState.Count == 0) return;
             ApplyGameState(_pendingGameState);
-            _pendingGameState = null;
             Logger.Msg("Applied pending game state to newly created SaveData.");
         }
 
