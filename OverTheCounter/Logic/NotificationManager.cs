@@ -73,7 +73,7 @@ namespace OverTheCounter.Logic
                     if (timedOut)
                     {
                         _staleCleaned = true;
-                        _logger.Msg($"[StaleCleanup] Window closed after {_staleCleanupFrame} frames. Quest.Quests count={gameQuests.Count}");
+                        // Window closed without finding stale quests — nothing to do.
                     }
                     else if (shouldScan)
                     {
@@ -86,8 +86,6 @@ namespace OverTheCounter.Logic
                             if (g.GameQuestInstanceId != -1)
                                 ownQuestIds.Add(g.GameQuestInstanceId);
                         }
-
-                        _logger.Msg($"[StaleCleanup] Scan at frame {_staleCleanupFrame}: Quest.Quests={gameQuests.Count}, ownQuestIds=[{string.Join(", ", ownQuestIds)}], activeGroups={_activeGroups.Count}");
 
                         for (int i = gameQuests.Count - 1; i >= 0; i--)
                         {
@@ -103,26 +101,17 @@ namespace OverTheCounter.Logic
                                     // Skip our own active quests
                                     if (ownQuestIds.Contains(questId))
                                     {
-                                        _logger.Msg($"[StaleCleanup] Skipping own active quest '{quest.Title}' (id={questId}) at frame {_staleCleanupFrame}");
                                         continue;
                                     }
 
-                                    int state = -1;
-                                    try { state = (int)quest.State; } catch { }
-
-                                    _logger.Msg($"[StaleCleanup] Found stale '{quest.Title}' (state={state}, id={questId}) at frame {_staleCleanupFrame} — calling Fail(false)");
                                     quest.Fail(false);
-
-                                    int stateAfter = -1;
-                                    try { stateAfter = (int)quest.State; } catch { }
-                                    _logger.Msg($"[StaleCleanup] Fail returned: state {state} → {stateAfter}. Marking cleaned.");
                                     _staleCleaned = true;
                                     break; // Done — don't continue failing more quests in this scan
                                 }
                             }
                             catch (System.Exception ex)
                             {
-                                _logger.Warning($"[StaleCleanup] Quest[{i}] threw: {ex.Message}");
+                                _logger.Warning($"[StaleCleanup] Quest inspection threw: {ex.Message}");
                             }
                         }
                     }
