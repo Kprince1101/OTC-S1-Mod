@@ -3,6 +3,7 @@ using MelonLoader;
 using MelonLoader.Utils;
 using OverTheCounter.Apps;
 using OverTheCounter.Logic;
+using OverTheCounter.NPCs;
 using OverTheCounter.Patches;
 using OverTheCounter.SaveData;
 using S1API.PhoneApp;
@@ -20,6 +21,7 @@ namespace OverTheCounter
     {
         private NotificationManager _notificationManager;
         private DesperationManager _desperationManager;
+        private DrifterManager _drifterManager;
 
         public override void OnInitializeMelon()
         {
@@ -36,6 +38,7 @@ namespace OverTheCounter
             ExtractIcons();
             _notificationManager = new NotificationManager(LoggerInstance);
             _desperationManager = new DesperationManager(LoggerInstance);
+            _drifterManager = new DrifterManager(LoggerInstance);
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
@@ -45,6 +48,10 @@ namespace OverTheCounter
             // S1API recreates these from the save file after the scene loads.
             StaticSaveData.ResetInstance();
             VicSaveData.ResetInstance();
+
+            // Drifters are transient - despawn on scene transitions (save/load)
+            DrifterInstance.CleanupAll();
+            DrifterSpawner.ResetCache();
 
 #if DEBUG
             if (!GameObject.Find("DebugController"))
@@ -85,6 +92,7 @@ namespace OverTheCounter
             ConfigSyncData.Cleanup();
             _notificationManager?.Cleanup();
             _desperationManager?.Cleanup();
+            _drifterManager?.Cleanup();
         }
 
         /// <summary>

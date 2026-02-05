@@ -441,7 +441,16 @@ namespace OverTheCounter.SaveData
                     break;
 
                 default:
-                    Logger.Warning($"Unknown quest action: {action}");
+                    // Handle drifter accept actions: DRIFTER_ACCEPT:{drifterId}
+                    if (action.StartsWith("DRIFTER_ACCEPT:"))
+                    {
+                        string drifterId = action.Substring("DRIFTER_ACCEPT:".Length);
+                        DrifterManager.Instance?.OnDealAccepted(drifterId);
+                    }
+                    else
+                    {
+                        Logger.Warning($"Unknown quest action: {action}");
+                    }
                     break;
             }
         }
@@ -484,6 +493,11 @@ namespace OverTheCounter.SaveData
             string despIds = DesperationManager.GetDesperateIdsForSync();
             if (!string.IsNullOrEmpty(despIds))
                 parts.Add($"desp_ids={despIds}");
+
+            // Drifter state sync
+            string drifterState = DrifterManager.Instance?.SerializeDrifterState() ?? "";
+            if (!string.IsNullOrEmpty(drifterState))
+                parts.Add($"drifter_state={drifterState}");
 
             return string.Join("|", parts);
         }
@@ -535,6 +549,12 @@ namespace OverTheCounter.SaveData
                 }
             }
             DesperationManager.UpdateClientDesperateIds(despIds);
+
+            // Sync drifter state to client
+            if (state.TryGetValue("drifter_state", out var drifterState))
+            {
+                DrifterManager.Instance?.ApplyDrifterState(drifterState);
+            }
         }
 
         private static string BoolToStr(bool v) => v ? "1" : "0";

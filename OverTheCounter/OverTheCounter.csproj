@@ -498,8 +498,14 @@
 		<Compile Include="Logic\NotificationManager.cs" />
 		<Compile Include="Logic\ConsolidatedQuest.cs" />
 		<Compile Include="Logic\DesperationManager.cs" />
+		<Compile Include="Logic\DrifterManager.cs" />
+		<Compile Include="Logic\DrifterType.cs" />
+		<Compile Include="Logic\DrifterHotspots.cs" />
+		<Compile Include="Logic\DrifterSpawner.cs" />
+		<Compile Include="Logic\DrifterInstance.cs" />
 		<Compile Include="Logic\ImmediateQuestWindowConfig.cs" />
 		<Compile Include="Patches\ProcessHandoverPatch.cs" />
+		<Compile Include="Patches\DrifterHandoverPatch.cs" />
 		<Compile Include="Patches\DesperationContractPatch.cs" />
 		<Compile Include="Patches\CompassManagerAddElementPatch.cs" />
 		<Compile Include="UI\LocationPickerUI.cs" />

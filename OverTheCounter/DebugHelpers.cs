@@ -113,7 +113,7 @@ namespace OverTheCounter
         {
             if (!_menuVisible) return;
 
-            GUILayout.BeginArea(new Rect(10, 10, 260, 500), "DEV TOOLS", GUI.skin.window);
+            GUILayout.BeginArea(new Rect(10, 10, 260, 650), "DEV TOOLS", GUI.skin.window);
 
             if (GUILayout.Button("+$1000 Cash"))
                 Money.ChangeCashBalance(1000f, true, true);
@@ -184,6 +184,26 @@ namespace OverTheCounter
                     DesperationManager.DebugProductId = null;
                 }
             }
+
+            GUILayout.Space(8);
+
+            // Drifter debug buttons
+            GUILayout.Label($"Drifters: {DrifterManager.DebugGetStatus().Split('\n')[1]}");
+
+            if (GUILayout.Button("Spawn Drifter (Random)"))
+                DrifterManager.DebugSpawnDrifter(DrifterTypeWeights.GetRandomType());
+
+            if (GUILayout.Button("Spawn Drifter (Normal)"))
+                DrifterManager.DebugSpawnDrifter(DrifterType.Normal);
+
+            if (GUILayout.Button("Spawn Drifter (Whale)"))
+                DrifterManager.DebugSpawnDrifter(DrifterType.Whale);
+
+            if (GUILayout.Button("Spawn Drifter (Fiend)"))
+                DrifterManager.DebugSpawnDrifter(DrifterType.Fiend);
+
+            if (GUILayout.Button("Spawn Drifter (Narc)"))
+                DrifterManager.DebugSpawnDrifter(DrifterType.Narc);
 
             GUILayout.Space(8);
 
