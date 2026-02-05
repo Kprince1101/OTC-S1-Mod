@@ -655,6 +655,17 @@ namespace OverTheCounter.Logic
 
             string customerId = customer.NPC.ID;
 
+            // Clear the pending contract offer and response buttons so player can't accept after timeout
+            try
+            {
+                customer.OfferedContractInfo = null;
+                customer.NPC.MSGConversation?.ClearResponses(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[DesperationManager] Failed to clear contract offer/responses: {ex.Message}");
+            }
+
             // Apply relationship penalty
             try
             {
