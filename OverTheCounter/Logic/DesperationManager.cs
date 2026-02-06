@@ -791,9 +791,14 @@ namespace OverTheCounter.Logic
                 try { evt.Customer?.NPC?.Movement?.SpeedController?.RemoveSpeedControl("desperation"); } catch { }
 
                 Instance._activeEvents.Remove(customerId);
+
+                // Put customer on cooldown so they don't immediately trigger again
+                int cooldownEnd = Instance.GetCurrentElapsedMinutes() + Config.CooldownMinutes.Value;
+                Instance._customerCooldowns[customerId] = cooldownEnd;
+
                 ConfigSyncData.Instance?.PublishGameState();
                 Instance._logger.Msg($"[DesperationManager] Desperation event RESOLVED for customer {customerId}. " +
-                                    $"Bonus applied: {Config.BonusMultiplier.Value * 100}%");
+                                    $"Bonus applied: {Config.BonusMultiplier.Value * 100}%. Cooldown until minute {cooldownEnd}.");
             }
         }
 
