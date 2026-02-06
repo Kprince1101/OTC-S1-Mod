@@ -202,6 +202,25 @@ namespace OverTheCounter.Patches
     }
 
     /// <summary>
+    /// Patches Customer.ContractRejected to clean up desperation events on decline.
+    /// Postfix so the game's own rejection logic (dialogue, clearing offer) runs first.
+    /// </summary>
+    [HarmonyPatch(typeof(Customer), "ContractRejected")]
+    public static class ContractRejectedPatch
+    {
+        public static void Postfix(Customer __instance)
+        {
+            if (__instance?.NPC == null) return;
+
+            string customerId = __instance.NPC.ID;
+            if (DesperationManager.IsDesperate(customerId))
+            {
+                DesperationManager.OnContractRejected(customerId);
+            }
+        }
+    }
+
+    /// <summary>
     /// Patches QuestManager.ContractAccepted to restore the desperation delivery window
     /// before the contract is created and synced. Customer.ContractAccepted overwrites
     /// window times with the EDealWindow (Morning), so we fix them here — right before
