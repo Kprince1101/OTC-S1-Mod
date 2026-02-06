@@ -12,7 +12,7 @@ using System.IO;
 using System.Reflection;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.0.4", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.0.5", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace OverTheCounter
@@ -48,6 +48,7 @@ namespace OverTheCounter
             // S1API recreates these from the save file after the scene loads.
             StaticSaveData.ResetInstance();
             VicSaveData.ResetInstance();
+            ContactsAppFix.Reset();
 
             // Drifters are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
@@ -80,6 +81,8 @@ namespace OverTheCounter
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
                 StaticSaveData.Instance?.Tick();
+
+                ContactsAppFix.Tick();
             }
             catch (Exception ex)
             {

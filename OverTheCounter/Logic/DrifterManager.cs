@@ -688,13 +688,16 @@ namespace OverTheCounter.Logic
                 drifter.GameNpc.SendWorldSpaceDialogue(completionMessage, 5f);
             }
 
-            // Complete the deal
-            bool isNarc = OnDealCompleted(drifterId);
-
-            // Trigger narc sting if applicable
-            if (isNarc)
+            // State mutation is host-authoritative; client forwards via network
+            if (NetworkHelper.IsHost)
             {
-                TriggerNarcSting(evt);
+                bool isNarc = OnDealCompleted(drifterId);
+                if (isNarc)
+                    TriggerNarcSting(evt);
+            }
+            else
+            {
+                ConfigSyncData.SendQuestAction($"DRIFTER_COMPLETE:{drifterId}");
             }
         }
 
@@ -851,12 +854,13 @@ namespace OverTheCounter.Logic
         {
             _logger.Msg($"[DrifterManager] Offer expired for drifter {evt.DrifterId}");
 
-            // Send expiry text
+            // Send expiry text and clear response buttons so player can't accept after timeout
             if (drifter != null)
             {
                 try
                 {
                     drifter.SendTextMessage(drifter.GetExpiryTextMessage());
+                    drifter.GameNpc?.MSGConversation?.ClearResponses(true);
                 }
                 catch { }
             }
@@ -980,6 +984,8 @@ namespace OverTheCounter.Logic
         /// </summary>
         public bool OnDealCompleted(string drifterId)
         {
+            if (!NetworkHelper.IsHost) return false;
+
             if (!_activeEvents.TryGetValue(drifterId, out var evt))
                 return false;
 

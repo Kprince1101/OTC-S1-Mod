@@ -110,29 +110,20 @@ namespace OverTheCounter.Logic
         /// </summary>
         private void TryTriggerDesperationEvent()
         {
-            // Check daily cap
             if (_dailyEventsTriggered >= Config.MaxEventsPerDay.Value)
-            {
                 return;
-            }
 
-            // Roll the dice
             float roll = UnityEngine.Random.value;
             if (roll > Config.TriggerChancePerHour.Value)
-            {
                 return;
-            }
 
-            // Find eligible customers
             var eligibleCustomers = GetEligibleFiends();
             if (eligibleCustomers.Count == 0)
                 return;
 
-            // Pick a random eligible customer
             int index = UnityEngine.Random.Range(0, eligibleCustomers.Count);
             var customer = eligibleCustomers[index];
 
-            // Trigger the event
             TriggerDesperationEvent(customer);
         }
 
@@ -156,22 +147,18 @@ namespace OverTheCounter.Logic
 
                 string customerId = customer.NPC.ID;
 
-                // Check addiction threshold (Fiend = high addiction)
                 if (customer.CurrentAddiction < Config.FiendAddictionThreshold.Value)
                     continue;
 
-                // Check if idle (no active contract or pending offer)
                 if (customer.CurrentContract != null)
                     continue;
 
                 if (customer.OfferedContractInfo != null)
                     continue;
 
-                // Check if already in an active desperation event
                 if (_activeEvents.ContainsKey(customerId))
                     continue;
 
-                // Check if on cooldown
                 if (_customerCooldowns.TryGetValue(customerId, out int cooldownEnd))
                 {
                     if (currentMinutes < cooldownEnd)
@@ -180,7 +167,6 @@ namespace OverTheCounter.Logic
                         _customerCooldowns.Remove(customerId);
                 }
 
-                // Check if NPC is conscious and available
                 if (!customer.NPC.IsConscious)
                     continue;
 
@@ -655,6 +641,19 @@ namespace OverTheCounter.Logic
 
             string customerId = customer.NPC.ID;
 
+            // Clear the pending contract offer and response buttons so player can't accept after timeout
+            try
+            {
+                customer.OfferedContractInfo = null;
+                customer.NPC.MSGConversation?.ClearResponses(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[DesperationManager] Failed to clear contract offer/responses: {ex.Message}");
+            }
+
+            try { customer.NPC.Movement?.SpeedController?.RemoveSpeedControl("desperation"); } catch { }
+
             // Apply relationship penalty
             try
             {
@@ -775,10 +774,17 @@ namespace OverTheCounter.Logic
 
             if (Instance._activeEvents.TryGetValue(customerId, out var evt))
             {
+                try { evt.Customer?.NPC?.Movement?.SpeedController?.RemoveSpeedControl("desperation"); } catch { }
+
                 Instance._activeEvents.Remove(customerId);
+
+                // Put customer on cooldown so they don't immediately trigger again
+                int cooldownEnd = Instance.GetCurrentElapsedMinutes() + Config.CooldownMinutes.Value;
+                Instance._customerCooldowns[customerId] = cooldownEnd;
+
                 ConfigSyncData.Instance?.PublishGameState();
                 Instance._logger.Msg($"[DesperationManager] Desperation event RESOLVED for customer {customerId}. " +
-                                    $"Bonus applied: {Config.BonusMultiplier.Value * 100}%");
+                                    $"Bonus applied: {Config.BonusMultiplier.Value * 100}%. Cooldown until minute {cooldownEnd}.");
             }
         }
 
@@ -914,6 +920,18 @@ namespace OverTheCounter.Logic
                 // Update deadline: 120 minutes from NOW (acceptance time)
                 evt.DeadlineMinutes = Instance.GetCurrentElapsedMinutes() + Config.DeadlineMinutes.Value;
                 evt.IsAccepted = true;
+
+                // Make the NPC run to the deal location (matches RequestProductBehaviour speed)
+                try
+                {
+                    evt.Customer.NPC.Movement.SpeedController.AddSpeedControl(
+                        new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("desperation", 10, 0.9f));
+                }
+                catch (Exception ex)
+                {
+                    Instance._logger.Warning($"[DesperationManager] Failed to set run speed: {ex.Message}");
+                }
+
                 Instance._logger.Msg($"[DesperationManager] Contract accepted for {evt.Customer?.NPC?.fullName}. New deadline: {Config.DeadlineMinutes.Value} minutes from now.");
             }
         }

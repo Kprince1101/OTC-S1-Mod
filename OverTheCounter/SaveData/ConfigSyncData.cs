@@ -74,17 +74,12 @@ namespace OverTheCounter.SaveData
             Instance = this;
             _pendingGameState = null; // Prevent stale state from previous save
 
-            // Apply saveable fallback first. On the client this is the host's
-            // config from the save file — a valid override source. On the host
-            // it re-applies its own stale config (harmless, Config already has
-            // the current values). We do this unconditionally because
-            // NetworkHelper.IsHost (FishNet) is unreliable during early loading.
-            if (!string.IsNullOrEmpty(_payload))
-            {
-                var data = ParsePayload(_payload);
-                Config.ApplyOverrides(data);
-                Logger.Msg($"Applied {data.Count} config overrides from saveable payload.");
-            }
+            // The save file payload contains config from the last save. Don't
+            // apply it as overrides here — the host's authority is its current
+            // MelonPreferences, and applying stale save data would mask any
+            // config changes the user made since then. Clients receive the
+            // host's live config via the SyncVar callback (OnConfigChanged).
+            Config.ClearAllOverrides();
 
             // Push current config + state via SyncVar. On the host this
             // publishes the fresh config to clients. On the client the
@@ -169,9 +164,12 @@ namespace OverTheCounter.SaveData
                 _initialSyncDone = true;
                 try
                 {
-                    // Push — succeeds on host (lobby owner), silently ignored on client.
-                    // Config.SerializeAll() is static; Config.Initialize() runs in
-                    // OnInitializeMelon() long before lobby discovery, so it's always ready.
+                    // OnLoaded() applies save-file config as overrides before we know
+                    // the network role. On the host those overrides are stale — the
+                    // host's authority is its own MelonPreferences, not the save file.
+                    if (_netClient.IsHost)
+                        Config.ClearAllOverrides();
+
                     string cfg = Config.SerializeAll();
                     if (!string.IsNullOrEmpty(cfg) && _configVar != null)
                         _configVar.Value = cfg;
@@ -441,11 +439,31 @@ namespace OverTheCounter.SaveData
                     break;
 
                 default:
-                    // Handle drifter accept actions: DRIFTER_ACCEPT:{drifterId}
-                    if (action.StartsWith("DRIFTER_ACCEPT:"))
+                    if (action.StartsWith("DESP_RESOLVE:"))
+                    {
+                        string custId = action.Substring("DESP_RESOLVE:".Length);
+                        DesperationManager.ResolveEvent(custId);
+                    }
+                    else if (action.StartsWith("DESP_ACCEPT:"))
+                    {
+                        string payload = action.Substring("DESP_ACCEPT:".Length);
+                        int sep = payload.IndexOf(':');
+                        if (sep > 0 && sep < payload.Length - 1)
+                        {
+                            string custId = payload.Substring(0, sep);
+                            string locGuid = payload.Substring(sep + 1);
+                            Patches.AcceptContractClickedPatch.FinalizeDesperationDealRemote(custId, locGuid);
+                        }
+                    }
+                    else if (action.StartsWith("DRIFTER_ACCEPT:"))
                     {
                         string drifterId = action.Substring("DRIFTER_ACCEPT:".Length);
                         DrifterManager.Instance?.OnDealAccepted(drifterId);
+                    }
+                    else if (action.StartsWith("DRIFTER_COMPLETE:"))
+                    {
+                        string drifterId = action.Substring("DRIFTER_COMPLETE:".Length);
+                        DrifterManager.Instance?.OnDealCompleted(drifterId);
                     }
                     else
                     {

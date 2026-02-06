@@ -5,8 +5,9 @@ using Il2CppScheduleOne.Quests;
 using Il2CppScheduleOne.UI.Handover;
 using MelonLoader;
 using OverTheCounter.Logic;
+using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using System;
-using System.Collections.Generic;
 using System.Reflection;
 
 namespace OverTheCounter.Patches
@@ -17,7 +18,6 @@ namespace OverTheCounter.Patches
     [HarmonyPatch(typeof(Customer), "ProcessHandover")]
     public static class ProcessHandoverPatch
     {
-        // Thread-local storage to track desperation state between prefix and postfix
         private static readonly System.Threading.ThreadLocal<PendingBonus> _pendingBonus = new();
 
         /// <summary>
@@ -31,10 +31,8 @@ namespace OverTheCounter.Patches
             bool handoverByPlayer,
             bool giveBonuses)
         {
-            // Clear any previous pending bonus
             _pendingBonus.Value = null;
 
-            // Only process if this is a finalize with bonuses enabled
             if (!giveBonuses || outcome != HandoverScreen.EHandoverOutcome.Finalize)
                 return;
 
@@ -45,7 +43,6 @@ namespace OverTheCounter.Patches
             {
                 string customerId = __instance.NPC.ID;
 
-                // Check if this customer is in a desperation state
                 if (DesperationManager.IsDesperate(customerId))
                 {
                     float bonusAmount = contract.Payment * DesperationManager.GetBonusMultiplier();
@@ -53,15 +50,44 @@ namespace OverTheCounter.Patches
                     _pendingBonus.Value = new PendingBonus
                     {
                         CustomerId = customerId,
-                        CustomerName = __instance.NPC.fullName,
-                        BonusAmount = bonusAmount,
-                        BasePayment = contract.Payment
+                        BonusAmount = bonusAmount
                     };
                 }
             }
             catch (Exception ex)
             {
                 Melon<Core>.Logger.Error($"[ProcessHandoverPatch] Prefix error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Postfix: Resolve the desperation event after a successful handover.
+        /// This is the authoritative resolution path - the popup patch is only for UI display.
+        /// </summary>
+        public static void Postfix(
+            Customer __instance,
+            HandoverScreen.EHandoverOutcome outcome)
+        {
+            if (outcome != HandoverScreen.EHandoverOutcome.Finalize)
+                return;
+
+            if (__instance?.NPC == null)
+                return;
+
+            try
+            {
+                string customerId = __instance.NPC.ID;
+                if (DesperationManager.IsDesperate(customerId))
+                {
+                    if (NetworkHelper.IsHost)
+                        DesperationManager.ResolveEvent(customerId);
+                    else
+                        ConfigSyncData.SendQuestAction($"DESP_RESOLVE:{customerId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Error($"[ProcessHandoverPatch] Postfix error: {ex.Message}");
             }
         }
 
@@ -73,20 +99,10 @@ namespace OverTheCounter.Patches
             return _pendingBonus.Value;
         }
 
-        /// <summary>
-        /// Clears pending bonus after it's been applied.
-        /// </summary>
-        public static void ClearPendingBonus()
-        {
-            _pendingBonus.Value = null;
-        }
-
         public class PendingBonus
         {
             public string CustomerId { get; set; }
-            public string CustomerName { get; set; }
             public float BonusAmount { get; set; }
-            public float BasePayment { get; set; }
         }
     }
 
@@ -127,12 +143,10 @@ namespace OverTheCounter.Patches
             float basePayment,
             ref Il2CppSystem.Collections.Generic.List<Contract.BonusPayment> bonuses)
         {
-            // Check if we have a pending desperation bonus from ProcessHandover
             var pending = ProcessHandoverPatch.GetPendingBonus();
             if (pending == null)
                 return;
 
-            // Verify this is the same customer
             if (customer == null || customer.NPC == null)
                 return;
 
@@ -141,7 +155,6 @@ namespace OverTheCounter.Patches
 
             try
             {
-                // Create and add our bonus
                 var desperationBonus = new Contract.BonusPayment("Desperation Premium", pending.BonusAmount);
 
                 if (bonuses == null)
@@ -150,13 +163,6 @@ namespace OverTheCounter.Patches
                 }
 
                 bonuses.Add(desperationBonus);
-
-                // Resolve the desperation event (successful delivery)
-                DesperationManager.ResolveEvent(pending.CustomerId);
-
-                // Clear the pending bonus
-                ProcessHandoverPatch.ClearPendingBonus();
-
             }
             catch (Exception ex)
             {
@@ -165,26 +171,21 @@ namespace OverTheCounter.Patches
         }
     }
 
-    // TODO: This is a backup patch to ensure the bonus is applied to the actual payment. Remove if unnecessary.
     /// <summary>
     /// Patch Contract.SubmitPayment to add desperation bonus to actual payment.
-    /// This is a backup to ensure the money is actually added.
     /// </summary>
     [HarmonyPatch(typeof(Contract), "SubmitPayment")]
     public static class ContractSubmitPaymentPatch
     {
         public static void Prefix(Contract __instance, ref float bonusTotal)
         {
-            // Check if we have a pending desperation bonus
             var pending = ProcessHandoverPatch.GetPendingBonus();
             if (pending == null)
                 return;
 
             try
             {
-                // Add the desperation bonus to the total
                 bonusTotal += pending.BonusAmount;
-
             }
             catch (Exception ex)
             {
