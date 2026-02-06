@@ -937,6 +937,27 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Called when a desperation contract is declined. Cancels the event cleanly with no penalty.
+        /// </summary>
+        public static void OnContractRejected(string customerId)
+        {
+            if (Instance == null) return;
+            if (!NetworkHelper.IsHost) return;
+
+            if (Instance._activeEvents.TryGetValue(customerId, out var evt))
+            {
+                Instance._activeEvents.Remove(customerId);
+
+                // 12-hour cooldown so they don't immediately re-trigger
+                int cooldownEnd = Instance.GetCurrentElapsedMinutes() + (12 * 60);
+                Instance._customerCooldowns[customerId] = cooldownEnd;
+
+                ConfigSyncData.Instance?.PublishGameState();
+                Instance._logger.Msg($"[DesperationManager] Desperation event DECLINED (no penalty) for customer {customerId}. 12hr cooldown until minute {cooldownEnd}.");
+            }
+        }
+
+        /// <summary>
         /// Internal class to track desperation event data.
         /// </summary>
         private class DesperationEvent
