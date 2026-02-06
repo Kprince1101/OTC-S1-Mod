@@ -1,6 +1,8 @@
+using Il2CppScheduleOne.AvatarFramework.Equipping;
 using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.NPCs.Behaviour;
+using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Product;
 using Il2CppScheduleOne.VoiceOver;
 using MelonLoader;
@@ -41,6 +43,8 @@ namespace OverTheCounter.Logic
         public bool DealCompleted { get; set; }
         public bool IsWalkingBack { get; set; }
         public bool IsConsuming { get; set; }
+        public bool IsAttacking { get; set; }
+        public bool IsKnockedOut { get; set; }
         public bool ArrivedAtDestination { get; set; }
 
         // Hold references to IL2CPP callbacks to prevent GC from collecting them before arrival
@@ -52,6 +56,7 @@ namespace OverTheCounter.Logic
         private float _lastStuckCheckTime;
         private const float StuckCheckInterval = 8f;  // seconds between stuck checks
         private const float StuckThreshold = 1.5f;    // minimum movement in meters to not be "stuck"
+        private float _lastEnsureMovingLog;            // throttle EnsureMoving log spam
         private int _stuckCount;
 
         public bool IsValid => GameNpc != null && GameNpc.gameObject != null;
@@ -221,7 +226,7 @@ namespace OverTheCounter.Logic
         /// </summary>
         public bool CheckStuck()
         {
-            if (IsConsuming || !IsValid) return false;
+            if (IsConsuming || IsAttacking || IsKnockedOut || !IsValid) return false;
 
             // Determine target position based on current movement direction
             Vector3 target = IsWalkingBack ? Hotspot.SpawnPosition : Hotspot.Position;
@@ -272,7 +277,7 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void EnsureMoving()
         {
-            if (!IsValid || IsConsuming) return;
+            if (!IsValid || IsConsuming || IsAttacking || IsKnockedOut) return;
 
             try
             {
@@ -284,21 +289,27 @@ namespace OverTheCounter.Logic
 
                 if (IsWalkingBack)
                 {
-                    // Should be walking to spawn but movement was interrupted
                     var dist = Vector3.Distance(Position ?? Vector3.zero, Hotspot.SpawnPosition);
                     if (dist > 3f)
                     {
-                        Logger.Msg($"Drifter {Id}: resuming walk to spawn (interrupted, dist={dist:F1}m)");
+                        if (Time.time - _lastEnsureMovingLog > 10f)
+                        {
+                            Logger.Msg($"Drifter {Id}: resuming walk to spawn (interrupted, dist={dist:F1}m)");
+                            _lastEnsureMovingLog = Time.time;
+                        }
                         GameNpc.Movement.SetDestination(Hotspot.SpawnPosition, _spawnCallback, 3f, 1f);
                     }
                 }
                 else if (!ArrivedAtDestination)
                 {
-                    // Should be walking to destination but movement was interrupted
                     var dist = Vector3.Distance(Position ?? Vector3.zero, Hotspot.Position);
                     if (dist > 3f)
                     {
-                        Logger.Msg($"Drifter {Id}: resuming walk to destination (interrupted, dist={dist:F1}m)");
+                        if (Time.time - _lastEnsureMovingLog > 10f)
+                        {
+                            Logger.Msg($"Drifter {Id}: resuming walk to destination (interrupted, dist={dist:F1}m)");
+                            _lastEnsureMovingLog = Time.time;
+                        }
                         GameNpc.Movement.SetDestination(Hotspot.Position, _destCallback, 3f, 1f);
                     }
                 }
@@ -533,6 +544,119 @@ namespace OverTheCounter.Logic
             catch (Exception ex)
             {
                 Logger.Warning($"Drifter {Id}: StockInventory failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Stocks the drifter's inventory with cash for body search recovery.
+        /// Uses the vanilla NPCInventory.AddCash which creates CashInstance items.
+        /// </summary>
+        public void StockCash(float amount)
+        {
+            try
+            {
+                var inventory = GameNpc?.Inventory;
+                if (inventory == null)
+                {
+                    Logger.Warning($"Drifter {Id}: no Inventory component, skipping cash stock");
+                    return;
+                }
+
+                inventory.AddCash(amount);
+                Logger.Msg($"Drifter {Id}: stocked ${amount:F0} cash in inventory");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Drifter {Id}: StockCash failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Sets the default weapon for the drifter's CombatBehaviour.
+        /// Uses the prefab directly (no Instantiate) — CombatBehaviour only reads
+        /// DefaultWeapon.AssetPath to call SetWeapon() when combat starts.
+        /// Null weaponPath = fists (clears DefaultWeapon).
+        /// </summary>
+        public void EquipWeapon(string weaponPath)
+        {
+            try
+            {
+                var combatBehaviour = GameNpc?.Behaviour?.CombatBehaviour;
+                if (combatBehaviour == null)
+                {
+                    Logger.Warning($"Drifter {Id}: CombatBehaviour is null, cannot equip weapon");
+                    return;
+                }
+
+                if (string.IsNullOrEmpty(weaponPath))
+                {
+                    combatBehaviour.DefaultWeapon = null;
+                    Logger.Msg($"Drifter {Id}: equipped fists (no weapon)");
+                    return;
+                }
+
+                // Load the prefab and read its AvatarWeapon component directly.
+                // Do NOT Instantiate — that creates an orphan clone whose Awake can
+                // corrupt state. CombatBehaviour only reads DefaultWeapon.AssetPath.
+                var prefab = Resources.Load(weaponPath);
+                var prefabGo = prefab?.TryCast<GameObject>();
+                if (prefabGo == null)
+                {
+                    Logger.Warning($"Drifter {Id}: weapon prefab not found at '{weaponPath}'");
+                    return;
+                }
+
+                var avatarWeapon = prefabGo.GetComponent<AvatarWeapon>();
+                if (avatarWeapon == null)
+                {
+                    Logger.Warning($"Drifter {Id}: no AvatarWeapon component on '{weaponPath}'");
+                    return;
+                }
+
+                combatBehaviour.DefaultWeapon = avatarWeapon;
+                Logger.Msg($"Drifter {Id}: equipped weapon '{weaponPath}'");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Drifter {Id}: EquipWeapon failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Commands the drifter to attack the local player.
+        /// Sets persistent pursuit parameters so the robber doesn't give up easily.
+        /// </summary>
+        public void AttackPlayer()
+        {
+            try
+            {
+                var combatBehaviour = GameNpc?.Behaviour?.CombatBehaviour;
+                if (combatBehaviour == null)
+                {
+                    Logger.Warning($"Drifter {Id}: CombatBehaviour is null, cannot attack");
+                    return;
+                }
+
+                var player = Player.Local;
+                if (player == null)
+                {
+                    Logger.Warning($"Drifter {Id}: Player.Local is null, cannot attack");
+                    return;
+                }
+
+                // Configure persistent pursuit so robber chases aggressively
+                combatBehaviour.GiveUpRange = 200f;
+                combatBehaviour.DefaultSearchTime = 120f;
+
+                // Engage combat targeting the player
+                combatBehaviour.SetTargetAndEnable_Server(player.NetworkObject);
+                IsAttacking = true;
+
+                Logger.Msg($"Drifter {Id}: attacking player!");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Drifter {Id}: AttackPlayer failed: {ex.Message}");
             }
         }
 

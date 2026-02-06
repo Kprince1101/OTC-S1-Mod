@@ -214,6 +214,9 @@ namespace OverTheCounter
             if (GUILayout.Button("Spawn Drifter (Fiend)"))
                 DrifterManager.DebugSpawnDrifter(DrifterType.Fiend);
 
+            if (GUILayout.Button("Spawn Drifter (Robber)"))
+                DrifterManager.DebugSpawnDrifter(DrifterType.Robber);
+
             if (GUILayout.Button("Spawn Drifter (Narc)"))
                 DrifterManager.DebugSpawnDrifter(DrifterType.Narc);
 

@@ -21,6 +21,11 @@ namespace OverTheCounter.Logic
         Fiend,
 
         /// <summary>
+        /// Robber - appears as Normal, attacks player after handover instead of paying. 3% spawn weight.
+        /// </summary>
+        Robber,
+
+        /// <summary>
         /// Police sting - triggers arrest on handover completion. 5% spawn weight.
         /// </summary>
         Narc
@@ -32,9 +37,10 @@ namespace OverTheCounter.Logic
     public static class DrifterTypeWeights
     {
         // Cumulative weights for weighted random selection (out of 100)
-        public const int NormalWeight = 80;   // 0-79 = Normal (80%)
-        public const int WhaleWeight = 90;    // 80-89 = Whale (10%)
-        public const int FiendWeight = 95;    // 90-94 = Fiend (5%)
+        public const int NormalWeight = 77;   // 0-76 = Normal (77%)
+        public const int WhaleWeight = 87;    // 77-86 = Whale (10%)
+        public const int FiendWeight = 92;    // 87-91 = Fiend (5%)
+        public const int RobberWeight = 95;   // 92-94 = Robber (3%)
         // 95-99 = Narc (5%)
 
         /// <summary>
@@ -50,6 +56,8 @@ namespace OverTheCounter.Logic
                 return DrifterType.Whale;
             if (roll < FiendWeight)
                 return DrifterType.Fiend;
+            if (roll < RobberWeight)
+                return DrifterType.Robber;
 
             return DrifterType.Narc;
         }

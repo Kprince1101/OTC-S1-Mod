@@ -18,6 +18,7 @@ using S1API.GameTime;
 using S1API.Items;
 using S1API.Products;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using OverTheCounter.Quests;
@@ -350,8 +351,29 @@ namespace OverTheCounter.Logic
 
                     case DrifterEventState.DealCompleted:
                     case DrifterEventState.Lingering:
+                        // Robber KO detection: freeze the body in place for looting
+                        if (drifter != null && drifter.IsAttacking && drifter.IsValid)
+                        {
+                            try
+                            {
+                                if (!drifter.GameNpc.IsConscious)
+                                {
+                                    drifter.IsAttacking = false;
+                                    drifter.IsKnockedOut = true;
+                                    evt.LingerDeadline = currentMinutes + 180;
+                                    _logger.Msg($"[DrifterManager] Robber {evt.DrifterId} knocked out, lingering 180min for looting");
+                                }
+                            }
+                            catch { /* NPC destroyed — will despawn below */ }
+                        }
+
+                        // Skip despawn for attacking robbers still in combat
+                        if (drifter != null && drifter.IsAttacking)
+                            break;
+
                         // After deal completion: narcs run away, others consume then walk back
-                        if (drifter != null && !drifter.IsWalkingBack && !drifter.IsConsuming)
+                        // Knocked-out robbers skip all movement/consume logic
+                        if (drifter != null && !drifter.IsWalkingBack && !drifter.IsConsuming && !drifter.IsAttacking && !drifter.IsKnockedOut)
                         {
                             if (evt.Type == DrifterType.Narc)
                             {
@@ -366,7 +388,8 @@ namespace OverTheCounter.Logic
                         }
 
                         // Despawn when no players are nearby (or linger deadline as hard fallback)
-                        bool noPlayersNearby = drifter?.Position != null &&
+                        // Knocked-out robbers only despawn on deadline
+                        bool noPlayersNearby = !(drifter?.IsKnockedOut == true) && drifter?.Position != null &&
                             !DrifterHotspots.IsAnyPlayerNearby(drifter.Position.Value);
                         bool pastDeadline = evt.LingerDeadline > 0 && currentMinutes >= evt.LingerDeadline;
 
@@ -533,6 +556,9 @@ namespace OverTheCounter.Logic
         private bool IsDrifterPaused(DrifterInstance drifter)
         {
             if (drifter?.GameNpc == null) return false;
+
+            // Attacking or knocked-out robbers: don't interfere with movement
+            if (drifter.IsAttacking || drifter.IsKnockedOut) return true;
 
             try
             {
@@ -712,7 +738,49 @@ namespace OverTheCounter.Logic
 
             var drifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
 
-            // Give player money
+            // Stock the drifter's inventory with the actual handed-over items (preserves packaging)
+            if (drifter != null && items != null)
+                drifter.StockInventory(items);
+
+            // Robber branch: no payment, stock cash as loot, equip weapon, attack
+            if (evt.Type == DrifterType.Robber)
+            {
+                // Stock cash in NPC inventory for body search recovery (deal value + 20% bonus)
+                float lootCash = evt.Payment * 1.2f;
+                drifter?.StockCash(lootCash);
+
+                // Mark attacking immediately so lifecycle doesn't trigger consume/walk
+                if (drifter != null)
+                {
+                    drifter.IsAttacking = true;
+                    SelectRobberWeapon(drifter, evt.Seed);
+                }
+
+                // Threatening dialogue — robber reveals the scam after receiving goods
+                string[] robberLines = {
+                    "Yeah, I'm not paying for that. Thanks though.",
+                    "Payment? Nah. I think I'll keep it.",
+                    "Appreciate the delivery. Now get lost.",
+                    "You really thought I was gonna pay? That's cute."
+                };
+                var rng = new System.Random(evt.Seed + 7000);
+                drifter?.GameNpc?.SendWorldSpaceDialogue(robberLines[rng.Next(robberLines.Length)], 4f);
+
+                // Complete the deal state (host-authoritative)
+                if (NetworkHelper.IsHost)
+                    OnDealCompleted(drifterId);
+                else
+                    ConfigSyncData.SendQuestAction($"DRIFTER_COMPLETE:{drifterId}");
+
+                // Start delayed attack coroutine
+                if (drifter != null)
+                    MelonCoroutines.Start(DelayedRobberAttack(drifterId, 0.5f));
+
+                _logger.Msg($"[DrifterManager] Robber {drifterId}: stocked ${lootCash:F0} loot, attack incoming");
+                return;
+            }
+
+            // Normal payment flow for all other types
             try
             {
                 var moneyManager = NetworkSingleton<MoneyManager>.Instance;
@@ -740,16 +808,11 @@ namespace OverTheCounter.Logic
                 drifter.GameNpc.SendWorldSpaceDialogue(completionMessage, 5f);
             }
 
-            // Stock the drifter's inventory with the actual handed-over items (preserves packaging)
-            var drifterForStock = DrifterInstance.Active.GetValueOrDefault(drifterId);
-            if (drifterForStock != null && items != null)
-                drifterForStock.StockInventory(items);
-
             // State mutation is host-authoritative; client forwards via network
             if (NetworkHelper.IsHost)
             {
-                bool isNarc = OnDealCompleted(drifterId);
-                if (isNarc)
+                var completedType = OnDealCompleted(drifterId);
+                if (completedType == DrifterType.Narc)
                     TriggerNarcSting(evt);
             }
             else
@@ -1019,6 +1082,80 @@ namespace OverTheCounter.Logic
             }
         }
 
+        // Weapon pools for robber type
+        private static readonly string[] RobberMeleeWeapons =
+        {
+            "avatar/equippables/Knife",
+            "avatar/equippables/BrokenBottle",
+            "avatar/equippables/Baton",
+            "avatar/equippables/Hammer"
+        };
+
+        private static readonly string[] RobberGunWeapons =
+        {
+            "avatar/equippables/M1911",
+            "avatar/equippables/Revolver"
+        };
+
+        /// <summary>
+        /// Selects and equips a weapon for a robber drifter.
+        /// Seed-based for deterministic multiplayer sync.
+        /// Distribution: ~40% fists, ~45% melee, ~15% gun.
+        /// </summary>
+        private void SelectRobberWeapon(DrifterInstance drifter, int seed)
+        {
+            try
+            {
+                // Use seed for deterministic weapon selection (multiplayer sync)
+                var state = UnityEngine.Random.state;
+                UnityEngine.Random.InitState(seed + 5000); // Offset to avoid collision with appearance seed
+
+                float roll = UnityEngine.Random.value;
+                string weaponPath = null;
+
+                if (roll < 0.40f)
+                {
+                    // Fists - no weapon
+                    weaponPath = null;
+                }
+                else if (roll < 0.85f)
+                {
+                    // Random melee weapon
+                    weaponPath = RobberMeleeWeapons[UnityEngine.Random.Range(0, RobberMeleeWeapons.Length)];
+                }
+                else
+                {
+                    // Random gun
+                    weaponPath = RobberGunWeapons[UnityEngine.Random.Range(0, RobberGunWeapons.Length)];
+                }
+
+                UnityEngine.Random.state = state;
+
+                drifter.EquipWeapon(weaponPath);
+                _logger.Msg($"[DrifterManager] Robber {drifter.Id}: weapon={weaponPath ?? "fists"} (roll={roll:F2})");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[DrifterManager] SelectRobberWeapon failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Coroutine that delays the robber's attack after the handover screen closes.
+        /// Gives the player a moment to read the threatening dialogue.
+        /// </summary>
+        private IEnumerator DelayedRobberAttack(string drifterId, float delay)
+        {
+            yield return new WaitForSeconds(delay);
+
+            var drifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
+            if (drifter != null && drifter.IsValid)
+            {
+                drifter.AttackPlayer();
+                _logger.Msg($"[DrifterManager] Robber {drifterId}: attack initiated after {delay}s delay");
+            }
+        }
+
         private string GetLocationHint(string hotspotName)
         {
             return DrifterHotspots.GetHotspotByName(hotspotName)?.Description;
@@ -1155,17 +1292,16 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Called when a drifter deal is completed (handover success).
-        /// Returns true if it was a narc (sting triggered).
+        /// Returns the drifter type so callers can branch on Narc/Robber/etc.
         /// </summary>
-        public bool OnDealCompleted(string drifterId)
+        public DrifterType OnDealCompleted(string drifterId)
         {
-            if (!NetworkHelper.IsHost) return false;
+            if (!NetworkHelper.IsHost) return DrifterType.Normal;
 
             if (!_activeEvents.TryGetValue(drifterId, out var evt))
-                return false;
+                return DrifterType.Normal;
 
             var drifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
-            bool isNarc = evt.Type == DrifterType.Narc;
 
             evt.State = DrifterEventState.DealCompleted;
 
@@ -1189,10 +1325,10 @@ namespace OverTheCounter.Logic
                 drifter.State = DrifterState.DealCompleted;
             }
 
-            _logger.Msg($"[DrifterManager] Deal completed for drifter {drifterId}. IsNarc={isNarc}");
+            _logger.Msg($"[DrifterManager] Deal completed for drifter {drifterId}. Type={evt.Type}");
             ConfigSyncData.Instance?.PublishGameState();
 
-            return isNarc;
+            return evt.Type;
         }
 
         /// <summary>
