@@ -666,6 +666,8 @@ namespace OverTheCounter.Logic
                 _logger.Warning($"[DesperationManager] Failed to clear contract offer/responses: {ex.Message}");
             }
 
+            try { customer.NPC.Movement?.SpeedController?.RemoveSpeedControl("desperation"); } catch { }
+
             // Apply relationship penalty
             try
             {
@@ -786,6 +788,8 @@ namespace OverTheCounter.Logic
 
             if (Instance._activeEvents.TryGetValue(customerId, out var evt))
             {
+                try { evt.Customer?.NPC?.Movement?.SpeedController?.RemoveSpeedControl("desperation"); } catch { }
+
                 Instance._activeEvents.Remove(customerId);
                 ConfigSyncData.Instance?.PublishGameState();
                 Instance._logger.Msg($"[DesperationManager] Desperation event RESOLVED for customer {customerId}. " +
@@ -925,6 +929,18 @@ namespace OverTheCounter.Logic
                 // Update deadline: 120 minutes from NOW (acceptance time)
                 evt.DeadlineMinutes = Instance.GetCurrentElapsedMinutes() + Config.DeadlineMinutes.Value;
                 evt.IsAccepted = true;
+
+                // Make the NPC run to the deal location (matches RequestProductBehaviour speed)
+                try
+                {
+                    evt.Customer.NPC.Movement.SpeedController.AddSpeedControl(
+                        new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("desperation", 10, 0.9f));
+                }
+                catch (Exception ex)
+                {
+                    Instance._logger.Warning($"[DesperationManager] Failed to set run speed: {ex.Message}");
+                }
+
                 Instance._logger.Msg($"[DesperationManager] Contract accepted for {evt.Customer?.NPC?.fullName}. New deadline: {Config.DeadlineMinutes.Value} minutes from now.");
             }
         }
