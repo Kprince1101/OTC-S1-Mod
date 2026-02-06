@@ -3,12 +3,16 @@ using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.Law;
+using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.Messaging;
 using Il2CppScheduleOne.Money;
 using Il2CppScheduleOne.PlayerScripts;
+using Il2CppScheduleOne.Police;
 using Il2CppScheduleOne.Product;
 using Il2CppScheduleOne.Quests;
+using Il2CppScheduleOne.UI;
 using Il2CppScheduleOne.UI.Handover;
+using Il2CppScheduleOne.VoiceOver;
 using MelonLoader;
 using S1API.GameTime;
 using S1API.Items;
@@ -299,6 +303,13 @@ namespace OverTheCounter.Logic
                 var evt = kvp.Value;
                 var drifter = DrifterInstance.Active.GetValueOrDefault(evt.DrifterId);
 
+                // Skip movement checks while player is interacting with a drifter
+                if (!IsDrifterPaused(drifter))
+                {
+                    drifter?.CheckStuck();
+                    drifter?.EnsureMoving();
+                }
+
                 switch (evt.State)
                 {
                     case DrifterEventState.Spawned:
@@ -326,8 +337,10 @@ namespace OverTheCounter.Logic
                         break;
 
                     case DrifterEventState.DealAccepted:
-                        // Player needs to approach and interact with drifter to open HandoverScreen
-                        // The dialogue choice handles opening the handover screen
+                        // Update quest timing subtitle
+                        if (DrifterDealQuest.ActiveQuests.TryGetValue(evt.DrifterId, out var activeQuest))
+                            activeQuest.UpdateTiming();
+
                         // Check delivery deadline
                         if (currentMinutes >= evt.DeliveryDeadline)
                         {
@@ -337,10 +350,19 @@ namespace OverTheCounter.Logic
 
                     case DrifterEventState.DealCompleted:
                     case DrifterEventState.Lingering:
-                        // Start walking back if not already
-                        if (drifter != null && !drifter.IsWalkingBack)
+                        // After deal completion: narcs run away, others consume then walk back
+                        if (drifter != null && !drifter.IsWalkingBack && !drifter.IsConsuming)
                         {
-                            drifter.WalkToSpawn();
+                            if (evt.Type == DrifterType.Narc)
+                            {
+                                // Narc: sprint to spawn immediately (no consume)
+                                drifter.SetRunSpeed();
+                                drifter.WalkToSpawn();
+                            }
+                            else if (evt.State == DrifterEventState.DealCompleted && !string.IsNullOrEmpty(evt.ProductId))
+                                drifter.PlayConsumeAnimation(evt.ProductId);
+                            else
+                                drifter.WalkToSpawn();
                         }
 
                         // Despawn when no players are nearby (or linger deadline as hard fallback)
@@ -504,6 +526,31 @@ namespace OverTheCounter.Logic
             }
         }
 
+        /// <summary>
+        /// Returns true if this drifter should not have its movement resumed.
+        /// Prevents EnsureMoving from fighting against HandoverScreen or PickpocketScreen pauses.
+        /// </summary>
+        private bool IsDrifterPaused(DrifterInstance drifter)
+        {
+            if (drifter?.GameNpc == null) return false;
+
+            try
+            {
+                // Pause ALL drifters while HandoverScreen is open (it's a modal fullscreen UI)
+                var handover = Singleton<HandoverScreen>.Instance;
+                if (handover != null && handover.IsOpen)
+                    return true;
+
+                // Pause only the drifter being pickpocketed
+                var pickpocket = Singleton<PickpocketScreen>.Instance;
+                if (pickpocket != null && pickpocket.IsOpen && pickpocket.npc == drifter.GameNpc)
+                    return true;
+            }
+            catch { }
+
+            return false;
+        }
+
         // =====================================================
         // HANDOVER SCREEN INTEGRATION
         // =====================================================
@@ -581,6 +628,9 @@ namespace OverTheCounter.Logic
                     return;
                 }
 
+                // Stop drifter movement while the handover screen is open
+                try { drifter.GameNpc.Movement?.Stop(); } catch { }
+
                 handoverScreen.Open(contract, customer, HandoverScreen.EMode.Contract, callback, successChance, false);
                 _logger.Msg($"[DrifterManager] Opened HandoverScreen for drifter {drifterId}: {evt.Quantity}x {evt.ProductName} @ ${evt.Payment}");
             }
@@ -649,8 +699,10 @@ namespace OverTheCounter.Logic
 
             if (outcome == HandoverScreen.EHandoverOutcome.Cancelled)
             {
-                // Player cancelled - deal still pending
+                // Player cancelled - deal still pending, resume drifter movement
                 _logger.Msg($"[DrifterManager] Handover cancelled for {drifterId}, deal still pending");
+                var cancelledDrifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
+                cancelledDrifter?.EnsureMoving();
                 return;
             }
 
@@ -687,6 +739,11 @@ namespace OverTheCounter.Logic
                 };
                 drifter.GameNpc.SendWorldSpaceDialogue(completionMessage, 5f);
             }
+
+            // Stock the drifter's inventory with the actual handed-over items (preserves packaging)
+            var drifterForStock = DrifterInstance.Active.GetValueOrDefault(drifterId);
+            if (drifterForStock != null && items != null)
+                drifterForStock.StockInventory(items);
 
             // State mutation is host-authoritative; client forwards via network
             if (NetworkHelper.IsHost)
@@ -772,8 +829,17 @@ namespace OverTheCounter.Logic
             _dealChoices.Remove(drifterId);
         }
 
+        private void CleanupNarcDialogueChoice(string drifterId)
+        {
+            if (!_narcPostStingChoices.TryGetValue(drifterId, out var choice))
+                return;
+            try { choice.Enabled = false; } catch { }
+            _narcPostStingChoices.Remove(drifterId);
+        }
+
         /// <summary>
-        /// Triggers a narc sting (police response) using reflection.
+        /// Triggers a narc sting: sets active wanted status, warps officers nearby
+        /// for immediate response, and dispatches backup from the station.
         /// </summary>
         private void TriggerNarcSting(DrifterEvent evt)
         {
@@ -781,67 +847,175 @@ namespace OverTheCounter.Logic
             {
                 _logger.Msg("[DrifterManager] NARC STING! Triggering police response.");
 
-                var lawManager = Singleton<LawManager>.Instance;
-                if (lawManager == null)
+                var player = Player.Local;
+                if (player?.CrimeData == null)
                 {
-                    _logger.Warning("[DrifterManager] LawManager singleton not found");
+                    _logger.Warning("[DrifterManager] Player.Local or CrimeData is null");
                     return;
                 }
 
-                // Set wanted level using reflection
+                // Record player position and set active wanted status
+                player.CrimeData.RecordLastKnownPosition(true);
+                var crime = new DrugTrafficking();
+                player.CrimeData.AddCrime(crime);
+                player.CrimeData.SetPursuitLevel(PlayerCrimeData.EPursuitLevel.Arresting);
+
+                // Warp 2 officers nearby for immediate response (sting ambush)
+                SpawnNearbyOfficers(2, player);
+
+                // Dispatch 2 more from the station as backup
                 try
                 {
-                    var setWantedMethod = typeof(LawManager).GetMethod("SetWantedLevel",
-                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-
-                    if (setWantedMethod != null)
-                    {
-                        var ewantedType = typeof(LawManager).Assembly.GetType("Il2CppScheduleOne.Law.EWantedLevel");
-                        if (ewantedType != null)
-                        {
-                            var arrestingValue = Enum.ToObject(ewantedType, 3);
-                            setWantedMethod.Invoke(lawManager, new object[] { arrestingValue });
-                            _logger.Msg("[DrifterManager] Set wanted level to Arresting");
-                        }
-                    }
+                    var station = PoliceStation.GetClosestPoliceStation(player.transform.position);
+                    station?.Dispatch(2, player);
+                    _logger.Msg("[DrifterManager] Backup dispatched from station");
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"[DrifterManager] SetWantedLevel failed: {ex.Message}");
+                    _logger.Warning($"[DrifterManager] Station dispatch failed: {ex.Message}");
                 }
 
-                // Call police using reflection
-                var playerMovement = PlayerSingleton<PlayerMovement>.Instance;
-                if (playerMovement != null)
-                {
-                    try
-                    {
-                        var callPoliceMethod = typeof(LawManager).GetMethod("CallPolice",
-                            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                // Set up narc post-sting dialogue
+                var drifter = DrifterInstance.Active.GetValueOrDefault(evt.DrifterId);
+                if (drifter != null)
+                    SetupNarcPostStingDialogue(evt, drifter);
 
-                        if (callPoliceMethod != null)
-                        {
-                            var parameters = callPoliceMethod.GetParameters();
-                            if (parameters.Length >= 1)
-                            {
-                                if (parameters.Length == 1)
-                                    callPoliceMethod.Invoke(lawManager, new object[] { playerMovement.transform.position });
-                                else
-                                    callPoliceMethod.Invoke(lawManager, new object[] { playerMovement.transform.position, 3 });
-
-                                _logger.Msg("[DrifterManager] Called police to player location");
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Warning($"[DrifterManager] CallPolice failed: {ex.Message}");
-                    }
-                }
+                _logger.Msg("[DrifterManager] Narc sting triggered — 2 officers nearby, 2 backup dispatched");
             }
             catch (Exception ex)
             {
                 _logger.Error($"[DrifterManager] TriggerNarcSting failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Pulls officers from the police station, warps them near the player,
+        /// and starts foot pursuit immediately.
+        /// </summary>
+        private void SpawnNearbyOfficers(int count, Player player)
+        {
+            try
+            {
+                var station = PoliceStation.GetClosestPoliceStation(player.transform.position);
+                if (station == null || station.OfficerPool == null)
+                {
+                    _logger.Warning("[DrifterManager] No police station or empty officer pool");
+                    return;
+                }
+
+                var playerPos = player.transform.position;
+
+                for (int i = 0; i < count && station.OfficerPool.Count > 0; i++)
+                {
+                    var officer = station.PullOfficer();
+                    if (officer == null) continue;
+
+                    // Place officer 20-30m away in a random direction
+                    float angle = UnityEngine.Random.Range(0f, 360f) * Mathf.Deg2Rad;
+                    float dist = UnityEngine.Random.Range(20f, 30f);
+                    var spawnPos = playerPos + new Vector3(
+                        Mathf.Cos(angle) * dist, 0f, Mathf.Sin(angle) * dist);
+
+                    // Snap to NavMesh
+                    if (UnityEngine.AI.NavMesh.SamplePosition(spawnPos, out var hit, 15f, UnityEngine.AI.NavMesh.AllAreas))
+                        spawnPos = hit.position;
+
+                    officer.Movement?.Warp(spawnPos);
+                    officer.BeginFootPursuit_Networked(player.PlayerCode);
+                    _logger.Msg($"[DrifterManager] Warped officer near player at {spawnPos}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[DrifterManager] SpawnNearbyOfficers failed: {ex.Message}");
+            }
+        }
+
+        // Track narc post-sting dialogue choices and whether backup was already called
+        private readonly Dictionary<string, DialogueController.DialogueChoice> _narcPostStingChoices = new();
+        private readonly HashSet<string> _narcBackupDispatched = new();
+
+        /// <summary>
+        /// Adds a dialogue choice to the narc drifter after the sting.
+        /// If the player talks to them, the narc calls police again.
+        /// </summary>
+        private void SetupNarcPostStingDialogue(DrifterEvent evt, DrifterInstance drifter)
+        {
+            if (drifter?.GameNpc?.DialogueHandler == null) return;
+
+            try
+            {
+                var dialogueController = drifter.GameNpc.DialogueHandler.GetComponent<DialogueController>();
+                if (dialogueController == null) return;
+
+                var choice = new DialogueController.DialogueChoice();
+                choice.ChoiceText = "[Talk]";
+                choice.Enabled = true;
+                choice.Conversation = null;
+                choice.onChoosen = new UnityEvent();
+
+                var drifterId = evt.DrifterId;
+                choice.onChoosen.AddListener((UnityAction)(() => OnNarcPostStingTalk(drifterId)));
+
+                choice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
+                {
+                    if (!_activeEvents.TryGetValue(drifterId, out var e)) return false;
+                    return e.Type == DrifterType.Narc && e.State >= DrifterEventState.DealCompleted;
+                });
+
+                dialogueController.AddDialogueChoice(choice);
+                _narcPostStingChoices[drifterId] = choice;
+                _logger.Msg($"[DrifterManager] Added narc post-sting dialogue for {drifterId}");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[DrifterManager] SetupNarcPostStingDialogue failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Called when player talks to a narc after the sting.
+        /// Shows confused dialogue and dispatches more police.
+        /// </summary>
+        private void OnNarcPostStingTalk(string drifterId)
+        {
+            var drifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
+            if (drifter?.GameNpc == null) return;
+
+            try
+            {
+                // Confused dialogue
+                string[] lines = {
+                    "What the— How are you not in cuffs right now?!",
+                    "You again?! How did you get past them?!",
+                    "No way... They should've had you!",
+                    "Are you kidding me?! POLICE!"
+                };
+                string line = lines[UnityEngine.Random.Range(0, lines.Length)];
+                drifter.GameNpc.SendWorldSpaceDialogue(line, 5f);
+                drifter.GameNpc.PlayVO(EVOLineType.Alerted);
+
+                var player = Player.Local;
+                if (player == null) return;
+
+                // Set wanted status if player escaped
+                if (player.CrimeData.CurrentPursuitLevel == PlayerCrimeData.EPursuitLevel.None)
+                {
+                    player.CrimeData.RecordLastKnownPosition(true);
+                    player.CrimeData.AddCrime(new DrugTrafficking());
+                    player.CrimeData.SetPursuitLevel(PlayerCrimeData.EPursuitLevel.Arresting);
+                }
+
+                // Dispatch nearby officers only once per narc
+                if (_narcBackupDispatched.Add(drifterId))
+                {
+                    SpawnNearbyOfficers(2, player);
+                    _logger.Msg($"[DrifterManager] Narc {drifterId} called backup");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[DrifterManager] OnNarcPostStingTalk failed: {ex.Message}");
             }
         }
 
@@ -918,8 +1092,9 @@ namespace OverTheCounter.Logic
             if (DrifterDealQuest.ActiveQuests.TryGetValue(evt.DrifterId, out var quest))
                 quest.CancelDeal();
 
-            // Clean up dialogue choice
+            // Clean up dialogue choices
             CleanupDealDialogueChoice(evt.DrifterId, drifter);
+            CleanupNarcDialogueChoice(evt.DrifterId);
 
             if (drifter != null)
             {
@@ -960,7 +1135,7 @@ namespace OverTheCounter.Logic
                 SetupDealDialogueChoice(evt, drifter);
             }
 
-            // Create quest with map marker
+            // Create quest with map marker and timing
             try
             {
                 var quest = (DrifterDealQuest)S1API.Quests.QuestManager.CreateQuest<DrifterDealQuest>();
@@ -968,7 +1143,7 @@ namespace OverTheCounter.Logic
                 {
                     var hotspot = DrifterHotspots.GetHotspotByName(evt.HotspotName);
                     quest.Initialize(drifterId, evt.ProductName, evt.Quantity, evt.Payment,
-                                    hotspot.Position, hotspot.Description);
+                                    hotspot.Position, hotspot.Description, evt.DeliveryDeadline);
                     quest.StartQuest();
                 }
             }
@@ -1010,6 +1185,7 @@ namespace OverTheCounter.Logic
             if (drifter != null)
             {
                 drifter.DealCompleted = true;
+                drifter.ArrivedAtDestination = true; // Prevent EnsureMoving from walking to destination
                 drifter.State = DrifterState.DealCompleted;
             }
 
@@ -1179,6 +1355,8 @@ namespace OverTheCounter.Logic
 
             _activeEvents.Clear();
             _dealChoices.Clear();
+            _narcPostStingChoices.Clear();
+            _narcBackupDispatched.Clear();
 
             // Clean up drifter contracts
             foreach (var contract in _drifterContracts.Values)

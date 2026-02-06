@@ -16,6 +16,8 @@
 	</PropertyGroup>
 	<ItemGroup>
 	  <None Remove="Resources\CustomersIcon.png" />
+	  <None Remove="Resources\DrifterQuestIcon.png" />
+	  <None Remove="Resources\DrifterProfileIcon.png" />
 	  <None Remove="Resources\RinseCycle.png" />
 	</ItemGroup>
 
@@ -531,7 +533,13 @@
 	  <EmbeddedResource Include="Resources\CustomersIcon.png">
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
+	  <EmbeddedResource Include="Resources\DrifterProfileIcon.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
 	  <EmbeddedResource Include="Resources\RinseCycle.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
+	  <EmbeddedResource Include="Resources\DrifterQuestIcon.png">
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
 	</ItemGroup>

@@ -7,9 +7,12 @@ using Il2CppScheduleOne.AvatarFramework;
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Messaging;
 using MelonLoader;
+using MelonLoader.Utils;
+using S1API.Utils;
 using UnityEngine;
 using UnityEngine.AI;
 using System;
+using System.IO;
 
 namespace OverTheCounter.Logic
 {
@@ -252,7 +255,43 @@ namespace OverTheCounter.Logic
             "Avatar/Layers/Bottom/Jorts"
         };
 
-        // Realistic skin tone presets - more diverse distribution
+        // Hair style pools per gender
+        private static readonly string[] MaleHairStyles = {
+            "Avatar/Hair/buzzcut/BuzzCut",
+            "Avatar/Hair/closebuzzcut/CloseBuzzCut",
+            "Avatar/Hair/franklin/Franklin",
+            "Avatar/Hair/spiky/Spiky",
+            "Avatar/Hair/peaked/Peaked",
+            "Avatar/Hair/tony/Tony",
+            "Avatar/Hair/midfringe/MidFringe",
+            "Avatar/Hair/mohawk/Mohawk",
+            "Avatar/Hair/receding/Receding",
+            "Avatar/Hair/afro/Afro",
+            "Avatar/Hair/bowlcut/BowlCut",
+        };
+
+        private static readonly string[] FemaleHairStyles = {
+            "Avatar/Hair/bun/Bun",
+            "Avatar/Hair/highbun/HighBun",
+            "Avatar/Hair/lowbun/LowBun",
+            "Avatar/Hair/fringeponytail/FringePonyTail",
+            "Avatar/Hair/messybob/MessyBob",
+            "Avatar/Hair/sidepartbob/SidePartBob",
+            "Avatar/Hair/shoulderlength/ShoulderLength",
+            "Avatar/Hair/longcurly/LongCurly",
+            "Avatar/Hair/doubletopknot/DoubleTopKnot",
+            "Avatar/Hair/afro/Afro",
+        };
+
+        // Shoe options (AccessorySettings, loaded via Resources.Load)
+        private static readonly string[] ShoeStyles = {
+            "Avatar/Accessories/Feet/Sneakers/Sneakers",
+            "Avatar/Accessories/Feet/CombatBoots/CombatBoots",
+            "Avatar/Accessories/Feet/DressShoes/DressShoes",
+            "Avatar/Accessories/Feet/Sandals/Sandals",
+        };
+
+        // Realistic skin tone presets (darkest tones removed — face features become indistinguishable)
         private static readonly Color[] SkinTones = {
             new Color(0.96f, 0.87f, 0.78f), // Very light/fair
             new Color(0.92f, 0.80f, 0.70f), // Light
@@ -261,10 +300,21 @@ namespace OverTheCounter.Logic
             new Color(0.65f, 0.48f, 0.35f), // Medium
             new Color(0.55f, 0.40f, 0.28f), // Medium-dark
             new Color(0.48f, 0.35f, 0.25f), // Dark
-            new Color(0.40f, 0.28f, 0.20f), // Darker
-            new Color(0.32f, 0.22f, 0.16f), // Very dark
-            new Color(0.25f, 0.18f, 0.13f)  // Deep dark
+            new Color(0.42f, 0.30f, 0.22f), // Darker
         };
+
+        /// <summary>
+        /// Determines gender from a seed (first RNG draw). Returns 0-1 float where >= 0.5 is female.
+        /// Uses isolated RNG state so it can be called independently from GenerateRandomAppearance.
+        /// </summary>
+        public static float DetermineGender(int seed)
+        {
+            var state = UnityEngine.Random.state;
+            UnityEngine.Random.InitState(seed);
+            float gender = UnityEngine.Random.Range(0f, 1f);
+            UnityEngine.Random.state = state;
+            return gender;
+        }
 
         /// <summary>
         /// Generates random appearance for an NPC using IL2CPP AvatarSettings.
@@ -291,6 +341,10 @@ namespace OverTheCounter.Logic
                     settings = ScriptableObject.CreateInstance<AvatarSettings>();
                 }
 
+                // Gender MUST be the first draw (matches DetermineGender for host/client sync)
+                settings.Gender = UnityEngine.Random.Range(0f, 1f);
+                bool isFemale = settings.Gender >= 0.5f;
+
                 // Pick a realistic skin tone
                 var skinTone = SkinTones[UnityEngine.Random.Range(0, SkinTones.Length)];
                 settings.SkinColor = skinTone;
@@ -303,7 +357,6 @@ namespace OverTheCounter.Logic
                 );
 
                 // Basic body properties
-                settings.Gender = UnityEngine.Random.Range(0f, 1f);
                 settings.Height = UnityEngine.Random.Range(0.9f, 1.1f);
                 settings.Weight = UnityEngine.Random.Range(0.3f, 0.7f);
 
@@ -319,6 +372,10 @@ namespace OverTheCounter.Logic
                 else // Red
                     hairColor = new Color(0.55f, 0.25f, 0.15f);
                 settings.HairColor = hairColor;
+
+                // Hair style based on gender
+                var hairPool = isFemale ? FemaleHairStyles : MaleHairStyles;
+                settings.HairPath = hairPool[UnityEngine.Random.Range(0, hairPool.Length)];
 
                 settings.EyeBallTint = Color.white;
                 settings.PupilDilation = UnityEngine.Random.Range(0.5f, 0.8f);
@@ -374,9 +431,15 @@ namespace OverTheCounter.Logic
                     settings.BodyLayerSettings.Add(pantsLayer);
                 }
 
-                // NOTE: Accessory settings (shoes, hats, jackets) are disabled because
-                // ApplyAccessorySettings throws "Object you want to instantiate is null"
-                // The NPC will use default/no accessories which is fine for drifters.
+                // Add shoes as accessory
+                if (settings.AccessorySettings != null && ShoeStyles.Length > 0)
+                {
+                    var shoeColor = RandomClothingColor();
+                    var shoeSetting = new AvatarSettings.AccessorySetting();
+                    shoeSetting.path = ShoeStyles[UnityEngine.Random.Range(0, ShoeStyles.Length)];
+                    shoeSetting.color = shoeColor;
+                    settings.AccessorySettings.Add(shoeSetting);
+                }
 
                 // Apply settings to avatar
                 npc.Avatar.LoadAvatarSettings(settings);
@@ -507,6 +570,44 @@ namespace OverTheCounter.Logic
             {
                 Logger.Warning($"EnsureVoiceDatabase failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Cached drifter profile icon sprite loaded from DrifterProfileIcon.png.
+        /// </summary>
+        private static Sprite _drifterIcon;
+
+        /// <summary>
+        /// Sets the drifter profile icon on the NPC's MugshotSprite for messaging.
+        /// </summary>
+        public static void SetDrifterIcon(NPC npc)
+        {
+            if (npc == null) return;
+            var icon = GetDrifterIcon();
+            if (icon != null)
+                npc.MugshotSprite = icon;
+        }
+
+        private static Sprite GetDrifterIcon()
+        {
+            if (_drifterIcon != null)
+                return _drifterIcon;
+
+            try
+            {
+                string iconPath = Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "DrifterProfileIcon.png");
+                _drifterIcon = ImageUtils.LoadImage(iconPath);
+                if (_drifterIcon != null)
+                    Logger.Msg("Loaded DrifterProfileIcon.png");
+                else
+                    Logger.Warning("DrifterProfileIcon.png not found or failed to load");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Failed to load drifter icon: {ex.Message}");
+            }
+
+            return _drifterIcon;
         }
 
         /// <summary>
