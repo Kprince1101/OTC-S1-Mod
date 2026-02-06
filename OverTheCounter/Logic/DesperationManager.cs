@@ -110,29 +110,20 @@ namespace OverTheCounter.Logic
         /// </summary>
         private void TryTriggerDesperationEvent()
         {
-            // Check daily cap
             if (_dailyEventsTriggered >= Config.MaxEventsPerDay.Value)
-            {
                 return;
-            }
 
-            // Roll the dice
             float roll = UnityEngine.Random.value;
             if (roll > Config.TriggerChancePerHour.Value)
-            {
                 return;
-            }
 
-            // Find eligible customers
             var eligibleCustomers = GetEligibleFiends();
             if (eligibleCustomers.Count == 0)
                 return;
 
-            // Pick a random eligible customer
             int index = UnityEngine.Random.Range(0, eligibleCustomers.Count);
             var customer = eligibleCustomers[index];
 
-            // Trigger the event
             TriggerDesperationEvent(customer);
         }
 
@@ -156,22 +147,18 @@ namespace OverTheCounter.Logic
 
                 string customerId = customer.NPC.ID;
 
-                // Check addiction threshold (Fiend = high addiction)
                 if (customer.CurrentAddiction < Config.FiendAddictionThreshold.Value)
                     continue;
 
-                // Check if idle (no active contract or pending offer)
                 if (customer.CurrentContract != null)
                     continue;
 
                 if (customer.OfferedContractInfo != null)
                     continue;
 
-                // Check if already in an active desperation event
                 if (_activeEvents.ContainsKey(customerId))
                     continue;
 
-                // Check if on cooldown
                 if (_customerCooldowns.TryGetValue(customerId, out int cooldownEnd))
                 {
                     if (currentMinutes < cooldownEnd)
@@ -180,7 +167,6 @@ namespace OverTheCounter.Logic
                         _customerCooldowns.Remove(customerId);
                 }
 
-                // Check if NPC is conscious and available
                 if (!customer.NPC.IsConscious)
                     continue;
 

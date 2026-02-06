@@ -45,6 +45,7 @@ namespace OverTheCounter
             // S1API recreates these from the save file after the scene loads.
             StaticSaveData.ResetInstance();
             VicSaveData.ResetInstance();
+            ContactsAppFix.Reset();
 
 #if DEBUG
             if (!GameObject.Find("DebugController"))
@@ -73,6 +74,8 @@ namespace OverTheCounter
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
                 StaticSaveData.Instance?.Tick();
+
+                ContactsAppFix.Tick();
             }
             catch (Exception ex)
             {

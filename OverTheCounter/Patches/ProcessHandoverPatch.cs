@@ -5,6 +5,8 @@ using Il2CppScheduleOne.Quests;
 using Il2CppScheduleOne.UI.Handover;
 using MelonLoader;
 using OverTheCounter.Logic;
+using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using System;
 using System.Reflection;
 
@@ -77,7 +79,10 @@ namespace OverTheCounter.Patches
                 string customerId = __instance.NPC.ID;
                 if (DesperationManager.IsDesperate(customerId))
                 {
-                    DesperationManager.ResolveEvent(customerId);
+                    if (NetworkHelper.IsHost)
+                        DesperationManager.ResolveEvent(customerId);
+                    else
+                        ConfigSyncData.SendQuestAction($"DESP_RESOLVE:{customerId}");
                 }
             }
             catch (Exception ex)

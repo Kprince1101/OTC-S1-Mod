@@ -3,7 +3,9 @@ using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Quests;
 using MelonLoader;
 using OverTheCounter.Logic;
+using OverTheCounter.SaveData;
 using OverTheCounter.UI;
+using OverTheCounter.Utilities;
 using S1API.GameTime;
 using System;
 using UnityEngine;
@@ -61,18 +63,45 @@ namespace OverTheCounter.Patches
             {
                 LocationPickerUI.Show(__instance, (locationGuid) =>
                 {
-                    FinalizeDesperationDeal(__instance, locationGuid);
+                    if (NetworkHelper.IsHost)
+                    {
+                        FinalizeDesperationDeal(__instance, locationGuid);
+                    }
+                    else
+                    {
+                        // Client can't create contracts — forward to host
+                        ConfigSyncData.SendQuestAction($"DESP_ACCEPT:{customerId}:{locationGuid}");
+                        __instance.NPC.MSGConversation?.ClearResponses(true);
+                    }
                 });
 
-                return false; // Skip the original method (don't show time window)
+                return false;
             }
 
             return true; // Continue to original method for normal deals
         }
 
         /// <summary>
-        /// Finalizes the desperation deal with the selected location.
+        /// Finds a customer by NPC ID and finalizes. Called by host when client accepts.
         /// </summary>
+        internal static void FinalizeDesperationDealRemote(string customerId, string locationGuid)
+        {
+            var unlocked = Customer.UnlockedCustomers;
+            if (unlocked == null) return;
+
+            for (int i = 0; i < unlocked.Count; i++)
+            {
+                var c = unlocked[i];
+                if (c?.NPC != null && c.NPC.ID == customerId)
+                {
+                    FinalizeDesperationDeal(c, locationGuid);
+                    return;
+                }
+            }
+
+            Melon<Core>.Logger.Warning($"[AcceptContractClickedPatch] Remote accept: customer {customerId} not found");
+        }
+
         private static void FinalizeDesperationDeal(Customer customer, string locationGuid)
         {
             try
@@ -83,79 +112,22 @@ namespace OverTheCounter.Patches
                     return;
                 }
 
-                var offeredWindow = customer.OfferedContractInfo.DeliveryWindow;
-                if (offeredWindow == null)
-                {
-                    Melon<Core>.Logger.Error("[AcceptContractClickedPatch] OfferedContractInfo.DeliveryWindow is NULL!");
-                    return;
-                }
-
-                int immediateStart = offeredWindow.WindowStartTime;
-                int immediateEnd = offeredWindow.WindowEndTime;
-
-                // Update the contract with the selected location
                 customer.OfferedContractInfo.DeliveryLocationGUID = locationGuid;
 
-                // ContractAccepted overrides window times; we restore them below
+                // ContractAccepted overwrites window times with Morning, but
+                // QuestManagerContractAcceptedPatch restores our deadline before
+                // the contract is created and synced to clients.
                 customer.ContractAccepted(EDealWindow.Morning, true, dealer: null);
 
-                if (customer.CurrentContract != null)
-                {
-                    var contract = customer.CurrentContract;
-                    var currentWindow = contract.DeliveryWindow;
-
-                    if (currentWindow != null)
-                    {
-                        currentWindow.WindowStartTime = immediateStart;
-                        currentWindow.WindowEndTime = immediateEnd;
-                    }
-                    else
-                    {
-                        Melon<Core>.Logger.Error("[AcceptContractClickedPatch] CurrentContract.DeliveryWindow is NULL after accept!");
-                    }
-
-                    // Set expiry to current time + deadline so the HUD countdown is correct
-                    try
-                    {
-                        int currentDay = TimeManager.ElapsedDays;
-                        int currentTime = TimeManager.CurrentTime;
-
-                        int expiryTime = TimeManager.Get24HourTimeFromMinutes(
-                            TimeManager.GetMinutesFrom24HourTime(currentTime) + Config.DeadlineMinutes.Value);
-
-                        int expiryDay = currentDay;
-                        if (expiryTime < currentTime)
-                            expiryDay++;
-
-                        var expiryDate = new Il2CppScheduleOne.GameTime.GameDateTime(expiryDay, expiryTime);
-                        contract.ConfigureExpiry(true, expiryDate);
-                    }
-                    catch (Exception ex)
-                    {
-                        Melon<Core>.Logger.Error($"[AcceptContractClickedPatch] Failed to set expiry: {ex.Message}");
-                    }
-                }
-                else
-                {
-                    Melon<Core>.Logger.Error("[AcceptContractClickedPatch] CurrentContract is NULL after accept!");
-                }
-
-                // Clear the message responses (the accept/decline buttons)
                 if (customer.NPC.MSGConversation != null)
-                {
                     customer.NPC.MSGConversation.ClearResponses(true);
-                }
 
-                // Update desperation deadline: 120 minutes from now to deliver
                 DesperationManager.OnContractAccepted(customer.NPC.ID);
-
-                // Send confirmation text from customer
                 SendConfirmationText(customer);
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[AcceptContractClickedPatch] FinalizeDesperationDeal failed: {ex.Message}");
-                Melon<Core>.Logger.Error($"[AcceptContractClickedPatch] Stack trace: {ex.StackTrace}");
+                Melon<Core>.Logger.Error($"[AcceptContractClickedPatch] FinalizeDesperationDeal failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -230,72 +202,34 @@ namespace OverTheCounter.Patches
     }
 
     /// <summary>
-    /// Patches PlayerAcceptedContract to preserve immediate delivery window for desperation deals.
-    /// This is a backup in case the window times still get overwritten.
+    /// Patches QuestManager.ContractAccepted to restore the desperation delivery window
+    /// before the contract is created and synced. Customer.ContractAccepted overwrites
+    /// window times with the EDealWindow (Morning), so we fix them here — right before
+    /// QuestManager uses them to calculate the expiry that gets broadcast to all clients.
     /// </summary>
-    [HarmonyPatch(typeof(Customer), "PlayerAcceptedContract")]
-    public static class PlayerAcceptedContractPatch
+    [HarmonyPatch]
+    public static class QuestManagerContractAcceptedPatch
     {
-        // Store window times before the method runs
-        private static int _preservedStart = -1;
-        private static int _preservedEnd = -1;
-        private static bool _shouldPreserve = false;
-
-        /// <summary>
-        /// Prefix: Store immediate window times for desperation deals before they get overwritten.
-        /// </summary>
-        public static void Prefix(Customer __instance, EDealWindow window)
+        public static System.Reflection.MethodBase TargetMethod()
         {
-            _shouldPreserve = false;
-
-            if (__instance == null || __instance.NPC == null || __instance.OfferedContractInfo == null)
-                return;
-
-            string customerId = __instance.NPC.ID;
-
-            // Check if this is a desperation deal
-            if (DesperationManager.IsDesperate(customerId))
-            {
-                // Store the immediate window times
-                _preservedStart = __instance.OfferedContractInfo.DeliveryWindow.WindowStartTime;
-                _preservedEnd = __instance.OfferedContractInfo.DeliveryWindow.WindowEndTime;
-                _shouldPreserve = true;
-
-            }
+            var type = AccessTools.TypeByName("Il2CppScheduleOne.Quests.QuestManager");
+            return type != null ? AccessTools.Method(type, "ContractAccepted") : null;
         }
 
-        /// <summary>
-        /// Postfix: Restore immediate window times after the game tried to override them.
-        /// </summary>
-        public static void Postfix(Customer __instance, EDealWindow window)
+        public static void Prefix(Customer customer, ContractInfo contractData)
         {
-            if (!_shouldPreserve || __instance == null)
+            if (customer?.NPC == null || contractData?.DeliveryWindow == null)
                 return;
 
-            try
-            {
-                // Restore on the OfferedContractInfo (might still be there briefly)
-                if (__instance.OfferedContractInfo?.DeliveryWindow != null)
-                {
-                    __instance.OfferedContractInfo.DeliveryWindow.WindowStartTime = _preservedStart;
-                    __instance.OfferedContractInfo.DeliveryWindow.WindowEndTime = _preservedEnd;
-                }
+            if (!DesperationManager.IsDesperate(customer.NPC.ID))
+                return;
 
-                // Restore on the CurrentContract (this is where it matters)
-                if (__instance.CurrentContract?.DeliveryWindow != null)
-                {
-                    __instance.CurrentContract.DeliveryWindow.WindowStartTime = _preservedStart;
-                    __instance.CurrentContract.DeliveryWindow.WindowEndTime = _preservedEnd;
-                }
-            }
-            catch (Exception ex)
-            {
-                Melon<Core>.Logger.Error($"[PlayerAcceptedContractPatch] Failed to restore window: {ex.Message}");
-            }
-            finally
-            {
-                _shouldPreserve = false;
-            }
+            int currentTime = TimeManager.CurrentTime;
+            int endTime = TimeManager.Get24HourTimeFromMinutes(
+                TimeManager.GetMinutesFrom24HourTime(currentTime) + Config.DeadlineMinutes.Value);
+
+            contractData.DeliveryWindow.WindowStartTime = 0;
+            contractData.DeliveryWindow.WindowEndTime = endTime;
         }
     }
 }
