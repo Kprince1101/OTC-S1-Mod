@@ -113,7 +113,19 @@ namespace OverTheCounter
         {
             if (!_menuVisible) return;
 
-            GUILayout.BeginArea(new Rect(10, 10, 260, 650), "DEV TOOLS", GUI.skin.window);
+            GUILayout.BeginArea(new Rect(10, 10, 280, 800), "DEV TOOLS", GUI.skin.window);
+
+            // Show current player position
+            try
+            {
+                var p = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerMovement>.Instance;
+                if (p != null)
+                {
+                    var pos = p.transform.position;
+                    GUILayout.Label($"Pos: ({pos.x:F1}, {pos.y:F1}, {pos.z:F1})  Y:{p.transform.eulerAngles.y:F0}");
+                }
+            }
+            catch { }
 
             if (GUILayout.Button("+$1000 Cash"))
                 Money.ChangeCashBalance(1000f, true, true);
@@ -205,32 +217,150 @@ namespace OverTheCounter
             if (GUILayout.Button("Spawn Drifter (Narc)"))
                 DrifterManager.DebugSpawnDrifter(DrifterType.Narc);
 
+            if (GUILayout.Button("Despawn All Drifters"))
+                DrifterInstance.CleanupAll();
+
             GUILayout.Space(8);
 
-            if (GUILayout.Button("Copy Position to Clipboard"))
+            // --- Hotspot Editor ---
+            GUILayout.Label("--- Hotspot Editor ---");
+
+            GUILayout.Label($"Hotspots: {DrifterHotspots.AllHotspots.Count} in code");
+
+            // Step 1: Mark spawn
+            if (_hsStep == 0)
             {
-                try
+                GUILayout.Label("Walk to SPAWN point, face away from dest.");
+                if (GUILayout.Button("1. Mark SPAWN"))
                 {
-                    var player = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerMovement>.Instance;
-                    if (player != null)
+                    try
                     {
-                        var pos = player.transform.position;
-                        var rot = player.transform.rotation.eulerAngles;
-                        string text = $"new Vector3({pos.x:F2}f, {pos.y:F2}f, {pos.z:F2}f)  Rot: ({rot.x:F1}, {rot.y:F1}, {rot.z:F1})";
-                        GUIUtility.systemCopyBuffer = text;
-                        Logger.Msg($"Position copied: {text}");
+                        var player = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerMovement>.Instance;
+                        if (player != null)
+                        {
+                            _hsSpawnPos = player.transform.position;
+                            _hsSpawnYRot = player.transform.eulerAngles.y;
+                            _hsStep = 1;
+                            Logger.Msg($"[HOTSPOT] Spawn marked: ({_hsSpawnPos.x:F2}, {_hsSpawnPos.y:F2}, {_hsSpawnPos.z:F2}) Y:{_hsSpawnYRot:F1}");
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning($"Copy position failed: {ex.Message}");
+                    catch (Exception ex) { Logger.Warning($"Mark spawn failed: {ex.Message}"); }
                 }
             }
+            // Step 2: Mark destination
+            else if (_hsStep == 1)
+            {
+                GUILayout.Label($"Spawn: ({_hsSpawnPos.x:F1}, {_hsSpawnPos.z:F1}) Y:{_hsSpawnYRot:F0}");
+                GUILayout.Label("Walk to DESTINATION, face where NPC looks.");
+                if (GUILayout.Button("2. Mark DESTINATION"))
+                {
+                    try
+                    {
+                        var player = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerMovement>.Instance;
+                        if (player != null)
+                        {
+                            _hsDestPos = player.transform.position;
+                            _hsDestYRot = player.transform.eulerAngles.y;
+                            _hsStep = 2;
+                            _hsDesc = "";
+                            Logger.Msg($"[HOTSPOT] Dest marked: ({_hsDestPos.x:F2}, {_hsDestPos.y:F2}, {_hsDestPos.z:F2}) Y:{_hsDestYRot:F1}");
+                        }
+                    }
+                    catch (Exception ex) { Logger.Warning($"Mark dest failed: {ex.Message}"); }
+                }
+                if (GUILayout.Button("Undo Spawn"))
+                    _hsStep = 0;
+            }
+            // Step 3: Describe & save
+            else if (_hsStep == 2)
+            {
+                GUILayout.Label($"Spawn: ({_hsSpawnPos.x:F1}, {_hsSpawnPos.z:F1}) Y:{_hsSpawnYRot:F0}");
+                GUILayout.Label($"Dest:  ({_hsDestPos.x:F1}, {_hsDestPos.z:F1}) Y:{_hsDestYRot:F0}");
+                GUILayout.Space(4);
+                _hsDesc = DrawInputField("Desc", _hsDesc ?? "", 0);
+
+                if (GUILayout.Button("SAVE HOTSPOT"))
+                {
+                    string desc = string.IsNullOrWhiteSpace(_hsDesc) ? "TODO" : _hsDesc.Trim();
+                    _hotspotCounter++;
+
+                    string spawnVec = $"new Vector3({_hsSpawnPos.x:F2}f, {_hsSpawnPos.y:F2}f, {_hsSpawnPos.z:F2}f)";
+                    string destVec = $"new Vector3({_hsDestPos.x:F2}f, {_hsDestPos.y:F2}f, {_hsDestPos.z:F2}f)";
+
+                    string code = $"new Hotspot(\"Spot {_hotspotCounter}\", \"{desc}\",\n"
+                                + $"    {destVec}, {_hsDestYRot:F1}f,\n"
+                                + $"    {spawnVec}, {_hsSpawnYRot:F1}f),";
+
+                    GUIUtility.systemCopyBuffer = code;
+                    Logger.Msg($"[HOTSPOT] === Spot {_hotspotCounter} saved ===");
+                    Logger.Msg($"[HOTSPOT] Desc: \"{desc}\"");
+                    Logger.Msg($"[HOTSPOT] Code (copied):\n{code}");
+
+                    _hsStep = 0;
+                    _hsDesc = "";
+                    _activeInputField = -1;
+                }
+                if (GUILayout.Button("Undo Dest"))
+                    _hsStep = 1;
+            }
+
+            if (_hotspotCounter > 0)
+                GUILayout.Label($"Saved this session: {_hotspotCounter}");
 
             GUILayout.EndArea();
         }
 
         private bool _speedBoosted;
+
+        // Hotspot editor state (3-step: 0=spawn, 1=dest, 2=describe)
+        private int _hsStep;
+        private Vector3 _hsSpawnPos;
+        private float _hsSpawnYRot;
+        private Vector3 _hsDestPos;
+        private float _hsDestYRot;
+        private string _hsDesc = "";
+        private int _hotspotCounter;
+        private int _activeInputField = -1;
+
+        /// <summary>
+        /// Custom text input that avoids GUILayout.TextField (stripped in IL2CPP).
+        /// Click to focus, type with keyboard, Enter/Escape to unfocus.
+        /// </summary>
+        private string DrawInputField(string label, string value, int fieldId)
+        {
+            bool isActive = _activeInputField == fieldId;
+            string display = isActive
+                ? $"{label}: {value}_"
+                : $"{label}: {(string.IsNullOrEmpty(value) ? "(click)" : value)}";
+
+            if (GUILayout.Button(display, isActive ? GUI.skin.box : GUI.skin.button))
+                _activeInputField = isActive ? -1 : fieldId;
+
+            if (isActive)
+            {
+                Event e = Event.current;
+                if (e.type == EventType.KeyDown)
+                {
+                    if (e.keyCode == KeyCode.Backspace && value.Length > 0)
+                    {
+                        value = value.Substring(0, value.Length - 1);
+                        e.Use();
+                    }
+                    else if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.Escape)
+                    {
+                        _activeInputField = -1;
+                        e.Use();
+                    }
+                    else if (e.character != '\0' && !char.IsControl(e.character))
+                    {
+                        value += e.character;
+                        e.Use();
+                    }
+                }
+            }
+
+            return value;
+        }
 
         private void ToggleSpeedBoost()
         {

@@ -519,6 +519,7 @@
 		<Compile Include="Quests\StaticIntroQuest.cs" />
 		<Compile Include="Quests\StaticUpgrade1Quest.cs" />
 		<Compile Include="Quests\StaticUpgrade2Quest.cs" />
+		<Compile Include="Quests\DrifterDealQuest.cs" />
 		<Compile Include="Config.cs" />
 		<Compile Include="Utilities\ConfigEntry.cs" />
 		<Compile Include="SaveData\ConfigSyncData.cs" />

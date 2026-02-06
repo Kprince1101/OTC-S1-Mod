@@ -4,6 +4,7 @@ using Il2CppFishNet;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.AvatarFramework;
+using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Messaging;
 using MelonLoader;
 using UnityEngine;
@@ -162,7 +163,17 @@ namespace OverTheCounter.Logic
                 clone.gameObject.transform.position = spawnPos;
                 clone.gameObject.transform.rotation = rotation;
 
-                // Activate
+                // Add Customer component BEFORE activation (so customerData can be set before Awake)
+                try
+                {
+                    AddCustomerComponent(npc);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"Failed to add Customer component for drifter {id}: {ex.Message}");
+                }
+
+                // Activate (this triggers Awake on all components)
                 clone.gameObject.SetActive(true);
 
                 // Register with game
@@ -239,26 +250,6 @@ namespace OverTheCounter.Logic
             "Avatar/Layers/Bottom/Jeans",
             "Avatar/Layers/Bottom/CargoPants",
             "Avatar/Layers/Bottom/Jorts"
-        };
-
-        private static readonly string[] SafeFeet = {
-            "Avatar/Accessories/Feet/Sneakers/Sneakers",
-            "Avatar/Accessories/Feet/DressShoes/DressShoes",
-            "Avatar/Accessories/Feet/Boots/Boots"
-        };
-
-        // Safe head accessories (NO PoliceCap) - used sparingly
-        private static readonly string[] SafeHead = {
-            "Avatar/Accessories/Head/Cap/Cap",
-            "Avatar/Accessories/Head/Beanie/Beanie",
-            "Avatar/Accessories/Head/FlatCap/FlatCap"
-        };
-
-        // Safe chest accessories (NO BulletProofVest_Police)
-        private static readonly string[] SafeChest = {
-            "Avatar/Accessories/Chest/Blazer/Blazer",
-            "Avatar/Accessories/Chest/CollarJacket/CollarJacket",
-            "Avatar/Accessories/Chest/OpenVest/OpenVest"
         };
 
         // Realistic skin tone presets - more diverse distribution
@@ -383,32 +374,9 @@ namespace OverTheCounter.Logic
                     settings.BodyLayerSettings.Add(pantsLayer);
                 }
 
-                // Add shoes
-                if (settings.AccessorySettings != null && SafeFeet.Length > 0)
-                {
-                    var feetAccessory = new AvatarSettings.AccessorySetting();
-                    feetAccessory.path = SafeFeet[UnityEngine.Random.Range(0, SafeFeet.Length)];
-                    feetAccessory.color = RandomClothingColor();
-                    settings.AccessorySettings.Add(feetAccessory);
-                }
-
-                // Optionally add hat (15% chance - less frequent)
-                if (settings.AccessorySettings != null && SafeHead.Length > 0 && UnityEngine.Random.value < 0.15f)
-                {
-                    var headAccessory = new AvatarSettings.AccessorySetting();
-                    headAccessory.path = SafeHead[UnityEngine.Random.Range(0, SafeHead.Length)];
-                    headAccessory.color = RandomClothingColor();
-                    settings.AccessorySettings.Add(headAccessory);
-                }
-
-                // Optionally add jacket (15% chance)
-                if (settings.AccessorySettings != null && SafeChest.Length > 0 && UnityEngine.Random.value < 0.15f)
-                {
-                    var chestAccessory = new AvatarSettings.AccessorySetting();
-                    chestAccessory.path = SafeChest[UnityEngine.Random.Range(0, SafeChest.Length)];
-                    chestAccessory.color = RandomClothingColor();
-                    settings.AccessorySettings.Add(chestAccessory);
-                }
+                // NOTE: Accessory settings (shoes, hats, jackets) are disabled because
+                // ApplyAccessorySettings throws "Object you want to instantiate is null"
+                // The NPC will use default/no accessories which is fine for drifters.
 
                 // Apply settings to avatar
                 npc.Avatar.LoadAvatarSettings(settings);
@@ -584,6 +552,103 @@ namespace OverTheCounter.Logic
             {
                 Logger.Error($"Despawn failed: {ex.Message}");
             }
+        }
+
+        // Cached CustomerData for drifters - created once and reused
+        private static Il2CppScheduleOne.Economy.CustomerData _drifterCustomerData;
+
+        /// <summary>
+        /// Gets or creates a CustomerData ScriptableObject for drifters.
+        /// </summary>
+        private static Il2CppScheduleOne.Economy.CustomerData GetOrCreateDrifterCustomerData()
+        {
+            if (_drifterCustomerData != null)
+                return _drifterCustomerData;
+
+            try
+            {
+                _drifterCustomerData = ScriptableObject.CreateInstance<Il2CppScheduleOne.Economy.CustomerData>();
+
+                // Set minimal defaults
+                _drifterCustomerData.MinWeeklySpend = 100f;
+                _drifterCustomerData.MaxWeeklySpend = 500f;
+                _drifterCustomerData.MinOrdersPerWeek = 1;
+                _drifterCustomerData.MaxOrdersPerWeek = 1;
+                _drifterCustomerData.Standards = Il2CppScheduleOne.Economy.ECustomerStandard.VeryLow;
+                _drifterCustomerData.CanBeDirectlyApproached = false;
+                _drifterCustomerData.BaseAddiction = 0f;
+                _drifterCustomerData.DependenceMultiplier = 0f;
+                _drifterCustomerData.CallPoliceChance = 0f;
+
+                // Create default affinity data
+                _drifterCustomerData.DefaultAffinityData = new Il2CppScheduleOne.Economy.CustomerAffinityData();
+
+                Logger.Msg("Created CustomerData for drifters");
+                return _drifterCustomerData;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Failed to create CustomerData: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Adds a Customer component to the NPC with proper CustomerData setup.
+        /// MUST be called while the GameObject is inactive!
+        /// </summary>
+        public static Customer AddCustomerComponent(NPC npc)
+        {
+            if (npc == null || npc.gameObject == null)
+                return null;
+
+            try
+            {
+                // Verify object is inactive (Awake won't run until activated)
+                if (npc.gameObject.activeSelf)
+                {
+                    Logger.Warning($"Cannot add Customer to active GameObject for {npc.ID}");
+                    return null;
+                }
+
+                // Check if already has Customer component
+                var existing = npc.gameObject.GetComponent<Customer>();
+                if (existing != null)
+                {
+                    Logger.Msg($"Drifter {npc.ID} already has Customer component");
+                    return existing;
+                }
+
+                // Get or create CustomerData
+                var customerData = GetOrCreateDrifterCustomerData();
+                if (customerData == null)
+                {
+                    Logger.Error($"Cannot add Customer - no CustomerData available");
+                    return null;
+                }
+
+                // Add Customer component (Awake won't run yet because object is inactive)
+                var customer = npc.gameObject.AddComponent<Customer>();
+
+                // Set customerData directly (IL2CPP exposes this as a property)
+                customer.customerData = customerData;
+                Logger.Msg($"Set CustomerData for drifter {npc.ID}");
+
+                return customer;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"AddCustomerComponent failed for {npc?.ID}: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Gets the Customer component from a drifter NPC.
+        /// </summary>
+        public static Customer GetCustomerComponent(NPC npc)
+        {
+            return npc?.gameObject?.GetComponent<Customer>();
         }
 
         /// <summary>

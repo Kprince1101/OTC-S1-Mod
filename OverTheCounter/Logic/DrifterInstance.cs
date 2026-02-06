@@ -34,6 +34,11 @@ namespace OverTheCounter.Logic
         public DrifterState State { get; set; } = DrifterState.Spawned;
         public bool DealAccepted { get; set; }
         public bool DealCompleted { get; set; }
+        public bool IsWalkingBack { get; set; }
+
+        // Hold references to IL2CPP callbacks to prevent GC from collecting them before arrival
+        private Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _destCallback;
+        private Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _spawnCallback;
 
         public bool IsValid => GameNpc != null && GameNpc.gameObject != null;
 
@@ -69,13 +74,13 @@ namespace OverTheCounter.Logic
             string firstName = GetRandomFirstName(seed);
             string lastName = GetRandomLastName(seed);
 
-            // Spawn via IL2CPP
+            // Spawn at the entry point (SpawnPosition), NPC will walk to destination (Position)
             var gameNpc = DrifterSpawner.Spawn(
                 id,
                 firstName,
                 lastName,
-                hotspot.Position,
-                hotspot.Rotation
+                hotspot.SpawnPosition,
+                hotspot.SpawnRotation
             );
 
             if (gameNpc == null)
@@ -156,6 +161,77 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Commands the drifter to walk to the destination (hangout) position.
+        /// On arrival, faces the direction specified by the hotspot rotation.
+        /// </summary>
+        public void WalkToDestination()
+        {
+            try
+            {
+                if (GameNpc?.Movement == null) return;
+
+                _destCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
+                    new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
+                    {
+                        Logger.Msg($"Drifter {Id} arrived at destination (result={result})");
+                        if (result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Success)
+                            FaceDirection(Hotspot.Rotation);
+                    });
+
+                GameNpc.Movement.SetDestination(Hotspot.Position, _destCallback, 1f, 1f);
+                Logger.Msg($"Drifter {Id} walking to destination: {Hotspot.Position}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"WalkToDestination failed for drifter {Id}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Faces the drifter in the given rotation direction.
+        /// </summary>
+        private void FaceDirection(Quaternion rotation)
+        {
+            try
+            {
+                if (GameNpc?.Movement == null) return;
+                Vector3 forward = rotation * Vector3.forward;
+                GameNpc.Movement.FaceDirection(forward, 0.5f);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"FaceDirection failed for drifter {Id}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Commands the drifter to walk back to the spawn point (for lingering/despawn).
+        /// </summary>
+        public void WalkToSpawn()
+        {
+            try
+            {
+                if (GameNpc?.Movement == null) return;
+                IsWalkingBack = true;
+
+                _spawnCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
+                    new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
+                    {
+                        Logger.Msg($"Drifter {Id} arrived at spawn (result={result})");
+                        if (result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Success)
+                            FaceDirection(Hotspot.SpawnRotation);
+                    });
+
+                GameNpc.Movement.SetDestination(Hotspot.SpawnPosition, _spawnCallback, 1f, 1f);
+                Logger.Msg($"Drifter {Id} walking back to spawn: {Hotspot.SpawnPosition}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"WalkToSpawn failed for drifter {Id}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Despawns and cleans up this drifter.
         /// </summary>
         public void Despawn()
@@ -171,15 +247,19 @@ namespace OverTheCounter.Logic
             }
         }
 
-        // Type-specific text message getters
-        public string GetIntroTextMessage()
+        /// <summary>
+        /// Gets the intro text message with deal details and location.
+        /// </summary>
+        public string GetIntroTextMessage(string productName, int quantity, float payment, string locationHint)
         {
+            string paymentStr = $"${payment:F0}";
+
             return Type switch
             {
-                DrifterType.Whale => "Yo, I'm looking for a big score. Got cash. Meet me and we'll talk.",
-                DrifterType.Fiend => "HELP. Need product NOW. Will pay extra. Where are you???",
-                DrifterType.Narc => "Hey, friend gave me your number. Said you could help me out. Let's meet.",
-                _ => "Hey, you around? I need to score. One time thing. Hit me back."
+                DrifterType.Whale => $"Looking for a big score. Got {paymentStr} for {quantity} {productName}. I'm {locationHint}.",
+                DrifterType.Fiend => $"NEED {productName} NOW. {quantity} for {paymentStr}. I'm {locationHint}. HURRY.",
+                DrifterType.Narc => $"Friend gave me your number. Need {quantity} {productName}, got {paymentStr}. Meet me {locationHint}?",
+                _ => $"Hey, need {quantity} {productName}. Paying {paymentStr}. I'm {locationHint}. You in?"
             };
         }
 

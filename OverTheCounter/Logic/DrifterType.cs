@@ -54,30 +54,5 @@ namespace OverTheCounter.Logic
             return DrifterType.Narc;
         }
 
-        /// <summary>
-        /// Gets the price multiplier for a drifter type.
-        /// </summary>
-        public static float GetPriceMultiplier(DrifterType type)
-        {
-            return type switch
-            {
-                DrifterType.Whale => 1.3f,
-                DrifterType.Fiend => 1.5f,
-                _ => 1.0f
-            };
-        }
-
-        /// <summary>
-        /// Gets the quantity multiplier range for a drifter type.
-        /// Returns (min, max) multipliers.
-        /// </summary>
-        public static (float min, float max) GetQuantityMultiplierRange(DrifterType type)
-        {
-            return type switch
-            {
-                DrifterType.Whale => (2.0f, 3.0f),
-                _ => (1.0f, 1.0f)
-            };
-        }
     }
 }
