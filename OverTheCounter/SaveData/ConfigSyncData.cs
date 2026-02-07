@@ -43,9 +43,10 @@ namespace OverTheCounter.SaveData
 
         // SteamNetworkLib client and SyncVars.
         private static SteamNetworkClient _netClient;
-        private static HostSyncVar<string> _configVar;   // Host → Client: pipe-delimited config
-        private static HostSyncVar<string> _stateVar;    // Host → Client: pipe-delimited state
-        private static ClientSyncVar<string> _actionVar; // Client → Host: "seq:ACTION"
+        private static HostSyncVar<string> _configVar;    // Host → Client: pipe-delimited config
+        private static HostSyncVar<string> _stateVar;     // Host → Client: pipe-delimited state
+        private static HostSyncVar<string> _drifterVar;   // Host → Client: drifter state (separate to avoid lobby data truncation)
+        private static ClientSyncVar<string> _actionVar;  // Client → Host: "seq:ACTION"
 
         private static readonly NetworkSyncOptions _syncOptions = new NetworkSyncOptions
         {
@@ -88,7 +89,9 @@ namespace OverTheCounter.SaveData
             {
                 _configVar.Value = Config.SerializeAll();
                 _stateVar.Value = SerializeGameState();
-                Logger.Msg("Pushed config and game state to SyncVars.");
+                if (_drifterVar != null)
+                    _drifterVar.Value = DrifterManager.Instance?.SerializeDrifterState() ?? "";
+                Logger.Msg("Pushed config, game state, and drifter state to SyncVars.");
             }
         }
 
@@ -114,11 +117,13 @@ namespace OverTheCounter.SaveData
 
                 _configVar = _netClient.CreateHostSyncVar("cfg", "", _syncOptions);
                 _stateVar = _netClient.CreateHostSyncVar("state", "", _syncOptions);
+                _drifterVar = _netClient.CreateHostSyncVar("drifters", "", _syncOptions);
                 _actionVar = _netClient.CreateClientSyncVar("action", "", _syncOptions);
 
                 // Diagnostic error handlers — surface silent SyncVar failures.
                 _configVar.OnSyncError += (ex) => Logger.Warning($"Config SyncVar error: {ex.Message}");
                 _stateVar.OnSyncError += (ex) => Logger.Warning($"State SyncVar error: {ex.Message}");
+                _drifterVar.OnSyncError += (ex) => Logger.Warning($"Drifter SyncVar error: {ex.Message}");
                 _actionVar.OnSyncError += (ex) => Logger.Warning($"Action SyncVar error: {ex.Message}");
                 _configVar.OnWriteIgnored += (_) => Logger.Warning("Config SyncVar write ignored (not lobby owner).");
                 _stateVar.OnWriteIgnored += (_) => Logger.Warning("State SyncVar write ignored (not lobby owner).");
@@ -126,6 +131,7 @@ namespace OverTheCounter.SaveData
                 // Client callbacks: receive config and state from host.
                 _configVar.OnValueChanged += OnConfigChanged;
                 _stateVar.OnValueChanged += OnStateChanged;
+                _drifterVar.OnValueChanged += OnDrifterStateChanged;
 
                 // Host callback: receive quest actions from clients.
                 _actionVar.OnValueChanged += OnActionChanged;
@@ -178,10 +184,15 @@ namespace OverTheCounter.SaveData
                     if (!string.IsNullOrEmpty(state) && _stateVar != null)
                         _stateVar.Value = state;
 
+                    string drifterState = DrifterManager.Instance?.SerializeDrifterState() ?? "";
+                    if (_drifterVar != null)
+                        _drifterVar.Value = drifterState;
+
                     // Refresh — picks up values already in lobby data (covers
                     // client reading host values, and host reading its own on rejoin).
                     _configVar?.Refresh();
                     _stateVar?.Refresh();
+                    _drifterVar?.Refresh();
                     _actionVar?.Refresh();
 
                     Logger.Msg($"Initial SyncVar sync after lobby discovery (lobbyHost={_netClient.IsHost}).");
@@ -254,6 +265,7 @@ namespace OverTheCounter.SaveData
             _netClient = null;
             _configVar = null;
             _stateVar = null;
+            _drifterVar = null;
             _actionVar = null;
             _pendingGameState = null;
             _processedActions.Clear();
@@ -300,6 +312,25 @@ namespace OverTheCounter.SaveData
             catch (Exception ex)
             {
                 Logger.Warning($"OnStateChanged failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Client callback when host drifter state SyncVar changes.
+        /// </summary>
+        private static void OnDrifterStateChanged(string oldValue, string newValue)
+        {
+            if (_netClient?.IsHost == true) return;
+            if (string.IsNullOrEmpty(newValue)) return;
+
+            try
+            {
+                DrifterManager.Instance?.ApplyDrifterState(newValue);
+                Logger.Msg($"Client applied drifter state from SyncVar ({newValue.Length} chars).");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"OnDrifterStateChanged failed: {ex.Message}");
             }
         }
 
@@ -392,6 +423,26 @@ namespace OverTheCounter.SaveData
         }
 
         /// <summary>
+        /// Publishes drifter state to the dedicated drifter SyncVar.
+        /// Separate from PublishGameState to avoid lobby data truncation.
+        /// </summary>
+        public void PublishDrifterState()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                string drifterState = DrifterManager.Instance?.SerializeDrifterState() ?? "";
+                if (_drifterVar != null)
+                    _drifterVar.Value = drifterState;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"PublishDrifterState failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Sends a quest action to the host via ClientSyncVar.
         /// No-ops on the host (host executes state changes directly).
         /// Uses a sequence counter so repeated actions (e.g. VIC_LAUNDER)
@@ -446,7 +497,6 @@ namespace OverTheCounter.SaveData
                     }
                     else if (action.StartsWith("DESP_ACCEPT:"))
                     {
-                        // Format: DESP_ACCEPT:<customerId>:<locationGuid>
                         string payload = action.Substring("DESP_ACCEPT:".Length);
                         int sep = payload.IndexOf(':');
                         if (sep > 0 && sep < payload.Length - 1)
@@ -455,6 +505,20 @@ namespace OverTheCounter.SaveData
                             string locGuid = payload.Substring(sep + 1);
                             Patches.AcceptContractClickedPatch.FinalizeDesperationDealRemote(custId, locGuid);
                         }
+                    }
+                    else if (action.StartsWith("DRIFTER_ACCEPT:"))
+                    {
+                        string drifterId = action.Substring("DRIFTER_ACCEPT:".Length);
+                        DrifterManager.Instance?.OnDealAccepted(drifterId);
+                    }
+                    else if (action.StartsWith("DRIFTER_COMPLETE:"))
+                    {
+                        // Format: DRIFTER_COMPLETE:drifterId:playerCode
+                        string payload = action.Substring("DRIFTER_COMPLETE:".Length);
+                        int sep = payload.IndexOf(':');
+                        string drifterId = sep > 0 ? payload.Substring(0, sep) : payload;
+                        string playerCode = sep > 0 ? payload.Substring(sep + 1) : "";
+                        DrifterManager.Instance?.OnRemoteDealCompleted(drifterId, playerCode);
                     }
                     else
                     {

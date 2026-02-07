@@ -50,6 +50,19 @@ namespace OverTheCounter
 
         public static ConfigEntry<int> ConsolidationThreshold;
 
+        // ── Drifter System ──
+        private static MelonPreferences_Category _drifters;
+
+        public static ConfigEntry<float> DrifterSpawnChancePerHour;
+        public static ConfigEntry<int> MaxActiveDrifters;
+        public static ConfigEntry<int> DrifterDayStartHour;
+        public static ConfigEntry<int> DrifterDayEndHour;
+        public static ConfigEntry<int> DrifterOfferWindowMin;
+        public static ConfigEntry<int> DrifterDeliveryDeadlineMin;
+        public static ConfigEntry<int> DrifterLingerMinMin;
+        public static ConfigEntry<int> DrifterLingerMaxMin;
+        public static ConfigEntry<float> DrifterMinDealValue;
+
         // All entries for bulk operations
         private static readonly Dictionary<string, ConfigEntry<float>> _floatEntries = new();
         private static readonly Dictionary<string, ConfigEntry<int>> _intEntries = new();
@@ -130,6 +143,28 @@ namespace OverTheCounter
 
             ConsolidationThreshold = Register(_notifications.CreateEntry("ConsolidationThreshold", 5, "Consolidation Threshold",
                 "Minimum contracts in a window before consolidation kicks in"));
+
+            // ── Drifter System ──
+            _drifters = MelonPreferences.CreateCategory("OverTheCounter_Drifters", "Drifter System");
+
+            DrifterSpawnChancePerHour = Register(_drifters.CreateEntry("DrifterSpawnChancePerHour", 0.38f, "Spawn Chance Per Hour",
+                "Base spawn chance per hour at max regions (6). Scaled down by unlocked region count."));
+            MaxActiveDrifters = Register(_drifters.CreateEntry("MaxActiveDrifters", 3, "Max Active Drifters",
+                "Maximum number of drifters that can be active at once"));
+            DrifterDayStartHour = Register(_drifters.CreateEntry("DrifterDayStartHour", 800, "Day Start Hour",
+                "Earliest 24h time for drifter spawns (800 = 8:00 AM)"));
+            DrifterDayEndHour = Register(_drifters.CreateEntry("DrifterDayEndHour", 2100, "Day End Hour",
+                "Latest 24h time for drifter spawns (2100 = 9:00 PM)"));
+            DrifterOfferWindowMin = Register(_drifters.CreateEntry("DrifterOfferWindowMin", 120, "Offer Window (min)",
+                "Minutes player has to respond to a drifter offer (120 = 2 hours)"));
+            DrifterDeliveryDeadlineMin = Register(_drifters.CreateEntry("DrifterDeliveryDeadlineMin", 240, "Delivery Deadline (min)",
+                "Minutes to deliver after accepting a drifter deal (240 = 4 hours)"));
+            DrifterLingerMinMin = Register(_drifters.CreateEntry("DrifterLingerMinMin", 30, "Linger Min (min)",
+                "Minimum minutes a drifter lingers after deal completion/expiry"));
+            DrifterLingerMaxMin = Register(_drifters.CreateEntry("DrifterLingerMaxMin", 60, "Linger Max (min)",
+                "Maximum minutes a drifter lingers after deal completion/expiry"));
+            DrifterMinDealValue = Register(_drifters.CreateEntry("DrifterMinDealValue", 90f, "Min Deal Value ($)",
+                "Soft minimum deal value - drifters ask for more quantity until the deal reaches this threshold"));
         }
 
         private static ConfigEntry<float> Register(MelonPreferences_Entry<float> entry)

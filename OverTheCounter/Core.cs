@@ -3,6 +3,7 @@ using MelonLoader;
 using MelonLoader.Utils;
 using OverTheCounter.Apps;
 using OverTheCounter.Logic;
+using OverTheCounter.NPCs;
 using OverTheCounter.Patches;
 using OverTheCounter.SaveData;
 using S1API.PhoneApp;
@@ -11,7 +12,7 @@ using System.IO;
 using System.Reflection;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.0.5", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.1.0", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace OverTheCounter
@@ -20,6 +21,7 @@ namespace OverTheCounter
     {
         private NotificationManager _notificationManager;
         private DesperationManager _desperationManager;
+        private DrifterManager _drifterManager;
 
         public override void OnInitializeMelon()
         {
@@ -36,6 +38,7 @@ namespace OverTheCounter
             ExtractIcons();
             _notificationManager = new NotificationManager(LoggerInstance);
             _desperationManager = new DesperationManager(LoggerInstance);
+            _drifterManager = new DrifterManager(LoggerInstance);
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
@@ -46,6 +49,10 @@ namespace OverTheCounter
             StaticSaveData.ResetInstance();
             VicSaveData.ResetInstance();
             ContactsAppFix.Reset();
+
+            // Drifters are transient - despawn on scene transitions (save/load)
+            DrifterInstance.CleanupAll();
+            DrifterSpawner.ResetCache();
 
 #if DEBUG
             if (!GameObject.Find("DebugController"))
@@ -76,6 +83,12 @@ namespace OverTheCounter
                 StaticSaveData.Instance?.Tick();
 
                 ContactsAppFix.Tick();
+
+                // Retry pending drifter NPC adoptions on client (FishNet timing)
+                _drifterManager?.RetryPendingAdoptions();
+
+                // Update drifter quest timers on client (OnTimeTick is host-only)
+                _drifterManager?.ClientQuestTick();
             }
             catch (Exception ex)
             {
@@ -88,6 +101,7 @@ namespace OverTheCounter
             ConfigSyncData.Cleanup();
             _notificationManager?.Cleanup();
             _desperationManager?.Cleanup();
+            _drifterManager?.Cleanup();
         }
 
         /// <summary>
@@ -102,6 +116,8 @@ namespace OverTheCounter
             }
 
             ExtractResource(iconDir, "CustomersIcon.png");
+            ExtractResource(iconDir, "DrifterQuestIcon.png");
+            ExtractResource(iconDir, "DrifterProfileIcon.png");
             ExtractResource(iconDir, "RinseCycle.png");
         }
 

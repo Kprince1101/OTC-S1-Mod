@@ -16,6 +16,8 @@
 	</PropertyGroup>
 	<ItemGroup>
 	  <None Remove="Resources\CustomersIcon.png" />
+	  <None Remove="Resources\DrifterQuestIcon.png" />
+	  <None Remove="Resources\DrifterProfileIcon.png" />
 	  <None Remove="Resources\RinseCycle.png" />
 	</ItemGroup>
 
@@ -498,8 +500,14 @@
 		<Compile Include="Logic\NotificationManager.cs" />
 		<Compile Include="Logic\ConsolidatedQuest.cs" />
 		<Compile Include="Logic\DesperationManager.cs" />
+		<Compile Include="Logic\DrifterManager.cs" />
+		<Compile Include="Logic\DrifterType.cs" />
+		<Compile Include="Logic\DrifterHotspots.cs" />
+		<Compile Include="Logic\DrifterSpawner.cs" />
+		<Compile Include="Logic\DrifterInstance.cs" />
 		<Compile Include="Logic\ImmediateQuestWindowConfig.cs" />
 		<Compile Include="Patches\ProcessHandoverPatch.cs" />
+		<Compile Include="Patches\DrifterHandoverPatch.cs" />
 		<Compile Include="Patches\DesperationContractPatch.cs" />
 		<Compile Include="Patches\CompassManagerAddElementPatch.cs" />
 		<Compile Include="UI\LocationPickerUI.cs" />
@@ -513,6 +521,7 @@
 		<Compile Include="Quests\StaticIntroQuest.cs" />
 		<Compile Include="Quests\StaticUpgrade1Quest.cs" />
 		<Compile Include="Quests\StaticUpgrade2Quest.cs" />
+		<Compile Include="Quests\DrifterDealQuest.cs" />
 		<Compile Include="Config.cs" />
 		<Compile Include="Utilities\ConfigEntry.cs" />
 		<Compile Include="SaveData\ConfigSyncData.cs" />
@@ -524,7 +533,13 @@
 	  <EmbeddedResource Include="Resources\CustomersIcon.png">
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
+	  <EmbeddedResource Include="Resources\DrifterProfileIcon.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
 	  <EmbeddedResource Include="Resources\RinseCycle.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
+	  <EmbeddedResource Include="Resources\DrifterQuestIcon.png">
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
 	</ItemGroup>

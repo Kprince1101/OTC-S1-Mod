@@ -44,6 +44,19 @@ Addresses the single-player economy bottleneck by introducing a manual launderin
 * **Manual Laundering:** A daily interaction that lets you clean extra cash beyond the ATM limit. It comes with a significant "Risk Fee" (15-20%) and requires physical travel, balancing the extra capacity with effort.
 * **Trust Progression:** Regular visits increase your standing with Vic, eventually unlocking better rates and raising the daily cap - enough to bridge the gap to the mid-game without breaking the economy.
 
+### 6. Drifter System (Dynamic Street Encounters)
+A new system that spawns anonymous, one-time buyers who roam the map looking for a quick score.
+* **Random Encounters:** Drifters spawn throughout the day and text your phone with a deal request — a product, quantity, and cash offer. Accept or ignore.
+* **Scaling Frequency:** Spawn rates scale with your unlocked regions. Early game you'll see ~1-2 per day; at max regions, expect around 5.
+* **Five Drifter Types:**
+    * **Normal (77%):** Standard one-time deal at market price.
+    * **Whale (10%):** Bulk quantities at a 30% premium.
+    * **Fiend (5%):** Urgent small orders at 50% markup, prefers meth and coke.
+    * **Robber (3%):** Attacks you after the handover — knock them out to recover your product and their cash.
+    * **Narc (5%):** Undercover sting — police arrive after the deal completes.
+* **Vanilla Handover:** Deals complete through the game's standard HandoverScreen — drag products from your hotbar just like a regular customer deal.
+* **Map Markers:** Accepting a deal places a quest marker at the drifter's location so you can navigate there.
+
 ### Multiplayer Support
 All features are fully multiplayer compatible with host-authoritative state sync. Quest progress, NPC interactions, and config settings synchronize across host and clients via Steam lobby data.
 
@@ -66,6 +79,7 @@ Settings are stored in MelonLoader's config file and organized into four categor
 * **Vic Laundering** — Tier costs, returns, trust unlock threshold, and intro quest requirements.
 * **Static Subscription** — Weekly billing cost, cycle length, ATM deposit trigger, and tier upgrade costs/requirements.
 * **Contract Notifications** — Consolidation threshold (minimum contracts before grouping kicks in).
+* **Drifter System** — Spawn chance per hour, max active drifters, active hours, offer window, delivery deadline, linger duration, and minimum deal value.
 
 You can edit the config file directly, or use [ModsApp by k0Mods](https://thunderstore.io/c/schedule-i/p/k0Mods/ModsApp/) for an in-game settings UI (optional, not required).
 
