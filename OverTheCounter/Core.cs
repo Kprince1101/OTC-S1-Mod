@@ -83,6 +83,12 @@ namespace OverTheCounter
                 StaticSaveData.Instance?.Tick();
 
                 ContactsAppFix.Tick();
+
+                // Retry pending drifter NPC adoptions on client (FishNet timing)
+                _drifterManager?.RetryPendingAdoptions();
+
+                // Update drifter quest timers on client (OnTimeTick is host-only)
+                _drifterManager?.ClientQuestTick();
             }
             catch (Exception ex)
             {

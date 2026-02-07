@@ -6,6 +6,7 @@ using Il2CppScheduleOne.Law;
 using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.Messaging;
 using Il2CppScheduleOne.Money;
+using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Police;
 using Il2CppScheduleOne.Product;
@@ -127,7 +128,7 @@ namespace OverTheCounter.Logic
                 }
 
                 // Generate seed from drifter ID for deterministic appearance
-                int seed = drifterId.GetHashCode();
+                int seed = DeterministicHash(drifterId);
                 int spawnTime = GetCurrentElapsedMinutes();
 
                 // Calculate offer deadline
@@ -157,6 +158,10 @@ namespace OverTheCounter.Logic
                 var drifter = DrifterInstance.Create(drifterId, type, hotspot, seed);
                 if (drifter != null)
                 {
+                    // Capture FishNet ObjectId for client-side lookup
+                    try { evt.NetworkObjectId = drifter.GameNpc.NetworkObject.ObjectId; }
+                    catch { _logger.Warning($"[DrifterManager] Could not get NetworkObjectId for {drifterId}"); }
+
                     // Walk from spawn point to destination
                     drifter.WalkToDestination();
 
@@ -164,10 +169,15 @@ namespace OverTheCounter.Logic
                     evt.State = DrifterEventState.OfferPending;
                     evt.TextSendTime = spawnTime + 1; // 1 minute delay before text
 
-                    _logger.Msg($"[DrifterManager] Spawned drifter {drifterId}: Type={type}, Hotspot={hotspot.Name}, Spawn={hotspot.SpawnPosition}, Dest={hotspot.Position}, OfferDeadline={Config.DrifterOfferWindowMin.Value}min");
+                    _logger.Msg($"[DrifterManager] Spawned drifter {drifterId}: Type={type}, Hotspot={hotspot.Name}, NetObjId={evt.NetworkObjectId}, Spawn={hotspot.SpawnPosition}, Dest={hotspot.Position}");
 
                     // Sync to clients
-                    ConfigSyncData.Instance?.PublishGameState();
+                    ConfigSyncData.Instance?.PublishDrifterState();
+
+                    // FishNet may assign ObjectId asynchronously. If still 0,
+                    // schedule a delayed re-capture + re-publish.
+                    if (evt.NetworkObjectId == 0)
+                        MelonCoroutines.Start(DelayedObjectIdCapture(evt, drifter));
                 }
                 else
                 {
@@ -321,6 +331,7 @@ namespace OverTheCounter.Logic
                             SendIntroText(evt, drifter);
                             evt.TextSent = true;
                             evt.State = DrifterEventState.OfferSent;
+                            ConfigSyncData.Instance?.PublishDrifterState();
                         }
                         // Check offer deadline
                         if (currentMinutes >= evt.OfferDeadline)
@@ -411,7 +422,7 @@ namespace OverTheCounter.Logic
                 _activeEvents.Remove(id);
 
             if (toRemove.Count > 0)
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.Instance?.PublishDrifterState();
         }
 
         private void SendIntroText(DrifterEvent evt, DrifterInstance drifter)
@@ -545,7 +556,7 @@ namespace OverTheCounter.Logic
                 if (drifter != null)
                     drifter.State = DrifterState.Lingering;
 
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.Instance?.PublishDrifterState();
             }
         }
 
@@ -582,6 +593,22 @@ namespace OverTheCounter.Logic
         // =====================================================
 
         // Track dialogue choices per drifter so we can clean them up
+        // Pending adoptions: drifters that need FishNet NPC found on client (retried periodically)
+        private readonly Dictionary<string, PendingAdoption> _pendingAdoptions = new();
+        private float _lastAdoptionRetry;
+        private float _lastClientQuestTick;
+
+        private class PendingAdoption
+        {
+            public string DrifterId;
+            public DrifterType Type;
+            public DrifterHotspots.Hotspot Hotspot;
+            public int Seed;
+            public DrifterEventState State;
+            public int NetworkObjectId;
+            public float CreatedTime;
+        }
+
         private readonly Dictionary<string, DialogueController.DialogueChoice> _dealChoices = new();
 
         /// <summary>
@@ -756,7 +783,7 @@ namespace OverTheCounter.Logic
                     SelectRobberWeapon(drifter, evt.Seed);
                 }
 
-                // Threatening dialogue — robber reveals the scam after receiving goods
+                // Threatening dialogue
                 string[] robberLines = {
                     "Yeah, I'm not paying for that. Thanks though.",
                     "Payment? Nah. I think I'll keep it.",
@@ -768,13 +795,15 @@ namespace OverTheCounter.Logic
 
                 // Complete the deal state (host-authoritative)
                 if (NetworkHelper.IsHost)
+                {
                     OnDealCompleted(drifterId);
+                    if (drifter != null)
+                        MelonCoroutines.Start(DelayedRobberAttack(drifterId, 0.5f, Player.Local));
+                }
                 else
-                    ConfigSyncData.SendQuestAction($"DRIFTER_COMPLETE:{drifterId}");
-
-                // Start delayed attack coroutine
-                if (drifter != null)
-                    MelonCoroutines.Start(DelayedRobberAttack(drifterId, 0.5f));
+                {
+                    ConfigSyncData.SendQuestAction($"DRIFTER_COMPLETE:{drifterId}:{Player.Local?.PlayerCode ?? ""}");
+                }
 
                 _logger.Msg($"[DrifterManager] Robber {drifterId}: stocked ${lootCash:F0} loot, attack incoming");
                 return;
@@ -813,11 +842,12 @@ namespace OverTheCounter.Logic
             {
                 var completedType = OnDealCompleted(drifterId);
                 if (completedType == DrifterType.Narc)
-                    TriggerNarcSting(evt);
+                    TriggerNarcSting(evt, Player.Local);
             }
             else
             {
-                ConfigSyncData.SendQuestAction($"DRIFTER_COMPLETE:{drifterId}");
+                var playerCode = Player.Local?.PlayerCode ?? "";
+                ConfigSyncData.SendQuestAction($"DRIFTER_COMPLETE:{drifterId}:{playerCode}");
             }
         }
 
@@ -904,93 +934,212 @@ namespace OverTheCounter.Logic
         /// Triggers a narc sting: sets active wanted status, warps officers nearby
         /// for immediate response, and dispatches backup from the station.
         /// </summary>
-        private void TriggerNarcSting(DrifterEvent evt)
+        private void TriggerNarcSting(DrifterEvent evt, Player targetPlayer = null)
         {
             try
             {
-                _logger.Msg("[DrifterManager] NARC STING! Triggering police response.");
+                var player = targetPlayer ?? Player.Local;
+                _logger.Msg($"[DrifterManager] NARC STING for {evt.DrifterId}! target={player?.PlayerCode} IsHost={NetworkHelper.IsHost}");
 
-                var player = Player.Local;
                 if (player?.CrimeData == null)
                 {
-                    _logger.Warning("[DrifterManager] Player.Local or CrimeData is null");
+                    _logger.Warning("[DrifterManager] TriggerNarcSting: target player or CrimeData is null");
                     return;
                 }
 
+                _logger.Msg($"[DrifterManager] TriggerNarcSting: player={player.PlayerCode}, pos={player.transform?.position}, currentPursuit={player.CrimeData.CurrentPursuitLevel}");
+
                 // Record player position and set active wanted status
                 player.CrimeData.RecordLastKnownPosition(true);
-                var crime = new DrugTrafficking();
-                player.CrimeData.AddCrime(crime);
+                player.CrimeData.AddCrime(new DrugTrafficking());
                 player.CrimeData.SetPursuitLevel(PlayerCrimeData.EPursuitLevel.Arresting);
+                _logger.Msg($"[DrifterManager] TriggerNarcSting: pursuit set to Arresting, now={player.CrimeData.CurrentPursuitLevel}");
 
-                // Warp 2 officers nearby for immediate response (sting ambush)
-                SpawnNearbyOfficers(2, player);
-
-                // Dispatch 2 more from the station as backup
-                try
-                {
-                    var station = PoliceStation.GetClosestPoliceStation(player.transform.position);
-                    station?.Dispatch(2, player);
-                    _logger.Msg("[DrifterManager] Backup dispatched from station");
-                }
-                catch (Exception ex)
-                {
-                    _logger.Warning($"[DrifterManager] Station dispatch failed: {ex.Message}");
-                }
+                // Warp officers near the player for fast response, then start foot pursuit.
+                // Also redirect any nearby on-duty officers for immediate backup.
+                MelonCoroutines.Start(WarpOfficersNearPlayer(2, player));
+                RedirectNearbyOfficers(2, player);
 
                 // Set up narc post-sting dialogue
                 var drifter = DrifterInstance.Active.GetValueOrDefault(evt.DrifterId);
                 if (drifter != null)
                     SetupNarcPostStingDialogue(evt, drifter);
 
-                _logger.Msg("[DrifterManager] Narc sting triggered — 2 officers nearby, 2 backup dispatched");
+                _logger.Msg("[DrifterManager] Narc sting complete");
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DrifterManager] TriggerNarcSting failed: {ex.Message}");
+                _logger.Error($"[DrifterManager] TriggerNarcSting failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
         /// <summary>
-        /// Pulls officers from the police station, warps them near the player,
-        /// and starts foot pursuit immediately.
+        /// Pulls officers from the station pool, waits for activation, then warps them
+        /// near the player and starts foot pursuit. Much faster than vanilla Dispatch
+        /// which makes officers walk/drive from the station.
         /// </summary>
-        private void SpawnNearbyOfficers(int count, Player player)
+        private IEnumerator WarpOfficersNearPlayer(int count, Player player)
+        {
+            var station = PoliceStation.GetClosestPoliceStation(player.transform.position);
+            if (station == null)
+            {
+                _logger.Warning("[DrifterManager] WarpOfficersNearPlayer: No police station found");
+                yield break;
+            }
+
+            string playerCode = player.PlayerCode;
+            if (string.IsNullOrEmpty(playerCode))
+            {
+                _logger.Warning("[DrifterManager] WarpOfficersNearPlayer: PlayerCode is null");
+                yield break;
+            }
+
+            var officers = new List<PoliceOfficer>();
+            for (int i = 0; i < count && station.OfficerPool?.Count > 0; i++)
+            {
+                var officer = station.PullOfficer();
+                if (officer != null)
+                    officers.Add(officer);
+            }
+
+            if (officers.Count == 0)
+            {
+                _logger.Msg("[DrifterManager] WarpOfficersNearPlayer: pool empty, falling back to redirect");
+                RedirectNearbyOfficers(count, player);
+                yield break;
+            }
+
+            // Wait for officers to fully activate (exit building animation)
+            yield return new WaitForSeconds(0.5f);
+
+            var playerPos = player.transform.position;
+            for (int i = 0; i < officers.Count; i++)
+            {
+                try
+                {
+                    // Warp each officer to a different offset ~10m from the player
+                    float angle = (360f / officers.Count) * i + 180f; // behind the player
+                    float rad = angle * Mathf.Deg2Rad;
+                    var offset = new Vector3(Mathf.Sin(rad) * 10f, 0f, Mathf.Cos(rad) * 10f);
+                    var warpPos = playerPos + offset;
+
+                    officers[i].Movement.Warp(warpPos);
+                    officers[i].BeginFootPursuit_Networked(playerCode, false);
+                    _logger.Msg($"[DrifterManager] Warped officer {i} ~10m from player, pursuing");
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"[DrifterManager] WarpOfficersNearPlayer: officer {i} failed: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Dispatches officers using vanilla PoliceStation.Dispatch, falling back to
+        /// redirecting nearby on-duty officers when the station pool is empty.
+        /// </summary>
+        private void DispatchOfficers(int count, Player player)
         {
             try
             {
                 var station = PoliceStation.GetClosestPoliceStation(player.transform.position);
-                if (station == null || station.OfficerPool == null)
+                if (station == null)
                 {
-                    _logger.Warning("[DrifterManager] No police station or empty officer pool");
+                    _logger.Warning("[DrifterManager] DispatchOfficers: No police station found");
+                    return;
+                }
+
+                int poolCount = station.OfficerPool?.Count ?? 0;
+                int fromPool = Math.Min(count, poolCount);
+                _logger.Msg($"[DrifterManager] DispatchOfficers: station={station.name}, pool={poolCount}, fromPool={fromPool}");
+
+                if (fromPool > 0)
+                {
+                    station.Dispatch(fromPool, player);
+                    count -= fromPool;
+                    _logger.Msg($"[DrifterManager] DispatchOfficers: dispatched {fromPool} from pool, remaining need={count}");
+                }
+
+                // Fallback: redirect nearby on-duty officers when pool is empty/insufficient
+                if (count > 0)
+                {
+                    _logger.Msg($"[DrifterManager] DispatchOfficers: pool insufficient, redirecting {count} nearby officers");
+                    RedirectNearbyOfficers(count, player);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[DrifterManager] DispatchOfficers failed: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        /// <summary>
+        /// Redirects the nearest available officers to pursue the player.
+        /// Used as fallback when the station pool is empty (officers on patrol/checkpoint/sentry).
+        /// </summary>
+        private void RedirectNearbyOfficers(int count, Player player)
+        {
+            try
+            {
+                var officers = PoliceOfficer.Officers;
+                if (officers == null || officers.Count == 0)
+                {
+                    _logger.Warning("[DrifterManager] RedirectNearbyOfficers: No officers in world");
+                    return;
+                }
+
+                string playerCode = player.PlayerCode;
+                if (string.IsNullOrEmpty(playerCode))
+                {
+                    _logger.Warning("[DrifterManager] RedirectNearbyOfficers: PlayerCode is null");
                     return;
                 }
 
                 var playerPos = player.transform.position;
 
-                for (int i = 0; i < count && station.OfficerPool.Count > 0; i++)
+                // Build list of available officers sorted by distance
+                var candidates = new List<(PoliceOfficer officer, float dist)>();
+                for (int i = 0; i < officers.Count; i++)
                 {
-                    var officer = station.PullOfficer();
-                    if (officer == null) continue;
+                    var off = officers[i];
+                    if (off == null) continue;
 
-                    // Place officer 20-30m away in a random direction
-                    float angle = UnityEngine.Random.Range(0f, 360f) * Mathf.Deg2Rad;
-                    float dist = UnityEngine.Random.Range(20f, 30f);
-                    var spawnPos = playerPos + new Vector3(
-                        Mathf.Cos(angle) * dist, 0f, Mathf.Sin(angle) * dist);
+                    try
+                    {
+                        if (!off.IsConscious) continue;
+                        if (off.PursuitBehaviour != null && off.PursuitBehaviour.Active) continue;
+                    }
+                    catch { continue; }
 
-                    // Snap to NavMesh
-                    if (UnityEngine.AI.NavMesh.SamplePosition(spawnPos, out var hit, 15f, UnityEngine.AI.NavMesh.AllAreas))
-                        spawnPos = hit.position;
-
-                    officer.Movement?.Warp(spawnPos);
-                    officer.BeginFootPursuit_Networked(player.PlayerCode);
-                    _logger.Msg($"[DrifterManager] Warped officer near player at {spawnPos}");
+                    float dist = Vector3.Distance(off.transform.position, playerPos);
+                    candidates.Add((off, dist));
                 }
+
+                candidates.Sort((a, b) => a.dist.CompareTo(b.dist));
+
+                int redirected = 0;
+                for (int i = 0; i < candidates.Count && redirected < count; i++)
+                {
+                    try
+                    {
+                        candidates[i].officer.BeginFootPursuit_Networked(playerCode, true);
+                        redirected++;
+                        _logger.Msg($"[DrifterManager] Redirected officer at dist={candidates[i].dist:F0}m to pursue player");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"[DrifterManager] Failed to redirect officer: {ex.Message}");
+                    }
+                }
+
+                if (redirected == 0)
+                    _logger.Warning("[DrifterManager] RedirectNearbyOfficers: No available officers found");
+                else
+                    _logger.Msg($"[DrifterManager] Redirected {redirected}/{count} officers to pursue");
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[DrifterManager] SpawnNearbyOfficers failed: {ex.Message}");
+                _logger.Warning($"[DrifterManager] RedirectNearbyOfficers failed: {ex.Message}");
             }
         }
 
@@ -1069,10 +1218,10 @@ namespace OverTheCounter.Logic
                     player.CrimeData.SetPursuitLevel(PlayerCrimeData.EPursuitLevel.Arresting);
                 }
 
-                // Dispatch nearby officers only once per narc
+                // Dispatch backup officers only once per narc
                 if (_narcBackupDispatched.Add(drifterId))
                 {
-                    SpawnNearbyOfficers(2, player);
+                    DispatchOfficers(2, player);
                     _logger.Msg($"[DrifterManager] Narc {drifterId} called backup");
                 }
             }
@@ -1144,16 +1293,46 @@ namespace OverTheCounter.Logic
         /// Coroutine that delays the robber's attack after the handover screen closes.
         /// Gives the player a moment to read the threatening dialogue.
         /// </summary>
-        private IEnumerator DelayedRobberAttack(string drifterId, float delay)
+        private IEnumerator DelayedRobberAttack(string drifterId, float delay, Player targetPlayer = null)
         {
             yield return new WaitForSeconds(delay);
 
             var drifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
             if (drifter != null && drifter.IsValid)
             {
-                drifter.AttackPlayer();
-                _logger.Msg($"[DrifterManager] Robber {drifterId}: attack initiated after {delay}s delay");
+                drifter.AttackPlayer(targetPlayer);
+                _logger.Msg($"[DrifterManager] Robber {drifterId}: attack initiated after {delay}s delay (target={targetPlayer?.PlayerCode ?? "local"})");
             }
+        }
+
+        /// <summary>
+        /// Retries ObjectId capture if FishNet hadn't assigned it synchronously.
+        /// Polls every second for up to 60 seconds, re-publishes on success.
+        /// </summary>
+        private IEnumerator DelayedObjectIdCapture(DrifterEvent evt, DrifterInstance drifter)
+        {
+            for (int attempt = 0; attempt < 60; attempt++)
+            {
+                yield return new WaitForSeconds(1f);
+
+                if (drifter?.GameNpc?.NetworkObject == null) yield break;
+                if (evt.NetworkObjectId > 0) yield break; // Already captured elsewhere
+
+                try
+                {
+                    int objId = drifter.GameNpc.NetworkObject.ObjectId;
+                    if (objId > 0)
+                    {
+                        evt.NetworkObjectId = objId;
+                        _logger.Msg($"[DrifterManager] Delayed ObjectId capture: {evt.DrifterId} → {objId} (attempt {attempt + 1})");
+                        ConfigSyncData.Instance?.PublishDrifterState();
+                        yield break;
+                    }
+                }
+                catch { yield break; }
+            }
+
+            _logger.Warning($"[DrifterManager] ObjectId capture failed after 60s for {evt.DrifterId}");
         }
 
         private string GetLocationHint(string hotspotName)
@@ -1287,7 +1466,7 @@ namespace OverTheCounter.Logic
             catch (Exception ex) { _logger.Warning($"[DrifterManager] Quest creation failed: {ex.Message}"); }
 
             _logger.Msg($"[DrifterManager] Deal accepted for drifter {drifterId}. Delivery deadline: {Config.DrifterDeliveryDeadlineMin.Value} min");
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.Instance?.PublishDrifterState();
         }
 
         /// <summary>
@@ -1326,9 +1505,39 @@ namespace OverTheCounter.Logic
             }
 
             _logger.Msg($"[DrifterManager] Deal completed for drifter {drifterId}. Type={evt.Type}");
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.Instance?.PublishDrifterState();
 
             return evt.Type;
+        }
+
+        /// <summary>
+        /// Called by the host when a remote client sends DRIFTER_COMPLETE.
+        /// Completes the deal and triggers narc/robber actions against the client player.
+        /// </summary>
+        public void OnRemoteDealCompleted(string drifterId, string playerCode = "")
+        {
+            var completedType = OnDealCompleted(drifterId);
+            var evt = _activeEvents.GetValueOrDefault(drifterId);
+
+            // Resolve the client player who triggered the deal
+            Player clientPlayer = FindPlayerByCode(playerCode);
+            _logger.Msg($"[DrifterManager] Remote DRIFTER_COMPLETE: {drifterId} type={completedType} playerCode={playerCode} playerFound={clientPlayer != null}");
+
+            if (completedType == DrifterType.Narc && evt != null)
+            {
+                TriggerNarcSting(evt, clientPlayer);
+            }
+            else if (completedType == DrifterType.Robber)
+            {
+                // Host must initiate robber attack (requires server authority)
+                var drifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
+                if (drifter != null)
+                {
+                    drifter.IsAttacking = true;
+                    SelectRobberWeapon(drifter, evt?.Seed ?? 0);
+                    MelonCoroutines.Start(DelayedRobberAttack(drifterId, 0.5f, clientPlayer));
+                }
+            }
         }
 
         /// <summary>
@@ -1340,6 +1549,31 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Finds a Player by their PlayerCode. Falls back to Player.Local if not found.
+        /// </summary>
+        private static Player FindPlayerByCode(string playerCode)
+        {
+            if (string.IsNullOrEmpty(playerCode))
+                return Player.Local;
+
+            try
+            {
+                var playerList = Player.PlayerList;
+                if (playerList != null)
+                {
+                    for (int i = 0; i < playerList.Count; i++)
+                    {
+                        if (playerList[i]?.PlayerCode == playerCode)
+                            return playerList[i];
+                    }
+                }
+            }
+            catch { }
+
+            return Player.Local;
+        }
+
+        /// <summary>
         /// Gets all active drifter events that have accepted deals (for handover detection).
         /// </summary>
         public IEnumerable<DrifterEvent> GetAcceptedDeals()
@@ -1348,8 +1582,8 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Serializes drifter state for network sync.
-        /// Format: id:type:seed:hotspot:state:productId:quantity:payment;...
+        /// Serializes drifter state for network sync via dedicated SyncVar.
+        /// Format: id:type:hotspot:state:productId:qty:pay:deadline:netObjId;...
         /// </summary>
         public string SerializeDrifterState()
         {
@@ -1359,16 +1593,232 @@ namespace OverTheCounter.Logic
             var parts = new List<string>();
             foreach (var evt in _activeEvents.Values)
             {
-                // Include deal info for client sync
                 string productId = evt.ProductId ?? "unknown";
-                parts.Add($"{evt.DrifterId}:{(int)evt.Type}:{evt.Seed}:{evt.HotspotName}:{(int)evt.State}:{productId}:{evt.Quantity}:{evt.Payment:F0}");
+                string entry = $"{evt.DrifterId}:{(int)evt.Type}:{evt.HotspotName}:{(int)evt.State}:{productId}:{evt.Quantity}:{evt.Payment:F0}:{evt.DeliveryDeadline}:{evt.NetworkObjectId}";
+                parts.Add(entry);
             }
             return string.Join(";", parts);
         }
 
         /// <summary>
+        /// Finds a FishNet-replicated NPC by its NetworkObject.ObjectId.
+        /// This is the authoritative way to identify which NPC on the client
+        /// corresponds to which drifter on the host — ObjectIds are deterministic
+        /// across host and client in FishNet.
+        /// Falls back to position-based matching near the hotspot when ObjectId is unavailable.
+        /// </summary>
+        private NPC FindNetworkDrifter(int objectId, DrifterHotspots.Hotspot hotspot = null)
+        {
+            var registry = NPCManager.NPCRegistry;
+            if (registry == null) return null;
+
+            // Build set of already-tracked NPCs once
+            var trackedNpcs = new HashSet<NPC>();
+            foreach (var d in DrifterInstance.Active.Values)
+            {
+                if (d.GameNpc != null) trackedNpcs.Add(d.GameNpc);
+            }
+
+            // Phase 1: Try exact ObjectId match (fast, deterministic)
+            if (objectId > 0)
+            {
+                for (int i = 0; i < registry.Count; i++)
+                {
+                    var npc = registry[i];
+                    if (npc == null || npc.gameObject == null) continue;
+                    if (trackedNpcs.Contains(npc)) continue;
+
+                    try
+                    {
+                        var netObj = npc.NetworkObject;
+                        if (netObj != null && netObj.ObjectId == objectId)
+                        {
+                            _logger.Msg($"[DrifterManager] Found NPC by ObjectId={objectId}: {npc.gameObject.name}");
+                            return npc;
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // Phase 2: Position-based fallback near hotspot (when ObjectId is 0 or not found)
+            // Only matches NPCs with empty ID — FishNet-spawned drifter clones have the prefab's
+            // default empty ID, while regular game NPCs have IDs set in the scene (e.g. "stan").
+            if (hotspot == null) return null;
+
+            const float maxDistance = 50f;
+            NPC bestMatch = null;
+            float bestDist = maxDistance;
+
+            for (int i = 0; i < registry.Count; i++)
+            {
+                var npc = registry[i];
+                if (npc == null || npc.gameObject == null) continue;
+                if (trackedNpcs.Contains(npc)) continue;
+
+                try
+                {
+                    // Skip named scene NPCs — only match bare prefab clones
+                    if (!string.IsNullOrEmpty(npc.ID)) continue;
+
+                    var pos = npc.transform.position;
+                    float distToSpawn = Vector3.Distance(pos, hotspot.SpawnPosition);
+                    float distToDest = Vector3.Distance(pos, hotspot.Position);
+                    float dist = Mathf.Min(distToSpawn, distToDest);
+
+                    if (dist < bestDist)
+                    {
+                        bestDist = dist;
+                        bestMatch = npc;
+                    }
+                }
+                catch { }
+            }
+
+            if (bestMatch != null)
+                _logger.Msg($"[DrifterManager] Found NPC by position fallback (dist={bestDist:F1}m): {bestMatch.gameObject.name}");
+
+            return bestMatch;
+        }
+
+        /// <summary>
+        /// Retries pending adoptions for drifters whose FishNet NPC hadn't arrived yet.
+        /// Called from the main update loop.
+        /// </summary>
+        public void RetryPendingAdoptions()
+        {
+            if (_pendingAdoptions.Count == 0) return;
+
+            float now = Time.time;
+            if (now - _lastAdoptionRetry < 0.5f) return; // retry every 0.5s
+            _lastAdoptionRetry = now;
+
+            var completed = new List<string>();
+            foreach (var kv in _pendingAdoptions)
+            {
+                var pa = kv.Value;
+
+                // Give up after 120 seconds
+                if (now - pa.CreatedTime > 120f)
+                {
+                    _logger.Warning($"[DrifterManager] Giving up adoption for {pa.DrifterId} (timeout)");
+                    completed.Add(kv.Key);
+                    continue;
+                }
+
+                var npc = FindNetworkDrifter(pa.NetworkObjectId, pa.Hotspot);
+                if (npc == null) continue;
+
+                var drifter = DrifterInstance.Adopt(pa.DrifterId, pa.Type, pa.Hotspot, pa.Seed, npc);
+                if (drifter != null)
+                {
+                    SetupAdoptedDrifter(drifter, pa);
+                    completed.Add(kv.Key);
+                }
+            }
+
+            foreach (var id in completed)
+                _pendingAdoptions.Remove(id);
+        }
+
+        /// <summary>
+        /// Client-side tick: updates quest timers for active drifter quests.
+        /// Called from Core.OnLateUpdate because OnTimeTick is host-only.
+        /// </summary>
+        public void ClientQuestTick()
+        {
+            if (NetworkHelper.IsHost) return;
+            if (DrifterDealQuest.ActiveQuests.Count == 0) return;
+
+            float now = Time.time;
+            if (now - _lastClientQuestTick < 1f) return; // update every second
+            _lastClientQuestTick = now;
+
+            foreach (var quest in DrifterDealQuest.ActiveQuests.Values)
+            {
+                try { quest.UpdateTiming(); }
+                catch { }
+            }
+        }
+
+        /// <summary>
+        /// Sets up an adopted drifter with state, messaging, dialogue, and movement.
+        /// </summary>
+        private void SetupAdoptedDrifter(DrifterInstance drifter, PendingAdoption pa)
+        {
+            var state = pa.State;
+            drifter.State = state switch
+            {
+                DrifterEventState.DealAccepted => DrifterState.DealAccepted,
+                DrifterEventState.DealCompleted => DrifterState.DealCompleted,
+                DrifterEventState.Lingering => DrifterState.Lingering,
+                _ => DrifterState.Spawned
+            };
+            drifter.DealAccepted = state >= DrifterEventState.DealAccepted;
+            drifter.DealCompleted = state >= DrifterEventState.DealCompleted;
+
+            // Adopted NPCs are already active — add Customer component for handover support
+            if (drifter.GameNpc != null)
+                DrifterSpawner.AddCustomerComponentToActive(drifter.GameNpc);
+
+            // Replay messaging so client sees deal info on their phone
+            if (_activeEvents.TryGetValue(pa.DrifterId, out var evt) && state >= DrifterEventState.OfferSent)
+            {
+                try
+                {
+                    string locationHint = pa.Hotspot.Description;
+                    string introMsg = drifter.GetIntroTextMessage(evt.ProductName, evt.Quantity, evt.Payment, locationHint);
+                    drifter.SendTextMessage(introMsg);
+
+                    if (state == DrifterEventState.OfferSent)
+                        ShowDealResponses(evt, drifter);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"[DrifterManager] Messaging replay failed for {pa.DrifterId}: {ex.Message}");
+                }
+            }
+
+            if (state == DrifterEventState.DealAccepted && evt != null)
+            {
+                try
+                {
+                    SetupDealDialogueChoice(evt, drifter);
+                    CreateClientQuest(evt, pa.Hotspot);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"[DrifterManager] Quest/dialogue setup failed for {pa.DrifterId}: {ex.Message}");
+                }
+            }
+
+            _logger.Msg($"[DrifterManager] Client adopted drifter {pa.DrifterId}: state={state}, type={pa.Type}");
+        }
+
+        /// <summary>
+        /// Creates a quest with map marker on the client for an accepted drifter deal.
+        /// </summary>
+        private void CreateClientQuest(DrifterEvent evt, DrifterHotspots.Hotspot hotspot)
+        {
+            if (DrifterDealQuest.ActiveQuests.ContainsKey(evt.DrifterId)) return;
+            try
+            {
+                var quest = (DrifterDealQuest)S1API.Quests.QuestManager.CreateQuest<DrifterDealQuest>();
+                if (quest != null)
+                {
+                    quest.Initialize(evt.DrifterId, evt.ProductName, evt.Quantity, evt.Payment,
+                                    hotspot.Position, hotspot.Description, evt.DeliveryDeadline);
+                    quest.StartQuest();
+                    _logger.Msg($"[DrifterManager] Client quest created for {evt.DrifterId}");
+                }
+            }
+            catch (Exception ex) { _logger.Warning($"[DrifterManager] Client quest creation failed: {ex.Message}"); }
+        }
+
+        /// <summary>
         /// Applies drifter state from network sync (client-side).
-        /// Creates missing drifters, removes stale ones.
+        /// Finds FishNet-replicated NPCs by position and adopts them, applying
+        /// appearance, messaging, and dialogue choices.
         /// </summary>
         public void ApplyDrifterState(string stateString)
         {
@@ -1384,49 +1834,95 @@ namespace OverTheCounter.Logic
                     if (string.IsNullOrEmpty(entry)) continue;
 
                     var parts = entry.Split(':');
+                    // Format: id:type:hotspot:state:productId:qty:pay:deadline:netObjId (9 fields)
                     if (parts.Length < 5) continue;
 
                     string drifterId = parts[0];
                     hostDrifters.Add(drifterId);
 
                     if (!int.TryParse(parts[1], out int typeInt)) continue;
-                    if (!int.TryParse(parts[2], out int seed)) continue;
-                    string hotspotName = parts[3];
-                    if (!int.TryParse(parts[4], out int stateInt)) continue;
+                    string hotspotName = parts[2];
+                    if (!int.TryParse(parts[3], out int stateInt)) continue;
 
-                    // Parse deal info (new fields)
-                    string productId = parts.Length > 5 ? parts[5] : "unknown";
-                    int quantity = parts.Length > 6 && int.TryParse(parts[6], out int q) ? q : 1;
-                    float payment = parts.Length > 7 && float.TryParse(parts[7], out float p) ? p : 50f;
+                    string productId = parts.Length > 4 ? parts[4] : "unknown";
+                    int quantity = parts.Length > 5 && int.TryParse(parts[5], out int q) ? q : 1;
+                    float payment = parts.Length > 6 && float.TryParse(parts[6], out float p) ? p : 50f;
+                    int deadline = parts.Length > 7 && int.TryParse(parts[7], out int dl) ? dl : 0;
+                    int netObjId = parts.Length > 8 && int.TryParse(parts[8], out int nid) ? nid : 0;
+
+                    // Derive seed deterministically from drifterId — no need to sync it
+                    int seed = DeterministicHash(drifterId);
 
                     var type = (DrifterType)typeInt;
                     var state = (DrifterEventState)stateInt;
 
-                    // Create drifter if missing
+                    // Create/update client-side DrifterEvent so handover flow works
+                    if (!_activeEvents.TryGetValue(drifterId, out var evt))
+                    {
+                        evt = new DrifterEvent
+                        {
+                            DrifterId = drifterId,
+                            Type = type,
+                            HotspotName = hotspotName,
+                            Seed = seed,
+                            ProductId = productId,
+                            ProductName = LookupProductName(productId),
+                            Quantity = quantity,
+                            Payment = payment,
+                            State = state,
+                            DeliveryDeadline = deadline,
+                        };
+                        _activeEvents[drifterId] = evt;
+                    }
+                    else
+                    {
+                        evt.State = state;
+                        if (deadline > 0) evt.DeliveryDeadline = deadline;
+                    }
+
+                    var hotspot = DrifterHotspots.GetHotspotByName(hotspotName);
+                    if (hotspot == null)
+                    {
+                        _logger.Warning($"[DrifterManager] Hotspot '{hotspotName}' not found for {drifterId}, skipping");
+                        continue;
+                    }
+
+                    // Try to adopt FishNet-replicated NPC on client
                     if (!DrifterInstance.Active.ContainsKey(drifterId))
                     {
-                        var hotspot = DrifterHotspots.GetHotspotByName(hotspotName);
-                        if (hotspot != null)
+                        // Skip if already pending adoption (but keep state/ObjectId current)
+                        if (_pendingAdoptions.TryGetValue(drifterId, out var existingPa))
                         {
-                            var drifter = DrifterInstance.Create(drifterId, type, hotspot, seed);
+                            existingPa.State = state;
+                            if (netObjId > 0)
+                                existingPa.NetworkObjectId = netObjId;
+                            continue;
+                        }
+
+                        var npc = FindNetworkDrifter(netObjId, hotspot);
+                        if (npc != null)
+                        {
+                            var drifter = DrifterInstance.Adopt(drifterId, type, hotspot, seed, npc);
                             if (drifter != null)
                             {
-                                drifter.State = state switch
+                                var pa = new PendingAdoption
                                 {
-                                    DrifterEventState.DealAccepted => DrifterState.DealAccepted,
-                                    DrifterEventState.DealCompleted => DrifterState.DealCompleted,
-                                    DrifterEventState.Lingering => DrifterState.Lingering,
-                                    _ => DrifterState.Spawned
+                                    DrifterId = drifterId, Type = type, Hotspot = hotspot,
+                                    Seed = seed, State = state, NetworkObjectId = netObjId
                                 };
-                                drifter.DealAccepted = state >= DrifterEventState.DealAccepted;
-                                drifter.DealCompleted = state >= DrifterEventState.DealCompleted;
-
-                                // Command movement based on current state
-                                if (state >= DrifterEventState.DealCompleted || state == DrifterEventState.Lingering)
-                                    drifter.WalkToSpawn();
-                                else
-                                    drifter.WalkToDestination();
+                                SetupAdoptedDrifter(drifter, pa);
                             }
+                        }
+                        else
+                        {
+                            // FishNet NPC hasn't arrived yet — queue for retry
+                            _pendingAdoptions[drifterId] = new PendingAdoption
+                            {
+                                DrifterId = drifterId, Type = type, Hotspot = hotspot,
+                                Seed = seed, State = state, NetworkObjectId = netObjId,
+                                CreatedTime = Time.time
+                            };
+                            _logger.Msg($"[DrifterManager] Queued adoption for {drifterId} (netObjId={netObjId}, not in registry yet)");
                         }
                     }
                     else
@@ -1444,28 +1940,93 @@ namespace OverTheCounter.Logic
                         drifter.DealAccepted = state >= DrifterEventState.DealAccepted;
                         drifter.DealCompleted = state >= DrifterEventState.DealCompleted;
 
-                        // Start walk-back when transitioning to completed/lingering
-                        if (!drifter.IsWalkingBack &&
+                        // Set up dialogue choice and quest on transition to DealAccepted
+                        if (state == DrifterEventState.DealAccepted && prevState != DrifterState.DealAccepted)
+                        {
+                            SetupDealDialogueChoice(evt, drifter);
+                            CreateClientQuest(evt, hotspot);
+                        }
+
+                        // Clean up quest and dialogue on deal completion
+                        if (state >= DrifterEventState.DealCompleted && prevState < DrifterState.DealCompleted)
+                        {
+                            if (DrifterDealQuest.ActiveQuests.TryGetValue(drifterId, out var clientQuest))
+                                clientQuest.CompleteDeal();
+                            CleanupDealDialogueChoice(drifterId, drifter);
+                        }
+
+                        // Consume animation or walk-back on deal completion
+                        if (!drifter.IsWalkingBack && !drifter.IsConsuming &&
                             (state == DrifterEventState.DealCompleted || state == DrifterEventState.Lingering))
                         {
-                            drifter.WalkToSpawn();
+                            if (state == DrifterEventState.DealCompleted && evt.Type != DrifterType.Narc && !string.IsNullOrEmpty(evt.ProductId))
+                                drifter.PlayConsumeAnimation(evt.ProductId);
+                            else
+                                drifter.WalkToSpawn();
                         }
                     }
                 }
             }
 
-            // Remove drifters not on host
+            // Remove drifters not on host — also clean up pending adoptions
             var localDrifterIds = DrifterInstance.Active.Keys.ToList();
             foreach (var id in localDrifterIds)
             {
                 if (!hostDrifters.Contains(id))
                 {
-                    try
-                    {
-                        DrifterInstance.Active[id].Despawn();
-                    }
+                    try { DrifterInstance.Active[id].Despawn(); }
                     catch { }
                 }
+            }
+            foreach (var id in _pendingAdoptions.Keys.ToList())
+            {
+                if (!hostDrifters.Contains(id))
+                    _pendingAdoptions.Remove(id);
+            }
+
+            // Clean up stale client-side events and dialogue choices
+            var staleEvents = _activeEvents.Keys.Where(k => !hostDrifters.Contains(k)).ToList();
+            foreach (var id in staleEvents)
+            {
+                CleanupDealDialogueChoice(id, null);
+                _activeEvents.Remove(id);
+            }
+        }
+
+        /// <summary>
+        /// Looks up the display name for a product ID from ProductManager.
+        /// Falls back to the raw ID if not found.
+        /// </summary>
+        private string LookupProductName(string productId)
+        {
+            try
+            {
+                var listed = Il2CppScheduleOne.Product.ProductManager.ListedProducts;
+                if (listed != null)
+                {
+                    for (int i = 0; i < listed.Count; i++)
+                    {
+                        if (listed[i]?.ID == productId)
+                            return listed[i].Name ?? productId;
+                    }
+                }
+            }
+            catch { }
+            return productId;
+        }
+
+        /// <summary>
+        /// Deterministic string hash (DJB2) — unlike string.GetHashCode(), this produces
+        /// identical results across different .NET processes (host vs client).
+        /// </summary>
+        private static int DeterministicHash(string s)
+        {
+            unchecked
+            {
+                int hash = 5381;
+                foreach (char c in s)
+                    hash = ((hash << 5) + hash) + c;
+                return hash;
             }
         }
 
@@ -1520,111 +2081,10 @@ namespace OverTheCounter.Logic
                 return false;
             }
 
-            // Use a real hotspot so debug spawns mirror actual gameplay (location hints, travel, etc.)
-            var debugHotspot = Instance.GetAvailableHotspot();
-            if (debugHotspot == null)
-            {
-                MelonLoader.MelonLogger.Msg("[DrifterManager] DEBUG: No available hotspots, all occupied");
-                return false;
-            }
-
-            MelonLoader.MelonLogger.Msg($"[DrifterManager] DEBUG: Using hotspot '{debugHotspot.Name}' at {debugHotspot.Position}");
-
-            Instance.SpawnDrifterAtHotspot(type, debugHotspot);
-
-            MelonLoader.MelonLogger.Msg($"[DrifterManager] DEBUG: After spawn - ActiveEvents={Instance._activeEvents.Count}, ActiveDrifters={DrifterInstance.Active.Count}");
-
-            // Immediately send intro text for debug spawns (using the full SendIntroText flow)
-            foreach (var evt in Instance._activeEvents.Values)
-            {
-                MelonLoader.MelonLogger.Msg($"[DrifterManager] DEBUG: Event {evt.DrifterId} - TextSent={evt.TextSent}, State={evt.State}, Product={evt.ProductName}, Qty={evt.Quantity}, Price=${evt.Payment}");
-
-                if (!evt.TextSent)
-                {
-                    if (DrifterInstance.Active.TryGetValue(evt.DrifterId, out var drifter))
-                    {
-                        // Use the full SendIntroText which includes deal info and response buttons
-                        Instance.SendIntroText(evt, drifter);
-                        evt.TextSent = true;
-                        evt.State = DrifterEventState.OfferSent;
-                        MelonLoader.MelonLogger.Msg($"[DrifterManager] DEBUG: Sent intro text with deal info for drifter {evt.DrifterId}");
-                    }
-                    else
-                    {
-                        MelonLoader.MelonLogger.Warning($"[DrifterManager] DEBUG: Drifter {evt.DrifterId} not found in ActiveDrifters!");
-                        MelonLoader.MelonLogger.Msg($"[DrifterManager] DEBUG: ActiveDrifters keys: {string.Join(", ", DrifterInstance.Active.Keys)}");
-                    }
-                }
-            }
+            // Use the main SpawnDrifter path — ensures ObjectId capture, lifecycle, and state sync
+            Instance.SpawnDrifter(type);
 
             return true;
-        }
-
-        /// <summary>
-        /// Spawns a drifter at a specific hotspot (used for debug spawning near player).
-        /// </summary>
-        private void SpawnDrifterAtHotspot(DrifterType type, DrifterHotspots.Hotspot hotspot)
-        {
-            if (!NetworkHelper.IsHost) return;
-
-            try
-            {
-                // Generate unique ID
-                string drifterId = $"drifter_{TimeManager.ElapsedDays}_{_drifterIdCounter++}";
-
-                // Generate seed from drifter ID for deterministic appearance
-                int seed = drifterId.GetHashCode();
-                int spawnTime = GetCurrentElapsedMinutes();
-
-                // Calculate offer deadline
-                int offerDeadline = spawnTime + Config.DrifterOfferWindowMin.Value;
-
-                // Create the event
-                var evt = new DrifterEvent
-                {
-                    DrifterId = drifterId,
-                    Type = type,
-                    HotspotName = hotspot.Name,
-                    Seed = seed,
-                    SpawnTime = spawnTime,
-                    OfferDeadline = offerDeadline,
-                    DeliveryDeadline = 0,
-                    LingerDeadline = 0,
-                    State = DrifterEventState.Spawned
-                };
-
-                // Generate deal request — abort if no listed products
-                if (!GenerateDealRequest(evt))
-                    return;
-
-                _activeEvents[drifterId] = evt;
-
-                _logger.Msg($"[DrifterManager] Spawning drifter {drifterId} at spawn={hotspot.SpawnPosition}, dest={hotspot.Position}");
-
-                // Create the NPC (spawns at SpawnPosition)
-                var drifter = DrifterInstance.Create(drifterId, type, hotspot, seed);
-                if (drifter != null)
-                {
-                    // Walk from spawn point to destination
-                    drifter.WalkToDestination();
-
-                    evt.State = DrifterEventState.OfferPending;
-                    evt.TextSendTime = spawnTime + 1;
-
-                    _logger.Msg($"[DrifterManager] Spawned drifter {drifterId}: Type={type}, Hotspot={hotspot.Name}");
-
-                    ConfigSyncData.Instance?.PublishGameState();
-                }
-                else
-                {
-                    _activeEvents.Remove(drifterId);
-                    _logger.Error($"[DrifterManager] Failed to create drifter NPC {drifterId}");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"[DrifterManager] SpawnDrifterAtHotspot failed: {ex.Message}\n{ex.StackTrace}");
-            }
         }
 
         public static string DebugGetStatus()
@@ -1668,6 +2128,9 @@ namespace OverTheCounter.Logic
         public string ProductName { get; set; }
         public int Quantity { get; set; }
         public float Payment { get; set; }
+
+        // FishNet ObjectId for reliable client-side NPC lookup
+        public int NetworkObjectId { get; set; }
     }
 
     public enum DrifterEventState

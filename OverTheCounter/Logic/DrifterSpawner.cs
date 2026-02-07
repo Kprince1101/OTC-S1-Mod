@@ -189,26 +189,28 @@ namespace OverTheCounter.Logic
                 }
                 catch { }
 
-                // Network spawn (host only)
+                // Network-spawn the NPC so FishNet initializes all NetworkBehaviour
+                // components (Movement, Combat, etc.). Without this, the NPC can't move
+                // or render. FishNet replicates a "bare" copy to clients — appearance is
+                // applied client-side in ApplyDrifterState via DrifterInstance.Adopt().
                 try
                 {
-                    var networkManager = InstanceFinder.NetworkManager;
-                    if (networkManager != null && networkManager.IsServer)
+                    if (InstanceFinder.ServerManager != null)
                     {
-                        var netObj = clone.gameObject.GetComponent<NetworkObject>();
-                        if (netObj != null)
-                        {
-                            networkManager.ServerManager.Spawn(netObj);
-                            Logger.Msg($"Network spawned drifter {id}");
-                        }
+                        InstanceFinder.ServerManager.Spawn(clone);
+                        Logger.Msg($"ServerManager.Spawn completed for drifter {id}");
+                    }
+                    else
+                    {
+                        Logger.Warning($"ServerManager is null, drifter {id} may not function correctly");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Network spawn failed for drifter {id}: {ex.Message}");
+                    Logger.Warning($"ServerManager.Spawn failed for drifter {id}: {ex.Message}");
                 }
 
-                // Warp to position (syncs to clients)
+                // Warp to position
                 try
                 {
                     npc.Movement?.Warp(spawnPos);
@@ -340,6 +342,15 @@ namespace OverTheCounter.Logic
                 {
                     settings = ScriptableObject.CreateInstance<AvatarSettings>();
                 }
+
+                // Ensure IL2CPP lists are initialized (ScriptableObject.CreateInstance
+                // doesn't auto-init list fields, and prefab settings may also have nulls)
+                if (settings.FaceLayerSettings == null)
+                    settings.FaceLayerSettings = new Il2CppSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
+                if (settings.BodyLayerSettings == null)
+                    settings.BodyLayerSettings = new Il2CppSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
+                if (settings.AccessorySettings == null)
+                    settings.AccessorySettings = new Il2CppSystem.Collections.Generic.List<AvatarSettings.AccessorySetting>();
 
                 // Gender MUST be the first draw (matches DetermineGender for host/client sync)
                 settings.Gender = UnityEngine.Random.Range(0f, 1f);
@@ -629,22 +640,25 @@ namespace OverTheCounter.Logic
                 }
                 catch { }
 
-                // Network despawn
+                // Network despawn if this is a FishNet-spawned object (host)
                 try
                 {
                     var netObj = npc.gameObject?.GetComponent<NetworkObject>();
-                    var networkManager = InstanceFinder.NetworkManager;
-                    if (netObj != null && networkManager?.IsServer == true)
+                    if (netObj != null && InstanceFinder.ServerManager != null && netObj.IsSpawned)
                     {
-                        networkManager.ServerManager.Despawn(netObj);
+                        InstanceFinder.ServerManager.Despawn(netObj);
+                        Logger.Msg($"ServerManager.Despawn completed for drifter {id}");
+                    }
+                    else if (npc.gameObject != null)
+                    {
+                        UnityEngine.Object.Destroy(npc.gameObject);
                     }
                 }
-                catch { }
-
-                // Destroy GameObject
-                if (npc.gameObject != null)
+                catch
                 {
-                    UnityEngine.Object.Destroy(npc.gameObject);
+                    // Fallback: destroy directly
+                    if (npc.gameObject != null)
+                        UnityEngine.Object.Destroy(npc.gameObject);
                 }
 
                 Logger.Msg($"Despawned drifter {id}");
@@ -740,6 +754,54 @@ namespace OverTheCounter.Logic
             catch (Exception ex)
             {
                 Logger.Error($"AddCustomerComponent failed for {npc?.ID}: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Adds a Customer component to an already-active NPC (client adoption path).
+        /// Customer.Awake crashes on null customerData, so we briefly deactivate the
+        /// GameObject, add the component + set data, then reactivate.
+        /// </summary>
+        public static Customer AddCustomerComponentToActive(NPC npc)
+        {
+            if (npc == null || npc.gameObject == null)
+                return null;
+
+            try
+            {
+                var existing = npc.gameObject.GetComponent<Customer>();
+                if (existing != null)
+                {
+                    Logger.Msg($"Drifter {npc.ID} already has Customer component (active)");
+                    return existing;
+                }
+
+                var customerData = GetOrCreateDrifterCustomerData();
+                if (customerData == null)
+                {
+                    Logger.Error($"Cannot add Customer to active NPC - no CustomerData available");
+                    return null;
+                }
+
+                // Briefly deactivate so AddComponent doesn't trigger Awake immediately.
+                // Customer.Awake reads customerData which must be set first.
+                npc.gameObject.SetActive(false);
+
+                var customer = npc.gameObject.AddComponent<Customer>();
+                customer.customerData = customerData;
+
+                npc.gameObject.SetActive(true);
+
+                Logger.Msg($"Added Customer component to active NPC {npc.ID}");
+                return customer;
+            }
+            catch (Exception ex)
+            {
+                // Ensure we reactivate even on failure
+                try { if (npc?.gameObject != null && !npc.gameObject.activeSelf) npc.gameObject.SetActive(true); }
+                catch { }
+                Logger.Error($"AddCustomerComponentToActive failed for {npc?.ID}: {ex.Message}");
                 return null;
             }
         }

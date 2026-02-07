@@ -45,6 +45,8 @@ namespace OverTheCounter.Logic
         public bool IsConsuming { get; set; }
         public bool IsAttacking { get; set; }
         public bool IsKnockedOut { get; set; }
+        /// <summary>True when this instance wraps a FishNet-replicated NPC on the client.</summary>
+        public bool IsAdopted { get; private set; }
         public bool ArrivedAtDestination { get; set; }
 
         // Hold references to IL2CPP callbacks to prevent GC from collecting them before arrival
@@ -129,6 +131,86 @@ namespace OverTheCounter.Logic
 
             Logger.Msg($"Created drifter {id}: Type={type}, Hotspot={hotspot.Name}, Position={hotspot.Position}");
             return instance;
+        }
+
+        /// <summary>
+        /// Adopts an existing NPC (e.g. FishNet-replicated on client) as a drifter.
+        /// Applies appearance, messaging, and icon without spawning a new clone.
+        /// Used by clients to claim the network-replicated NPC instead of double-spawning.
+        /// </summary>
+        public static DrifterInstance Adopt(string id, DrifterType type, DrifterHotspots.Hotspot hotspot, int seed, NPC existingNpc)
+        {
+            if (Active.ContainsKey(id))
+            {
+                Logger.Warning($"Drifter {id} already exists, returning existing instance");
+                return Active[id];
+            }
+
+            // Set NPC identity fields (FishNet doesn't sync these)
+            var (firstName, lastName) = GetDrifterName(seed);
+            existingNpc.ID = id;
+            existingNpc.FirstName = firstName;
+            existingNpc.LastName = lastName;
+
+            var instance = new DrifterInstance(id, type, hotspot, seed)
+            {
+                GameNpc = existingNpc,
+                IsAdopted = true
+            };
+
+            var avatar = existingNpc.Avatar;
+
+            // Apply appearance (FishNet doesn't sync avatar settings)
+            DrifterSpawner.GenerateRandomAppearance(existingNpc, seed);
+
+            // Set InitialAvatarSettings so Avatar re-loads our settings if it re-initializes
+            try
+            {
+                if (avatar != null && avatar.CurrentSettings != null)
+                    avatar.InitialAvatarSettings = avatar.CurrentSettings;
+            }
+            catch { }
+
+            // Clear any stale MSGConversation from PlayerSpawned() — it was created
+            // with the prefab's default empty name before Adopt set the real identity.
+            // InitializeMessaging will create a fresh one with the correct name.
+            try { existingNpc.MSGConversation = null; } catch { }
+
+            // Ensure messaging, voice, and icon are set up
+            DrifterSpawner.InitializeMessaging(existingNpc);
+            DrifterSpawner.EnsureVoiceDatabase(existingNpc);
+            DrifterSpawner.SetDrifterIcon(existingNpc);
+
+            // Schedule delayed re-apply: FishNet may not have fully initialized
+            // rendering components when Adopt runs immediately after NPC discovery
+            MelonCoroutines.Start(DelayedAppearanceReapply(existingNpc, seed));
+
+            Active[id] = instance;
+            Logger.Msg($"Adopted FishNet NPC for drifter {id} ({firstName} {lastName}): Type={type}, Hotspot={hotspot.Name}");
+            return instance;
+        }
+
+        /// <summary>
+        /// Delays and re-applies appearance for adopted NPCs.
+        /// Handles the case where FishNet hasn't fully initialized rendering when Adopt runs.
+        /// </summary>
+        private static IEnumerator DelayedAppearanceReapply(NPC npc, int seed)
+        {
+            yield return null; // Wait one frame
+            yield return null; // Wait another frame for FishNet sync
+
+            if (npc != null && npc.gameObject != null)
+            {
+                try
+                {
+                    DrifterSpawner.GenerateRandomAppearance(npc, seed);
+                    Logger.Msg($"[Adopt] Delayed appearance re-apply completed for {npc.ID}");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"[Adopt] Delayed re-apply failed for {npc.ID}: {ex.Message}");
+                }
+            }
         }
 
         /// <summary>
@@ -428,7 +510,7 @@ namespace OverTheCounter.Logic
 
                 IsConsuming = true;
 
-                // Hook onConsumeDone to walk away after consuming
+                // Walk to spawn when consume animation finishes
                 try
                 {
                     if (consumeBehaviour.onConsumeDone == null)
@@ -436,8 +518,8 @@ namespace OverTheCounter.Logic
 
                     consumeBehaviour.onConsumeDone.AddListener((UnityAction)(() =>
                     {
-                        Logger.Msg($"Drifter {Id}: consume animation finished, walking to spawn");
                         IsConsuming = false;
+                        Logger.Msg($"Drifter {Id}: consume animation finished, walking to spawn");
                         WalkToSpawn();
                     }));
                 }
@@ -486,8 +568,8 @@ namespace OverTheCounter.Logic
 
             if (IsConsuming)
             {
-                Logger.Warning($"Drifter {Id}: consume timeout after 10s, forcing WalkToSpawn");
                 IsConsuming = false;
+                Logger.Warning($"Drifter {Id}: consume timeout after 10s, forcing WalkToSpawn");
                 WalkToSpawn();
             }
         }
@@ -613,8 +695,18 @@ namespace OverTheCounter.Logic
                     return;
                 }
 
+                // IL2CPP prefabs may have empty AssetPath (serialized field not loaded).
+                // CombatBehaviour.StartCombat reads DefaultWeapon.AssetPath to call SetWeapon(),
+                // so an empty path means the weapon silently fails to equip.
+                var assetPath = avatarWeapon.AssetPath;
+                if (string.IsNullOrEmpty(assetPath))
+                {
+                    avatarWeapon.AssetPath = weaponPath;
+                    Logger.Msg($"Drifter {Id}: fixed empty AssetPath → '{weaponPath}'");
+                }
+
                 combatBehaviour.DefaultWeapon = avatarWeapon;
-                Logger.Msg($"Drifter {Id}: equipped weapon '{weaponPath}'");
+                Logger.Msg($"Drifter {Id}: equipped weapon '{weaponPath}' (AssetPath='{avatarWeapon.AssetPath}', type={avatarWeapon.GetType().Name})");
             }
             catch (Exception ex)
             {
@@ -623,10 +715,10 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Commands the drifter to attack the local player.
-        /// Sets persistent pursuit parameters so the robber doesn't give up easily.
+        /// Commands the drifter to attack a player (defaults to local player).
+        /// Must be called on host (SetTargetAndEnable_Server requires server authority).
         /// </summary>
-        public void AttackPlayer()
+        public void AttackPlayer(Player targetPlayer = null)
         {
             try
             {
@@ -637,10 +729,10 @@ namespace OverTheCounter.Logic
                     return;
                 }
 
-                var player = Player.Local;
+                var player = targetPlayer ?? Player.Local;
                 if (player == null)
                 {
-                    Logger.Warning($"Drifter {Id}: Player.Local is null, cannot attack");
+                    Logger.Warning($"Drifter {Id}: target player is null, cannot attack");
                     return;
                 }
 
@@ -648,11 +740,11 @@ namespace OverTheCounter.Logic
                 combatBehaviour.GiveUpRange = 200f;
                 combatBehaviour.DefaultSearchTime = 120f;
 
-                // Engage combat targeting the player
+                // Engage combat targeting the player (requires server authority)
                 combatBehaviour.SetTargetAndEnable_Server(player.NetworkObject);
                 IsAttacking = true;
 
-                Logger.Msg($"Drifter {Id}: attacking player!");
+                Logger.Msg($"Drifter {Id}: attacking player {player.PlayerCode}!");
             }
             catch (Exception ex)
             {
@@ -671,7 +763,15 @@ namespace OverTheCounter.Logic
 
             if (GameNpc != null)
             {
-                DrifterSpawner.Despawn(GameNpc);
+                if (IsAdopted)
+                {
+                    // FishNet-adopted NPC: release reference only, server handles destroy
+                    Logger.Msg($"Drifter {Id}: releasing adopted FishNet NPC");
+                }
+                else
+                {
+                    DrifterSpawner.Despawn(GameNpc);
+                }
                 GameNpc = null;
             }
         }
@@ -719,6 +819,17 @@ namespace OverTheCounter.Logic
             "Moore", "Taylor", "Anderson", "Thomas", "Jackson", "White", "Harris",
             "Clark", "Lewis", "Walker", "Hall", "Young", "King", "Wright", "Hill"
         };
+
+        /// <summary>
+        /// Derives the deterministic first/last name for a drifter from its seed.
+        /// Used to identify FishNet-replicated NPCs on the client.
+        /// </summary>
+        public static (string firstName, string lastName) GetDrifterName(int seed)
+        {
+            float gender = DrifterSpawner.DetermineGender(seed);
+            bool isFemale = gender >= 0.5f;
+            return (GetRandomFirstName(seed, isFemale), GetRandomLastName(seed));
+        }
 
         private static string GetRandomFirstName(int seed, bool isFemale)
         {
