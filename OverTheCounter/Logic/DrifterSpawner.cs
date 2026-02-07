@@ -689,7 +689,7 @@ namespace OverTheCounter.Logic
                 _drifterCustomerData.MaxWeeklySpend = 500f;
                 _drifterCustomerData.MinOrdersPerWeek = 1;
                 _drifterCustomerData.MaxOrdersPerWeek = 1;
-                _drifterCustomerData.Standards = Il2CppScheduleOne.Economy.ECustomerStandard.VeryLow;
+                _drifterCustomerData.Standards = Il2CppScheduleOne.Economy.ECustomerStandard.Moderate;
                 _drifterCustomerData.CanBeDirectlyApproached = false;
                 _drifterCustomerData.BaseAddiction = 0f;
                 _drifterCustomerData.DependenceMultiplier = 0f;
