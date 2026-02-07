@@ -165,7 +165,7 @@ namespace OverTheCounter.SaveData
             if (NetworkHelper.IsHost && !_staleCheckDone && _hasBeenTexted)
             {
                 _staleCheckDone = true;
-                if (!IsCleanCashQuestStarted())
+                if (!_unlocked && !IsCleanCashQuestStarted())
                 {
                     _hasBeenTexted = false;
                     _triggerPendingDay = -1;
