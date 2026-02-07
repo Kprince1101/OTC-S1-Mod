@@ -147,9 +147,9 @@ namespace OverTheCounter
             // ── Drifter System ──
             _drifters = MelonPreferences.CreateCategory("OverTheCounter_Drifters", "Drifter System");
 
-            DrifterSpawnChancePerHour = Register(_drifters.CreateEntry("DrifterSpawnChancePerHour", 0.15f, "Spawn Chance Per Hour",
-                "Probability of a drifter spawning each hour (0.0–1.0)"));
-            MaxActiveDrifters = Register(_drifters.CreateEntry("MaxActiveDrifters", 2, "Max Active Drifters",
+            DrifterSpawnChancePerHour = Register(_drifters.CreateEntry("DrifterSpawnChancePerHour", 0.38f, "Spawn Chance Per Hour",
+                "Base spawn chance per hour at max regions (6). Scaled down by unlocked region count."));
+            MaxActiveDrifters = Register(_drifters.CreateEntry("MaxActiveDrifters", 3, "Max Active Drifters",
                 "Maximum number of drifters that can be active at once"));
             DrifterDayStartHour = Register(_drifters.CreateEntry("DrifterDayStartHour", 800, "Day Start Hour",
                 "Earliest 24h time for drifter spawns (800 = 8:00 AM)"));

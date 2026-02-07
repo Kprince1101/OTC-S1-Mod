@@ -92,16 +92,34 @@ namespace OverTheCounter.Logic
             return time24h >= Config.DrifterDayStartHour.Value && time24h < Config.DrifterDayEndHour.Value;
         }
 
+        private static readonly float[] RegionSpawnWeights = { 0.30f, 0.40f, 0.55f, 0.70f, 0.85f, 1.0f };
+
         private void TrySpawnDrifter()
         {
             if (_activeEvents.Count >= Config.MaxActiveDrifters.Value)
                 return;
 
+            int regions = GetUnlockedRegionCount();
+            float weight = RegionSpawnWeights[Math.Min(regions, 6) - 1];
+            float effectiveChance = Config.DrifterSpawnChancePerHour.Value * weight;
+
             float roll = UnityEngine.Random.value;
-            if (roll > Config.DrifterSpawnChancePerHour.Value)
+            if (roll > effectiveChance)
                 return;
 
             SpawnDrifter();
+        }
+
+        private int GetUnlockedRegionCount()
+        {
+            try
+            {
+                var map = Singleton<Il2CppScheduleOne.Map.Map>.Instance;
+                if (map == null) return 1;
+                var regions = map.GetUnlockedRegions();
+                return regions != null ? Math.Max(regions.Count, 1) : 1;
+            }
+            catch { return 1; }
         }
 
         /// <summary>
