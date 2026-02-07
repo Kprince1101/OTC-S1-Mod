@@ -12,6 +12,7 @@ using S1API.Utils;
 using UnityEngine;
 using UnityEngine.AI;
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace OverTheCounter.Logic
@@ -26,6 +27,8 @@ namespace OverTheCounter.Logic
 
         private static NetworkObject _cachedBasePrefab;
         private static bool _prefabSearched;
+
+        internal static readonly Dictionary<string, MSGConversation> DrifterConversations = new();
 
         /// <summary>
         /// Finds and caches the CivilianNPC prefab from the network manager's spawnable prefabs.
@@ -541,6 +544,7 @@ namespace OverTheCounter.Logic
 
                 // Set as known so it shows up in phone
                 conversation.SetIsKnown(true);
+                DrifterConversations[npc.ID] = conversation;
 
                 Logger.Msg($"Initialized messaging for {npc.ID}");
             }

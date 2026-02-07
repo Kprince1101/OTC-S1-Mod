@@ -58,6 +58,8 @@ namespace OverTheCounter.Logic
 
         private void OnTimeTick()
         {
+            CleanupStaleConversations();
+
             if (!NetworkHelper.IsHost) return;
 
             try
@@ -1646,6 +1648,8 @@ namespace OverTheCounter.Logic
             CleanupDealDialogueChoice(evt.DrifterId, drifter);
             CleanupNarcDialogueChoice(evt.DrifterId);
 
+            HideDrifterConversation(evt.DrifterId);
+
             if (drifter != null)
             {
                 try
@@ -2260,13 +2264,32 @@ namespace OverTheCounter.Logic
                     _pendingAdoptions.Remove(id);
             }
 
-            // Clean up stale client-side events and dialogue choices
+            // Clean up stale client-side events, dialogue choices, and message threads
             var staleEvents = _activeEvents.Keys.Where(k => !hostDrifters.Contains(k)).ToList();
             foreach (var id in staleEvents)
             {
                 CleanupDealDialogueChoice(id, null);
+                HideDrifterConversation(id);
                 _activeEvents.Remove(id);
             }
+        }
+
+        private static void HideDrifterConversation(string drifterId)
+        {
+            if (!DrifterSpawner.DrifterConversations.TryGetValue(drifterId, out var conv))
+                return;
+            try { conv?.entry?.gameObject?.SetActive(false); } catch { }
+            DrifterSpawner.DrifterConversations.Remove(drifterId);
+        }
+
+        private static void CleanupStaleConversations()
+        {
+            var conversations = DrifterSpawner.DrifterConversations;
+            if (conversations.Count == 0) return;
+
+            var stale = conversations.Where(kvp => kvp.Value == null || kvp.Value.sender == null).Select(kvp => kvp.Key).ToList();
+            foreach (var id in stale)
+                HideDrifterConversation(id);
         }
 
         /// <summary>
