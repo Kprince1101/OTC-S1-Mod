@@ -19,6 +19,7 @@ namespace OverTheCounter
     {
         private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("DebugHelpers");
         private bool _menuVisible;
+        private Vector2 _scrollPos;
 
         private static readonly FieldInfo S1ItemInstanceField =
             typeof(S1API.Items.ItemInstance).GetField("S1ItemInstance",
@@ -113,7 +114,9 @@ namespace OverTheCounter
         {
             if (!_menuVisible) return;
 
-            GUILayout.BeginArea(new Rect(10, 10, 280, 800), "DEV TOOLS", GUI.skin.window);
+            float menuHeight = Mathf.Min(Screen.height - 20f, 900f);
+            GUILayout.BeginArea(new Rect(10, 10, 300, menuHeight), "DEV TOOLS", GUI.skin.window);
+            _scrollPos = GUILayout.BeginScrollView(_scrollPos);
 
             // Show current player position
             try
@@ -225,6 +228,23 @@ namespace OverTheCounter
 
             GUILayout.Space(8);
 
+            // Manager debug buttons
+            GUILayout.Label($"Managers: {ManagerInstance.Active.Count} active");
+
+            if (GUILayout.Button("Hire Manager (nearest biz)"))
+                ManagerController.DebugSpawnManager();
+
+            if (GUILayout.Button("Despawn All Managers"))
+                ManagerInstance.CleanupAll();
+
+            if (GUILayout.Button("Manager Status"))
+            {
+                var status = ManagerController.DebugGetStatus();
+                Logger.Msg($"[Debug] {status}");
+            }
+
+            GUILayout.Space(8);
+
             // --- Hotspot Editor ---
             GUILayout.Label("--- Hotspot Editor ---");
 
@@ -310,6 +330,7 @@ namespace OverTheCounter
             if (_hotspotCounter > 0)
                 GUILayout.Label($"Saved this session: {_hotspotCounter}");
 
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
 

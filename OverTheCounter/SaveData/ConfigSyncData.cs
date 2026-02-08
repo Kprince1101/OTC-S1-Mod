@@ -46,6 +46,7 @@ namespace OverTheCounter.SaveData
         private static HostSyncVar<string> _configVar;    // Host → Client: pipe-delimited config
         private static HostSyncVar<string> _stateVar;     // Host → Client: pipe-delimited state
         private static HostSyncVar<string> _drifterVar;   // Host → Client: drifter state (separate to avoid lobby data truncation)
+        private static HostSyncVar<string> _managerVar;  // Host → Client: manager state (separate to avoid lobby data truncation)
         private static ClientSyncVar<string> _actionVar;  // Client → Host: "seq:ACTION"
 
         private static readonly NetworkSyncOptions _syncOptions = new NetworkSyncOptions
@@ -91,7 +92,9 @@ namespace OverTheCounter.SaveData
                 _stateVar.Value = SerializeGameState();
                 if (_drifterVar != null)
                     _drifterVar.Value = DrifterManager.Instance?.SerializeDrifterState() ?? "";
-                Logger.Msg("Pushed config, game state, and drifter state to SyncVars.");
+                if (_managerVar != null)
+                    _managerVar.Value = SerializeManagerSyncVar();
+                Logger.Msg("Pushed config, game state, drifter state, and manager state to SyncVars.");
             }
         }
 
@@ -118,12 +121,14 @@ namespace OverTheCounter.SaveData
                 _configVar = _netClient.CreateHostSyncVar("cfg", "", _syncOptions);
                 _stateVar = _netClient.CreateHostSyncVar("state", "", _syncOptions);
                 _drifterVar = _netClient.CreateHostSyncVar("drifters", "", _syncOptions);
+                _managerVar = _netClient.CreateHostSyncVar("managers", "", _syncOptions);
                 _actionVar = _netClient.CreateClientSyncVar("action", "", _syncOptions);
 
                 // Diagnostic error handlers — surface silent SyncVar failures.
                 _configVar.OnSyncError += (ex) => Logger.Warning($"Config SyncVar error: {ex.Message}");
                 _stateVar.OnSyncError += (ex) => Logger.Warning($"State SyncVar error: {ex.Message}");
                 _drifterVar.OnSyncError += (ex) => Logger.Warning($"Drifter SyncVar error: {ex.Message}");
+                _managerVar.OnSyncError += (ex) => Logger.Warning($"Manager SyncVar error: {ex.Message}");
                 _actionVar.OnSyncError += (ex) => Logger.Warning($"Action SyncVar error: {ex.Message}");
                 _configVar.OnWriteIgnored += (_) => Logger.Warning("Config SyncVar write ignored (not lobby owner).");
                 _stateVar.OnWriteIgnored += (_) => Logger.Warning("State SyncVar write ignored (not lobby owner).");
@@ -132,6 +137,7 @@ namespace OverTheCounter.SaveData
                 _configVar.OnValueChanged += OnConfigChanged;
                 _stateVar.OnValueChanged += OnStateChanged;
                 _drifterVar.OnValueChanged += OnDrifterStateChanged;
+                _managerVar.OnValueChanged += OnManagerStateChanged;
 
                 // Host callback: receive quest actions from clients.
                 _actionVar.OnValueChanged += OnActionChanged;
@@ -188,11 +194,16 @@ namespace OverTheCounter.SaveData
                     if (_drifterVar != null)
                         _drifterVar.Value = drifterState;
 
+                    string managerState = SerializeManagerSyncVar();
+                    if (_managerVar != null)
+                        _managerVar.Value = managerState;
+
                     // Refresh — picks up values already in lobby data (covers
                     // client reading host values, and host reading its own on rejoin).
                     _configVar?.Refresh();
                     _stateVar?.Refresh();
                     _drifterVar?.Refresh();
+                    _managerVar?.Refresh();
                     _actionVar?.Refresh();
 
                     Logger.Msg($"Initial SyncVar sync after lobby discovery (lobbyHost={_netClient.IsHost}).");
@@ -266,6 +277,7 @@ namespace OverTheCounter.SaveData
             _configVar = null;
             _stateVar = null;
             _drifterVar = null;
+            _managerVar = null;
             _actionVar = null;
             _pendingGameState = null;
             _processedActions.Clear();
@@ -331,6 +343,43 @@ namespace OverTheCounter.SaveData
             catch (Exception ex)
             {
                 Logger.Warning($"OnDrifterStateChanged failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Client callback when host manager state SyncVar changes.
+        /// </summary>
+        private static void OnManagerStateChanged(string oldValue, string newValue)
+        {
+            if (_netClient?.IsHost == true) return;
+            if (string.IsNullOrEmpty(newValue)) return;
+
+            try
+            {
+                var state = ParsePayload(newValue);
+
+                // Sync business assignments
+                ManagerInstance.SyncedManagerBusinesses.Clear();
+                if (state.TryGetValue("biz", out var bizStr) && !string.IsNullOrEmpty(bizStr))
+                {
+                    foreach (var code in bizStr.Split(','))
+                    {
+                        if (!string.IsNullOrEmpty(code))
+                            ManagerInstance.SyncedManagerBusinesses.Add(code);
+                    }
+                }
+
+                // Adopt manager NPCs
+                if (state.TryGetValue("data", out var mgrData) && !string.IsNullOrEmpty(mgrData))
+                {
+                    ManagerInstance.ApplyManagerState(mgrData);
+                }
+
+                Logger.Msg($"Client applied manager state from SyncVar ({newValue.Length} chars).");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"OnManagerStateChanged failed: {ex.Message}");
             }
         }
 
@@ -413,6 +462,7 @@ namespace OverTheCounter.SaveData
             try
             {
                 string statePayload = SerializeGameState();
+                Logger.Msg($"PublishGameState: payload length={statePayload?.Length ?? 0}");
                 if (_stateVar != null)
                     _stateVar.Value = statePayload;
             }
@@ -440,6 +490,46 @@ namespace OverTheCounter.SaveData
             {
                 Logger.Warning($"PublishDrifterState failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Publishes manager state to the dedicated manager SyncVar.
+        /// Separate from PublishGameState to avoid lobby data truncation.
+        /// </summary>
+        public void PublishManagerState()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                string managerState = SerializeManagerSyncVar();
+                Logger.Msg($"PublishManagerState: {managerState.Length} chars");
+                if (_managerVar != null)
+                    _managerVar.Value = managerState;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"PublishManagerState failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Serializes manager business assignments + NPC data for the dedicated SyncVar.
+        /// Format: biz=code1,code2|data=id:seed:biz:netObjId;id:seed:biz:netObjId
+        /// </summary>
+        private static string SerializeManagerSyncVar()
+        {
+            var parts = new List<string>();
+
+            string mgrBiz = ManagerInstance.GetManagedBusinessCodes();
+            if (!string.IsNullOrEmpty(mgrBiz))
+                parts.Add($"biz={mgrBiz}");
+
+            string mgrData = ManagerInstance.SerializeManagerState();
+            if (!string.IsNullOrEmpty(mgrData))
+                parts.Add($"data={mgrData}");
+
+            return string.Join("|", parts);
         }
 
         /// <summary>
@@ -511,6 +601,11 @@ namespace OverTheCounter.SaveData
                         string drifterId = action.Substring("DRIFTER_ACCEPT:".Length);
                         DrifterManager.Instance?.OnDealAccepted(drifterId);
                     }
+                    else if (action.StartsWith("MANAGER_HIRE:"))
+                    {
+                        string propertyCode = action.Substring("MANAGER_HIRE:".Length);
+                        ManagerController.Instance?.HireManagerRemote(propertyCode);
+                    }
                     else if (action.StartsWith("DRIFTER_COMPLETE:"))
                     {
                         // Format: DRIFTER_COMPLETE:drifterId:playerCode
@@ -567,6 +662,8 @@ namespace OverTheCounter.SaveData
             if (!string.IsNullOrEmpty(despIds))
                 parts.Add($"desp_ids={despIds}");
 
+            // Manager data is now on its own SyncVar (_managerVar) to avoid lobby data truncation.
+
             return string.Join("|", parts);
         }
 
@@ -617,6 +714,8 @@ namespace OverTheCounter.SaveData
                 }
             }
             DesperationManager.UpdateClientDesperateIds(despIds);
+
+            // Manager data is now on its own SyncVar (_managerVar) — handled in OnManagerStateChanged.
         }
 
         private static string BoolToStr(bool v) => v ? "1" : "0";

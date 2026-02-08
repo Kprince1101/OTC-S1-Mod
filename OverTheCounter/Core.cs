@@ -22,6 +22,7 @@ namespace OverTheCounter
         private NotificationManager _notificationManager;
         private DesperationManager _desperationManager;
         private DrifterManager _drifterManager;
+        private ManagerController _managerManager;
 
         public override void OnInitializeMelon()
         {
@@ -39,6 +40,7 @@ namespace OverTheCounter
             _notificationManager = new NotificationManager(LoggerInstance);
             _desperationManager = new DesperationManager(LoggerInstance);
             _drifterManager = new DrifterManager(LoggerInstance);
+            _managerManager = new ManagerController(LoggerInstance);
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
@@ -53,6 +55,10 @@ namespace OverTheCounter
             // Drifters are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
             DrifterSpawner.ResetCache();
+
+            // Managers are transient until save/load persistence (Phase 9)
+            ManagerInstance.CleanupAll();
+            ManagerSpawner.ResetCache();
 
 #if DEBUG
             if (!GameObject.Find("DebugController"))
@@ -84,8 +90,12 @@ namespace OverTheCounter
 
                 ContactsAppFix.Tick();
 
-                // Retry pending drifter NPC adoptions on client (FishNet timing)
+                // Retry pending NPC adoptions on client (FishNet timing)
                 _drifterManager?.RetryPendingAdoptions();
+                ManagerInstance.RetryPendingAdoptions();
+
+                // Immediate wage payment when cash is deposited (host only)
+                _managerManager?.CheckImmediateWages();
 
                 // Update drifter quest timers on client (OnTimeTick is host-only)
                 _drifterManager?.ClientQuestTick();
@@ -102,6 +112,7 @@ namespace OverTheCounter
             _notificationManager?.Cleanup();
             _desperationManager?.Cleanup();
             _drifterManager?.Cleanup();
+            _managerManager?.Cleanup();
         }
 
         /// <summary>
