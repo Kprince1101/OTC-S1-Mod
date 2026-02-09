@@ -28,6 +28,7 @@ namespace OverTheCounter
         {
             Config.Initialize();
             ConfigSyncPatch.TryApply(HarmonyInstance);
+            ManagerClipboardPatch.Apply(HarmonyInstance);
 
             LoggerInstance.Msg("OverTheCounter Initialized.");
 
@@ -97,6 +98,10 @@ namespace OverTheCounter
                 // Immediate wage payment when cash is deposited (host only)
                 _managerManager?.CheckImmediateWages();
 
+                // Resume interrupted manager walks (e.g. after dialogue)
+                foreach (var mgr in ManagerInstance.Active.Values)
+                    mgr.EnsureMoving();
+
                 // Update drifter quest timers on client (OnTimeTick is host-only)
                 _drifterManager?.ClientQuestTick();
             }
@@ -130,6 +135,7 @@ namespace OverTheCounter
             ExtractResource(iconDir, "DrifterQuestIcon.png");
             ExtractResource(iconDir, "DrifterProfileIcon.png");
             ExtractResource(iconDir, "RinseCycle.png");
+            ExtractResource(iconDir, "ManagerIcon.png");
         }
 
         private void ExtractResource(string directory, string fileName)

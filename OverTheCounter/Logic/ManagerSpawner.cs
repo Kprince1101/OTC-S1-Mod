@@ -1,13 +1,20 @@
 using Il2CppFishNet.Object;
 using Il2CppFishNet;
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Dialogue;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.AvatarFramework;
 using Il2CppScheduleOne.Messaging;
+using Il2CppScheduleOne.Interaction;
+using Il2CppScheduleOne.Property;
+using Il2CppScheduleOne.UI;
 using MelonLoader;
+using OverTheCounter.Utilities;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.Events;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 
 namespace OverTheCounter.Logic
@@ -237,6 +244,9 @@ namespace OverTheCounter.Logic
 
                 clone.gameObject.transform.position = spawnPos;
                 clone.gameObject.transform.rotation = rotation;
+
+                // Add persistent inventory (while inactive, Awake deferred to SetActive)
+                SetupInventory(npc);
 
                 // Activate (triggers Awake on all components)
                 clone.gameObject.SetActive(true);
@@ -478,6 +488,570 @@ namespace OverTheCounter.Logic
             {
                 Logger.Warning($"EnsureVoiceDatabase failed for manager {npc.ID}: {ex.Message}");
             }
+        }
+
+        // Track dialogue choices for cleanup
+        private static readonly Dictionary<string, List<DialogueController.DialogueChoice>> _dialogueChoices = new();
+
+        // Transfer sub-menu state
+        private static readonly Dictionary<string, bool> _transferMenuActive = new();
+        private static readonly Dictionary<string, float> _transferMenuTime = new();
+        private static readonly Dictionary<string, List<DialogueController.DialogueChoice>> _transferChoices = new();
+        private const float TRANSFER_MENU_TIMEOUT = 30f;
+
+        // Fire confirmation sub-menu state
+        private static readonly Dictionary<string, bool> _fireConfirmActive = new();
+        private static readonly Dictionary<string, float> _fireConfirmTime = new();
+        private static readonly Dictionary<string, List<DialogueController.DialogueChoice>> _fireConfirmChoices = new();
+
+        // Flag to distinguish our programmatic reopens from fresh player-initiated dialogue
+        private static bool _isReopening;
+
+        // Greeting text overrides per manager (for fire confirmation prompt)
+        private static readonly Dictionary<string, DialogueController.GreetingOverride> _greetingOverrides = new();
+
+        /// <summary>
+        /// Sets up dialogue choices on a Manager NPC in this exact order:
+        /// 1. "I need to trade some items" — opens persistent inventory
+        /// 2. "Why aren't you working?" — status explanation
+        /// 3. "I need to transfer you to another property" — transfer sub-menu
+        /// 4. "Your services are no longer required." — fire with confirmation
+        /// Called after spawn/adopt once the NPC is fully initialized.
+        /// </summary>
+        public static void SetupDialogueChoices(ManagerInstance mgr)
+        {
+            if (mgr?.GameNpc == null) return;
+
+            try
+            {
+                var dialogueController = mgr.GameNpc.DialogueHandler?.GetComponent<DialogueController>();
+                if (dialogueController == null)
+                {
+                    Logger.Warning($"DialogueController not found for manager {mgr.Id}");
+                    return;
+                }
+
+                var choices = new List<DialogueController.DialogueChoice>();
+                string managerId = mgr.Id;
+                var capturedDc = dialogueController;
+
+                // ── Choice 1: Trade items ──
+                var tradeChoice = new DialogueController.DialogueChoice();
+                tradeChoice.ChoiceText = "I need to trade some items";
+                tradeChoice.Enabled = true;
+                tradeChoice.Conversation = null;
+                tradeChoice.onChoosen = new UnityEvent();
+                tradeChoice.onChoosen.AddListener((UnityAction)(() =>
+                {
+                    try
+                    {
+                        if (!ManagerInstance.Active.TryGetValue(managerId, out var m)) return;
+                        if (m.GameNpc == null) return;
+
+                        var inventory = m.GameNpc.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                        if (inventory == null)
+                        {
+                            Logger.Warning($"No inventory component on manager {managerId}");
+                            return;
+                        }
+
+                        // Close dialogue then open storage UI
+                        m.GameNpc.DialogueHandler?.EndDialogue();
+                        MelonCoroutines.Start(OpenStorageDelayed(m, inventory));
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error($"Trade choice error for {managerId}: {ex.Message}");
+                    }
+                }));
+                tradeChoice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
+                    ShouldShowMainChoice(managerId));
+
+                dialogueController.AddDialogueChoice(tradeChoice);
+                choices.Add(tradeChoice);
+
+                // ── Choice 2: Why aren't you working? (TODO) ──
+                var whyChoice = new DialogueController.DialogueChoice();
+                whyChoice.ChoiceText = "Why aren't you working?";
+                whyChoice.Enabled = true;
+                whyChoice.Conversation = null;
+                whyChoice.onChoosen = new UnityEvent();
+                whyChoice.onChoosen.AddListener((UnityAction)(() =>
+                {
+                    MelonCoroutines.Start(ReopenDialogue(capturedDc));
+                }));
+                whyChoice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
+                    ShouldShowMainChoice(managerId));
+
+                dialogueController.AddDialogueChoice(whyChoice);
+                choices.Add(whyChoice);
+
+                // ── Choice 3: Transfer ──
+                var transferChoice = new DialogueController.DialogueChoice();
+                transferChoice.ChoiceText = "I need to transfer you to another property";
+                transferChoice.Enabled = true;
+                transferChoice.Conversation = null;
+                transferChoice.onChoosen = new UnityEvent();
+                transferChoice.onChoosen.AddListener((UnityAction)(() =>
+                {
+                    try
+                    {
+                        if (!ManagerInstance.Active.TryGetValue(managerId, out var m))
+                            return;
+
+                        CleanupTransferChoices(managerId, capturedDc);
+
+                        var bizChoices = new List<DialogueController.DialogueChoice>();
+
+                        foreach (var biz in Business.OwnedBusinesses)
+                        {
+                            if (biz == null) continue;
+                            if (string.Equals(biz.PropertyCode, m.BusinessPropertyCode, StringComparison.OrdinalIgnoreCase))
+                                continue;
+                            if (ManagerInstance.HasManager(biz.PropertyCode))
+                                continue;
+
+                            string bizCode = biz.PropertyCode;
+                            string bizName = biz.PropertyName ?? bizCode;
+                            string capturedMgrId = managerId;
+
+                            var bizChoice = new DialogueController.DialogueChoice();
+                            bizChoice.ChoiceText = bizName;
+                            bizChoice.Enabled = true;
+                            bizChoice.Conversation = null;
+                            bizChoice.onChoosen = new UnityEvent();
+                            bizChoice.onChoosen.AddListener((UnityAction)(() =>
+                            {
+                                ClearTransferMenu(capturedMgrId, capturedDc);
+                                if (NetworkHelper.IsHost)
+                                    ManagerController.Instance?.TransferManager(capturedMgrId, bizCode);
+                                else
+                                    SaveData.ConfigSyncData.SendQuestAction($"MANAGER_TRANSFER:{capturedMgrId}:{bizCode}");
+                            }));
+                            bizChoice.shouldShowCheck = (Func<bool, bool>)((bool e) =>
+                                IsTransferMenuActive(capturedMgrId));
+
+                            capturedDc.AddDialogueChoice(bizChoice);
+                            bizChoices.Add(bizChoice);
+                        }
+
+                        var cancelChoice = new DialogueController.DialogueChoice();
+                        cancelChoice.ChoiceText = "Never mind.";
+                        cancelChoice.Enabled = true;
+                        cancelChoice.Conversation = null;
+                        cancelChoice.onChoosen = new UnityEvent();
+                        cancelChoice.onChoosen.AddListener((UnityAction)(() =>
+                        {
+                            ClearTransferMenu(managerId, capturedDc);
+                            MelonCoroutines.Start(ReopenDialogue(capturedDc));
+                        }));
+                        cancelChoice.shouldShowCheck = (Func<bool, bool>)((bool e) =>
+                            IsTransferMenuActive(managerId));
+
+                        capturedDc.AddDialogueChoice(cancelChoice);
+                        bizChoices.Add(cancelChoice);
+
+                        _transferChoices[managerId] = bizChoices;
+                        _transferMenuActive[managerId] = true;
+                        _transferMenuTime[managerId] = UnityEngine.Time.time;
+
+                        _isReopening = true;
+                        MelonCoroutines.Start(ReopenDialogue(capturedDc));
+                        Logger.Msg($"Opened transfer sub-menu for manager {managerId} ({bizChoices.Count - 1} businesses)");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error($"Transfer menu setup failed for {managerId}: {ex.Message}");
+                    }
+                }));
+                transferChoice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
+                {
+                    if (!ShouldShowMainChoice(managerId)) return false;
+                    if (!ManagerInstance.Active.TryGetValue(managerId, out var m)) return false;
+                    int availableBusinesses = 0;
+                    foreach (var biz in Business.OwnedBusinesses)
+                    {
+                        if (biz == null) continue;
+                        if (string.Equals(biz.PropertyCode, m.BusinessPropertyCode, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (ManagerInstance.HasManager(biz.PropertyCode))
+                            continue;
+                        availableBusinesses++;
+                    }
+                    return availableBusinesses > 0;
+                });
+
+                dialogueController.AddDialogueChoice(transferChoice);
+                choices.Add(transferChoice);
+
+                // ── Choice 4: Fire (with confirmation) ──
+                var fireChoice = new DialogueController.DialogueChoice();
+                fireChoice.ChoiceText = "Your services are no longer required.";
+                fireChoice.Enabled = true;
+                fireChoice.Conversation = null;
+                fireChoice.onChoosen = new UnityEvent();
+                fireChoice.onChoosen.AddListener((UnityAction)(() =>
+                {
+                    try
+                    {
+                        if (!ManagerInstance.Active.TryGetValue(managerId, out var m))
+                            return;
+
+                        CleanupFireConfirmChoices(managerId, capturedDc);
+                        var confirmChoices = new List<DialogueController.DialogueChoice>();
+
+                        // "Yes" — confirm fire
+                        var yesChoice = new DialogueController.DialogueChoice();
+                        yesChoice.ChoiceText = "Yes";
+                        yesChoice.Enabled = true;
+                        yesChoice.Conversation = null;
+                        yesChoice.onChoosen = new UnityEvent();
+                        yesChoice.onChoosen.AddListener((UnityAction)(() =>
+                        {
+                            ClearGreetingOverride(capturedDc, managerId);
+                            ClearFireConfirm(managerId, capturedDc);
+                            if (NetworkHelper.IsHost)
+                                ManagerController.Instance?.FireManager(managerId);
+                            else
+                                SaveData.ConfigSyncData.SendQuestAction($"MANAGER_FIRE:{managerId}");
+                        }));
+                        yesChoice.shouldShowCheck = (Func<bool, bool>)((bool e) =>
+                            IsFireConfirmActive(managerId));
+
+                        capturedDc.AddDialogueChoice(yesChoice);
+                        confirmChoices.Add(yesChoice);
+
+                        // "Actually, nevermind" — cancel fire
+                        var nevermindChoice = new DialogueController.DialogueChoice();
+                        nevermindChoice.ChoiceText = "Actually, nevermind";
+                        nevermindChoice.Enabled = true;
+                        nevermindChoice.Conversation = null;
+                        nevermindChoice.onChoosen = new UnityEvent();
+                        nevermindChoice.onChoosen.AddListener((UnityAction)(() =>
+                        {
+                            ClearGreetingOverride(capturedDc, managerId);
+                            ClearFireConfirm(managerId, capturedDc);
+                            MelonCoroutines.Start(ReopenDialogue(capturedDc));
+                        }));
+                        nevermindChoice.shouldShowCheck = (Func<bool, bool>)((bool e) =>
+                            IsFireConfirmActive(managerId));
+
+                        capturedDc.AddDialogueChoice(nevermindChoice);
+                        confirmChoices.Add(nevermindChoice);
+
+                        _fireConfirmChoices[managerId] = confirmChoices;
+                        _fireConfirmActive[managerId] = true;
+                        _fireConfirmTime[managerId] = UnityEngine.Time.time;
+
+                        SetGreetingOverride(capturedDc, managerId,
+                            "Are you sure? I'll drop off any items at the supply drop and leave.");
+
+                        _isReopening = true;
+                        MelonCoroutines.Start(ReopenDialogue(capturedDc));
+                        Logger.Msg($"Opened fire confirmation for manager {managerId}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error($"Fire confirm setup failed for {managerId}: {ex.Message}");
+                    }
+                }));
+                fireChoice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
+                    ShouldShowMainChoice(managerId));
+
+                dialogueController.AddDialogueChoice(fireChoice);
+                choices.Add(fireChoice);
+
+                _dialogueChoices[mgr.Id] = choices;
+                Logger.Msg($"Set up dialogue choices for manager {mgr.Id}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"SetupDialogueChoices failed for {mgr.Id}: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        /// <summary>
+        /// Checks if the transfer sub-menu is currently active for a manager.
+        /// Includes timeout-based cleanup (30s) to handle stale state from walked-away dialogue.
+        /// </summary>
+        private static bool IsTransferMenuActive(string managerId)
+        {
+            if (!_transferMenuActive.TryGetValue(managerId, out bool active) || !active)
+                return false;
+
+            // Timeout cleanup — if transfer menu has been active too long, clear it
+            if (_transferMenuTime.TryGetValue(managerId, out float startTime) &&
+                UnityEngine.Time.time - startTime > TRANSFER_MENU_TIMEOUT)
+            {
+                _transferMenuActive.Remove(managerId);
+                _transferMenuTime.Remove(managerId);
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Clears the transfer sub-menu state and removes dynamic business choices.
+        /// </summary>
+        private static void ClearTransferMenu(string managerId, DialogueController dc)
+        {
+            _transferMenuActive.Remove(managerId);
+            _transferMenuTime.Remove(managerId);
+            CleanupTransferChoices(managerId, dc);
+        }
+
+        /// <summary>
+        /// Checks if the fire confirmation sub-menu is active for a manager.
+        /// Includes timeout cleanup (30s).
+        /// </summary>
+        private static bool IsFireConfirmActive(string managerId)
+        {
+            if (!_fireConfirmActive.TryGetValue(managerId, out bool active) || !active)
+                return false;
+
+            if (_fireConfirmTime.TryGetValue(managerId, out float startTime) &&
+                UnityEngine.Time.time - startTime > TRANSFER_MENU_TIMEOUT)
+            {
+                _fireConfirmActive.Remove(managerId);
+                _fireConfirmTime.Remove(managerId);
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Clears the fire confirmation sub-menu state.
+        /// </summary>
+        private static void ClearFireConfirm(string managerId, DialogueController dc)
+        {
+            _fireConfirmActive.Remove(managerId);
+            _fireConfirmTime.Remove(managerId);
+            CleanupFireConfirmChoices(managerId, dc);
+        }
+
+        /// <summary>
+        /// Determines if a main dialogue choice should show. Returns false when a sub-menu
+        /// (transfer/fire confirm) is active. When the player re-initiates dialogue after
+        /// walking away, detects the fresh start (not our reopen) and clears stale sub-menu state.
+        /// </summary>
+        private static bool ShouldShowMainChoice(string managerId)
+        {
+            if (!ManagerInstance.Active.TryGetValue(managerId, out var m)) return false;
+            if (m.State == ManagerState.Fired || m.State == ManagerState.Transferring) return false;
+
+            bool transferActive = IsTransferMenuActive(managerId);
+            bool fireActive = IsFireConfirmActive(managerId);
+
+            if (transferActive || fireActive)
+            {
+                if (!_isReopening)
+                {
+                    ClearStaleSubMenuState(managerId);
+                    return true;
+                }
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Clears stale sub-menu state and greeting overrides for a manager.
+        /// Called when a fresh dialogue is detected after the player walked away.
+        /// </summary>
+        private static void ClearStaleSubMenuState(string managerId)
+        {
+            _transferMenuActive.Remove(managerId);
+            _transferMenuTime.Remove(managerId);
+            _fireConfirmActive.Remove(managerId);
+            _fireConfirmTime.Remove(managerId);
+
+            try
+            {
+                if (ManagerInstance.Active.TryGetValue(managerId, out var mgr) && mgr.GameNpc != null)
+                {
+                    var dc = mgr.GameNpc.DialogueHandler?.GetComponent<DialogueController>();
+                    ClearGreetingOverride(dc, managerId);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Adds a greeting override to the DialogueController so the NPC says custom text
+        /// instead of a random greeting. Used for fire confirmation prompt.
+        /// </summary>
+        private static void SetGreetingOverride(DialogueController dc, string managerId, string text)
+        {
+            ClearGreetingOverride(dc, managerId);
+
+            var greeting = new DialogueController.GreetingOverride();
+            greeting.Greeting = text;
+            greeting.ShouldShow = true;
+            greeting.PlayVO = false;
+            dc.AddGreetingOverride(greeting);
+            _greetingOverrides[managerId] = greeting;
+        }
+
+        /// <summary>
+        /// Removes the greeting override for a manager.
+        /// </summary>
+        private static void ClearGreetingOverride(DialogueController dc, string managerId)
+        {
+            if (_greetingOverrides.TryGetValue(managerId, out var existing))
+            {
+                existing.ShouldShow = false;
+                try { dc?.GreetingOverrides?.Remove(existing); } catch { }
+                _greetingOverrides.Remove(managerId);
+            }
+        }
+
+        /// <summary>
+        /// Removes fire confirmation choices from the DialogueController.
+        /// </summary>
+        private static void CleanupFireConfirmChoices(string managerId, DialogueController dc)
+        {
+            if (!_fireConfirmChoices.TryGetValue(managerId, out var choices))
+                return;
+
+            foreach (var choice in choices)
+            {
+                try { choice.Enabled = false; } catch { }
+                try { dc?.Choices?.Remove(choice); } catch { }
+            }
+            _fireConfirmChoices.Remove(managerId);
+        }
+
+        /// <summary>
+        /// Removes dynamic transfer business choices from the DialogueController.
+        /// </summary>
+        private static void CleanupTransferChoices(string managerId, DialogueController dc)
+        {
+            if (!_transferChoices.TryGetValue(managerId, out var choices))
+                return;
+
+            foreach (var choice in choices)
+            {
+                try { choice.Enabled = false; } catch { }
+                try { dc?.Choices?.Remove(choice); } catch { }
+            }
+            _transferChoices.Remove(managerId);
+        }
+
+        /// <summary>
+        /// Re-opens dialogue next frame so GetActiveChoices() picks up dynamically added choices.
+        /// Used after adding transfer business choices to the dialogue tree.
+        /// </summary>
+        private static IEnumerator ReopenDialogue(DialogueController dc)
+        {
+            yield return null;
+            _isReopening = true;
+            try
+            {
+                if (dc != null && dc.GenericDialogue != null)
+                    dc.StartGenericDialogue();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"ReopenDialogue failed: {ex.Message}");
+            }
+            _isReopening = false;
+        }
+
+        /// <summary>
+        /// Opens the StorageMenu with the manager's inventory after a frame delay
+        /// (allows dialogue UI to close first).
+        /// </summary>
+        private static IEnumerator OpenStorageDelayed(ManagerInstance mgr, Il2CppScheduleOne.NPCs.NPCInventory inventory)
+        {
+            yield return null;
+            try
+            {
+                if (mgr?.GameNpc == null || inventory == null) yield break;
+
+                string title = mgr.GameNpc.fullName + "'s Inventory";
+                Singleton<StorageMenu>.Instance.Open(
+                    inventory.Cast<Il2CppScheduleOne.ItemFramework.IItemSlotOwner>(),
+                    title,
+                    "");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"OpenStorageDelayed failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Adds a persistent NPCInventory component to the manager NPC.
+        /// Disables nightly clearing and pickpocketing. Called during spawn (inactive GO)
+        /// and adopt (temporarily deactivates GO to avoid Awake crash).
+        /// </summary>
+        public static void SetupInventory(NPC npc)
+        {
+            try
+            {
+                var existing = npc.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                if (existing != null)
+                {
+                    existing.ClearInventoryEachNight = false;
+                    existing.RandomCash = false;
+                    existing.RandomItems = false;
+                    existing.CanBePickpocketed = false;
+                    Logger.Msg($"Inventory already exists on manager {npc.ID}, configured for persistence");
+                    return;
+                }
+
+                bool wasActive = npc.gameObject.activeSelf;
+                if (wasActive) npc.gameObject.SetActive(false);
+
+                var inventory = npc.gameObject.AddComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                inventory.SlotCount = 20;
+                inventory.ClearInventoryEachNight = false;
+                inventory.RandomCash = false;
+                inventory.RandomItems = false;
+                inventory.CanBePickpocketed = false;
+
+                var intObj = npc.GetComponentInChildren<InteractableObject>(true);
+                if (intObj != null)
+                    inventory.PickpocketIntObj = intObj;
+
+                if (wasActive) npc.gameObject.SetActive(true);
+
+                Logger.Msg($"Added inventory to manager {npc.ID} (slots={inventory.SlotCount})");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"SetupInventory failed for {npc.ID}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Cleans up dialogue choices for a manager (on despawn).
+        /// </summary>
+        public static void CleanupDialogueChoices(string managerId)
+        {
+            if (_dialogueChoices.TryGetValue(managerId, out var choices))
+            {
+                foreach (var choice in choices)
+                {
+                    try { choice.Enabled = false; } catch { }
+                }
+                _dialogueChoices.Remove(managerId);
+            }
+
+            // Clean up transfer sub-menu
+            _transferMenuActive.Remove(managerId);
+            _transferMenuTime.Remove(managerId);
+            _transferChoices.Remove(managerId);
+
+            // Clean up fire confirmation sub-menu
+            _fireConfirmActive.Remove(managerId);
+            _fireConfirmTime.Remove(managerId);
+            _fireConfirmChoices.Remove(managerId);
+
+            // Clean up greeting override
+            _greetingOverrides.Remove(managerId);
         }
 
         /// <summary>

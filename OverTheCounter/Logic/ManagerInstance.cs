@@ -1,8 +1,12 @@
+using Il2CppScheduleOne.AvatarFramework;
+using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Property;
 using MelonLoader;
+using OverTheCounter.Utilities;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -33,8 +37,11 @@ namespace OverTheCounter.Logic
 
         // Game references
         public NPC GameNpc { get; private set; }
-        public Business AssignedBusiness { get; }
-        public string BusinessPropertyCode { get; }
+        public Business AssignedBusiness { get; internal set; }
+        public string BusinessPropertyCode { get; internal set; }
+
+        // Configuration (supply storage + distribution routes)
+        public ManagerConfiguration Configuration { get; } = new ManagerConfiguration();
 
         // Locker — EmployeeHome used for cash storage (player deposits cash here)
         public EmployeeHome AssignedLocker { get; private set; }
@@ -47,6 +54,11 @@ namespace OverTheCounter.Logic
         public bool GreetingSent { get; set; }
         public bool NoLockerTextSent { get; set; }
         public bool NoFundsTextSent { get; set; }
+
+        // Walk resume state — tracks where the manager should be walking
+        internal ManagerLocations.BusinessLocation TargetLocation { get; set; }
+        public bool ArrivedAtDestination { get; set; }
+        private float _lastEnsureMovingLog;
 
         public bool IsValid => GameNpc != null && GameNpc.gameObject != null;
         public bool HasLocker => AssignedLocker != null && AssignedLocker.Storage != null;
@@ -130,6 +142,12 @@ namespace OverTheCounter.Logic
 
             Active[id] = instance;
 
+            // Set up dialogue choices (fire/transfer)
+            ManagerSpawner.SetupDialogueChoices(instance);
+
+            // Generate proper mugshot from the applied avatar settings
+            instance.GenerateMugshot();
+
             // Walk to destination if we have a registered location
             if (location != null)
             {
@@ -167,12 +185,23 @@ namespace OverTheCounter.Logic
             };
 
             Active[id] = instance;
+
+            // Set up inventory and dialogue choices
+            ManagerSpawner.SetupInventory(existingNpc);
+            ManagerSpawner.SetupDialogueChoices(instance);
+
+            // Generate proper mugshot from the applied avatar settings
+            instance.GenerateMugshot();
+
             Logger.Msg($"Adopted FishNet NPC for manager {id} ({firstName} {lastName}) at {business.PropertyCode}");
             return instance;
         }
 
-        // Hold reference to IL2CPP callback to prevent GC collection
+        // Hold references to IL2CPP callbacks to prevent GC collection
         private Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _destCallback;
+        internal Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _transferCallback;
+        private Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _fireCallback;
+        // _mugshotCallback removed — mugshot generation now uses direct IconGenerator capture
 
         /// <summary>
         /// Walks the Manager NPC from its spawn point to the business destination.
@@ -183,15 +212,21 @@ namespace OverTheCounter.Logic
             {
                 if (GameNpc?.Movement == null) return;
 
+                TargetLocation = location;
+                ArrivedAtDestination = false;
+
                 _destCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
                     new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
                     {
-                        Logger.Msg($"Manager {Id} arrived at destination (result={result})");
+                        Logger.Msg($"Manager {Id} walk callback (result={result})");
                         if (result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
                             result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
                         {
+                            ArrivedAtDestination = true;
+                            TargetLocation = null;
                             FaceDirection(location.DestRotation);
                         }
+                        // On Stopped (e.g. dialogue interrupt), leave TargetLocation set so EnsureMoving can resume
                     });
 
                 GameNpc.Movement.SetDestination(location.Destination, _destCallback, 3f, 1f);
@@ -216,30 +251,399 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Generates a mugshot from the NPC's current avatar settings via MugshotGenerator.
+        /// Uses a delayed coroutine to avoid conflicts with other mugshot generation in progress.
+        /// Updates NPC.MugshotSprite and the locker display if already assigned.
+        /// </summary>
+        public void GenerateMugshot()
+        {
+            Logger.Msg($"Manager {Id}: GenerateMugshot() called, starting coroutine");
+            MelonCoroutines.Start(GenerateMugshotCoroutine(0));
+        }
+
+        private IEnumerator GenerateMugshotCoroutine(int attempt)
+        {
+            Logger.Msg($"Manager {Id}: mugshot coroutine started (attempt {attempt})");
+
+            // Delay ~60 frames (~1s at 60fps) on first attempt, ~180 on retry
+            // Using frame yields instead of WaitForSeconds for IL2CPP coroutine compat
+            int delayFrames = attempt == 0 ? 60 : 180;
+            for (int i = 0; i < delayFrames; i++)
+                yield return null;
+
+            Logger.Msg($"Manager {Id}: mugshot delay complete, checking prerequisites");
+
+            if (GameNpc?.Avatar?.CurrentSettings == null)
+            {
+                Logger.Warning($"Manager {Id}: mugshot skipped (Avatar or CurrentSettings null)");
+                yield break;
+            }
+
+            var generator = Singleton<MugshotGenerator>.Instance;
+            if (generator == null || generator.MugshotRig == null || generator.Generator == null)
+            {
+                Logger.Warning($"Manager {Id}: MugshotGenerator not available (gen={generator != null}, rig={generator?.MugshotRig != null}, iconGen={generator?.Generator != null})");
+                yield break;
+            }
+
+            // Wait for MugshotRig to be idle (not in use by another generation)
+            int idleWait = 0;
+            while (generator.MugshotRig.gameObject.activeSelf && idleWait < 300)
+            {
+                idleWait++;
+                yield return null;
+            }
+            if (idleWait > 0)
+                Logger.Msg($"Manager {Id}: waited {idleWait} frames for MugshotRig idle");
+
+            // Manual MugshotRig control — bypasses MugshotGenerator.GenerateMugshot
+            // to give SkinnedMeshRenderers enough frames to recalculate bone transforms
+            // and bounds. The vanilla 1-frame capture works on host but produces bad
+            // framing on the client.
+            AvatarSettings settings = null;
+            bool setupOk = false;
+            try
+            {
+                settings = UnityEngine.Object.Instantiate(GameNpc.Avatar.CurrentSettings);
+                settings.Height = 1f;
+
+                generator.MugshotRig.gameObject.SetActive(true);
+                generator.MugshotRig.LoadAvatarSettings(settings);
+                generator.MugshotRig.SetSkinColor(settings.SkinColor);
+
+                // DON'T set IconGeneration layer yet — keep on Default so game cameras
+                // render the rig during settling, which forces SkinnedMeshRenderer bone
+                // transform + bounds recalculation. Set the layer right before capture.
+                foreach (var smr in generator.MugshotRig.GetComponentsInChildren<SkinnedMeshRenderer>())
+                    smr.updateWhenOffscreen = true;
+
+                setupOk = true;
+                Logger.Msg($"Manager {Id}: MugshotRig setup complete");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"GenerateMugshot setup failed for {Id}: {ex.Message}");
+                try { generator.MugshotRig.gameObject.SetActive(false); } catch { }
+            }
+
+            if (!setupOk) yield break;
+
+            // Wait for SkinnedMeshRenderers to update bone transforms/bounds via game camera rendering
+            for (int i = 0; i < 8; i++)
+                yield return null;
+
+            // NOW set IconGeneration layer right before capture
+            try
+            {
+                Il2CppScheduleOne.DevUtilities.LayerUtility.SetLayerRecursively(
+                    generator.MugshotRig.gameObject, LayerMask.NameToLayer("IconGeneration"));
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"GenerateMugshot layer setup failed for {Id}: {ex.Message}");
+                try { generator.MugshotRig.gameObject.SetActive(false); } catch { }
+                yield break;
+            }
+
+            // Capture + cleanup
+            try
+            {
+                Texture2D tex = generator.Generator.GetTexture(generator.MugshotRig.transform);
+                Logger.Msg($"Manager {Id}: GetTexture returned {(tex != null ? $"{tex.width}x{tex.height}" : "null")}");
+
+                // Reset MugshotRig
+                if (generator.DefaultSettings != null)
+                    generator.MugshotRig.LoadAvatarSettings(generator.DefaultSettings);
+                generator.MugshotRig.gameObject.SetActive(false);
+
+                if (tex == null || GameNpc == null)
+                {
+                    Logger.Warning($"Manager {Id}: mugshot texture is null (attempt {attempt})");
+                    if (attempt < 1)
+                        MelonCoroutines.Start(GenerateMugshotCoroutine(attempt + 1));
+                    yield break;
+                }
+
+                tex.Apply();
+                GameNpc.MugshotSprite = Sprite.Create(tex,
+                    new Rect(0, 0, tex.width, tex.height),
+                    new Vector2(0.5f, 0.5f));
+                if (AssignedLocker?.MugshotSprite != null)
+                    AssignedLocker.MugshotSprite.sprite = GameNpc.MugshotSprite;
+                Logger.Msg($"Manager {Id}: mugshot applied to NPC + locker (attempt {attempt})");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"GenerateMugshot capture failed for {Id}: {ex.Message}");
+                try { generator.MugshotRig.gameObject.SetActive(false); } catch { }
+                if (attempt < 1)
+                    MelonCoroutines.Start(GenerateMugshotCoroutine(attempt + 1));
+            }
+        }
+
+        /// <summary>
+        /// Re-issues the walk command if the manager was interrupted (e.g. by dialogue).
+        /// Call this from the lifecycle tick.
+        /// </summary>
+        public void EnsureMoving()
+        {
+            if (!IsValid || State == ManagerState.Fired) return;
+
+            try
+            {
+                var movement = GameNpc?.Movement;
+                if (movement == null) return;
+
+                // Don't resume walking while in dialogue — let the NPC stand still
+                var dialogueHandler = GameNpc.DialogueHandler;
+                if (dialogueHandler != null && dialogueHandler.IsDialogueInProgress) return;
+
+                // If the NPC still has an active destination, nothing to do
+                if (movement.HasDestination) return;
+
+                if (TargetLocation != null && !ArrivedAtDestination)
+                {
+                    var pos = Position ?? Vector3.zero;
+                    var dist = Vector3.Distance(pos, TargetLocation.Destination);
+                    if (dist > 3f)
+                    {
+                        if (UnityEngine.Time.time - _lastEnsureMovingLog > 10f)
+                        {
+                            Logger.Msg($"Manager {Id}: resuming walk to destination (interrupted, dist={dist:F1}m)");
+                            _lastEnsureMovingLog = UnityEngine.Time.time;
+                        }
+                        GameNpc.Movement.SetDestination(TargetLocation.Destination, _destCallback, 3f, 1f);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"EnsureMoving failed for manager {Id}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Walks the fired Manager back to their spawn point, then despawns.
+        /// Falls back to immediate despawn if no location or movement is unavailable.
+        /// </summary>
+        public void WalkAwayAndDespawn()
+        {
+            try
+            {
+                var location = ManagerLocations.GetLocation(BusinessPropertyCode);
+                if (location == null || GameNpc?.Movement == null)
+                {
+                    Despawn();
+                    return;
+                }
+
+                // Clear any existing walk target so EnsureMoving doesn't fight us
+                TargetLocation = null;
+                ArrivedAtDestination = true;
+
+                _fireCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
+                    new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
+                    {
+                        Logger.Msg($"Fired manager {Id} reached spawn (result={result}), despawning");
+                        Despawn();
+                    });
+
+                GameNpc.Movement.SetDestination(location.SpawnPosition, _fireCallback, 3f, 1f);
+                Logger.Msg($"Fired manager {Id} walking to spawn before despawn");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"WalkAwayAndDespawn failed for {Id}: {ex.Message}, despawning immediately");
+                Despawn();
+            }
+        }
+
+        /// <summary>
         /// Assigns a locker (EmployeeHome) to this Manager and updates its display.
         /// </summary>
         public void AssignLocker(EmployeeHome locker)
         {
             if (locker == null) return;
 
+            // Clear the old locker display if switching to a different one
+            if (AssignedLocker != null && AssignedLocker != locker)
+                ClearLocker();
+
+            // Clear any vanilla employee already assigned to this locker (e.g. from BusinessEmployment mod)
+            if (locker.AssignedEmployee != null)
+            {
+                Logger.Msg($"Manager {Id}: clearing existing employee '{locker.AssignedEmployee.fullName}' from locker");
+                locker.SetAssignedEmployee(null);
+            }
+
+            // Clear any other manager already assigned to this locker
+            foreach (var other in Active.Values)
+            {
+                if (other != this && other.AssignedLocker == locker)
+                {
+                    Logger.Msg($"Manager {Id}: clearing other manager {other.Id} from same locker");
+                    other.ClearLocker();
+                }
+            }
+
             AssignedLocker = locker;
             NoLockerTextSent = false;
 
             try
             {
-                // Update storage display text (we can't call SetAssignedEmployee since we're not an Employee)
+                // Mirror vanilla SetAssignedEmployee + UpdateStorageText (we can't call them since we're not an Employee)
                 float dailyWage = Config.ManagerDailyWage.Value;
                 string wageStr = $"<color=#54E717>${dailyWage:F0}</color>";
                 string homeType = locker.HomeType ?? "Briefcase";
+                string fullName = GameNpc != null ? $"{GameNpc.FirstName} {GameNpc.LastName}" : "Manager";
+
+                // Physical locker model: name label, mugshot, clipboard
+                if (locker.NameLabel != null && GameNpc != null)
+                    locker.NameLabel.text = $"{GameNpc.FirstName}\n{GameNpc.LastName}";
+
+                Logger.Msg($"Manager {Id}: locker mugshot state: locker.MugshotSprite={locker.MugshotSprite != null}, GameNpc.MugshotSprite={GameNpc?.MugshotSprite != null}");
+                if (locker.MugshotSprite != null && GameNpc?.MugshotSprite != null)
+                {
+                    locker.MugshotSprite.sprite = GameNpc.MugshotSprite;
+                    Logger.Msg($"Manager {Id}: set locker mugshot sprite");
+                }
+                else if (GameNpc?.MugshotSprite == null)
+                {
+                    GenerateMugshot(); // Mugshot not ready yet; re-trigger — will update locker when done
+                }
+
+                if (locker.Clipboard != null)
+                    locker.Clipboard.gameObject.SetActive(true);
+
+                // Storage menu display text
                 locker.Storage.StorageEntityName = $"{GameNpc?.FirstName}'s {homeType}";
                 locker.Storage.StorageEntitySubtitle =
-                    $"Manager will draw a daily wage of {wageStr} from this {homeType.ToLower()}";
+                    $"{fullName} will draw a daily wage of {wageStr} from this {homeType.ToLower()}";
+
+                // Recolor locker band to red (vanilla uses colored bands per employee type)
+                ApplyLockerRecoloring(locker);
 
                 Logger.Msg($"Manager {Id}: assigned locker at {locker.transform.position}");
             }
             catch (Exception ex)
             {
                 Logger.Warning($"Manager {Id}: failed to update locker display: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Clears the locker assignment and resets display to default.
+        /// </summary>
+        public void ClearLocker()
+        {
+            if (AssignedLocker != null)
+            {
+                try
+                {
+                    ResetLockerRecoloring(AssignedLocker);
+
+                    // Reset display text (vanilla does this when employee is null)
+                    string homeType = AssignedLocker.HomeType ?? "Briefcase";
+                    AssignedLocker.Storage.StorageEntityName = homeType;
+                    AssignedLocker.Storage.StorageEntitySubtitle = string.Empty;
+
+                    // Hide clipboard and clear visual refs on the locker model
+                    if (AssignedLocker.Clipboard != null)
+                        AssignedLocker.Clipboard.gameObject.SetActive(false);
+                    if (AssignedLocker.NameLabel != null)
+                        AssignedLocker.NameLabel.text = "";
+                    if (AssignedLocker.MugshotSprite != null)
+                        AssignedLocker.MugshotSprite.sprite = null;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"Manager {Id}: ClearLocker display reset failed: {ex.Message}");
+                }
+            }
+            AssignedLocker = null;
+        }
+
+        /// <summary>
+        /// Reconciles the locker assignment from the deserialized config.
+        /// Called on the host when receiving config from a client.
+        /// </summary>
+        public void ReconcileLockerFromConfig()
+        {
+            try
+            {
+                var configLocker = Configuration.Locker;
+                if (configLocker != null)
+                {
+                    var home = configLocker.GetComponent<EmployeeHome>();
+                    if (home == null)
+                        home = configLocker.GetComponentInParent<EmployeeHome>();
+                    if (home != null && home != AssignedLocker)
+                        AssignLocker(home);
+                }
+                else if (AssignedLocker != null)
+                {
+                    ClearLocker();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Manager {Id}: ReconcileLockerFromConfig failed: {ex.Message}");
+            }
+        }
+
+        private static MaterialPropertyBlock _managerBandBlock;
+
+        private static void ApplyLockerRecoloring(EmployeeHome locker)
+        {
+            if (locker.EmployeeSpecificMeshes == null || locker.EmployeeSpecificMeshes.Length == 0)
+            {
+                Logger.Warning("Locker band: EmployeeSpecificMeshes is null/empty");
+                return;
+            }
+
+            // Use a vanilla employee material (has correct band-only texture/alpha).
+            // Then override just the color via MaterialPropertyBlock to keep
+            // the shader/texture intact and only change the tint.
+            Material bandMat = locker.SpecificMat_Packager
+                ?? locker.SpecificMat_Botanist
+                ?? locker.SpecificMat_Chemist;
+
+            if (bandMat == null)
+            {
+                Logger.Warning("No employee-specific material found on locker");
+                return;
+            }
+
+            if (_managerBandBlock == null)
+            {
+                _managerBandBlock = new MaterialPropertyBlock();
+                _managerBandBlock.SetColor("_BaseColor", new Color(0.85f, 0.1f, 0.1f));
+            }
+
+            foreach (var renderer in locker.EmployeeSpecificMeshes)
+            {
+                if (renderer != null)
+                {
+                    renderer.sharedMaterial = bandMat;
+                    renderer.SetPropertyBlock(_managerBandBlock);
+                }
+            }
+        }
+
+        private static void ResetLockerRecoloring(EmployeeHome locker)
+        {
+            if (locker?.EmployeeSpecificMeshes == null) return;
+
+            Material resetMat = locker.SpecificMat_Default;
+            if (resetMat == null) return;
+
+            foreach (var renderer in locker.EmployeeSpecificMeshes)
+            {
+                if (renderer != null)
+                {
+                    renderer.sharedMaterial = resetMat;
+                    renderer.SetPropertyBlock(null);
+                }
             }
         }
 
@@ -325,12 +729,39 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Clears and hides the text message conversation for this Manager.
+        /// Called on fire to remove stale threads.
+        /// </summary>
+        public void ClearMessages()
+        {
+            try
+            {
+                var conv = GameNpc?.MSGConversation;
+                if (conv == null) return;
+
+                conv.messageHistory.Clear();
+                conv.SetEntryVisibility(false);
+                Logger.Msg($"Manager {Id}: cleared text messages");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Manager {Id}: ClearMessages failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Despawns and cleans up this Manager.
         /// </summary>
         public void Despawn()
         {
             Logger.Msg($"Despawning manager {Id}");
             Active.Remove(Id);
+
+            // Clear configuration
+            Configuration.ClearAll();
+
+            // Clean up dialogue choices
+            ManagerSpawner.CleanupDialogueChoices(Id);
 
             // Release locker — reset storage display
             if (AssignedLocker != null)
@@ -397,18 +828,27 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Serializes full manager state for client adoption.
-        /// Format: id:seed:biz:netObjId;id:seed:biz:netObjId
+        /// Format: id:seed:biz:netObjId:configData;id:seed:biz:netObjId:configData
+        /// Config data escapes | → ~ and ; → ^ to avoid conflicting with entry/SyncVar separators.
         /// </summary>
         public static string SerializeManagerState()
         {
             if (Active.Count == 0) return "";
             var parts = new List<string>();
             foreach (var mgr in Active.Values)
-                parts.Add($"{mgr.Id}:{mgr.SpawnSeed}:{mgr.BusinessPropertyCode}:{mgr.NetworkObjectId}");
+            {
+                string configStr = EncodeConfig(mgr.Configuration.Serialize());
+                parts.Add($"{mgr.Id}:{mgr.SpawnSeed}:{mgr.BusinessPropertyCode}:{mgr.NetworkObjectId}:{configStr}");
+            }
             string result = string.Join(";", parts);
             Logger.Msg($"SerializeManagerState: {Active.Count} managers → '{result}'");
             return result;
         }
+
+        /// <summary>Escapes config separators for safe embedding in entry strings.</summary>
+        internal static string EncodeConfig(string raw) => raw.Replace('|', '~').Replace(';', '^');
+        /// <summary>Restores config separators from escaped form.</summary>
+        internal static string DecodeConfig(string encoded) => encoded.Replace('~', '|').Replace('^', ';');
 
         // Pending adoptions: managers whose FishNet NPC hasn't replicated yet
         private static readonly Dictionary<string, PendingAdoption> _pendingAdoptions = new();
@@ -421,6 +861,7 @@ namespace OverTheCounter.Logic
             public string BizCode;
             public int NetObjId;
             public float CreatedTime;
+            public string ConfigStr;
         }
 
         /// <summary>
@@ -462,16 +903,35 @@ namespace OverTheCounter.Logic
                     Logger.Warning($"ApplyManagerState: bad netObjId in entry '{entry}'");
                     continue;
                 }
+                // Rejoin from index 4 — config data contains ':' separators (item:threshold)
+                // that get split along with the entry-level ':' separators
+                string configStr = parts.Length > 4 ? string.Join(":", parts, 4, parts.Length - 4) : "";
 
                 // Already adopted or pending
                 if (Active.ContainsKey(id))
                 {
-                    Logger.Msg($"ApplyManagerState: {id} already in Active, skipping");
+                    // Skip SyncVar echo while the client is actively editing this manager's clipboard.
+                    // Steam lobby data truncation can shorten the echoed value, corrupting the config.
+                    if (!NetworkHelper.IsHost && UI.ManagerConfigPanel.IsOpen
+                        && string.Equals(UI.ManagerConfigPanel.CurrentManagerId, id))
+                    {
+                        Logger.Msg($"ApplyManagerState: {id} skipped config update (clipboard open on client)");
+                        continue;
+                    }
+
+                    // Update config on existing managers (host may have changed it)
+                    if (!string.IsNullOrEmpty(configStr))
+                    {
+                        Active[id].Configuration.Deserialize(DecodeConfig(configStr));
+                        Active[id].ReconcileLockerFromConfig();
+                    }
+                    Logger.Msg($"ApplyManagerState: {id} already in Active, updated config");
                     continue;
                 }
                 if (_pendingAdoptions.ContainsKey(id))
                 {
-                    Logger.Msg($"ApplyManagerState: {id} already pending, skipping");
+                    _pendingAdoptions[id].ConfigStr = configStr;
+                    Logger.Msg($"ApplyManagerState: {id} already pending, updated config");
                     continue;
                 }
 
@@ -483,17 +943,18 @@ namespace OverTheCounter.Logic
                     _pendingAdoptions[id] = new PendingAdoption
                     {
                         Id = id, Seed = seed, BizCode = bizCode,
-                        NetObjId = netObjId, CreatedTime = UnityEngine.Time.time
+                        NetObjId = netObjId, CreatedTime = UnityEngine.Time.time,
+                        ConfigStr = configStr
                     };
                     Logger.Msg($"ApplyManagerState: NPC ObjectId {netObjId} not found yet, queued adoption for {id}");
                     continue;
                 }
 
-                TryAdopt(id, seed, bizCode, netObjId, npc);
+                TryAdopt(id, seed, bizCode, netObjId, npc, configStr);
             }
         }
 
-        private static void TryAdopt(string id, int seed, string bizCode, int netObjId, NPC npc)
+        private static void TryAdopt(string id, int seed, string bizCode, int netObjId, NPC npc, string configStr = "")
         {
             Business business = null;
             foreach (var biz in Business.OwnedBusinesses)
@@ -516,18 +977,18 @@ namespace OverTheCounter.Logic
             {
                 instance.NetworkObjectId = netObjId;
 
-                // Find and assign locker for display text (mirrors host auto-assignment)
-                var locker = ManagerController.FindNearestAvailableLocker(business);
-                if (locker != null)
-                    instance.AssignLocker(locker);
+                // Apply config from host
+                if (!string.IsNullOrEmpty(configStr))
+                {
+                    instance.Configuration.Deserialize(DecodeConfig(configStr));
+                    instance.ReconcileLockerFromConfig();
+                }
 
                 // Send greeting text locally (host sends its own during HireManager)
-                string lockerType = locker?.HomeType?.ToLower() ?? "locker";
-                instance.SendGreeting(locker != null
-                    ? $"Hey boss! I'm your new manager at {business.PropertyName}. Drop some cash in my {lockerType} and I'll get to work."
-                    : $"Hey boss! I'm at {business.PropertyName}, but I don't have a locker assigned yet. Place one nearby and I'll get to work.");
+                instance.SendGreeting($"Hey boss! I'm your new manager at {business.PropertyName}. Use the clipboard to assign me a locker and I'll get to work.");
 
-                Logger.Msg($"Adopted manager {id} at {bizCode} (NetObjId={netObjId}, locker={locker != null})");
+                Logger.Msg($"Adopted manager {id} at {bizCode} (NetObjId={netObjId}, config={!string.IsNullOrEmpty(configStr)})");
+
             }
         }
 
@@ -559,7 +1020,7 @@ namespace OverTheCounter.Logic
                 NPC npc = FindNetworkNpc(pa.NetObjId);
                 if (npc != null)
                 {
-                    TryAdopt(pa.Id, pa.Seed, pa.BizCode, pa.NetObjId, npc);
+                    TryAdopt(pa.Id, pa.Seed, pa.BizCode, pa.NetObjId, npc, pa.ConfigStr);
                     completed.Add(kv.Key);
                 }
             }
@@ -632,6 +1093,7 @@ namespace OverTheCounter.Logic
         SupplyRun,
         DistributionRun,
         Fired,
-        NoFunds
+        NoFunds,
+        Transferring
     }
 }

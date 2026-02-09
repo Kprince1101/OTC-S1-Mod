@@ -606,6 +606,40 @@ namespace OverTheCounter.SaveData
                         string propertyCode = action.Substring("MANAGER_HIRE:".Length);
                         ManagerController.Instance?.HireManagerRemote(propertyCode);
                     }
+                    else if (action.StartsWith("MANAGER_FIRE:"))
+                    {
+                        string managerId = action.Substring("MANAGER_FIRE:".Length);
+                        ManagerController.Instance?.FireManagerRemote(managerId);
+                    }
+                    else if (action.StartsWith("MANAGER_TRANSFER:"))
+                    {
+                        // Format: MANAGER_TRANSFER:managerId:targetPropertyCode
+                        string payload = action.Substring("MANAGER_TRANSFER:".Length);
+                        int sep = payload.IndexOf(':');
+                        if (sep > 0 && sep < payload.Length - 1)
+                        {
+                            string managerId = payload.Substring(0, sep);
+                            string targetCode = payload.Substring(sep + 1);
+                            ManagerController.Instance?.TransferManagerRemote(managerId, targetCode);
+                        }
+                    }
+                    else if (action.StartsWith("MANAGER_CONFIG:"))
+                    {
+                        // Format: MANAGER_CONFIG:managerId:configData (~ instead of |)
+                        string payload = action.Substring("MANAGER_CONFIG:".Length);
+                        int sep = payload.IndexOf(':');
+                        if (sep > 0 && sep < payload.Length - 1)
+                        {
+                            string managerId = payload.Substring(0, sep);
+                            string configStr = ManagerInstance.DecodeConfig(payload.Substring(sep + 1));
+                            if (ManagerInstance.Active.TryGetValue(managerId, out var instance))
+                            {
+                                instance.Configuration.Deserialize(configStr);
+                                instance.ReconcileLockerFromConfig();
+                                Instance?.PublishManagerState();
+                            }
+                        }
+                    }
                     else if (action.StartsWith("DRIFTER_COMPLETE:"))
                     {
                         // Format: DRIFTER_COMPLETE:drifterId:playerCode

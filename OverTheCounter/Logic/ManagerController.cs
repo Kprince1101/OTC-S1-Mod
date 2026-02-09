@@ -1,5 +1,6 @@
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Employees;
+using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Property;
 using MelonLoader;
 using S1API.GameTime;
@@ -151,18 +152,18 @@ namespace OverTheCounter.Logic
                 return null;
             }
 
-            // Auto-assign nearest available locker
-            var locker = FindNearestAvailableLocker(business);
-            if (locker != null)
+            instance.SendGreeting($"Hey boss! I'm your new manager at {business.PropertyName}. Use the clipboard to assign me a locker and I'll get to work.");
+
+            // Grant the clipboard tool if not already acquired (same as vanilla Employee.RpcLogic___Initialize)
+            try
             {
-                instance.AssignLocker(locker);
-                string lockerType = locker.HomeType?.ToLower() ?? "locker";
-                instance.SendGreeting($"Hey boss! I'm your new manager at {business.PropertyName}. Drop some cash in my {lockerType} and I'll get to work.");
+                var varDb = NetworkSingleton<Il2CppScheduleOne.Variables.VariableDatabase>.Instance;
+                if (varDb != null && !varDb.GetValue<bool>("ClipboardAcquired"))
+                    varDb.SetVariableValue("ClipboardAcquired", true.ToString());
             }
-            else
+            catch (Exception ex)
             {
-                _logger.Warning($"No available locker found for manager {id} at {business.PropertyCode}");
-                instance.SendGreeting($"Hey boss! I'm at {business.PropertyName}, but I don't have a locker assigned yet. Place one nearby and I'll get to work.");
+                _logger.Warning($"HireManager: clipboard grant check failed: {ex.Message}");
             }
 
             // Sync manager state to clients via dedicated SyncVar
@@ -208,7 +209,7 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Fires a manager and despawns the NPC.
+        /// Fires a manager. Walks them back to spawn, then despawns.
         /// </summary>
         public void FireManager(string managerId)
         {
@@ -219,13 +220,205 @@ namespace OverTheCounter.Logic
             }
 
             instance.State = ManagerState.Fired;
-            instance.SendTextMessage("Alright, I'm done here. Good luck, boss.");
-            instance.Despawn();
+
+            // Clear text message thread (stale after despawn)
+            instance.ClearMessages();
+
+            // Clear locker assignment and config before walk-away
+            if (instance.AssignedLocker != null)
+            {
+                try
+                {
+                    instance.AssignedLocker.Storage.StorageEntityName = instance.AssignedLocker.HomeType;
+                    instance.AssignedLocker.Storage.StorageEntitySubtitle = string.Empty;
+                }
+                catch { }
+            }
+            instance.ClearLocker();
+            instance.Configuration.ClearAll();
+
+            // Walk to spawn point then despawn
+            instance.WalkAwayAndDespawn();
 
             // Sync manager state to clients via dedicated SyncVar
             ConfigSyncData.Instance?.PublishManagerState();
 
             _logger.Msg($"Fired manager {managerId}");
+        }
+
+        /// <summary>
+        /// Transfers a manager to a new business. Walks the NPC to the new location.
+        /// </summary>
+        public void TransferManager(string managerId, string targetPropertyCode)
+        {
+            if (!ManagerInstance.Active.TryGetValue(managerId, out var instance))
+            {
+                _logger.Warning($"TransferManager: no manager with id {managerId}");
+                return;
+            }
+
+            // Find target business
+            Business targetBusiness = null;
+            foreach (var biz in Business.OwnedBusinesses)
+            {
+                if (biz != null && string.Equals(biz.PropertyCode, targetPropertyCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    targetBusiness = biz;
+                    break;
+                }
+            }
+
+            if (targetBusiness == null)
+            {
+                _logger.Warning($"TransferManager: target business '{targetPropertyCode}' not found");
+                return;
+            }
+
+            // Check target doesn't already have a manager
+            if (ManagerInstance.HasManager(targetPropertyCode))
+            {
+                _logger.Warning($"TransferManager: {targetPropertyCode} already has a manager");
+                return;
+            }
+
+            // Set state to Transferring
+            instance.State = ManagerState.Transferring;
+
+            // Clear configuration (not valid for new business)
+            instance.Configuration.ClearAll();
+
+            // Release old locker
+            if (instance.AssignedLocker != null)
+            {
+                try
+                {
+                    instance.AssignedLocker.Storage.StorageEntityName = instance.AssignedLocker.HomeType;
+                    instance.AssignedLocker.Storage.StorageEntitySubtitle = string.Empty;
+                }
+                catch { }
+            }
+            instance.ClearLocker();
+
+            // Update business assignment
+            string oldBizCode = instance.BusinessPropertyCode;
+            instance.AssignedBusiness = targetBusiness;
+            instance.BusinessPropertyCode = targetBusiness.PropertyCode;
+
+            // Send text message
+            instance.SendTextMessage($"On my way to {targetBusiness.PropertyName}. I'll get set up there shortly.");
+
+            // Walk to new business
+            var location = ManagerLocations.GetLocation(targetPropertyCode);
+            if (location != null)
+            {
+                WalkToNewBusiness(instance, location, targetBusiness);
+            }
+            else
+            {
+                // No registered location — just teleport
+                _logger.Warning($"No ManagerLocation for {targetPropertyCode}, teleporting manager");
+                CompleteTransfer(instance, targetBusiness);
+            }
+
+            // Sync state to clients
+            ConfigSyncData.Instance?.PublishManagerState();
+
+            _logger.Msg($"Manager {managerId} transferring from {oldBizCode} to {targetPropertyCode}");
+        }
+
+        /// <summary>
+        /// Walks manager NPC to a new business location, then completes the transfer.
+        /// </summary>
+        private void WalkToNewBusiness(ManagerInstance instance, ManagerLocations.BusinessLocation location, Business targetBusiness)
+        {
+            try
+            {
+                if (instance.GameNpc?.Movement == null)
+                {
+                    CompleteTransfer(instance, targetBusiness);
+                    return;
+                }
+
+                // Track target location for EnsureMoving resume
+                instance.TargetLocation = location;
+                instance.ArrivedAtDestination = false;
+
+                // Hold reference to prevent GC
+                Il2CppSystem.Action<NPCMovement.WalkResult> callback =
+                    (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                    new Action<NPCMovement.WalkResult>(result =>
+                    {
+                        _logger.Msg($"Manager {instance.Id} arrived at new business (result={result})");
+                        CompleteTransfer(instance, targetBusiness);
+                        if (result == NPCMovement.WalkResult.Success ||
+                            result == NPCMovement.WalkResult.Partial)
+                        {
+                            try
+                            {
+                                instance.GameNpc?.Movement?.FaceDirection(location.DestRotation * Vector3.forward);
+                            }
+                            catch { }
+                        }
+                    });
+
+                // Store callback reference on the instance to prevent GC
+                instance._transferCallback = callback;
+
+                instance.GameNpc.Movement.SetDestination(location.Destination, callback, 3f, 1f);
+                _logger.Msg($"Manager {instance.Id} walking to {targetBusiness.PropertyCode}");
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"WalkToNewBusiness failed: {ex.Message}");
+                CompleteTransfer(instance, targetBusiness);
+            }
+        }
+
+        /// <summary>
+        /// Completes a transfer: assigns new locker, resets state, syncs.
+        /// </summary>
+        private void CompleteTransfer(ManagerInstance instance, Business targetBusiness)
+        {
+            try
+            {
+                instance.TargetLocation = null;
+                instance.ArrivedAtDestination = true;
+                instance.State = ManagerState.Idle;
+
+                instance.SendTextMessage($"I've arrived at {targetBusiness.PropertyName}. Use the clipboard to assign me a locker and I'll get started.");
+
+                // Reset daily pay status
+                instance.PaidForToday = false;
+                instance.NoLockerTextSent = false;
+                instance.NoFundsTextSent = false;
+
+                // Sync updated state
+                ConfigSyncData.Instance?.PublishManagerState();
+
+                _logger.Msg($"Manager {instance.Id} transfer to {targetBusiness.PropertyCode} complete");
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"CompleteTransfer failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Handles remote transfer request from a client.
+        /// </summary>
+        public void TransferManagerRemote(string managerId, string targetPropertyCode)
+        {
+            _logger.Msg($"TransferManagerRemote: {managerId} to {targetPropertyCode}");
+            TransferManager(managerId, targetPropertyCode);
+        }
+
+        /// <summary>
+        /// Handles remote fire request from a client.
+        /// </summary>
+        public void FireManagerRemote(string managerId)
+        {
+            _logger.Msg($"FireManagerRemote: {managerId}");
+            FireManager(managerId);
         }
 
         /// <summary>
@@ -257,62 +450,6 @@ namespace OverTheCounter.Logic
             }
             catch (Exception)
             {
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// Finds the nearest unoccupied EmployeeHome at a business.
-        /// Scans all EmployeeHome components in the scene and picks the closest one
-        /// to the business that isn't claimed by a vanilla employee or another manager.
-        /// </summary>
-        public static EmployeeHome FindNearestAvailableLocker(Business business)
-        {
-            if (business == null) return null;
-
-            try
-            {
-                var businessPos = business.transform.position;
-                var allHomes = UnityEngine.Object.FindObjectsOfType<EmployeeHome>();
-
-                EmployeeHome nearest = null;
-                float nearestDist = float.MaxValue;
-
-                foreach (var home in allHomes)
-                {
-                    if (home == null || home.Storage == null) continue;
-
-                    // Skip if already assigned to a vanilla employee
-                    if (home.AssignedEmployee != null) continue;
-
-                    // Skip if already claimed by another manager
-                    bool claimedByManager = false;
-                    foreach (var mgr in ManagerInstance.Active.Values)
-                    {
-                        if (mgr.AssignedLocker == home)
-                        {
-                            claimedByManager = true;
-                            break;
-                        }
-                    }
-                    if (claimedByManager) continue;
-
-                    // Only consider lockers close to the business (within 10m)
-                    float dist = Vector3.Distance(businessPos, home.transform.position);
-                    if (dist > 10f) continue;
-
-                    if (dist < nearestDist)
-                    {
-                        nearestDist = dist;
-                        nearest = home;
-                    }
-                }
-
-                return nearest;
-            }
-            catch (Exception ex)
-            {
-                Melon<Core>.Logger.Warning($"FindNearestAvailableLocker error: {ex.Message}");
                 return null;
             }
         }
@@ -399,15 +536,7 @@ namespace OverTheCounter.Logic
             var instance = ManagerInstance.Create(id, seed, business);
             if (instance != null)
             {
-                var locker = FindNearestAvailableLocker(business);
-                if (locker != null)
-                {
-                    instance.AssignLocker(locker);
-                    Instance._logger.Msg($"[Debug] Auto-assigned locker for manager {id}");
-                }
-
-                instance.SendTextMessage($"[DEBUG] Spawned at {business.PropertyName}. Locker: {(locker != null ? "assigned" : "none")}.");
-                Instance._logger.Msg($"[Debug] Spawned manager {id} at {business.PropertyCode}");
+                Instance._logger.Msg($"Spawned manager {id} at {business.PropertyCode}");
             }
         }
 
