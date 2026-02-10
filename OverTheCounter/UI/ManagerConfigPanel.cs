@@ -75,6 +75,7 @@ namespace OverTheCounter.UI
         private static string _pendingItemId;
         private static int _pendingSlotIndex = -1;
         private static Il2CppScheduleOne.ItemFramework.ItemDefinition _pendingItemDef;
+        private static int _pendingStackLimit = 20;
 
         // Threshold screen (shown after product selection)
         private static GameObject _thresholdScreenRoot;
@@ -585,7 +586,7 @@ namespace OverTheCounter.UI
             if (string.IsNullOrEmpty(itemId))
             {
                 _currentManager.Configuration.StockedItemIds[slotIndex] = null;
-                _currentManager.Configuration.StockedThresholds[slotIndex] = 20;
+                _currentManager.Configuration.StockedThresholds[slotIndex] = 0;
                 SyncConfig();
                 RefreshItemSlots();
                 return;
@@ -605,9 +606,17 @@ namespace OverTheCounter.UI
             _pendingItemDef = option?.Item;
             _pendingSlotIndex = slotIndex;
 
+            // Use existing threshold if re-configuring, otherwise default to item's stack limit
+            int stackLimit = 20;
+            try { if (option?.Item != null) stackLimit = option.Item.StackLimit; } catch { }
+            if (stackLimit <= 0) stackLimit = 20;
+            bool slotHadItem = !string.IsNullOrEmpty(_currentManager.Configuration.StockedItemIds[slotIndex]);
+            int initialThreshold = slotHadItem
+                ? _currentManager.Configuration.StockedThresholds[slotIndex]
+                : stackLimit;
+
             // Delay one frame so PanelContainer is active when we create the UI
-            MelonCoroutines.Start(ShowThresholdScreenDelayed(
-                _currentManager.Configuration.StockedThresholds[slotIndex]));
+            MelonCoroutines.Start(ShowThresholdScreenDelayed(initialThreshold));
         }
 
         /// <summary>
@@ -718,21 +727,29 @@ namespace OverTheCounter.UI
                     var nfUI = sliderGO.GetComponent<Il2CppScheduleOne.UI.Management.NumberFieldUI>();
                     if (nfUI != null)
                     {
+                        // Use the item's actual stack limit as the slider step
+                        int stackLimit = 20;
+                        try { if (_pendingItemDef != null) stackLimit = _pendingItemDef.StackLimit; } catch { }
+                        if (stackLimit <= 0) stackLimit = 20;
+                        _pendingStackLimit = stackLimit;
+
                         nfUI.Slider.onValueChanged.RemoveAllListeners();
                         nfUI.FieldLabel.text = "Max Stock";
                         nfUI.Slider.minValue = 1;
                         nfUI.Slider.maxValue = 5;
                         nfUI.Slider.wholeNumbers = true;
-                        nfUI.Slider.SetValueWithoutNotify(currentThreshold / 20f);
-                        nfUI.ValueLabel.text = currentThreshold.ToString();
-                        nfUI.MinValueLabel.text = "20";
-                        nfUI.MaxValueLabel.text = "100";
+                        float sliderVal = Mathf.Clamp(currentThreshold / (float)stackLimit, 1f, 5f);
+                        nfUI.Slider.SetValueWithoutNotify(sliderVal);
+                        nfUI.ValueLabel.text = (Mathf.RoundToInt(sliderVal) * stackLimit).ToString();
+                        nfUI.MinValueLabel.text = stackLimit.ToString();
+                        nfUI.MaxValueLabel.text = (stackLimit * 5).ToString();
 
                         _thresholdSlider = nfUI.Slider;
 
+                        int capturedLimit = stackLimit;
                         nfUI.Slider.onValueChanged.AddListener(new Action<float>(val =>
                         {
-                            int displayVal = Mathf.RoundToInt(val) * 20;
+                            int displayVal = Mathf.RoundToInt(val) * capturedLimit;
                             nfUI.ValueLabel.text = displayVal.ToString();
                         }));
                     }
@@ -811,7 +828,9 @@ namespace OverTheCounter.UI
             int savedThreshold = 20;
 
             if (_thresholdSlider != null)
-                savedThreshold = Mathf.Clamp(Mathf.RoundToInt(_thresholdSlider.value) * 20, 20, 100);
+                savedThreshold = Mathf.Clamp(
+                    Mathf.RoundToInt(_thresholdSlider.value) * _pendingStackLimit,
+                    _pendingStackLimit, _pendingStackLimit * 5);
 
             // Cleanup first — destroys threshold screen and restores config panel visibility
             CleanupThresholdScreen();
@@ -858,6 +877,7 @@ namespace OverTheCounter.UI
             _pendingItemId = null;
             _pendingItemDef = null;
             _pendingSlotIndex = -1;
+            _pendingStackLimit = 20;
         }
 
         private static void RefreshItemSlots()

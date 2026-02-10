@@ -535,6 +535,8 @@
 		<Compile Include="Patches\FixerDialoguePatch.cs" />
 		<Compile Include="Patches\ManagerClipboardPatch.cs" />
 		<Compile Include="Logic\ManagerConfiguration.cs" />
+		<Compile Include="Logic\StoreLocations.cs" />
+		<Compile Include="Logic\ManagerSupplyBehaviour.cs" />
 		<Compile Include="UI\ManagerConfigPanel.cs" />
 	</ItemGroup>
 

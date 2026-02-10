@@ -296,6 +296,15 @@ namespace OverTheCounter.Logic
                     Logger.Warning($"Movement setup failed for manager {id}: {ex.Message}");
                 }
 
+                // Faster walk speed than default NPCs (~30% increase)
+                try
+                {
+                    var speedCtrl = npc.Movement?.SpeedController;
+                    speedCtrl?.AddSpeedControl(
+                        new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, 0.106f));
+                }
+                catch { }
+
                 Logger.Msg($"Spawned manager {id} ({firstName} {lastName}) at {spawnPos}");
                 return npc;
             }
@@ -570,7 +579,7 @@ namespace OverTheCounter.Logic
                 dialogueController.AddDialogueChoice(tradeChoice);
                 choices.Add(tradeChoice);
 
-                // ── Choice 2: Why aren't you working? (TODO) ──
+                // ── Choice 2: Why aren't you working? ──
                 var whyChoice = new DialogueController.DialogueChoice();
                 whyChoice.ChoiceText = "Why aren't you working?";
                 whyChoice.Enabled = true;
@@ -578,6 +587,12 @@ namespace OverTheCounter.Logic
                 whyChoice.onChoosen = new UnityEvent();
                 whyChoice.onChoosen.AddListener((UnityAction)(() =>
                 {
+                    string response = GetStatusExplanation(managerId);
+                    var greeting = new DialogueController.GreetingOverride();
+                    greeting.Greeting = response;
+                    greeting.ShouldShow = true;
+                    greeting.PlayVO = false;
+                    capturedDc.AddGreetingOverride(greeting);
                     MelonCoroutines.Start(ReopenDialogue(capturedDc));
                 }));
                 whyChoice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
@@ -768,6 +783,42 @@ namespace OverTheCounter.Logic
             {
                 Logger.Error($"SetupDialogueChoices failed for {mgr.Id}: {ex.Message}\n{ex.StackTrace}");
             }
+        }
+
+        /// <summary>
+        /// Returns a human-readable status explanation for the "Why aren't you working?" dialogue.
+        /// </summary>
+        private static string GetStatusExplanation(string managerId)
+        {
+            if (!ManagerInstance.Active.TryGetValue(managerId, out var mgr))
+                return "I'm not sure what's going on.";
+
+            // Check wages — do a real-time cash check to avoid race with CheckImmediateWages
+            if (!mgr.PaidForToday)
+            {
+                bool cashAvailable = mgr.HasLocker &&
+                    mgr.GetLockerCash() >= Config.ManagerDailyWage.Value;
+                if (!cashAvailable)
+                {
+                    if (!mgr.HasLocker)
+                        return "I need a locker assigned before I can get to work, boss.";
+                    return "You haven't paid my daily wages yet. Add cash to my locker.";
+                }
+                // Cash is there but CheckImmediateWages hasn't ticked yet — don't complain
+            }
+
+            var supplyStatus = mgr.SupplyBehaviour?.GetStatusDescription();
+            if (supplyStatus != null) return supplyStatus;
+
+            return mgr.State switch
+            {
+                ManagerState.Idle => "Everything's stocked up! I'll check again shortly.",
+                ManagerState.SupplyRun => "I'm out picking up supplies for the business.",
+                ManagerState.DistributionRun => "I'm out delivering product to our sellers.",
+                ManagerState.NoFunds => "I can't work without pay, boss. Add cash to my locker.",
+                ManagerState.Transferring => "I'm on my way to a new assignment.",
+                _ => "I'm working on it!"
+            };
         }
 
         /// <summary>
@@ -971,10 +1022,12 @@ namespace OverTheCounter.Logic
                 if (mgr?.GameNpc == null || inventory == null) yield break;
 
                 string title = mgr.GameNpc.fullName + "'s Inventory";
-                Singleton<StorageMenu>.Instance.Open(
+                var storageMenu = Singleton<StorageMenu>.Instance;
+                storageMenu.Open(
                     inventory.Cast<Il2CppScheduleOne.ItemFramework.IItemSlotOwner>(),
                     title,
                     "");
+
             }
             catch (Exception ex)
             {
@@ -998,7 +1051,9 @@ namespace OverTheCounter.Logic
                     existing.RandomCash = false;
                     existing.RandomItems = false;
                     existing.CanBePickpocketed = false;
-                    Logger.Msg($"Inventory already exists on manager {npc.ID}, configured for persistence");
+                    existing.SlotCount = 5;
+
+                    Logger.Msg($"Inventory already exists on manager {npc.ID}, configured (slots={existing.ItemSlots?.Count ?? existing.SlotCount})");
                     return;
                 }
 
@@ -1006,7 +1061,7 @@ namespace OverTheCounter.Logic
                 if (wasActive) npc.gameObject.SetActive(false);
 
                 var inventory = npc.gameObject.AddComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
-                inventory.SlotCount = 20;
+                inventory.SlotCount = 5;
                 inventory.ClearInventoryEachNight = false;
                 inventory.RandomCash = false;
                 inventory.RandomItems = false;

@@ -25,23 +25,62 @@ namespace OverTheCounter.Logic
 
         public static ManagerController Instance { get; private set; }
 
+        private int _lastSupplyCheckMinute = -1;
+
         public ManagerController(MelonLogger.Instance logger)
         {
             _logger = logger;
             Instance = this;
 
-            TimeManager.OnDayPass += OnDayPass;
+            TimeManager.OnSleepEnd += OnSleepEnd;
+            TimeManager.OnTick += OnTimeTick;
         }
 
         /// <summary>
-        /// Called once per day. Deducts wages from each manager's cash pool.
-        /// Host-only — clients receive state via FishNet sync.
+        /// Supply check — triggers supply runs for idle, paid managers.
+        /// Called on every game tick; throttled to once per ~10 in-game minutes.
         /// </summary>
-        private void OnDayPass()
+        private void OnTimeTick()
         {
             if (!NetworkHelper.IsHost) return;
 
-            _logger.Msg($"[OnDayPass] Processing wages for {ManagerInstance.Active.Count} managers");
+            int currentTime = TimeManager.CurrentTime;
+            int totalMinutes = (currentTime / 100) * 60 + (currentTime % 100);
+
+            if (_lastSupplyCheckMinute >= 0)
+            {
+                int diff = totalMinutes - _lastSupplyCheckMinute;
+                if (diff < 0) diff += 1440; // wrap around midnight
+                if (diff < 10) return;
+            }
+            _lastSupplyCheckMinute = totalMinutes;
+
+            try
+            {
+                foreach (var mgr in ManagerInstance.Active.Values)
+                {
+                    if (mgr.State != ManagerState.Idle) continue;
+                    if (!mgr.PaidForToday) continue;
+                    mgr.SupplyBehaviour?.TryStartSupplyRun();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[ManagerController] OnTimeTick supply check error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Called when the player wakes up (matches vanilla Employee pay timing via onSleepEnd).
+        /// Resets pay status and deducts wages from each manager's locker.
+        /// </summary>
+        private void OnSleepEnd(int skippedMinutes)
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            _lastSupplyCheckMinute = -1;
+
+            _logger.Msg($"[OnSleepEnd] Processing wages for {ManagerInstance.Active.Count} managers");
 
             try
             {
@@ -502,7 +541,8 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void Cleanup()
         {
-            TimeManager.OnDayPass -= OnDayPass;
+            TimeManager.OnSleepEnd -= OnSleepEnd;
+            TimeManager.OnTick -= OnTimeTick;
             ManagerInstance.CleanupAll();
         }
 

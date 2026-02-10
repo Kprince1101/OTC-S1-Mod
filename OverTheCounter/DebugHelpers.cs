@@ -175,6 +175,9 @@ namespace OverTheCounter
             if (GUILayout.Button(_speedBoosted ? "Speed: BOOSTED (2.4x)" : "Speed Boost (2.4x)"))
                 ToggleSpeedBoost();
 
+            if (GUILayout.Button(_managerSpeedBoosted ? "Mgr Speed: BOOSTED (2.4x)" : "Mgr Speed Boost (2.4x)"))
+                ToggleManagerSpeedBoost();
+
             GUILayout.Space(8);
 
             if (GUILayout.Button("Force Desperation (Meth)"))
@@ -335,6 +338,7 @@ namespace OverTheCounter
         }
 
         private bool _speedBoosted;
+        private bool _managerSpeedBoosted;
 
         // Hotspot editor state (3-step: 0=spawn, 1=dest, 2=describe)
         private int _hsStep;
@@ -398,6 +402,24 @@ namespace OverTheCounter
                 Logger.Warning($"Speed boost failed: {ex.Message}");
                 _speedBoosted = false;
             }
+        }
+
+        private void ToggleManagerSpeedBoost()
+        {
+            _managerSpeedBoosted = !_managerSpeedBoosted;
+            // Normal manager speed is 0.106f (~30% above default 0.08f); 2.4x = 0.254f
+            float speed = _managerSpeedBoosted ? 0.254f : 0.106f;
+            foreach (var mgr in ManagerInstance.Active.Values)
+            {
+                try
+                {
+                    var speedCtrl = mgr.GameNpc?.Movement?.SpeedController;
+                    speedCtrl?.AddSpeedControl(
+                        new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, speed));
+                }
+                catch { }
+            }
+            Logger.Msg($"Manager speed boost: {(_managerSpeedBoosted ? "ON" : "OFF")} ({speed:F3})");
         }
 
         private static void SpawnPackagedProduct(ProductDefinition productDef, string packagingId, int gramsPerUnit, int count, string label,

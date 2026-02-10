@@ -6,6 +6,7 @@ using OverTheCounter.Logic;
 using OverTheCounter.NPCs;
 using OverTheCounter.Patches;
 using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using S1API.PhoneApp;
 using System;
 using System.IO;
@@ -101,6 +102,13 @@ namespace OverTheCounter
                 // Resume interrupted manager walks (e.g. after dialogue)
                 foreach (var mgr in ManagerInstance.Active.Values)
                     mgr.EnsureMoving();
+
+                // Tick supply run behaviours (host only)
+                if (NetworkHelper.IsHost)
+                {
+                    foreach (var mgr in ManagerInstance.Active.Values)
+                        mgr.SupplyBehaviour?.Tick();
+                }
 
                 // Update drifter quest timers on client (OnTimeTick is host-only)
                 _drifterManager?.ClientQuestTick();

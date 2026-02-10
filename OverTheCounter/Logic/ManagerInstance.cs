@@ -43,6 +43,9 @@ namespace OverTheCounter.Logic
         // Configuration (supply storage + distribution routes)
         public ManagerConfiguration Configuration { get; } = new ManagerConfiguration();
 
+        // Supply run behaviour (host-only state machine)
+        public ManagerSupplyBehaviour SupplyBehaviour { get; private set; }
+
         // Locker — EmployeeHome used for cash storage (player deposits cash here)
         public EmployeeHome AssignedLocker { get; private set; }
 
@@ -135,6 +138,7 @@ namespace OverTheCounter.Logic
             {
                 GameNpc = npc
             };
+            instance.SupplyBehaviour = new ManagerSupplyBehaviour(instance);
 
             // Capture FishNet ObjectId for client-side adoption
             try { instance.NetworkObjectId = npc.NetworkObject.ObjectId; }
@@ -184,11 +188,22 @@ namespace OverTheCounter.Logic
                 IsAdopted = true
             };
 
+            instance.SupplyBehaviour = new ManagerSupplyBehaviour(instance);
+
             Active[id] = instance;
 
             // Set up inventory and dialogue choices
             ManagerSpawner.SetupInventory(existingNpc);
             ManagerSpawner.SetupDialogueChoices(instance);
+
+            // Faster walk speed (~30% increase)
+            try
+            {
+                var speedCtrl = existingNpc.Movement?.SpeedController;
+                speedCtrl?.AddSpeedControl(
+                    new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, 0.106f));
+            }
+            catch { }
 
             // Generate proper mugshot from the applied avatar settings
             instance.GenerateMugshot();
@@ -388,6 +403,7 @@ namespace OverTheCounter.Logic
         public void EnsureMoving()
         {
             if (!IsValid || State == ManagerState.Fired) return;
+            if (State == ManagerState.SupplyRun) return; // supply behaviour handles its own walks
 
             try
             {
@@ -428,6 +444,8 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void WalkAwayAndDespawn()
         {
+            SupplyBehaviour?.Cancel();
+
             try
             {
                 var location = ManagerLocations.GetLocation(BusinessPropertyCode);
@@ -754,6 +772,8 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void Despawn()
         {
+            SupplyBehaviour?.Cancel();
+
             Logger.Msg($"Despawning manager {Id}");
             Active.Remove(Id);
 
