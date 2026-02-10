@@ -810,6 +810,9 @@ namespace OverTheCounter.Logic
             var supplyStatus = mgr.SupplyBehaviour?.GetStatusDescription();
             if (supplyStatus != null) return supplyStatus;
 
+            var distributionStatus = mgr.DistributionBehaviour?.GetStatusDescription();
+            if (distributionStatus != null) return distributionStatus;
+
             return mgr.State switch
             {
                 ManagerState.Idle => "Everything's stocked up! I'll check again shortly.",
@@ -1079,6 +1082,61 @@ namespace OverTheCounter.Logic
             {
                 Logger.Warning($"SetupInventory failed for {npc.ID}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Cached employee NavMeshAgent settings for indoor navigation.
+        /// The CivilianNPC prefab has outdoor-only settings; employees have settings that
+        /// include indoor NavMesh areas. We cache these for on-demand switching.
+        /// </summary>
+        private static int? _cachedEmployeeAgentTypeID;
+        private static int? _cachedEmployeeAreaMask;
+
+        /// <summary>
+        /// Gets the employee NavMesh settings (agentTypeID + areaMask) for indoor navigation.
+        /// Looks up from any vanilla employee and caches the result.
+        /// </summary>
+        public static bool TryGetEmployeeNavMeshSettings(out int agentTypeID, out int areaMask)
+        {
+            if (_cachedEmployeeAgentTypeID.HasValue)
+            {
+                agentTypeID = _cachedEmployeeAgentTypeID.Value;
+                areaMask = _cachedEmployeeAreaMask.Value;
+                return true;
+            }
+
+            agentTypeID = 0;
+            areaMask = -1;
+
+            try
+            {
+                var props = Il2CppScheduleOne.Property.Property.OwnedProperties;
+                if (props == null) return false;
+
+                for (int p = 0; p < props.Count; p++)
+                {
+                    var prop = props[p];
+                    if (prop?.Employees == null) continue;
+                    for (int e = 0; e < prop.Employees.Count; e++)
+                    {
+                        var emp = prop.Employees[e];
+                        if (emp?.Movement?.Agent == null) continue;
+
+                        var empAgent = emp.Movement.Agent;
+                        _cachedEmployeeAgentTypeID = empAgent.agentTypeID;
+                        _cachedEmployeeAreaMask = empAgent.areaMask;
+                        agentTypeID = empAgent.agentTypeID;
+                        areaMask = empAgent.areaMask;
+                        Logger.Msg($"Cached employee NavMesh settings: agentTypeID={agentTypeID}, areaMask={areaMask}");
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"TryGetEmployeeNavMeshSettings failed: {ex.Message}");
+            }
+            return false;
         }
 
         /// <summary>

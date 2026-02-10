@@ -46,6 +46,9 @@ namespace OverTheCounter.Logic
         // Supply run behaviour (host-only state machine)
         public ManagerSupplyBehaviour SupplyBehaviour { get; private set; }
 
+        // Distribution run behaviour (host-only state machine)
+        public ManagerDistributionBehaviour DistributionBehaviour { get; private set; }
+
         // Locker — EmployeeHome used for cash storage (player deposits cash here)
         public EmployeeHome AssignedLocker { get; private set; }
 
@@ -73,6 +76,24 @@ namespace OverTheCounter.Logic
                 try { return GameNpc?.transform?.position; }
                 catch { return null; }
             }
+        }
+
+        /// <summary>
+        /// Immediately checks for and starts the next available job (supply or distribution).
+        /// Returns true if a new job was started, false if nothing to do.
+        /// </summary>
+        public bool TryStartNextJob()
+        {
+            if (State != ManagerState.Idle) return false;
+            if (!PaidForToday) return false;
+
+            // Supply takes priority
+            if (SupplyBehaviour?.TryStartSupplyRun() ?? false) return true;
+
+            // Then distribution
+            if (DistributionBehaviour?.TryStartDistributionRun() ?? false) return true;
+
+            return false;
         }
 
         private ManagerInstance(string id, int seed, Business business)
@@ -139,6 +160,7 @@ namespace OverTheCounter.Logic
                 GameNpc = npc
             };
             instance.SupplyBehaviour = new ManagerSupplyBehaviour(instance);
+            instance.DistributionBehaviour = new ManagerDistributionBehaviour(instance);
 
             // Capture FishNet ObjectId for client-side adoption
             try { instance.NetworkObjectId = npc.NetworkObject.ObjectId; }
@@ -189,6 +211,7 @@ namespace OverTheCounter.Logic
             };
 
             instance.SupplyBehaviour = new ManagerSupplyBehaviour(instance);
+            instance.DistributionBehaviour = new ManagerDistributionBehaviour(instance);
 
             Active[id] = instance;
 
@@ -404,6 +427,7 @@ namespace OverTheCounter.Logic
         {
             if (!IsValid || State == ManagerState.Fired) return;
             if (State == ManagerState.SupplyRun) return; // supply behaviour handles its own walks
+            if (State == ManagerState.DistributionRun) return; // distribution behaviour handles its own walks
 
             try
             {
@@ -445,6 +469,7 @@ namespace OverTheCounter.Logic
         public void WalkAwayAndDespawn()
         {
             SupplyBehaviour?.Cancel();
+            DistributionBehaviour?.Cancel();
 
             try
             {
@@ -773,6 +798,7 @@ namespace OverTheCounter.Logic
         public void Despawn()
         {
             SupplyBehaviour?.Cancel();
+            DistributionBehaviour?.Cancel();
 
             Logger.Msg($"Despawning manager {Id}");
             Active.Remove(Id);

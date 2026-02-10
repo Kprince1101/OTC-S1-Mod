@@ -61,12 +61,18 @@ namespace OverTheCounter.Logic
                 {
                     if (mgr.State != ManagerState.Idle) continue;
                     if (!mgr.PaidForToday) continue;
-                    mgr.SupplyBehaviour?.TryStartSupplyRun();
+
+                    // Supply takes priority
+                    bool supplyStarted = mgr.SupplyBehaviour?.TryStartSupplyRun() ?? false;
+                    if (supplyStarted) continue;
+
+                    // Supply didn't trigger (fully stocked) — try distribution
+                    mgr.DistributionBehaviour?.TryStartDistributionRun();
                 }
             }
             catch (Exception ex)
             {
-                _logger.Error($"[ManagerController] OnTimeTick supply check error: {ex.Message}");
+                _logger.Error($"[ManagerController] OnTimeTick error: {ex.Message}");
             }
         }
 

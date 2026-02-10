@@ -537,6 +537,7 @@
 		<Compile Include="Logic\ManagerConfiguration.cs" />
 		<Compile Include="Logic\StoreLocations.cs" />
 		<Compile Include="Logic\ManagerSupplyBehaviour.cs" />
+		<Compile Include="Logic\ManagerDistributionBehaviour.cs" />
 		<Compile Include="UI\ManagerConfigPanel.cs" />
 	</ItemGroup>
 

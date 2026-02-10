@@ -103,11 +103,14 @@ namespace OverTheCounter
                 foreach (var mgr in ManagerInstance.Active.Values)
                     mgr.EnsureMoving();
 
-                // Tick supply run behaviours (host only)
+                // Tick supply + distribution run behaviours (host only)
                 if (NetworkHelper.IsHost)
                 {
                     foreach (var mgr in ManagerInstance.Active.Values)
+                    {
                         mgr.SupplyBehaviour?.Tick();
+                        mgr.DistributionBehaviour?.Tick();
+                    }
                 }
 
                 // Update drifter quest timers on client (OnTimeTick is host-only)

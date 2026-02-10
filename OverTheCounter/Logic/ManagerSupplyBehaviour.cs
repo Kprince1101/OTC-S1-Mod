@@ -1180,13 +1180,21 @@ namespace OverTheCounter.Logic
 
             try
             {
-                // Try ITransitEntity.AccessPoints first
                 var transit = storage.TryCast<Il2CppScheduleOne.Management.ITransitEntity>();
-                if (transit != null)
+                if (transit != null && _manager.GameNpc != null)
                 {
+                    // Vanilla pattern: find closest reachable access point via NavMesh pathability check
+                    var reachable = NavMeshUtility.GetReachableAccessPoint(transit, _manager.GameNpc);
+                    if (reachable != null)
+                        return reachable.position;
+
+                    // Fallback: try raw access points (may not be pathable but better than nothing)
                     var accessPoints = transit.AccessPoints;
                     if (accessPoints != null && accessPoints.Length > 0 && accessPoints[0] != null)
+                    {
+                        Logger.Warning($"Manager {_manager.Id}: no reachable access point for supply storage, using AccessPoints[0] fallback");
                         return accessPoints[0].position;
+                    }
                 }
             }
             catch { }
@@ -1308,7 +1316,17 @@ namespace OverTheCounter.Logic
             // Return any remaining cash to the locker
             ReturnCashToLocker();
 
-            // Walk to idle point
+            // Check for immediate work (distribution routes, more supplies) before walking home
+            Logger.Msg($"Manager {_manager.Id}: supply deposit complete, checking for more work");
+            _purchaseQueue = null;
+            State = SupplyState.Idle;
+            _manager.State = ManagerState.Idle;
+            _nextVisit = null;
+
+            if (_manager.TryStartNextJob()) return;
+
+            // Nothing to do — walk home
+            _manager.State = ManagerState.SupplyRun;
             WalkToIdle();
         }
 
@@ -1386,6 +1404,9 @@ namespace OverTheCounter.Logic
             State = SupplyState.Idle;
             _manager.State = ManagerState.Idle;
             _nextVisit = null;
+
+            // Immediately check for next job instead of waiting for next tick
+            _manager.TryStartNextJob();
         }
 
         /// <summary>
@@ -1396,6 +1417,7 @@ namespace OverTheCounter.Logic
             if (State == SupplyState.Idle) return;
 
             Logger.Msg($"Manager {_manager.Id}: supply run cancelled (was {State})");
+
             _purchaseQueue = null;
             ReturnCashToLocker();
             State = SupplyState.Idle;
@@ -1833,7 +1855,16 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                _manager.GameNpc?.Movement?.Warp(position);
+                // Sample NavMesh position before warping (vanilla Employee.SetDestination pattern)
+                // areaMask -1 = all NavMesh areas including indoor areas
+                if (NavMeshUtility.SamplePosition(position, out UnityEngine.AI.NavMeshHit hit, 5f, -1))
+                {
+                    _manager.GameNpc?.Movement?.Warp(hit.position);
+                }
+                else
+                {
+                    _manager.GameNpc?.Movement?.Warp(position);
+                }
             }
             catch (Exception ex)
             {
