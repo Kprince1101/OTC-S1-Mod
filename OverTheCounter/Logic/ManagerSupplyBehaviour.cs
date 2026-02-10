@@ -179,9 +179,6 @@ namespace OverTheCounter.Logic
                 return false;
             }
 
-            // Withdraw cash from locker for Night Market purchases
-            WithdrawCashFromLocker();
-
             _manager.State = ManagerState.SupplyRun;
 
             // Plan first leg from current position
@@ -206,6 +203,19 @@ namespace OverTheCounter.Logic
         private bool PlanAndContinue()
         {
             var items = BuildShoppingList();
+
+            // Only withdraw cash from locker if any items require Night Market (cash-only) purchase
+            bool needsCash = false;
+            foreach (var item in items)
+            {
+                foreach (var opt in item.Options)
+                {
+                    if (opt.StoreType == StoreType.NightMarket) { needsCash = true; break; }
+                }
+                if (needsCash) break;
+            }
+            if (needsCash) WithdrawCashFromLocker();
+
             if (items.Count == 0)
             {
                 // Nothing (more) to buy — go deposit if we have items, otherwise finish
@@ -248,11 +258,50 @@ namespace OverTheCounter.Logic
                 return false;
             }
 
-            // Pre-flight affordability check — don't walk to a store if we can't afford anything there
-            if (!CanAffordAnyItem(visit))
+            // Pre-flight affordability check — if the nearest store is unaffordable,
+            // strip that store type from all items' options and re-plan with what remains.
+            var excludedStoreTypes = new HashSet<StoreType>();
+            const int MAX_RETRIES = 5; // safety cap (only 3 store types exist)
+            int retries = 0;
+            while (visit != null && !CanAffordAnyItem(visit) && retries < MAX_RETRIES)
             {
-                Logger.Msg($"Manager {_manager.Id}: can't afford any items at {visit.Location.DisplayName}, skipping trip");
-                // If we already have items from a previous store, deposit them
+                retries++;
+                Logger.Msg($"Manager {_manager.Id}: can't afford any items at {visit.Location.DisplayName}, trying next store");
+                excludedStoreTypes.Add(visit.StoreType);
+
+                // Rebuild items with excluded store options stripped
+                var remainingItems = new List<ShoppingItem>();
+                foreach (var item in items)
+                {
+                    var filteredOptions = new List<PurchaseOption>();
+                    foreach (var opt in item.Options)
+                    {
+                        if (!excludedStoreTypes.Contains(opt.StoreType))
+                            filteredOptions.Add(opt);
+                    }
+                    if (filteredOptions.Count > 0)
+                    {
+                        remainingItems.Add(new ShoppingItem
+                        {
+                            ItemId = item.ItemId,
+                            ItemName = item.ItemName,
+                            Quantity = item.Quantity,
+                            Options = filteredOptions
+                        });
+                    }
+                }
+
+                if (remainingItems.Count == 0) { visit = null; break; }
+                items = remainingItems;
+                visit = PlanNextVisit(items, fromPos);
+            }
+
+            if (visit == null || retries >= MAX_RETRIES)
+            {
+                if (retries >= MAX_RETRIES)
+                    Logger.Warning($"Manager {_manager.Id}: hit retry limit in affordability check");
+                else
+                    Logger.Msg($"Manager {_manager.Id}: no affordable stores remaining");
                 if (HasItemsInNpcInventory())
                 {
                     if (CanStorageAcceptAnyItem())
@@ -348,6 +397,19 @@ namespace OverTheCounter.Logic
                 string itemId = config.StockedItemIds[i];
                 if (string.IsNullOrEmpty(itemId)) continue;
                 if (_unaffordableItems.Contains(itemId)) continue;
+
+                // Skip items locked behind player rank progression
+                try
+                {
+                    var itemDef = Il2CppScheduleOne.Registry.GetItem(itemId);
+                    var storable = itemDef?.TryCast<Il2CppScheduleOne.ItemFramework.StorableItemDefinition>();
+                    if (storable != null && !storable.IsUnlocked)
+                    {
+                        Logger.Msg($"Manager {_manager.Id}: skipping locked item '{itemId}'");
+                        continue;
+                    }
+                }
+                catch { }
 
                 int threshold = config.StockedThresholds[i];
                 int inStorage = GetStorageQuantity(storage.StorageEntity, itemId);
@@ -918,7 +980,7 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Processes a single purchase from the queue (called from Tick after animation delay).
         /// Checks affordability at execution time so previous purchases are already deducted.
-        /// If the full stack can't be afforded, the item is skipped entirely.
+        /// If the full quantity can't be afforded, reduces to the most whole stacks that can.
         /// </summary>
         private void ProcessNextPurchase()
         {
@@ -948,16 +1010,31 @@ namespace OverTheCounter.Logic
 
                 if (npcCash < totalCost)
                 {
-                    if (!_cantAffordCashTextSent)
+                    // Can't afford full quantity — reduce to whole stacks we can afford
+                    int stackLimit = GetItemStackLimit(purchase.ItemId);
+                    int affordableUnits = (int)(npcCash / purchase.UnitPrice);
+                    int reducedQty = (affordableUnits / stackLimit) * stackLimit;
+
+                    if (reducedQty > 0)
                     {
-                        _cantAffordCashTextSent = true;
-                        string storeName = visit?.Location?.DisplayName ?? "the store";
-                        _manager.SendTextMessage($"Boss, I don't have enough cash on me to purchase {purchase.ItemName} from {storeName}.");
+                        Logger.Msg($"Manager {_manager.Id}: can't afford {buyQty}x {purchase.ItemName} (${totalCost:F0}), buying {reducedQty} instead (${purchase.UnitPrice * reducedQty:F0})");
+                        buyQty = reducedQty;
+                        totalCost = purchase.UnitPrice * buyQty;
                     }
-                    Logger.Msg($"Manager {_manager.Id}: can't afford {purchase.ItemName} (need ${totalCost:F0} cash, have ${npcCash:F0})");
-                    _unaffordableItems.Add(purchase.ItemId);
+                    else
+                    {
+                        if (!_cantAffordCashTextSent)
+                        {
+                            _cantAffordCashTextSent = true;
+                            string storeName = visit?.Location?.DisplayName ?? "the store";
+                            _manager.SendTextMessage($"Boss, I don't have enough cash on me to purchase {purchase.ItemName} from {storeName}.");
+                        }
+                        Logger.Msg($"Manager {_manager.Id}: can't afford {purchase.ItemName} (need ${purchase.UnitPrice * stackLimit:F0} for one stack, have ${npcCash:F0})");
+                        _unaffordableItems.Add(purchase.ItemId);
+                    }
                 }
-                else
+
+                if (buyQty > 0 && !_unaffordableItems.Contains(purchase.ItemId))
                 {
                     try
                     {
@@ -982,14 +1059,35 @@ namespace OverTheCounter.Logic
                     }
                     else if (moneyManager.onlineBalance < totalCost)
                     {
-                        if (!_cantAffordOnlineTextSent)
+                        // Can't afford full quantity — reduce to whole stacks we can afford
+                        int stackLimit = GetItemStackLimit(purchase.ItemId);
+                        int affordableUnits = (int)(moneyManager.onlineBalance / purchase.UnitPrice);
+                        int reducedQty = (affordableUnits / stackLimit) * stackLimit;
+
+                        if (reducedQty > 0)
                         {
-                            _cantAffordOnlineTextSent = true;
-                            string storeName = visit?.Location?.DisplayName ?? "the store";
-                            _manager.SendTextMessage($"Boss, I don't have enough in the bank to purchase {purchase.ItemName} from {storeName}.");
+                            Logger.Msg($"Manager {_manager.Id}: can't afford {buyQty}x {purchase.ItemName} online (${totalCost:F0}), buying {reducedQty} instead (${purchase.UnitPrice * reducedQty:F0})");
+                            buyQty = reducedQty;
+                            totalCost = purchase.UnitPrice * buyQty;
+                            moneyManager.CreateOnlineTransaction(
+                                purchase.ItemName,
+                                -purchase.UnitPrice,
+                                buyQty,
+                                $"Supply purchase by {_manager.GameNpc?.fullName ?? "Manager"}"
+                            );
+                            success = true;
                         }
-                        Logger.Msg($"Manager {_manager.Id}: can't afford {purchase.ItemName} online (need ${totalCost:F0}, have ${moneyManager.onlineBalance:F0})");
-                        _unaffordableItems.Add(purchase.ItemId);
+                        else
+                        {
+                            if (!_cantAffordOnlineTextSent)
+                            {
+                                _cantAffordOnlineTextSent = true;
+                                string storeName = visit?.Location?.DisplayName ?? "the store";
+                                _manager.SendTextMessage($"Boss, I don't have enough in the bank to purchase {purchase.ItemName} from {storeName}.");
+                            }
+                            Logger.Msg($"Manager {_manager.Id}: can't afford {purchase.ItemName} online (need ${purchase.UnitPrice * stackLimit:F0} for one stack, have ${moneyManager.onlineBalance:F0})");
+                            _unaffordableItems.Add(purchase.ItemId);
+                        }
                     }
                     else
                     {
@@ -1042,8 +1140,7 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Checks if the manager can afford at least one item at the planned store visit.
-        /// Prevents walking to a store when you can't buy anything.
+        /// Checks if the manager can afford at least one stack of any item at the planned store visit.
         /// </summary>
         private bool CanAffordAnyItem(StoreVisit visit)
         {
@@ -1057,8 +1154,9 @@ namespace OverTheCounter.Logic
                     float totalCash = npcCash + lockerCash;
                     foreach (var p in visit.Purchases)
                     {
-                        float cost = p.UnitPrice * p.Quantity;
-                        if (totalCash >= cost) return true;
+                        int stackLimit = GetItemStackLimit(p.ItemId);
+                        float oneStackCost = p.UnitPrice * Math.Min(stackLimit, p.Quantity);
+                        if (totalCash >= oneStackCost) return true;
                     }
                     return false;
                 }
@@ -1069,8 +1167,9 @@ namespace OverTheCounter.Logic
                     float balance = moneyManager.onlineBalance;
                     foreach (var p in visit.Purchases)
                     {
-                        float cost = p.UnitPrice * p.Quantity;
-                        if (balance >= cost) return true;
+                        int stackLimit = GetItemStackLimit(p.ItemId);
+                        float oneStackCost = p.UnitPrice * Math.Min(stackLimit, p.Quantity);
+                        if (balance >= oneStackCost) return true;
                     }
                     return false;
                 }
@@ -1773,9 +1872,7 @@ namespace OverTheCounter.Logic
                     Logger.Warning($"Manager {_manager.Id}: NPC inventory is null during cash withdrawal");
                     try
                     {
-                        var cashBack = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance
-                            .GetCashInstance(withdraw);
-                        _manager.AssignedLocker.Storage.InsertItem(cashBack, true);
+                        DepositCashToStorage(_manager.AssignedLocker.Storage, withdraw);
                     }
                     catch { }
                     return;
@@ -1807,15 +1904,50 @@ namespace OverTheCounter.Logic
                 if (cash <= 0f) return;
 
                 npcInventory.RemoveCash(cash);
-
-                var cashInstance = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance
-                    .GetCashInstance(cash);
-                _manager.AssignedLocker.Storage.InsertItem(cashInstance, true);
+                DepositCashToStorage(_manager.AssignedLocker.Storage, cash);
                 Logger.Msg($"Manager {_manager.Id}: returned ${cash:F0} cash to locker");
             }
             catch (Exception ex)
             {
                 Logger.Warning($"Manager {_manager.Id}: ReturnCashToLocker failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Deposits cash into a storage entity, filling existing cash slots (up to $1000 each)
+        /// before creating new slots for any remainder.
+        /// </summary>
+        private static void DepositCashToStorage(Il2CppScheduleOne.Storage.StorageEntity storage, float amount)
+        {
+            const float MAX_PER_SLOT = 1000f;
+            float remaining = amount;
+
+            // Phase 1: Fill existing cash slots
+            for (int i = 0; i < storage.ItemSlots.Count && remaining > 0f; i++)
+            {
+                var slot = storage.ItemSlots[i];
+                if (slot?.ItemInstance == null) continue;
+
+                var existingCash = slot.ItemInstance.TryCast<Il2CppScheduleOne.ItemFramework.CashInstance>();
+                if (existingCash == null) continue;
+
+                float space = MAX_PER_SLOT - existingCash.Balance;
+                if (space <= 0f) continue;
+
+                float add = Math.Min(remaining, space);
+                existingCash.ChangeBalance(add);
+                slot.ReplicateStoredInstance();
+                remaining -= add;
+            }
+
+            // Phase 2: Create new slot(s) for any remainder
+            while (remaining > 0f)
+            {
+                float slotAmount = Math.Min(remaining, MAX_PER_SLOT);
+                var newCash = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance
+                    .GetCashInstance(slotAmount);
+                storage.InsertItem(newCash, true);
+                remaining -= slotAmount;
             }
         }
 

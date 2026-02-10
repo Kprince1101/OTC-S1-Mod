@@ -18,6 +18,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -931,15 +932,15 @@ namespace OverTheCounter.UI
         /// <summary>
         /// Whitelisted item IDs for the manager product selector.
         /// </summary>
-        private static readonly HashSet<string> WhitelistedItemIds = new HashSet<string>
+        private static readonly List<string> OrderedItemIds = new List<string>
         {
-            // Mix Ingredients
+            // Mixers
             "cuke", "donut", "flumedicine", "gasoline", "energydrink", "mouthwash",
             "banana", "chili", "motoroil", "iodine", "paracetamol", "viagor",
             "horsesemen", "megabean", "addy", "battery",
-            // Agriculture
-            "extralonglifesoil", "fertilizer", "longlifesoil", "pgr", "soil", "speedgrow",
-            // Ingredients
+            // Soils
+            "soil", "longlifesoil", "extralonglifesoil", "fertilizer", "pgr", "speedgrow",
+            // Additives
             "acid", "phosphorus",
             // Packaging
             "baggie", "jar",
@@ -947,8 +948,16 @@ namespace OverTheCounter.UI
             "trashbag"
         };
 
+        private static readonly HashSet<string> WhitelistedItemIds =
+            new HashSet<string>(OrderedItemIds);
+
+        private static readonly Dictionary<string, int> ItemSortOrder =
+            OrderedItemIds.Select((id, idx) => (id, idx))
+                .ToDictionary(x => x.id, x => x.idx);
+
         /// <summary>
         /// Returns whitelisted items available for manager stocking.
+        /// Filters out items locked behind player rank progression and sorts by category.
         /// </summary>
         private static List<Il2CppScheduleOne.ItemFramework.ItemDefinition> GetAvailableItems()
         {
@@ -965,14 +974,28 @@ namespace OverTheCounter.UI
                 for (int i = 0; i < allItems.Count; i++)
                 {
                     var item = allItems[i];
-                    if (item != null && !string.IsNullOrEmpty(item.ID) && WhitelistedItemIds.Contains(item.ID))
-                        result.Add(item);
+                    if (item == null || string.IsNullOrEmpty(item.ID)) continue;
+                    if (!WhitelistedItemIds.Contains(item.ID)) continue;
+
+                    // Skip items locked behind player rank progression
+                    var storable = item.TryCast<Il2CppScheduleOne.ItemFramework.StorableItemDefinition>();
+                    if (storable != null && !storable.IsUnlocked) continue;
+
+                    result.Add(item);
                 }
             }
             catch (Exception ex)
             {
                 Logger.Warning($"Failed to get registry items: {ex.Message}");
             }
+
+            // Sort by category: Mixers → Soils → Additives → Packaging → Tools
+            result.Sort((a, b) =>
+            {
+                int ia = ItemSortOrder.TryGetValue(a.ID, out var va) ? va : 999;
+                int ib = ItemSortOrder.TryGetValue(b.ID, out var vb) ? vb : 999;
+                return ia.CompareTo(ib);
+            });
 
             return result;
         }
