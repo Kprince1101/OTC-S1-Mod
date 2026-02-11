@@ -60,6 +60,13 @@ namespace OverTheCounter.Logic
         public bool GreetingSent { get; set; }
         public bool NoLockerTextSent { get; set; }
         public bool NoFundsTextSent { get; set; }
+        public bool NoNightMarketCashTextSent { get; set; }
+
+        /// <summary>
+        /// Locker cash balance when the NM warning was sent.
+        /// Flag only resets when locker cash rises above this (player deposited cash).
+        /// </summary>
+        public float LockerCashAtWarning { get; set; } = -1f;
 
         // Walk resume state — tracks where the manager should be walking
         internal ManagerLocations.BusinessLocation TargetLocation { get; set; }

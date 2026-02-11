@@ -112,6 +112,22 @@ namespace OverTheCounter.Logic
                         continue;
                     }
 
+                    // Return any cash the NPC is carrying back to locker before wage check
+                    // (manager may have been mid-supply-run when day passed)
+                    mgr.SupplyBehaviour?.ReturnCashToLocker();
+
+                    // Collect Night Market-only item IDs and names for this manager
+                    var nightMarketItems = new List<(string id, string name)>();
+                    for (int i = 0; i < mgr.Configuration.StockedItemIds.Length; i++)
+                    {
+                        string itemId = mgr.Configuration.StockedItemIds[i];
+                        if (!string.IsNullOrEmpty(itemId) && !ManagerSupplyBehaviour.HasDaytimeStoreOption(itemId))
+                        {
+                            var def = Il2CppScheduleOne.Registry.GetItem(itemId);
+                            if (def != null) nightMarketItems.Add((itemId, def.Name));
+                        }
+                    }
+
                     float available = mgr.GetLockerCash();
                     if (available >= wage)
                     {
@@ -120,6 +136,20 @@ namespace OverTheCounter.Logic
                         mgr.NoFundsTextSent = false;
                         mgr.State = ManagerState.Idle;
                         _logger.Msg($"Manager {mgr.Id}: paid ${wage} wage from locker (remaining: ${available - wage:F0})");
+
+                        // Case 3: Wages paid — check which Night Market items we can't afford
+                        if (!mgr.NoNightMarketCashTextSent)
+                        {
+                            float remaining = mgr.GetLockerCash();
+                            var unaffordable = GetUnaffordableNightMarketItems(nightMarketItems, remaining);
+                            if (unaffordable.Count > 0)
+                            {
+                                mgr.NoNightMarketCashTextSent = true;
+                                mgr.LockerCashAtWarning = remaining;
+                                string itemList = FormatItemList(unaffordable);
+                                mgr.SendTextMessage($"Boss, I paid my wages for today but I don't have enough to buy {itemList} from Oscar's store.");
+                            }
+                        }
                     }
                     else
                     {
@@ -129,10 +159,29 @@ namespace OverTheCounter.Logic
                         {
                             mgr.NoFundsTextSent = true;
                             string homeType = mgr.AssignedLocker?.HomeType?.ToLower() ?? "locker";
-                            if (available <= 0f)
-                                mgr.SendTextMessage($"Boss, there's no money in my {homeType}! I need ${wage:F0} for today's wage.");
+
+                            // Case 2: Include NM items only if not already warned
+                            var nmToReport = (!mgr.NoNightMarketCashTextSent)
+                                ? nightMarketItems.ConvertAll(x => x.name)
+                                : new List<string>();
+
+                            if (nmToReport.Count > 0)
+                            {
+                                mgr.NoNightMarketCashTextSent = true;
+                                mgr.LockerCashAtWarning = available;
+                                string itemList = FormatItemList(nmToReport);
+                                if (available <= 0f)
+                                    mgr.SendTextMessage($"Boss, there's no money in my {homeType}! I need ${wage:F0} for today's wage and I won't have enough to buy {itemList} from Oscar's store.");
+                                else
+                                    mgr.SendTextMessage($"Boss, my {homeType} only has ${available:F0} but I need ${wage:F0} for today's wage. I also won't have enough to buy {itemList} from Oscar's store.");
+                            }
                             else
-                                mgr.SendTextMessage($"Boss, my {homeType} only has ${available:F0} but I need ${wage:F0} for today's wage. Drop some more cash in!");
+                            {
+                                if (available <= 0f)
+                                    mgr.SendTextMessage($"Boss, there's no money in my {homeType}! I need ${wage:F0} for today's wage.");
+                                else
+                                    mgr.SendTextMessage($"Boss, my {homeType} only has ${available:F0} but I need ${wage:F0} for today's wage. Drop some more cash in!");
+                            }
                         }
                     }
                 }
@@ -520,9 +569,20 @@ namespace OverTheCounter.Logic
             {
                 foreach (var mgr in ManagerInstance.Active.Values)
                 {
-                    if (mgr.PaidForToday) continue;
                     if (mgr.State == ManagerState.Fired) continue;
                     if (!mgr.HasLocker) continue;
+
+                    // Detect cash deposits — reset warning flags when locker cash exceeds warning level
+                    if (mgr.NoNightMarketCashTextSent && mgr.GetLockerCash() > mgr.LockerCashAtWarning)
+                    {
+                        mgr.NoNightMarketCashTextSent = false;
+                        mgr.NoFundsTextSent = false;
+                        mgr.LockerCashAtWarning = -1f;
+                        mgr.SupplyBehaviour?.ClearUnaffordableItems();
+                    }
+
+                    // Immediate wage payment for unpaid managers
+                    if (mgr.PaidForToday) continue;
 
                     float wage = Config.ManagerDailyWage.Value;
                     float available = mgr.GetLockerCash();
@@ -531,6 +591,9 @@ namespace OverTheCounter.Logic
                         mgr.RemoveLockerCash(wage);
                         mgr.PaidForToday = true;
                         mgr.NoFundsTextSent = false;
+                        mgr.NoNightMarketCashTextSent = false;
+                        mgr.LockerCashAtWarning = -1f;
+                        mgr.SupplyBehaviour?.ClearUnaffordableItems();
                         mgr.State = ManagerState.Idle;
                         _logger.Msg($"Manager {mgr.Id}: immediate wage payment ${wage} (remaining: ${available - wage:F0})");
                     }
@@ -550,6 +613,32 @@ namespace OverTheCounter.Logic
             TimeManager.OnSleepEnd -= OnSleepEnd;
             TimeManager.OnTick -= OnTimeTick;
             ManagerInstance.CleanupAll();
+        }
+
+        /// <summary>
+        /// Returns display names of Night Market items the manager can't afford even 1 unit of.
+        /// </summary>
+        private static List<string> GetUnaffordableNightMarketItems(
+            List<(string id, string name)> nightMarketItems, float availableCash)
+        {
+            var unaffordable = new List<string>();
+            foreach (var (id, name) in nightMarketItems)
+            {
+                float unitPrice = ManagerSupplyBehaviour.GetNightMarketUnitPrice(id);
+                if (availableCash < unitPrice)
+                    unaffordable.Add(name);
+            }
+            return unaffordable;
+        }
+
+        /// <summary>
+        /// Formats a list of item names as "A, B, and C" for text messages.
+        /// </summary>
+        private static string FormatItemList(List<string> names)
+        {
+            if (names.Count == 1) return names[0];
+            if (names.Count == 2) return $"{names[0]} and {names[1]}";
+            return string.Join(", ", names.GetRange(0, names.Count - 1)) + $", and {names[names.Count - 1]}";
         }
 
         // ── Debug helpers ──

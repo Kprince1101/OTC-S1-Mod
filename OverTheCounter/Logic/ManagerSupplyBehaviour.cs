@@ -55,13 +55,18 @@ namespace OverTheCounter.Logic
         private Il2CppSystem.Action<NPCMovement.WalkResult> _storageWalkCallback;
         private Il2CppSystem.Action<NPCMovement.WalkResult> _idleWalkCallback;
 
-        // Out-of-money text flags — reset only when funds are replenished
+        // Online payment "can't afford" flag — reset on successful online purchase
         private bool _cantAffordOnlineTextSent;
-        private bool _cantAffordCashTextSent;
 
         // Items that couldn't be afforded — skip until next in-game hour to prevent loops
         private readonly HashSet<string> _unaffordableItems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private int _lastUnaffordableClearHour = -1;
+
+        /// <summary>
+        /// Clears the unaffordable items set, allowing immediate retry.
+        /// Called by ManagerController when cash is deposited (flag reset).
+        /// </summary>
+        public void ClearUnaffordableItems() => _unaffordableItems.Clear();
 
         // Animated purchasing — one GrabItem animation per item at each store
         private List<PlannedPurchase> _purchaseQueue;
@@ -180,6 +185,9 @@ namespace OverTheCounter.Logic
             }
 
             _manager.State = ManagerState.SupplyRun;
+
+            // Fresh run — allow new online "can't afford" warnings
+            _cantAffordOnlineTextSent = false;
 
             // Plan first leg from current position
             if (!PlanAndContinue())
@@ -302,6 +310,28 @@ namespace OverTheCounter.Logic
                     Logger.Warning($"Manager {_manager.Id}: hit retry limit in affordability check");
                 else
                     Logger.Msg($"Manager {_manager.Id}: no affordable stores remaining");
+
+                // Case 1: ran out of cash for Night Market items mid-day
+                var nmItems = items.Where(i => i.Options.Any(o => o.StoreType == StoreType.NightMarket)).ToList();
+                if (nmItems.Count > 0)
+                {
+                    // Mark NM items as unaffordable so BuildShoppingList skips them (prevents 10s retry loop)
+                    foreach (var item in nmItems)
+                        _unaffordableItems.Add(item.ItemId);
+
+                    if (!_manager.NoNightMarketCashTextSent)
+                    {
+                        float npcCash = GetNpcInventory()?.GetCashInInventory() ?? 0f;
+                        float lockerCash = _manager.GetLockerCash();
+                        _manager.NoNightMarketCashTextSent = true;
+                        _manager.LockerCashAtWarning = lockerCash;
+                        string itemNames = string.Join(", ", nmItems.Select(i => i.ItemName));
+                        float totalCash = npcCash + lockerCash;
+                        string cashPhrase = totalCash > 0f ? $"I only have ${totalCash:F0} left" : "I don't have any cash left";
+                        _manager.SendTextMessage($"Boss, I ran out of cash while trying to buy {itemNames}. {cashPhrase}.");
+                    }
+                }
+
                 if (HasItemsInNpcInventory())
                 {
                     if (CanStorageAcceptAnyItem())
@@ -1023,11 +1053,13 @@ namespace OverTheCounter.Logic
                     }
                     else
                     {
-                        if (!_cantAffordCashTextSent)
+                        if (!_manager.NoNightMarketCashTextSent)
                         {
-                            _cantAffordCashTextSent = true;
-                            string storeName = visit?.Location?.DisplayName ?? "the store";
-                            _manager.SendTextMessage($"Boss, I don't have enough cash on me to purchase {purchase.ItemName} from {storeName}.");
+                            _manager.NoNightMarketCashTextSent = true;
+                            _manager.LockerCashAtWarning = _manager.GetLockerCash();
+                            float totalCashOnHand = npcCash + _manager.GetLockerCash();
+                            string cashPhrase = totalCashOnHand > 0f ? $"I only have ${totalCashOnHand:F0} left" : "I don't have any cash left";
+                            _manager.SendTextMessage($"Boss, I ran out of cash while trying to buy {purchase.ItemName}. {cashPhrase}.");
                         }
                         Logger.Msg($"Manager {_manager.Id}: can't afford {purchase.ItemName} (need ${purchase.UnitPrice * stackLimit:F0} for one stack, have ${npcCash:F0})");
                         _unaffordableItems.Add(purchase.ItemId);
@@ -1108,11 +1140,10 @@ namespace OverTheCounter.Logic
 
             if (success)
             {
-                // Reset "can't afford" text flag on successful purchase (funds were replenished)
-                if (visit?.StoreType == StoreType.NightMarket)
-                    _cantAffordCashTextSent = false;
-                else
+                // Reset online "can't afford" flag on successful purchase
+                if (visit?.StoreType != StoreType.NightMarket)
                     _cantAffordOnlineTextSent = false;
+                // NM cash flag resets only when player deposits cash into locker (CheckImmediateWages)
 
                 if (purchase.ShopListing != null && !purchase.ShopListing.IsUnlimitedStock)
                 {
@@ -1203,9 +1234,24 @@ namespace OverTheCounter.Logic
             if (!PlanAndContinue())
             {
                 if (HasItemsInNpcInventory())
+                {
                     WalkToStorage();
+                }
                 else
-                    FinishRun();
+                {
+                    // Run complete — return cash and walk home (mirrors DepositItems flow)
+                    ReturnCashToLocker();
+                    _purchaseQueue = null;
+                    State = SupplyState.Idle;
+                    _manager.State = ManagerState.Idle;
+                    _nextVisit = null;
+
+                    if (!_manager.TryStartNextJob())
+                    {
+                        _manager.State = ManagerState.SupplyRun;
+                        WalkToIdle();
+                    }
+                }
             }
         }
 
@@ -1891,7 +1937,7 @@ namespace OverTheCounter.Logic
         /// Returns any remaining cash in the NPC inventory back to the locker.
         /// Called at the end of a supply run or on cancellation.
         /// </summary>
-        private void ReturnCashToLocker()
+        internal void ReturnCashToLocker()
         {
             if (!_manager.HasLocker) return;
 
@@ -1906,6 +1952,10 @@ namespace OverTheCounter.Logic
                 npcInventory.RemoveCash(cash);
                 DepositCashToStorage(_manager.AssignedLocker.Storage, cash);
                 Logger.Msg($"Manager {_manager.Id}: returned ${cash:F0} cash to locker");
+
+                // Bump the warning threshold so returned change doesn't false-trigger a flag reset
+                if (_manager.NoNightMarketCashTextSent)
+                    _manager.LockerCashAtWarning = _manager.GetLockerCash();
             }
             catch (Exception ex)
             {
@@ -2086,7 +2136,7 @@ namespace OverTheCounter.Logic
         /// Returns true if an item is sold at any daytime store (Gas Mart, Hardware Store).
         /// Items that return false are Night Market-only and should get reservation priority.
         /// </summary>
-        private static bool HasDaytimeStoreOption(string itemId)
+        internal static bool HasDaytimeStoreOption(string itemId)
         {
             try
             {
@@ -2106,6 +2156,75 @@ namespace OverTheCounter.Logic
             }
             catch { }
             return false;
+        }
+
+        /// <summary>
+        /// Returns the cheapest Night Market unit price for an item, or float.MaxValue if not found.
+        /// Checks both shop listings and supplier NPCs.
+        /// </summary>
+        internal static float GetNightMarketUnitPrice(string itemId)
+        {
+            float cheapest = float.MaxValue;
+            try
+            {
+                var allShops = ShopInterface.AllShops;
+                if (allShops != null)
+                {
+                    for (int i = 0; i < allShops.Count; i++)
+                    {
+                        var shop = allShops[i];
+                        if (shop == null) continue;
+                        var listing = shop.GetListing(itemId);
+                        if (listing?.Item == null) continue;
+                        string shopName = shop.ShopName ?? "";
+                        if (shopName.Contains("Gas", StringComparison.OrdinalIgnoreCase) ||
+                            shopName.Contains("Hardware", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (listing.Price < cheapest) cheapest = listing.Price;
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                var suppliers = UnityEngine.Object.FindObjectsOfType<Il2CppScheduleOne.Economy.Supplier>();
+                if (suppliers != null)
+                {
+                    foreach (var supplier in suppliers)
+                    {
+                        if (supplier == null) continue;
+                        try
+                        {
+                            var shop = supplier.Shop;
+                            if (shop != null)
+                            {
+                                var listing = shop.GetListing(itemId);
+                                if (listing?.Item != null && listing.Price < cheapest)
+                                    cheapest = listing.Price;
+                            }
+                        }
+                        catch { }
+                        try
+                        {
+                            if (supplier.OnlineShopItems != null)
+                            {
+                                foreach (var listing in supplier.OnlineShopItems)
+                                {
+                                    if (listing?.Item == null) continue;
+                                    if (string.Equals(listing.Item.ID, itemId, StringComparison.OrdinalIgnoreCase)
+                                        && listing.Price < cheapest)
+                                        cheapest = listing.Price;
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+
+            return cheapest;
         }
 
         /// <summary>
