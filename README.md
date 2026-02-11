@@ -2,7 +2,6 @@
 
 **OverTheCounter** is a Quality of Life, Utility, and Balance overhaul for *Schedule I*. It focuses on streamlining logistics, modernizing the UI, and rebalancing the gameplay loop to make the day phase strategically viable.
 
-> [!WARNING]
 > **COMPATIBILITY NOTICE:**
 > This mod is built for the **IL2CPP branch** of the game using **MelonLoader 0.7.0**.
 > It utilizes Harmony patching that is **NOT compatible with the Mono branch**.
