@@ -179,8 +179,15 @@ namespace OverTheCounter.Logic
                     Logger.Warning($"Failed to add Customer component for drifter {id}: {ex.Message}");
                 }
 
-                // Activate (this triggers Awake on all components)
+                // Activate (this triggers Awake + Start on all components)
                 clone.gameObject.SetActive(true);
+
+                // Isolate the Customer component from the vanilla deal system.
+                // Customer.Start() subscribes to onMinutePass and adds itself to
+                // LockedCustomers/UnlockedCustomers — both can interfere with
+                // the global deal throttle (MinsSinceLastDealOfferedAllCustomers)
+                // and the staggered minute-tick invocation chain.
+                IsolateDrifterCustomer(npc);
 
                 // Register with game
                 try
@@ -751,6 +758,7 @@ namespace OverTheCounter.Logic
 
                 // Set customerData directly (IL2CPP exposes this as a property)
                 customer.customerData = customerData;
+
                 Logger.Msg($"Set CustomerData for drifter {npc.ID}");
 
                 return customer;
@@ -797,6 +805,9 @@ namespace OverTheCounter.Logic
 
                 npc.gameObject.SetActive(true);
 
+                // Isolate from vanilla deal system (see IsolateDrifterCustomer)
+                IsolateDrifterCustomer(npc);
+
                 Logger.Msg($"Added Customer component to active NPC {npc.ID}");
                 return customer;
             }
@@ -807,6 +818,88 @@ namespace OverTheCounter.Logic
                 catch { }
                 Logger.Error($"AddCustomerComponentToActive failed for {npc?.ID}: {ex.Message}");
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Isolates a drifter's Customer component from the vanilla deal system.
+        /// Customer.Awake adds to LockedCustomers, and Start() may add to
+        /// UnlockedCustomers depending on NPC.RelationData.Unlocked (which is
+        /// cloned from the CivilianNPC prefab). Being in either list lets the
+        /// drifter participate in MinsSinceLastDealOfferedAllCustomers() — the
+        /// global 5-minute throttle that gates ALL customer deal generation.
+        /// The drifter's onMinutePass handler also occupies a slot in the
+        /// staggered ActionList invocation chain; removing mid-chain during
+        /// drifter destruction can shift indices and skip real customers.
+        /// This method removes the drifter from both lists and unsubscribes
+        /// from all TimeManager events, making it invisible to vanilla systems
+        /// while keeping the component alive for the HandoverScreen.
+        /// </summary>
+        private static void IsolateDrifterCustomer(NPC npc)
+        {
+            try
+            {
+                var customer = npc?.gameObject?.GetComponent<Customer>();
+                if (customer == null) return;
+
+                // Remove from vanilla customer tracking lists.
+                // This prevents the drifter from affecting the global deal throttle.
+                Customer.UnlockedCustomers.Remove(customer);
+                Customer.LockedCustomers.Remove(customer);
+
+                // Unsubscribe from TimeManager events that drive vanilla deal logic.
+                // onMinutePass/onTick are ActionLists. We iterate the internal list
+                // and remove any delegates targeting this Customer component, since
+                // the protected OnMinPass/OnTick methods aren't directly accessible.
+                try
+                {
+                    var tm = NetworkSingleton<Il2CppScheduleOne.GameTime.TimeManager>.Instance;
+                    if (tm != null)
+                    {
+                        RemoveActionsForTarget(tm.onMinutePass, customer);
+                        RemoveActionsForTarget(tm.onTick, customer);
+                    }
+                }
+                catch { /* TimeManager may not exist yet on clients */ }
+
+                // Zero deal timers as belt-and-suspenders — even though we removed
+                // from the lists, this ensures ShouldTryGenerateDeal returns false
+                // if somehow the handler still fires.
+                customer.TimeSinceLastDealOffered = 0;
+                customer.TimeSinceLastDealCompleted = 0;
+
+                Logger.Msg($"Isolated drifter Customer from vanilla deal system: {npc.ID}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"IsolateDrifterCustomer failed for {npc?.ID}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Removes all Action delegates from an ActionList whose target is the
+        /// given object. ActionList exposes its internal List via GetInvocationList().
+        /// </summary>
+        private static void RemoveActionsForTarget(Il2Cpp.ActionList actionList, Il2CppSystem.Object target)
+        {
+            if (actionList == null) return;
+            try
+            {
+                var list = actionList.GetInvocationList();
+                if (list == null) return;
+
+                for (int i = list.Count - 1; i >= 0; i--)
+                {
+                    var action = list[i];
+                    if (action?.Target == target)
+                    {
+                        list.RemoveAt(i);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"RemoveActionsForTarget failed: {ex.Message}");
             }
         }
 
