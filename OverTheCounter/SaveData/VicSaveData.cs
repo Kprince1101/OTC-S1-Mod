@@ -62,6 +62,13 @@ namespace OverTheCounter.SaveData
         private const int TICK_INTERVAL = 300; // ~5 seconds at 60fps
         private bool _positionFixed;
 
+        // Set when a state change requires a dialogue rebuild but dialogue is in progress.
+        // Tick() checks this every frame and refreshes the moment dialogue closes.
+        internal bool _dialogueStale;
+
+        // Tracks dialogue open/close to detect the closing edge and force a rebuild.
+        private bool _wasInDialogue;
+
         private static bool _sleepEndSubscribed;
         public static VicSaveData Instance { get; private set; }
 
@@ -84,9 +91,8 @@ namespace OverTheCounter.SaveData
                 _hasBeenTexted = true;
                 TrySendIntroText();
                 CreateOrResumeQuest();
+                _dialogueStale = true;
                 ConfigSyncData.Instance?.PublishGameState();
-                if (VicNPC.Instance != null && VicNPC.Instance.DialogueReady)
-                    VicNPC.Instance.RefreshDialogue();
             }
         }
 
@@ -161,6 +167,21 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void Tick()
         {
+            // Detect dialogue closing edge — forces a rebuild so weed count
+            // (and any other dynamic data) is always fresh on next interaction.
+            bool inDialogue = VicNPC.Instance != null && VicNPC.Instance.IsInDialogue;
+            if (_wasInDialogue && !inDialogue)
+                _dialogueStale = true;
+            _wasInDialogue = inDialogue;
+
+            if (_dialogueStale && VicNPC.Instance != null
+                && VicNPC.Instance.DialogueReady && !inDialogue)
+            {
+                _dialogueStale = false;
+                try { VicNPC.Instance.RefreshDialogue(); }
+                catch (Exception) { }
+            }
+
             // Stale data check: host-only since client state comes from ApplyHostState.
             if (NetworkHelper.IsHost && !_staleCheckDone && _hasBeenTexted)
             {
@@ -293,8 +314,8 @@ namespace OverTheCounter.SaveData
                 changed = true;
             }
 
-            if (changed && VicNPC.Instance != null && VicNPC.Instance.DialogueReady)
-                VicNPC.Instance.RefreshDialogue();
+            if (changed)
+                _dialogueStale = true;
         }
 
         public void OnQuestComplete()
@@ -350,6 +371,7 @@ namespace OverTheCounter.SaveData
                     return;
             }
 
+            _dialogueStale = true;
             ConfigSyncData.Instance?.PublishGameState();
         }
 

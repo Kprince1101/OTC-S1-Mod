@@ -30,7 +30,10 @@ namespace OverTheCounter.NPCs
 
         public static StaticNPC Instance { get; private set; }
 
+        /// <summary>True once SetupDialogue() has built the initial container.</summary>
         public bool DialogueReady { get; private set; }
+
+        /// <summary>True while the player is in an active dialogue with Static.</summary>
         public bool IsInDialogue => Dialogue?.IsDialogueInProgress ?? false;
 
         public Vector3? CurrentPosition

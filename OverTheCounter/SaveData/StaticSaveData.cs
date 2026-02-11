@@ -45,7 +45,12 @@ namespace OverTheCounter.SaveData
         private const int TICK_INTERVAL = 300;
         private bool _positionFixed;
 
+        // Set when a state change requires a dialogue rebuild but dialogue is in progress.
+        // Tick() checks this every frame and refreshes the moment dialogue closes.
         private bool _dialogueStale;
+
+        // Tracks dialogue open/close to detect the closing edge and force a rebuild.
+        private bool _wasInDialogue;
 
         // Runtime-only: guards against double quest creation per session.
         private bool _questCreated;
@@ -94,8 +99,15 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void Tick()
         {
+            // Detect dialogue closing edge — forces a rebuild so weed count,
+            // bank balance, and other dynamic data is fresh on next interaction.
+            bool inDialogue = StaticNPC.Instance != null && StaticNPC.Instance.IsInDialogue;
+            if (_wasInDialogue && !inDialogue)
+                _dialogueStale = true;
+            _wasInDialogue = inDialogue;
+
             if (_dialogueStale && StaticNPC.Instance != null
-                && StaticNPC.Instance.DialogueReady && !StaticNPC.Instance.IsInDialogue)
+                && StaticNPC.Instance.DialogueReady && !inDialogue)
             {
                 _dialogueStale = false;
                 try { StaticNPC.Instance.RefreshDialogue(); }

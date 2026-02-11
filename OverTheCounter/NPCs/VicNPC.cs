@@ -39,7 +39,11 @@ namespace OverTheCounter.NPCs
         /// </summary>
         public static VicNPC Instance { get; private set; }
 
+        /// <summary>True once SetupDialogue() has built the initial container.</summary>
         public bool DialogueReady { get; private set; }
+
+        /// <summary>True while the player is in an active dialogue with Vic.</summary>
+        public bool IsInDialogue => Dialogue?.IsDialogueInProgress ?? false;
 
         public Vector3? CurrentPosition
         {
@@ -388,7 +392,9 @@ namespace OverTheCounter.NPCs
                         ConfigSyncData.SendQuestAction("VIC_QUEST_ACCEPTED");
                     }
 
-                    RefreshDialogue();
+                    // Defer rebuild — dialogue is still open; Tick() refreshes on close.
+                    if (VicSaveData.Instance != null)
+                        VicSaveData.Instance._dialogueStale = true;
                 }
                 catch (Exception ex)
                 {
@@ -415,7 +421,9 @@ namespace OverTheCounter.NPCs
                         ConfigSyncData.SendQuestAction("VIC_QUEST_COMPLETE");
                     }
 
-                    RefreshDialogue();
+                    // Defer rebuild — dialogue is still open; Tick() refreshes on close.
+                    if (VicSaveData.Instance != null)
+                        VicSaveData.Instance._dialogueStale = true;
                 }
                 catch (Exception ex)
                 {
@@ -454,7 +462,9 @@ namespace OverTheCounter.NPCs
                         ConfigSyncData.SendQuestAction("VIC_LAUNDER");
                     }
 
-                    RefreshDialogue();
+                    // Defer rebuild — dialogue is still open; Tick() refreshes on close.
+                    if (VicSaveData.Instance != null)
+                        VicSaveData.Instance._dialogueStale = true;
                 }
                 catch (Exception ex)
                 {
