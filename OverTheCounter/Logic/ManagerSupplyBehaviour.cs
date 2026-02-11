@@ -1151,7 +1151,7 @@ namespace OverTheCounter.Logic
                     catch (Exception ex) { Logger.Warning($"Manager {_manager.Id}: RemoveStock failed: {ex.Message}"); }
                 }
 
-                AddToNpcInventory(npcInventory, purchase.ItemId, buyQty);
+                AddToNpcInventory(npcInventory, purchase.ItemId, buyQty, _manager.Id);
                 Logger.Msg($"Manager {_manager.Id}: purchased {buyQty}x {purchase.ItemName} (${totalCost:F0})");
             }
 
@@ -1772,20 +1772,20 @@ namespace OverTheCounter.Logic
         /// Adds purchased items to the NPC inventory.
         /// Skips slots containing cash.
         /// </summary>
-        private void AddToNpcInventory(Il2CppScheduleOne.NPCs.NPCInventory inventory, string itemId, int quantity)
+        internal static void AddToNpcInventory(Il2CppScheduleOne.NPCs.NPCInventory inventory, string itemId, int quantity, string mgrId)
         {
             if (inventory == null) return;
 
             try
             {
                 var itemDef = Il2CppScheduleOne.Registry.GetItem(itemId);
-                if (itemDef == null) { Logger.Warning($"Manager {_manager.Id}: Registry.GetItem('{itemId}') returned null"); return; }
+                if (itemDef == null) { Logger.Warning($"Manager {mgrId}: Registry.GetItem('{itemId}') returned null"); return; }
 
                 var storableDef = itemDef.TryCast<StorableItemDefinition>();
-                if (storableDef == null) { Logger.Warning($"Manager {_manager.Id}: item '{itemId}' is not StorableItemDefinition"); return; }
+                if (storableDef == null) { Logger.Warning($"Manager {mgrId}: item '{itemId}' is not StorableItemDefinition"); return; }
 
                 var instance = storableDef.GetDefaultInstance(quantity);
-                if (instance == null) { Logger.Warning($"Manager {_manager.Id}: GetDefaultInstance returned null for '{itemId}'"); return; }
+                if (instance == null) { Logger.Warning($"Manager {mgrId}: GetDefaultInstance returned null for '{itemId}'"); return; }
 
                 int itemSlotCount = inventory.ItemSlots.Count;
                 int remaining = quantity;
@@ -1821,11 +1821,11 @@ namespace OverTheCounter.Logic
                 }
 
                 if (remaining > 0)
-                    Logger.Warning($"Manager {_manager.Id}: NPC inventory full, couldn't fit {remaining}x {itemId}");
+                    Logger.Warning($"Manager {mgrId}: NPC inventory full, couldn't fit {remaining}x {itemId}");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Manager {_manager.Id}: AddToNpcInventory failed for {itemId}: {ex.Message}");
+                Logger.Error($"Manager {mgrId}: AddToNpcInventory failed for {itemId}: {ex.Message}");
             }
         }
 
@@ -1967,7 +1967,7 @@ namespace OverTheCounter.Logic
         /// Deposits cash into a storage entity, filling existing cash slots (up to $1000 each)
         /// before creating new slots for any remainder.
         /// </summary>
-        private static void DepositCashToStorage(Il2CppScheduleOne.Storage.StorageEntity storage, float amount)
+        internal static void DepositCashToStorage(Il2CppScheduleOne.Storage.StorageEntity storage, float amount)
         {
             const float MAX_PER_SLOT = 1000f;
             float remaining = amount;

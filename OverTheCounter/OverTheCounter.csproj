@@ -534,11 +534,13 @@
 		<Compile Include="Patches\ContactsAppPatch.cs" />
 		<Compile Include="Patches\FixerDialoguePatch.cs" />
 		<Compile Include="Patches\ManagerClipboardPatch.cs" />
+		<Compile Include="Patches\SaveManagerPatch.cs" />
 		<Compile Include="Logic\ManagerConfiguration.cs" />
 		<Compile Include="Logic\StoreLocations.cs" />
 		<Compile Include="Logic\ManagerSupplyBehaviour.cs" />
 		<Compile Include="Logic\ManagerDistributionBehaviour.cs" />
 		<Compile Include="UI\ManagerConfigPanel.cs" />
+		<Compile Include="SaveData\ManagerSaveData.cs" />
 	</ItemGroup>
 
 	<ItemGroup>

@@ -23,6 +23,14 @@ namespace OverTheCounter.Logic
 
         private int _managerIdCounter;
 
+        public int GetIdCounter() => _managerIdCounter;
+
+        public void RestoreIdCounter(int value)
+        {
+            if (value > _managerIdCounter)
+                _managerIdCounter = value;
+        }
+
         public static ManagerController Instance { get; private set; }
 
         private int _lastSupplyCheckMinute = -1;

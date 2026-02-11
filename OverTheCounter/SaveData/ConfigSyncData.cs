@@ -500,6 +500,8 @@ namespace OverTheCounter.SaveData
         {
             if (!NetworkHelper.IsHost) return;
 
+            ManagerSaveData.Instance?.CaptureState();
+
             try
             {
                 string managerState = SerializeManagerSyncVar();

@@ -789,8 +789,13 @@ namespace OverTheCounter.Logic
                 var conv = GameNpc?.MSGConversation;
                 if (conv == null) return;
 
-                conv.messageHistory.Clear();
-                conv.SetEntryVisibility(false);
+                conv.messageHistory?.Clear();
+
+                // Only hide the phone entry if the conversation has one
+                // (our cloned NPCs skip CreateConversationUI so entry is null)
+                if (conv.entry != null)
+                    conv.SetEntryVisibility(false);
+
                 Logger.Msg($"Manager {Id}: cleared text messages");
             }
             catch (Exception ex)
@@ -890,6 +895,9 @@ namespace OverTheCounter.Logic
             var parts = new List<string>();
             foreach (var mgr in Active.Values)
             {
+                // Skip fired managers — they're walking away and shouldn't persist
+                if (mgr.State == ManagerState.Fired) continue;
+
                 string configStr = EncodeConfig(mgr.Configuration.Serialize());
                 parts.Add($"{mgr.Id}:{mgr.SpawnSeed}:{mgr.BusinessPropertyCode}:{mgr.NetworkObjectId}:{configStr}");
             }

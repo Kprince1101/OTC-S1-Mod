@@ -58,7 +58,8 @@ namespace OverTheCounter
             DrifterInstance.CleanupAll();
             DrifterSpawner.ResetCache();
 
-            // Managers are transient until save/load persistence (Phase 9)
+            // Clean up previous scene's managers — respawned from ManagerSaveData after load
+            ManagerSaveData.ResetInstance();
             ManagerInstance.CleanupAll();
             ManagerSpawner.ResetCache();
 
@@ -89,6 +90,7 @@ namespace OverTheCounter
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
                 StaticSaveData.Instance?.Tick();
+                ManagerSaveData.Instance?.Tick();
 
                 ContactsAppFix.Tick();
 
