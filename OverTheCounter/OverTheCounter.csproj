@@ -541,6 +541,10 @@
 		<Compile Include="Logic\ManagerDistributionBehaviour.cs" />
 		<Compile Include="UI\ManagerConfigPanel.cs" />
 		<Compile Include="SaveData\ManagerSaveData.cs" />
+		<Compile Include="NPCs\BellaNPC.cs" />
+		<Compile Include="Quests\BellaProtocolQuest.cs" />
+		<Compile Include="SaveData\BellaSaveData.cs" />
+		<Compile Include="Patches\BellaSummonPatch.cs" />
 	</ItemGroup>
 
 	<ItemGroup>

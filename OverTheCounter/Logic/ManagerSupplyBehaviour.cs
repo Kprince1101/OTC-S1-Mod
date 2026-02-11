@@ -509,7 +509,7 @@ namespace OverTheCounter.Logic
 
             // During daytime, skip Night Market-only items in round-robin so NPC slots
             // go to items that can actually be purchased now (Gas Mart, Hardware).
-            bool nightMarketOpen = currentTime >= 1800;
+            bool nightMarketOpen = currentTime >= 1800 || SaveData.BellaSaveData.IsNightMarketUnlocked;
             var skipDaytime = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (!nightMarketOpen)
             {
@@ -756,7 +756,7 @@ namespace OverTheCounter.Logic
         private StoreVisit PlanNextVisit(List<ShoppingItem> items, Vector3 fromPosition)
         {
             int currentTime = TimeManager.CurrentTime;
-            bool nightMarketOpen = currentTime >= 1800;
+            bool nightMarketOpen = currentTime >= 1800 || SaveData.BellaSaveData.IsNightMarketUnlocked;
             bool hardwareOpen = currentTime < 2000; // Hardware Store closes at 8 PM
 
             // Step 1: Collect all viable (storeType → location) candidates from items that need buying.
@@ -914,7 +914,7 @@ namespace OverTheCounter.Logic
             if (items.Count == 0) return;
 
             int currentTime = TimeManager.CurrentTime;
-            bool nightMarketOpen = currentTime >= 1800;
+            bool nightMarketOpen = currentTime >= 1800 || SaveData.BellaSaveData.IsNightMarketUnlocked;
             bool hardwareOpen = currentTime < 2000;
 
             foreach (var item in items)
@@ -965,9 +965,25 @@ namespace OverTheCounter.Logic
             _purchaseQueue = new List<PlannedPurchase>();
             var supplyStorage = _manager.Configuration.SupplyStorage;
 
+            var npcInv = GetNpcInventory();
             foreach (var purchase in visit.Purchases)
             {
                 int buyQty = purchase.Quantity;
+
+                // Enforce threshold cap — never buy beyond what the threshold allows
+                int threshold = GetThresholdForItem(_manager.Configuration, purchase.ItemId);
+                if (threshold > 0 && supplyStorage?.StorageEntity != null)
+                {
+                    int inStorage = GetStorageQuantity(supplyStorage.StorageEntity, purchase.ItemId);
+                    int inNpc = npcInv != null ? GetNpcInventoryQuantity(npcInv, purchase.ItemId) : 0;
+                    int headroom = Math.Max(0, threshold - inStorage - inNpc);
+                    if (buyQty > headroom)
+                    {
+                        Logger.Msg($"Manager {_manager.Id}: capping {purchase.ItemName} from {buyQty} to {headroom} (threshold {threshold}, inStorage {inStorage}, inNpc {inNpc})");
+                        buyQty = headroom;
+                    }
+                }
+
                 if (supplyStorage?.StorageEntity != null)
                 {
                     int physCap = GetStorageCapacityForItem(supplyStorage.StorageEntity, purchase.ItemId);
@@ -1391,6 +1407,7 @@ namespace OverTheCounter.Logic
             // Transfer items from NPC inventory to supply storage
             var storage = _manager.Configuration.SupplyStorage;
             var npcInventory = GetNpcInventory();
+            var config = _manager.Configuration;
 
             int totalDeposited = 0;
             int totalSkipped = 0;
@@ -1413,32 +1430,53 @@ namespace OverTheCounter.Logic
                         var storableDef = def.TryCast<StorableItemDefinition>();
                         if (storableDef == null) { totalSkipped += slot.Quantity; continue; }
 
+                        string itemId = def.ID;
                         int qty = slot.Quantity;
+
+                        // Enforce threshold cap — never deposit beyond configured limit
+                        int threshold = GetThresholdForItem(config, itemId);
+                        if (threshold > 0)
+                        {
+                            int currentInStorage = GetStorageQuantity(storage.StorageEntity, itemId);
+                            int headroom = Math.Max(0, threshold - currentInStorage);
+                            if (headroom <= 0)
+                            {
+                                Logger.Msg($"Manager {_manager.Id}: threshold reached for {itemId} ({currentInStorage}/{threshold}), skipping deposit of {qty}");
+                                totalSkipped += qty;
+                                continue;
+                            }
+                            if (qty > headroom)
+                            {
+                                Logger.Msg($"Manager {_manager.Id}: capping {itemId} deposit from {qty} to {headroom} (threshold {threshold}, inStorage {currentInStorage})");
+                                qty = headroom;
+                            }
+                        }
+
                         var newInstance = storableDef.GetDefaultInstance(qty);
                         if (newInstance == null) { totalSkipped += qty; continue; }
 
                         int canFit = storage.StorageEntity.HowManyCanFit(newInstance);
                         if (canFit <= 0)
                         {
-                            Logger.Msg($"Manager {_manager.Id}: storage full, can't fit {def.ID} x{qty}");
+                            Logger.Msg($"Manager {_manager.Id}: storage full, can't fit {itemId} x{qty}");
                             totalSkipped += qty;
                             continue;
                         }
 
-                        if (canFit < qty)
+                        int depositQty = Math.Min(qty, canFit);
+                        if (depositQty < slot.Quantity)
                         {
                             // Partial deposit
-                            var partialInstance = storableDef.GetDefaultInstance(canFit);
+                            var partialInstance = storableDef.GetDefaultInstance(depositQty);
                             storage.StorageEntity.InsertItem(partialInstance, true);
-                            slot.ChangeQuantity(-(canFit), true);
-                            totalDeposited += canFit;
-                            totalSkipped += (qty - canFit);
+                            slot.ChangeQuantity(-depositQty, true);
+                            totalDeposited += depositQty;
                         }
                         else
                         {
                             storage.StorageEntity.InsertItem(newInstance, true);
                             slot.ClearStoredInstance();
-                            totalDeposited += qty;
+                            totalDeposited += depositQty;
                         }
                     }
                     catch (Exception ex)
@@ -2002,8 +2040,27 @@ namespace OverTheCounter.Logic
         }
 
         // ==================================================================
-        // Storage quantity helper
+        // Threshold + Storage quantity helpers
         // ==================================================================
+
+        /// <summary>
+        /// Returns the configured stock threshold for a given item ID.
+        /// If the item appears in multiple slots, returns the highest threshold.
+        /// Returns 0 if the item is not configured (non-stocked item).
+        /// </summary>
+        private static int GetThresholdForItem(ManagerConfiguration config, string itemId)
+        {
+            int maxThreshold = 0;
+            for (int i = 0; i < config.StockedItemIds.Length; i++)
+            {
+                if (string.Equals(config.StockedItemIds[i], itemId, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (config.StockedThresholds[i] > maxThreshold)
+                        maxThreshold = config.StockedThresholds[i];
+                }
+            }
+            return maxThreshold;
+        }
 
         private static int GetStorageQuantity(Il2CppScheduleOne.Storage.StorageEntity storage, string itemId)
         {

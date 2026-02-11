@@ -444,6 +444,7 @@ namespace OverTheCounter.SaveData
                 StaticIntroQuest.Instance?.RefreshEntryText();
                 StaticUpgrade1Quest.Instance?.RefreshEntryText();
                 StaticUpgrade2Quest.Instance?.RefreshEntryText();
+                BellaProtocolQuest.Instance?.RefreshEntryText();
             }
             catch (System.Exception ex)
             {
@@ -581,6 +582,11 @@ namespace OverTheCounter.SaveData
                     VicSaveData.Instance?.HandleRemoteAction(action);
                     break;
 
+                case "BELLA_INTRO":
+                case "BELLA_ADVANCE":
+                    BellaSaveData.Instance?.HandleRemoteAction(action);
+                    break;
+
                 default:
                     if (action.StartsWith("DESP_RESOLVE:"))
                     {
@@ -694,6 +700,12 @@ namespace OverTheCounter.SaveData
                 parts.Add($"vic_trust={VicSaveData.Instance.TrustLevel}");
             }
 
+            if (BellaSaveData.Instance != null)
+            {
+                parts.Add($"bella_stage={BellaSaveData.Instance.Stage}");
+                parts.Add($"bella_unlocked={BoolToStr(BellaSaveData.Instance.NightMarketUnlocked)}");
+            }
+
             string despIds = DesperationManager.GetDesperateIdsForSync();
             if (!string.IsNullOrEmpty(despIds))
                 parts.Add($"desp_ids={despIds}");
@@ -737,6 +749,13 @@ namespace OverTheCounter.SaveData
                     questAccepted: questAccepted,
                     unlocked: unlocked,
                     trustLevel: trust);
+            }
+
+            if (BellaSaveData.Instance != null)
+            {
+                int bellaStage = state.TryGetValue("bella_stage", out var bs) && int.TryParse(bs, out var bsVal) ? bsVal : 0;
+                bool bellaUnlocked = state.TryGetValue("bella_unlocked", out var bu) && StrToBool(bu);
+                BellaSaveData.Instance.ApplyHostState(bellaStage, bellaUnlocked);
             }
 
             // Sync desperation customer IDs to client

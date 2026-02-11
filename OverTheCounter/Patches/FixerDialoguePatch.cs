@@ -1,4 +1,5 @@
 using HarmonyLib;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppScheduleOne.Dialogue;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Money;
@@ -40,6 +41,16 @@ namespace OverTheCounter.Patches
         {
             try
             {
+                // Show "Warehouse hours?" on the initial greeting alongside "I want to hire an employee"
+                if (dialogueLabel == "ENTRY" && ManagerInstance.Active.Count > 0 &&
+                    (BellaSaveData.Instance == null || !BellaSaveData.Instance.NightMarketUnlocked))
+                {
+                    var warehouseChoice = new DialogueChoiceData();
+                    warehouseChoice.ChoiceText = "Can I get into the warehouse before 6pm?";
+                    warehouseChoice.ChoiceLabel = "WarehouseHours";
+                    existingChoices.Add(warehouseChoice);
+                }
+
                 // Detect employee type selection node by presence of "Botanist" choice
                 bool isEmployeeTypeNode = false;
                 for (int i = 0; i < existingChoices.Count; i++)
@@ -104,6 +115,29 @@ namespace OverTheCounter.Patches
         {
             try
             {
+                if (choiceLabel == "WarehouseHours")
+                {
+                    // Trigger the quest (POI appears while player reads Manny's response)
+                    if (NetworkHelper.IsHost)
+                    {
+                        BellaSaveData.Instance?.TriggerQuest();
+                    }
+                    else
+                    {
+                        ConfigSyncData.SendQuestAction("BELLA_INTRO");
+                    }
+
+                    // Show Manny's response — 0 choices = "continue" button → EndDialogue
+                    var responseNode = new DialogueNodeData();
+                    responseNode.DialogueText = "Talk to Bella downtown. Tell her I sent you.";
+                    responseNode.DialogueNodeLabel = "WAREHOUSE_RESPONSE";
+                    responseNode.choices = new Il2CppReferenceArray<DialogueChoiceData>(0);
+                    __instance.handler?.ShowNode(responseNode);
+
+                    Logger.Msg("Warehouse hours quest triggered from Fixer dialogue");
+                    return false;
+                }
+
                 if (choiceLabel == "Manager")
                 {
                     _managerSelected = true;
@@ -223,6 +257,13 @@ namespace OverTheCounter.Patches
         {
             try
             {
+                // Warehouse hours is always valid
+                if (choiceLabel == "WarehouseHours")
+                {
+                    __result = true;
+                    return false;
+                }
+
                 // Block the "no businesses" placeholder
                 if (choiceLabel == "NO_BUSINESSES")
                 {

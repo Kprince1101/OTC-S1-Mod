@@ -52,6 +52,8 @@ namespace OverTheCounter
             // S1API recreates these from the save file after the scene loads.
             StaticSaveData.ResetInstance();
             VicSaveData.ResetInstance();
+            BellaSaveData.ResetInstance();
+            Patches.BellaSummonPatch.Reset();
             ContactsAppFix.Reset();
 
             // Drifters are transient - despawn on scene transitions (save/load)
@@ -90,6 +92,7 @@ namespace OverTheCounter
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
                 StaticSaveData.Instance?.Tick();
+                BellaSaveData.Instance?.Tick();
                 ManagerSaveData.Instance?.Tick();
 
                 ContactsAppFix.Tick();
