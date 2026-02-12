@@ -112,7 +112,7 @@ namespace OverTheCounter.Logic
             return time24h >= Config.DrifterDayStartHour.Value && time24h < Config.DrifterDayEndHour.Value;
         }
 
-        private static readonly float[] RegionSpawnWeights = { 0.30f, 0.40f, 0.55f, 0.70f, 0.85f, 1.0f };
+        private static readonly float[] RegionSpawnWeights = { 0.10f, 0.25f, 0.45f, 0.65f, 0.85f, 1.0f };
 
         private void TrySpawnDrifter()
         {
@@ -878,13 +878,13 @@ namespace OverTheCounter.Logic
 
             var drifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
 
-            // Stock the drifter's inventory with the actual handed-over items (preserves packaging)
-            if (drifter != null && items != null)
-                drifter.StockInventory(items);
-
             // Robber branch: no payment, stock cash as loot, equip weapon, attack
             if (evt.Type == DrifterType.Robber)
             {
+                // Stock stolen items into robber's inventory (recoverable via body search)
+                if (drifter != null && items != null)
+                    drifter.StockInventory(items);
+
                 // Stock cash in NPC inventory for body search recovery (deal value + 20% bonus)
                 float lootCash = evt.Payment * 1.2f;
                 drifter?.StockCash(lootCash);
@@ -937,6 +937,7 @@ namespace OverTheCounter.Logic
                     {
                         _logger.Msg($"[DrifterManager] Drifter {drifterId} REJECTED deal (matchScore={matchScore:F2})");
 
+                        drifter?.PlayDismissalSound();
                         try { Singleton<HandoverScreen>.Instance?.ClearCustomerSlots(true); } catch { }
 
                         string[] rejectionLines = {
@@ -970,6 +971,10 @@ namespace OverTheCounter.Logic
                     _logger.Warning($"[DrifterManager] Rejection check failed for {drifterId}, proceeding with deal: {ex.Message}");
                 }
             }
+
+            // Deal accepted — stock items into drifter's inventory (preserves packaging)
+            if (drifter != null && items != null)
+                drifter.StockInventory(items);
 
             float satisfaction = 1f;
             float qualityDifference = 0f;

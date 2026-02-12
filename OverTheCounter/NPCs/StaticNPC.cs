@@ -48,7 +48,7 @@ namespace OverTheCounter.NPCs
         public override bool IsPhysical => true;
 
         private static readonly Vector3 SpawnPosition = new Vector3(13.72f, 5.16f, 95.96f);
-        private static readonly Quaternion SpawnRotation = Quaternion.Euler(0.0f, 230.7f, 0.0f);
+        private static readonly Quaternion SpawnRotation = Quaternion.Euler(0.0f, 270.0f, 0.0f);
 
         /// <summary>
         /// Warps Static to the spawn position on the host.

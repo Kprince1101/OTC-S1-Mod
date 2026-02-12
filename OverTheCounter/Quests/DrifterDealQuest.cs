@@ -157,6 +157,9 @@ namespace OverTheCounter.Quests
             {
                 _deliverEntry?.Complete();
                 Complete();
+                // Explicitly end the quest to ensure HUD and journal entry are destroyed.
+                // IL2CPP Complete() may not reliably call End() internally.
+                End();
                 ActiveQuests.Remove(DrifterId);
             }
             catch (Exception ex)

@@ -7,57 +7,48 @@
 > It utilizes Harmony patching that is **NOT compatible with the Mono branch**.
 > Do not attempt to use this on Mono builds; it will crash or fail to load.
 
-## Features
+# Features
 
-### 1. The "Desperation" System (Balance Change)
-A new mechanic designed to break the "Night Meta" and make daytime deliveries profitable.
-* **Director System:** A smart background system rolls for high-addiction "Fiends" to demand product during the day (08:00 - Curfew).
-* **High Risk / High Reward:** These orders come with a **2-hour deadline** but pay out a **+45% "Desperation Premium"**, mathematically beating the standard Night+Curfew bonus.
-* **Consequences:** Missing the window results in the customer buying from "The Cartel" (Relationship Penalty & 24h Lockout).
+## 1. The Manager Update (Endgame Automation)
+*Stop running errands. Start running an empire.*
+A complete, simulation-based automation system built on **S1API** for maximum compatibility (works seamlessly alongside **k0Mods**).
 
-### 2. Contract Aggregator & Manifest (QoL Utility)
-Solves the issue of accepted contracts clipping off the screen and streamlines inventory prep.
-* **HUD Cleanup:** Condenses multiple active contract entries into a single, clean "Pending Deliveries" list to prevent UI overflow. Contracts are grouped by their **delivery time window** — only contracts sharing the same window are combined.
-* **Delivery Manifest:** Automatically calculates and displays the **total product required** for your current run (e.g., *"Total Loadout: 120g Coke, 45g Weed"*). You no longer need to check 5 different contracts and do mental math at your stash.
-* *Note: You still travel to each customer individually; this feature simply organizes the data.*
+* **True Logistics:** Hire physical **Manager NPCs** at your Laundromat, Post Office, Car Wash, or Taco Ticklers.
+* **Supply Routes:** Managers automatically physically visit stores to keep your shelves stocked with essential ingredients (fertilizer, chemicals, etc.).
+* **Distribution Routes:** Assign up to **3 custom logic routes** per manager. They move product from Container A to Container B, allowing you to chain storage containers across the map.
+* **The Cost of Business:** Managers cost **$500/day** (paid from their locker's petty cash) and report their status via a daily summary text.
+* **"Executive Privilege" Quest:** A new endgame questline. Prove your worth to the **Night Market Boss** in the downtown high-rises by crafting high-value Weed ($200+), Meth ($400+), and Cocaine ($800+) mixes. Success unlocks 24/7 Night Market access for your automation network.
 
-### 3. Smart Stash Overlay (QoL Utility)
-A "Delivery Manifest" side-panel that appears automatically when you open any storage container.
-* **Live Manifest:** Aggregates all active contract requirements and shows what you still need, accounting for what's already in your inventory. Updates in real-time as you move items.
-* **Packaging-Aware:** Correctly accounts for jars (5x) vs baggies (1x) when calculating quantities, so your counts always match what contracts actually need.
-* **Smart Fill:** One-click button that automatically transfers the right products from the open container into your inventory. Prioritizes jars over baggies for efficiency.
-* **Include All Shifts Toggle:** Choose whether to see only the current delivery window or all upcoming contracts at once (defaults to all).
+## 2. Smart Logistics UI (Quality of Life)
+*No more mental math. No more clicking back and forth.*
 
-### 4. "Hustle as a Service" Quest & OTC App (Progression & UI)
-The customer list is no longer a default feature. It is now a bootleg app called "OverTheCounter" (OTC), acquired via a new questline.
-* **The Quest:** Static sells the software on a predatory subscription model. You must pay an upfront install fee per tier, plus a recurring $1,000/month "Server Rent." Failure to pay disables the app features.
-* **The "SaaS" Trap:** Clicking a customer in the app highlights their location in-world, fixing a missing feature from the base game.
-* **Software Tiers:**
-    * **v0.1 "Early Access" ($3,000):** Unlocks Region Sorting for Northtown and Westville only.
-    * **v1.0 "Pro License" ($6,000):** Unlocks Global Region Sorting and adds Addiction Status Indicators next to customer names.
-    * **v2.0 "Enterprise" ($12,000):** Unlocks the GPS Locator (click to highlight in-world) and the Desperation Filter.
+* **The Contract Aggregator:** Merges all active orders into a single "Pending Deliveries" list, grouped by time window. See exactly what you need for the next run at a glance.
+* **Live Stash Manifest:** When you open a container, a side panel instantly calculates the total product required for your active contracts versus what you are holding.
+* **Smart Fill Button:** One-click transfer that automatically pulls the exact amount of product needed from the container to your inventory, prioritizing jars over baggies to save space.
 
-### 5. Cash Laundering Alternative (Progression)
-Addresses the single-player economy bottleneck by introducing a manual laundering option before you own legitimate businesses.
-* **"Rinse Cycle" Quest:** Hitting the standard $10k weekly deposit limit triggers an introduction to Vic, a corrupt bank associate looking for a side hustle.
-* **Manual Laundering:** A daily interaction that lets you clean extra cash beyond the ATM limit. It comes with a significant "Risk Fee" (15-20%) and requires physical travel, balancing the extra capacity with effort.
-* **Trust Progression:** Regular visits increase your standing with Vic, eventually unlocking better rates and raising the daily cap - enough to bridge the gap to the mid-game without breaking the economy.
+## 3. Dynamic World Events
+*The city feels alive, and the market is volatile.*
 
-### 6. Drifter System (Dynamic Street Encounters)
-A new system that spawns anonymous, one-time buyers who roam the map looking for a quick score.
-* **Random Encounters:** Drifters spawn throughout the day and text your phone with a deal request — a product, quantity, and cash offer. Accept or ignore.
-* **Scaling Frequency:** Spawn rates scale with your unlocked regions. Early game you'll see ~1-2 per day; at max regions, expect around 5.
-* **Five Drifter Types:**
-    * **Normal (77%):** Standard one-time deal at market price.
-    * **Whale (10%):** Bulk quantities at a 30% premium.
-    * **Fiend (5%):** Urgent small orders at 50% markup, prefers meth and coke.
-    * **Robber (3%):** Attacks you after the handover — knock them out to recover your product and their cash.
-    * **Narc (5%):** Undercover sting — police arrive after the deal completes.
-* **Vanilla Handover:** Deals complete through the game's standard HandoverScreen — drag products from your hotbar just like a regular customer deal.
-* **Map Markers:** Accepting a deal places a quest marker at the drifter's location so you can navigate there.
+* **The "Desperation" System:** Breaks the "wait for night" meta.
+    * **Daytime Rush:** High-addiction "Fiends" trigger urgent orders between 08:00 and Curfew.
+    * **High Risk/High Reward:** strict 2-hour deadlines with a **+45% payout bonus**. Missing the deadline boosts the Cartel's reputation, not yours.
+* **Drifter Encounters:** Random NPCs spawn throughout the city offering one-time deals via text.
+    * **The Risks:** Encounter **Whales** (bulk buyers), **Robbers** (ambushes), or **Narcs** (police stings).
+    * **Scaling:** Spawn rates increase as you unlock more regions.
 
-### Multiplayer Support
-All features are fully multiplayer compatible with host-authoritative state sync. Quest progress, NPC interactions, and config settings synchronize across host and clients via Steam lobby data.
+## 4. Progression & Economy
+*You have to earn your tools.*
+
+* **"OverTheCounter" (OTC) App:** The customer list is no longer free.
+    * **SaaS Model:** Purchase software tiers ($3k - $12k) to unlock features like Region Sorting, Addiction Indicators, and GPS Customer Tracking.
+    * **Subscription:** Failure to pay the $1,000/month server rent disables the app.
+* **Early Game Laundering:**
+    * **Meet Vic:** A corrupt associate who offers manual cash laundering once you hit the $10k weekly ATM limit.
+    * **Risk vs. Reward:** Pay a 15-20% fee to clean dirty cash early, bridging the gap between street dealing and owning legitimate businesses.
+
+## Multiplayer Support
+Built from the ground up for co-op.
+* **Host-Authoritative:** Quest progress, Manager routes, and OTC subscriptions sync flawlessly between host and clients.
 
 ## Requirements & Installation
 

@@ -36,6 +36,9 @@ namespace OverTheCounter.Logic
         // Active consolidated groups, keyed by (windowStart, windowEnd)
         private readonly Dictionary<(int, int), ConsolidatedGroup> _activeGroups = new();
 
+        // Contracts whose HUDs we've hidden — only these get restored
+        private readonly HashSet<int> _hiddenContractIds = new();
+
         private bool _staleCleaned;
         private int _staleCleanupFrame;
 
@@ -298,6 +301,7 @@ namespace OverTheCounter.Logic
                 try
                 {
                     var go = contract.hudUI.gameObject;
+                    _hiddenContractIds.Add(contract.GetInstanceID());
 
                     // Make invisible (keep active so game doesn't destroy the HUD)
                     var cg = go.GetComponent<CanvasGroup>() ?? go.AddComponent<CanvasGroup>();
@@ -314,9 +318,8 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Re-enables HUDs on all live contracts. Reverses CanvasGroup/LayoutElement
-        /// hiding and also re-activates any that were deactivated via SetActive(false)
-        /// from older code or game internals.
+        /// Re-enables HUDs only for contracts we previously hid.
+        /// Skips contracts we never touched (e.g. dealer contracts the game hides).
         /// </summary>
         private void RestoreAllContractHUDs()
         {
@@ -329,12 +332,9 @@ namespace OverTheCounter.Logic
                 {
                     var contract = contracts[i];
                     if (contract?.hudUI?.gameObject == null) continue;
+                    if (!_hiddenContractIds.Contains(contract.GetInstanceID())) continue;
 
                     var go = contract.hudUI.gameObject;
-
-                    // Re-activate if disabled (legacy or game-internal)
-                    if (!go.activeSelf)
-                        go.SetActive(true);
 
                     // Restore CanvasGroup visibility
                     var cg = go.GetComponent<CanvasGroup>();
@@ -352,6 +352,8 @@ namespace OverTheCounter.Logic
                 }
                 catch { }
             }
+
+            _hiddenContractIds.Clear();
         }
 
         /// <summary>

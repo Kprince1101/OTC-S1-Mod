@@ -46,11 +46,6 @@ namespace OverTheCounter.Apps
         private Text _billingText;
         private RectTransform _scrollRectTransform;
 
-        // Icon visibility: hide home-screen icon until the player has purchased from Static
-        private GameObject _iconObject;
-        private bool _iconSearchDone;
-        private int _iconSearchFrames;
-
         // Static instance for access from other classes
         public static CustomersApp Instance { get; private set; }
 
@@ -58,93 +53,6 @@ namespace OverTheCounter.Apps
         {
             base.OnCreated();
             Instance = this;
-        }
-
-        /// <summary>
-        /// Called every frame from Core.OnLateUpdate().
-        /// Finds the home-screen icon (once) and shows/hides it based on CrmTier.
-        /// </summary>
-        public void UpdateIconVisibility()
-        {
-            if (!_iconSearchDone)
-            {
-                // Throttle: search every 30 frames, give up after ~10 seconds
-                if (++_iconSearchFrames % 30 != 0) return;
-                if (_iconSearchFrames > 600)
-                {
-                    _iconSearchDone = true;
-                    MelonLogger.Warning("[CustomersApp] Could not find phone icon object after 10s.");
-                    return;
-                }
-
-                _iconObject = FindIconObject();
-                if (_iconObject != null)
-                    _iconSearchDone = true;
-                else
-                    return;
-            }
-
-            if (_iconObject == null) return;
-
-            bool shouldShow = StaticSaveData.Instance != null && StaticSaveData.Instance.CrmTier > 0;
-            if (_iconObject.activeSelf != shouldShow)
-                _iconObject.SetActive(shouldShow);
-        }
-
-        /// <summary>
-        /// Attempts to locate the home-screen icon button for this app.
-        /// Strategy 1: reflection on PhoneApp fields for a GameObject/Transform.
-        /// Strategy 2: scene search for a Text component matching our IconLabel.
-        /// </summary>
-        private GameObject FindIconObject()
-        {
-            // Strategy 1: Reflection – look for icon/button fields on PhoneApp
-            try
-            {
-                var flags = BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public;
-                foreach (var field in typeof(PhoneApp).GetFields(flags))
-                {
-                    var value = field.GetValue(this);
-                    if (value is GameObject go)
-                    {
-                        string fn = field.Name.ToLowerInvariant();
-                        if (fn.Contains("icon") || fn.Contains("button") || fn.Contains("appbtn"))
-                            return go;
-                    }
-                }
-            }
-            catch (System.Exception ex)
-            {
-                MelonLogger.Warning($"[CustomersApp] Reflection search failed: {ex.Message}");
-            }
-
-            // Strategy 2: Find our icon label "OTC" among all Text components
-            try
-            {
-                foreach (var text in UnityEngine.Object.FindObjectsOfType<Text>(true))
-                {
-                    if (text.text != IconLabel) continue;
-
-                    // Walk up to the nearest ancestor that has a Button – that's the icon button
-                    var current = text.transform.parent;
-                    while (current != null)
-                    {
-                        if (current.GetComponent<Button>() != null)
-                            return current.gameObject;
-                        current = current.parent;
-                    }
-
-                    // No Button ancestor found – return the label's immediate parent
-                    if (text.transform.parent != null)
-                        return text.transform.parent.gameObject;
-                }
-            }
-            catch (System.Exception ex)
-            {
-                MelonLogger.Warning($"[CustomersApp] Label search failed: {ex.Message}");
-            }
-
-            return null;
         }
 
         /// <summary>
@@ -181,23 +89,46 @@ namespace OverTheCounter.Apps
         }
 
         /// <summary>
-        /// Renders a paywall screen when no active subscription exists.
+        /// Renders a splash/paywall screen when the app can't be used yet.
+        /// Shows a license screen before the Static quest, or a subscription
+        /// lapsed screen after the player has previously activated service.
         /// </summary>
         private void ShowPaywallScreen(Transform contentParent)
         {
-            var titleObj = UIFactory.Text("PaywallTitle", "<b>SERVICE OFFLINE</b>", contentParent, 22, TextAnchor.MiddleCenter);
-            titleObj.color = new Color(0.7f, 0.2f, 0.2f);
-            var titleLayout = titleObj.gameObject.AddComponent<LayoutElement>();
-            titleLayout.preferredHeight = 40;
-            titleLayout.flexibleWidth = 1;
+            bool hasMetStatic = StaticSaveData.Instance != null && StaticSaveData.Instance.CrmTier > 0;
 
-            var subtitleObj = UIFactory.Text("PaywallSubtitle",
-                "Active subscription required.\nVisit Static at the Casino to activate.",
-                contentParent, 14, TextAnchor.MiddleCenter);
-            subtitleObj.color = new Color(0.6f, 0.6f, 0.6f);
-            var subtitleLayout = subtitleObj.gameObject.AddComponent<LayoutElement>();
-            subtitleLayout.preferredHeight = 50;
-            subtitleLayout.flexibleWidth = 1;
+            if (hasMetStatic)
+            {
+                var titleObj = UIFactory.Text("PaywallTitle", "<b>SERVICE OFFLINE</b>", contentParent, 22, TextAnchor.MiddleCenter);
+                titleObj.color = new Color(0.7f, 0.2f, 0.2f);
+                var titleLayout = titleObj.gameObject.AddComponent<LayoutElement>();
+                titleLayout.preferredHeight = 40;
+                titleLayout.flexibleWidth = 1;
+
+                var subtitleObj = UIFactory.Text("PaywallSubtitle",
+                    "Active subscription required.\nVisit Static at the Casino to renew.",
+                    contentParent, 14, TextAnchor.MiddleCenter);
+                subtitleObj.color = new Color(0.6f, 0.6f, 0.6f);
+                var subtitleLayout = subtitleObj.gameObject.AddComponent<LayoutElement>();
+                subtitleLayout.preferredHeight = 50;
+                subtitleLayout.flexibleWidth = 1;
+            }
+            else
+            {
+                var titleObj = UIFactory.Text("LicenseTitle", "<b>LICENSE INVALID</b>", contentParent, 22, TextAnchor.MiddleCenter);
+                titleObj.color = new Color(0.6f, 0.6f, 0.6f);
+                var titleLayout = titleObj.gameObject.AddComponent<LayoutElement>();
+                titleLayout.preferredHeight = 40;
+                titleLayout.flexibleWidth = 1;
+
+                var subtitleObj = UIFactory.Text("LicenseSubtitle",
+                    "Please wait for an authorized\nrepresentative to contact you.",
+                    contentParent, 14, TextAnchor.MiddleCenter);
+                subtitleObj.color = new Color(0.5f, 0.5f, 0.5f);
+                var subtitleLayout = subtitleObj.gameObject.AddComponent<LayoutElement>();
+                subtitleLayout.preferredHeight = 50;
+                subtitleLayout.flexibleWidth = 1;
+            }
         }
 
         /// <summary>

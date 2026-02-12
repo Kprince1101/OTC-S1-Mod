@@ -86,9 +86,6 @@ namespace OverTheCounter
                 // Process incoming SyncVar messages (both host and client).
                 ConfigSyncData.ProcessMessages();
 
-                // Show/hide OTC phone icon based on subscription state
-                CustomersApp.Instance?.UpdateIconVisibility();
-
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
                 StaticSaveData.Instance?.Tick();

@@ -14,7 +14,7 @@ namespace OverTheCounter.Quests
         private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("VicIntroQuest");
 
         protected override string Title => "Rinse Cycle";
-        protected override string Description => "Help Vic with his party supplies and he'll loosen your deposit limits.";
+        protected override string Description => "Help Vic with his party supplies and he'll help you clean some cash.";
         protected override bool AutoBegin => false;
         protected override Sprite QuestIcon => ImageUtils.LoadImage(
             Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "RinseCycle.png"));

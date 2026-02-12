@@ -245,7 +245,7 @@ namespace OverTheCounter.NPCs
                         choices.Add("CONT2", "...", "LINE3");
                     });
 
-                    container.AddNode("LINE3", $"Bring me {Config.VicIntroWeedGrams.Value} grams of weed and I'll help cushion your deposit limits.", choices =>
+                    container.AddNode("LINE3", $"Bring me {Config.VicIntroWeedGrams.Value} grams of weed and I'll help you clean some cash.", choices =>
                     {
                         choices.Add("ACCEPT", "I'll get it done.", "ACCEPT_EXIT");
                     });

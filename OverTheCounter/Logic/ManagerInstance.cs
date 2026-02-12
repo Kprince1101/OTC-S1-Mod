@@ -134,9 +134,10 @@ namespace OverTheCounter.Logic
                 return Active[id];
             }
 
-            // Check if this business already has a manager
+            // Check if this business already has an active manager
             foreach (var existing in Active.Values)
             {
+                if (existing.State == ManagerState.Fired) continue;
                 if (existing.BusinessPropertyCode == business.PropertyCode)
                 {
                     Logger.Warning($"Business {business.PropertyCode} already has a manager ({existing.Id})");
