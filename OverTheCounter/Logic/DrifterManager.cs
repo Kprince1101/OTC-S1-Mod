@@ -2278,6 +2278,10 @@ namespace OverTheCounter.Logic
         {
             if (!DrifterSpawner.DrifterConversations.TryGetValue(drifterId, out var conv))
                 return;
+
+            // Mark as read BEFORE hiding so the unread badge count is decremented
+            // and both the Messages app icon and HUD prompt update correctly.
+            try { conv?.SetRead(true); } catch { }
             try { conv?.entry?.gameObject?.SetActive(false); } catch { }
             DrifterSpawner.DrifterConversations.Remove(drifterId);
         }

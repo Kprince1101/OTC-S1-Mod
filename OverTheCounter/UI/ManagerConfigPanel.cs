@@ -1253,19 +1253,24 @@ namespace OverTheCounter.UI
 
             if (slotType == "Locker")
             {
-                config.Locker = selected;
-
-                // Update EmployeeHome display for locker (shows name + wage when opened)
                 if (selected != null)
                 {
+                    // Only actual employee lockers are valid — reject shelves, racks, etc.
                     var home = selected.GetComponent<EmployeeHome>();
                     if (home == null)
                         home = selected.GetComponentInParent<EmployeeHome>();
-                    if (home != null)
-                        _currentManager.AssignLocker(home);
+                    if (home == null)
+                    {
+                        Logger.Warning("Selected storage entity is not an employee locker");
+                        return;
+                    }
+
+                    config.Locker = selected;
+                    _currentManager.AssignLocker(home);
                 }
                 else
                 {
+                    config.Locker = null;
                     _currentManager.ClearLocker();
                 }
             }
