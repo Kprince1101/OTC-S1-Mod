@@ -116,6 +116,10 @@ namespace OverTheCounter
                         mgr.SupplyBehaviour?.Tick();
                         mgr.DistributionBehaviour?.Tick();
                     }
+
+                    // Publish pending text messages to client via dedicated message SyncVar
+                    if (ManagerInstance.HasPendingMessages)
+                        ConfigSyncData.Instance?.PublishManagerMessages();
                 }
 
                 // Update drifter quest timers on client (OnTimeTick is host-only)

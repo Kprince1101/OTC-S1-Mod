@@ -23,6 +23,8 @@ namespace OverTheCounter.SaveData
 
         private bool _questCreated;
         private bool _needsSpawn;
+        private bool _needsStatePublish;
+        private bool _positionFixed;
         private bool _warehouseHoursApplied;
         private int _tickCounter;
         private const int TICK_INTERVAL = 300;
@@ -52,6 +54,13 @@ namespace OverTheCounter.SaveData
             // If quest was in progress when saved, defer Bella respawn
             if (_stage >= 1 && _stage < 5)
                 _needsSpawn = true;
+
+            // Re-publish game state on next Tick so the client receives
+            // bella_stage. The initial SyncVar push in ProcessMessages may
+            // run before S1API loads this Saveable, causing the client to
+            // receive bella_stage=0 and lose quest progress.
+            if (_stage > 0)
+                _needsStatePublish = true;
         }
 
         public void Tick()
@@ -68,6 +77,23 @@ namespace OverTheCounter.SaveData
                     Logger.Warning($"Deferred Bella spawn failed: {ex.Message}");
                     _needsSpawn = true; // retry next tick
                 }
+            }
+
+            // Re-publish game state after save/load so the client receives
+            // the correct bella_stage (initial push may have missed it).
+            if (_needsStatePublish && NetworkHelper.IsHost)
+            {
+                _needsStatePublish = false;
+                ConfigSyncData.Instance?.PublishGameState();
+            }
+
+            // Host-only: NavMesh-snap Bella's position so the Warp RPC sends
+            // correct ground-level Y to clients (prevents floating).
+            if (NetworkHelper.IsHost && !_positionFixed && BellaNPC.Instance != null)
+            {
+                _positionFixed = true;
+                try { BellaNPC.Instance.WarpToSpawn(); }
+                catch (Exception) { }
             }
 
             // Apply 24/7 warehouse hours once DarkMarket singleton is available

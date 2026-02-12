@@ -58,6 +58,10 @@ namespace OverTheCounter.SaveData
         // Runtime-only: ensures we do the stale-data check exactly once per session.
         private bool _staleCheckDone;
 
+        // Runtime-only: deferred re-publish after save/load so the client
+        // receives correct state even if the initial SyncVar push missed us.
+        private bool _needsStatePublish;
+
         private int _tickCounter;
         private const int TICK_INTERVAL = 300; // ~5 seconds at 60fps
         private bool _positionFixed;
@@ -111,6 +115,8 @@ namespace OverTheCounter.SaveData
             if (_hasBeenTexted)
             {
                 _questCreated = true;
+                if (NetworkHelper.IsHost)
+                    _needsStatePublish = true;
                 return;
             }
 
@@ -161,6 +167,14 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void Tick()
         {
+            // Re-publish game state after save/load so the client receives
+            // the correct vic fields (initial push may have missed them).
+            if (_needsStatePublish && NetworkHelper.IsHost)
+            {
+                _needsStatePublish = false;
+                ConfigSyncData.Instance?.PublishGameState();
+            }
+
             // Stale data check: host-only since client state comes from ApplyHostState.
             if (NetworkHelper.IsHost && !_staleCheckDone && _hasBeenTexted)
             {

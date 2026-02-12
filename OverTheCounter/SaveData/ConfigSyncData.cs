@@ -47,7 +47,10 @@ namespace OverTheCounter.SaveData
         private static HostSyncVar<string> _stateVar;     // Host → Client: pipe-delimited state
         private static HostSyncVar<string> _drifterVar;   // Host → Client: drifter state (separate to avoid lobby data truncation)
         private static HostSyncVar<string> _managerVar;  // Host → Client: manager state (separate to avoid lobby data truncation)
+        private static HostSyncVar<string> _mgrMsgVar;   // Host → Client: manager text messages (separate to avoid 255-char SyncVar truncation)
         private static ClientSyncVar<string> _actionVar;  // Client → Host: "seq:ACTION"
+
+        private static int _msgSeq; // Counter to prevent SyncVar dedup on identical messages
 
         private static readonly NetworkSyncOptions _syncOptions = new NetworkSyncOptions
         {
@@ -122,6 +125,7 @@ namespace OverTheCounter.SaveData
                 _stateVar = _netClient.CreateHostSyncVar("state", "", _syncOptions);
                 _drifterVar = _netClient.CreateHostSyncVar("drifters", "", _syncOptions);
                 _managerVar = _netClient.CreateHostSyncVar("managers", "", _syncOptions);
+                _mgrMsgVar = _netClient.CreateHostSyncVar("mgrmsg", "", _syncOptions);
                 _actionVar = _netClient.CreateClientSyncVar("action", "", _syncOptions);
 
                 // Diagnostic error handlers — surface silent SyncVar failures.
@@ -129,6 +133,7 @@ namespace OverTheCounter.SaveData
                 _stateVar.OnSyncError += (ex) => Logger.Warning($"State SyncVar error: {ex.Message}");
                 _drifterVar.OnSyncError += (ex) => Logger.Warning($"Drifter SyncVar error: {ex.Message}");
                 _managerVar.OnSyncError += (ex) => Logger.Warning($"Manager SyncVar error: {ex.Message}");
+                _mgrMsgVar.OnSyncError += (ex) => Logger.Warning($"MgrMsg SyncVar error: {ex.Message}");
                 _actionVar.OnSyncError += (ex) => Logger.Warning($"Action SyncVar error: {ex.Message}");
                 _configVar.OnWriteIgnored += (_) => Logger.Warning("Config SyncVar write ignored (not lobby owner).");
                 _stateVar.OnWriteIgnored += (_) => Logger.Warning("State SyncVar write ignored (not lobby owner).");
@@ -138,6 +143,7 @@ namespace OverTheCounter.SaveData
                 _stateVar.OnValueChanged += OnStateChanged;
                 _drifterVar.OnValueChanged += OnDrifterStateChanged;
                 _managerVar.OnValueChanged += OnManagerStateChanged;
+                _mgrMsgVar.OnValueChanged += OnManagerMessageChanged;
 
                 // Host callback: receive quest actions from clients.
                 _actionVar.OnValueChanged += OnActionChanged;
@@ -204,6 +210,7 @@ namespace OverTheCounter.SaveData
                     _stateVar?.Refresh();
                     _drifterVar?.Refresh();
                     _managerVar?.Refresh();
+                    _mgrMsgVar?.Refresh();
                     _actionVar?.Refresh();
 
                     Logger.Msg($"Initial SyncVar sync after lobby discovery (lobbyHost={_netClient.IsHost}).");
@@ -278,6 +285,7 @@ namespace OverTheCounter.SaveData
             _stateVar = null;
             _drifterVar = null;
             _managerVar = null;
+            _mgrMsgVar = null;
             _actionVar = null;
             _pendingGameState = null;
             _processedActions.Clear();
@@ -352,10 +360,18 @@ namespace OverTheCounter.SaveData
         private static void OnManagerStateChanged(string oldValue, string newValue)
         {
             if (_netClient?.IsHost == true) return;
-            if (string.IsNullOrEmpty(newValue)) return;
 
             try
             {
+                // Empty value = all managers fired/removed
+                if (string.IsNullOrEmpty(newValue))
+                {
+                    ManagerInstance.SyncedManagerBusinesses.Clear();
+                    ManagerInstance.ApplyManagerState("");
+                    Logger.Msg("Client cleared manager state (empty SyncVar).");
+                    return;
+                }
+
                 var state = ParsePayload(newValue);
 
                 // Sync business assignments
@@ -369,17 +385,56 @@ namespace OverTheCounter.SaveData
                     }
                 }
 
-                // Adopt manager NPCs
-                if (state.TryGetValue("data", out var mgrData) && !string.IsNullOrEmpty(mgrData))
-                {
-                    ManagerInstance.ApplyManagerState(mgrData);
-                }
+                // Always call ApplyManagerState to adopt new managers AND clean up stale ones
+                string mgrData = "";
+                if (state.TryGetValue("data", out var md))
+                    mgrData = md ?? "";
+                ManagerInstance.ApplyManagerState(mgrData);
 
                 Logger.Msg($"Client applied manager state from SyncVar ({newValue.Length} chars).");
             }
             catch (Exception ex)
             {
                 Logger.Warning($"OnManagerStateChanged failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Client callback when host publishes a manager text message via the dedicated SyncVar.
+        /// Format: "seq;managerId|messageText" or "seq;id1|msg1;id2|msg2" for multiple.
+        /// </summary>
+        private static void OnManagerMessageChanged(string oldValue, string newValue)
+        {
+            if (_netClient?.IsHost == true) return;
+            if (string.IsNullOrEmpty(newValue)) return;
+
+            try
+            {
+                var entries = newValue.Split(';');
+                // First entry is the sequence counter — skip it
+                for (int i = 1; i < entries.Length; i++)
+                {
+                    var entry = entries[i];
+                    int pipeIdx = entry.IndexOf('|');
+                    if (pipeIdx <= 0) continue;
+
+                    var id = entry.Substring(0, pipeIdx);
+                    var text = entry.Substring(pipeIdx + 1);
+
+                    if (ManagerInstance.Active.TryGetValue(id, out var mgr))
+                    {
+                        mgr.SendTextMessage(text, queueForClient: false);
+                        Logger.Msg($"Client delivered synced text from manager {id}");
+                    }
+                    else
+                    {
+                        Logger.Warning($"Client received message for unknown manager {id}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"OnManagerMessageChanged failed: {ex.Message}");
             }
         }
 
@@ -513,6 +568,43 @@ namespace OverTheCounter.SaveData
             catch (Exception ex)
             {
                 Logger.Warning($"PublishManagerState failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Publishes pending manager text messages to the dedicated message SyncVar.
+        /// Called from Core.OnLateUpdate when HasPendingMessages is true.
+        /// Format: "seq;managerId|messageText;managerId2|messageText2"
+        /// </summary>
+        public void PublishManagerMessages()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                var msgParts = new List<string>();
+                msgParts.Add((_msgSeq++).ToString()); // Sequence counter prevents SyncVar dedup
+
+                foreach (var mgr in ManagerInstance.Active.Values)
+                {
+                    if (!string.IsNullOrEmpty(mgr.PendingClientMessage))
+                    {
+                        msgParts.Add($"{mgr.Id}|{mgr.PendingClientMessage}");
+                        mgr.PendingClientMessage = null;
+                    }
+                }
+                ManagerInstance.HasPendingMessages = false;
+
+                if (msgParts.Count > 1 && _mgrMsgVar != null) // > 1 because first entry is seq
+                {
+                    string payload = string.Join(";", msgParts);
+                    _mgrMsgVar.Value = payload;
+                    Logger.Msg($"PublishManagerMessages: {payload.Length} chars, {msgParts.Count - 1} messages");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"PublishManagerMessages failed: {ex.Message}");
             }
         }
 

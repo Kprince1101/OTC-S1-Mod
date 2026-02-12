@@ -374,6 +374,11 @@ namespace OverTheCounter.UI
                         cell.name = $"ProductSlot_{i}";
                         cell.SetActive(true);
 
+                        // Add a visible background so slots are readable in dark environments
+                        var cellImg = cell.GetComponent<Image>();
+                        if (cellImg == null) cellImg = cell.AddComponent<Image>();
+                        cellImg.color = new Color(0.10f, 0.10f, 0.10f, 0.92f);
+
                         var cellRT = cell.GetComponent<RectTransform>();
                         if (cellRT != null)
                         {

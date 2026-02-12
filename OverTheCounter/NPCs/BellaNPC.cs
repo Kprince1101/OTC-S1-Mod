@@ -16,6 +16,7 @@ using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using UnityEngine;
+using UnityEngine.AI;
 using MelonLoader;
 using System;
 using System.Collections;
@@ -42,6 +43,29 @@ namespace OverTheCounter.NPCs
         public Il2CppScheduleOne.NPCs.NPC GameNpc => _gameNpc;
 
         public override bool IsPhysical => true;
+
+        /// <summary>
+        /// Warps Bella to the spawn position on the host with NavMesh pre-snapping.
+        /// Movement.Warp() sends a FishNet RPC that syncs the correct ground-level
+        /// Y to all clients, preventing floating.
+        /// </summary>
+        public void WarpToSpawn()
+        {
+            try
+            {
+                Vector3 warpPos = SpawnPosition;
+                if (NavMesh.SamplePosition(SpawnPosition, out NavMeshHit hit, 10f, NavMesh.AllAreas))
+                    warpPos = hit.position;
+
+                Movement.Warp(warpPos);
+                Movement.Stop();
+                Movement.FaceDirection(SpawnRotation * Vector3.forward);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"WarpToSpawn failed: {ex.Message}");
+            }
+        }
 
         protected override void ConfigurePrefab(NPCPrefabBuilder builder)
         {

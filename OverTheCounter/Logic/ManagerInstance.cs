@@ -63,6 +63,18 @@ namespace OverTheCounter.Logic
         public bool NoNightMarketCashTextSent { get; set; }
 
         /// <summary>
+        /// Queued text message for client delivery via SyncVar.
+        /// Set by SendTextMessage on host, cleared after serialization.
+        /// </summary>
+        public string PendingClientMessage { get; set; }
+
+        /// <summary>
+        /// True when any manager has a PendingClientMessage waiting to be published.
+        /// Checked in the lifecycle tick to trigger PublishManagerState.
+        /// </summary>
+        public static bool HasPendingMessages { get; set; }
+
+        /// <summary>
         /// Locker cash balance when the NM warning was sent.
         /// Flag only resets when locker cash rises above this (player deposited cash).
         /// </summary>
@@ -243,7 +255,7 @@ namespace OverTheCounter.Logic
         }
 
         // Hold references to IL2CPP callbacks to prevent GC collection
-        private Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _destCallback;
+        internal Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _destCallback;
         internal Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _transferCallback;
         private Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _fireCallback;
         // _mugshotCallback removed — mugshot generation now uses direct IconGenerator capture
@@ -311,7 +323,6 @@ namespace OverTheCounter.Logic
             Logger.Msg($"Manager {Id}: mugshot coroutine started (attempt {attempt})");
 
             // Delay ~60 frames (~1s at 60fps) on first attempt, ~180 on retry
-            // Using frame yields instead of WaitForSeconds for IL2CPP coroutine compat
             int delayFrames = attempt == 0 ? 60 : 180;
             for (int i = 0; i < delayFrames; i++)
                 yield return null;
@@ -327,7 +338,7 @@ namespace OverTheCounter.Logic
             var generator = Singleton<MugshotGenerator>.Instance;
             if (generator == null || generator.MugshotRig == null || generator.Generator == null)
             {
-                Logger.Warning($"Manager {Id}: MugshotGenerator not available (gen={generator != null}, rig={generator?.MugshotRig != null}, iconGen={generator?.Generator != null})");
+                Logger.Warning($"Manager {Id}: MugshotGenerator or IconGenerator not available");
                 yield break;
             }
 
@@ -341,86 +352,113 @@ namespace OverTheCounter.Logic
             if (idleWait > 0)
                 Logger.Msg($"Manager {Id}: waited {idleWait} frames for MugshotRig idle");
 
-            // Manual MugshotRig control — bypasses MugshotGenerator.GenerateMugshot
-            // to give SkinnedMeshRenderers enough frames to recalculate bone transforms
-            // and bounds. The vanilla 1-frame capture works on host but produces bad
-            // framing on the client.
-            AvatarSettings settings = null;
-            bool setupOk = false;
+            // Direct mugshot capture — bypasses vanilla GenerateMugshot callback system
+            // to avoid race conditions with concurrent mugshot generation (game NPCs).
+            // Replicates the vanilla setup steps then calls GetTexture directly.
+            Texture2D resultTex = null;
             try
             {
-                settings = UnityEngine.Object.Instantiate(GameNpc.Avatar.CurrentSettings);
+                // Clone settings and normalize height (same as vanilla)
+                var settings = UnityEngine.Object.Instantiate(GameNpc.Avatar.CurrentSettings);
                 settings.Height = 1f;
 
+                // Activate rig and load avatar settings
                 generator.MugshotRig.gameObject.SetActive(true);
                 generator.MugshotRig.LoadAvatarSettings(settings);
-                generator.MugshotRig.SetSkinColor(settings.SkinColor);
 
-                // DON'T set IconGeneration layer yet — keep on Default so game cameras
-                // render the rig during settling, which forces SkinnedMeshRenderer bone
-                // transform + bounds recalculation. Set the layer right before capture.
-                foreach (var smr in generator.MugshotRig.GetComponentsInChildren<SkinnedMeshRenderer>())
-                    smr.updateWhenOffscreen = true;
-
-                setupOk = true;
-                Logger.Msg($"Manager {Id}: MugshotRig setup complete");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"GenerateMugshot setup failed for {Id}: {ex.Message}");
-                try { generator.MugshotRig.gameObject.SetActive(false); } catch { }
-            }
-
-            if (!setupOk) yield break;
-
-            // Wait for SkinnedMeshRenderers to update bone transforms/bounds via game camera rendering
-            for (int i = 0; i < 8; i++)
-                yield return null;
-
-            // NOW set IconGeneration layer right before capture
-            try
-            {
+                // Set all children to IconGeneration layer (same as vanilla)
                 Il2CppScheduleOne.DevUtilities.LayerUtility.SetLayerRecursively(
-                    generator.MugshotRig.gameObject, LayerMask.NameToLayer("IconGeneration"));
+                    generator.MugshotRig.gameObject,
+                    LayerMask.NameToLayer("IconGeneration"));
+
+                // Force all skinned meshes to update even when offscreen (same as vanilla)
+                var skinnedRenderers = generator.MugshotRig.GetComponentsInChildren<SkinnedMeshRenderer>();
+                for (int r = 0; r < skinnedRenderers.Length; r++)
+                    skinnedRenderers[r].updateWhenOffscreen = true;
+
+                // Ensure body mesh is visible (activates BodyContainer, opens eyes)
+                try { generator.MugshotRig.SetVisible(true); } catch { }
+
+                // Deactivate the Impostor billboard gameObject to prevent it from being
+                // captured by RuntimePreviewGenerator. DisableImpostor() is unreliable
+                // in IL2CPP so we deactivate the entire gameObject instead.
+                try
+                {
+                    var impostor = generator.MugshotRig.Impostor;
+                    if (impostor != null && impostor.gameObject != null)
+                        impostor.gameObject.SetActive(false);
+                }
+                catch { }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"GenerateMugshot layer setup failed for {Id}: {ex.Message}");
+                Logger.Warning($"Manager {Id}: mugshot rig setup failed: {ex.Message}");
                 try { generator.MugshotRig.gameObject.SetActive(false); } catch { }
+                if (attempt < 1)
+                    MelonCoroutines.Start(GenerateMugshotCoroutine(attempt + 1));
                 yield break;
             }
 
-            // Capture + cleanup
+            // Wait 1 frame so LateUpdate processes bone positions before capture
+            yield return null;
+
+            // Capture directly via IconGenerator (synchronous Camera.Render)
             try
             {
-                Texture2D tex = generator.Generator.GetTexture(generator.MugshotRig.transform);
-                Logger.Msg($"Manager {Id}: GetTexture returned {(tex != null ? $"{tex.width}x{tex.height}" : "null")}");
-
-                // Reset MugshotRig
-                if (generator.DefaultSettings != null)
-                    generator.MugshotRig.LoadAvatarSettings(generator.DefaultSettings);
-                generator.MugshotRig.gameObject.SetActive(false);
-
-                if (tex == null || GameNpc == null)
-                {
-                    Logger.Warning($"Manager {Id}: mugshot texture is null (attempt {attempt})");
-                    if (attempt < 1)
-                        MelonCoroutines.Start(GenerateMugshotCoroutine(attempt + 1));
-                    yield break;
-                }
-
-                tex.Apply();
-                GameNpc.MugshotSprite = Sprite.Create(tex,
-                    new Rect(0, 0, tex.width, tex.height),
-                    new Vector2(0.5f, 0.5f));
-                if (AssignedLocker?.MugshotSprite != null)
-                    AssignedLocker.MugshotSprite.sprite = GameNpc.MugshotSprite;
-                Logger.Msg($"Manager {Id}: mugshot applied to NPC + locker (attempt {attempt})");
+                resultTex = generator.Generator.GetTexture(generator.MugshotRig.transform);
             }
             catch (Exception ex)
             {
-                Logger.Warning($"GenerateMugshot capture failed for {Id}: {ex.Message}");
-                try { generator.MugshotRig.gameObject.SetActive(false); } catch { }
+                Logger.Warning($"Manager {Id}: GetTexture failed: {ex.Message}");
+            }
+
+            // Reset rig to default settings and deactivate
+            try
+            {
+                generator.MugshotRig.LoadAvatarSettings(generator.DefaultSettings);
+                generator.MugshotRig.gameObject.SetActive(false);
+            }
+            catch { }
+
+            if (resultTex == null)
+            {
+                Logger.Warning($"Manager {Id}: mugshot capture returned null (attempt {attempt})");
+                if (attempt < 1)
+                    MelonCoroutines.Start(GenerateMugshotCoroutine(attempt + 1));
+                yield break;
+            }
+
+            Logger.Msg($"Manager {Id}: mugshot captured {resultTex.width}x{resultTex.height} (direct capture)");
+
+            // Apply mugshot to NPC, locker, and messaging UI
+            try
+            {
+                resultTex.Apply();
+                GameNpc.MugshotSprite = Sprite.Create(resultTex,
+                    new Rect(0, 0, resultTex.width, resultTex.height),
+                    new Vector2(0.5f, 0.5f));
+                if (AssignedLocker?.MugshotSprite != null)
+                    AssignedLocker.MugshotSprite.sprite = GameNpc.MugshotSprite;
+
+                // Update phone messaging entry icon (set to null during CreateConversationUI
+                // because mugshot wasn't ready yet)
+                try
+                {
+                    var conv = GameNpc.MSGConversation;
+                    if (conv?.entry != null)
+                    {
+                        var iconImg = conv.entry.Find("IconMask/Icon")?.GetComponent<UnityEngine.UI.Image>();
+                        if (iconImg != null)
+                            iconImg.sprite = GameNpc.MugshotSprite;
+                    }
+                }
+                catch { }
+
+                Logger.Msg($"Manager {Id}: mugshot applied to NPC + locker + messaging (attempt {attempt})");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Manager {Id}: mugshot apply failed: {ex.Message}");
                 if (attempt < 1)
                     MelonCoroutines.Start(GenerateMugshotCoroutine(attempt + 1));
             }
@@ -444,6 +482,15 @@ namespace OverTheCounter.Logic
                 // Don't resume walking while in dialogue — let the NPC stand still
                 var dialogueHandler = GameNpc.DialogueHandler;
                 if (dialogueHandler != null && dialogueHandler.IsDialogueInProgress) return;
+
+                // Also check server-side GenericDialogueBehaviour (active when client initiates dialogue
+                // via Enable_Server RPC — IsDialogueInProgress is only set on the client)
+                try
+                {
+                    var dialogueBeh = GameNpc.Behaviour?.GenericDialogueBehaviour;
+                    if (dialogueBeh != null && dialogueBeh.Active) return;
+                }
+                catch { }
 
                 // If the NPC still has an active destination, nothing to do
                 if (movement.HasDestination) return;
@@ -739,7 +786,7 @@ namespace OverTheCounter.Logic
         /// Uses network=false to avoid FishNet's RunLocally double-delivery on the host.
         /// Each player sends their own local text (host from HireManager, client from TryAdopt).
         /// </summary>
-        public void SendTextMessage(string message)
+        public void SendTextMessage(string message, bool queueForClient = true)
         {
             if (GameNpc == null)
             {
@@ -761,6 +808,13 @@ namespace OverTheCounter.Logic
                     true,
                     UnityEngine.Random.Range(int.MinValue, int.MaxValue));
                 conv.SendMessage(msg, true, false);
+
+                // Queue for client delivery via SyncVar (host-only warning texts)
+                if (queueForClient && NetworkHelper.IsHost)
+                {
+                    PendingClientMessage = message;
+                    HasPendingMessages = true;
+                }
             }
             catch (Exception ex)
             {
@@ -770,12 +824,13 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Sends a greeting text exactly once (prevents duplicate greetings from host/client paths).
+        /// Greetings bypass SyncVar queue because both host and client send them locally.
         /// </summary>
         public void SendGreeting(string message)
         {
             if (GreetingSent) return;
             GreetingSent = true;
-            SendTextMessage(message);
+            SendTextMessage(message, queueForClient: false);
         }
 
         /// <summary>
@@ -854,6 +909,7 @@ namespace OverTheCounter.Logic
         {
             foreach (var mgr in Active.Values)
             {
+                if (mgr.State == ManagerState.Fired) continue;
                 if (mgr.BusinessPropertyCode == propertyCode)
                     return true;
             }
@@ -880,7 +936,10 @@ namespace OverTheCounter.Logic
         {
             var codes = new List<string>();
             foreach (var mgr in Active.Values)
+            {
+                if (mgr.State == ManagerState.Fired) continue;
                 codes.Add(mgr.BusinessPropertyCode);
+            }
             return string.Join(",", codes);
         }
 
@@ -933,85 +992,134 @@ namespace OverTheCounter.Logic
         /// </summary>
         public static void ApplyManagerState(string stateString)
         {
-            if (string.IsNullOrEmpty(stateString))
+            Logger.Msg($"ApplyManagerState: processing '{stateString ?? ""}' (Active={Active.Count}, Pending={_pendingAdoptions.Count})");
+
+            // Collect IDs present in the incoming host state
+            var incomingIds = new HashSet<string>();
+
+            if (!string.IsNullOrEmpty(stateString))
             {
-                Logger.Msg("ApplyManagerState: stateString is empty, skipping");
-                return;
-            }
-
-            Logger.Msg($"ApplyManagerState: processing '{stateString}' (Active={Active.Count}, Pending={_pendingAdoptions.Count})");
-
-            var entries = stateString.Split(';');
-            foreach (var entry in entries)
-            {
-                if (string.IsNullOrEmpty(entry)) continue;
-                var parts = entry.Split(':');
-                if (parts.Length < 4)
+                var entries = stateString.Split(';');
+                foreach (var entry in entries)
                 {
-                    Logger.Warning($"ApplyManagerState: skipping malformed entry '{entry}' (parts={parts.Length})");
-                    continue;
-                }
-
-                string id = parts[0];
-                if (!int.TryParse(parts[1], out int seed))
-                {
-                    Logger.Warning($"ApplyManagerState: bad seed in entry '{entry}'");
-                    continue;
-                }
-                string bizCode = parts[2];
-                if (!int.TryParse(parts[3], out int netObjId))
-                {
-                    Logger.Warning($"ApplyManagerState: bad netObjId in entry '{entry}'");
-                    continue;
-                }
-                // Rejoin from index 4 — config data contains ':' separators (item:threshold)
-                // that get split along with the entry-level ':' separators
-                string configStr = parts.Length > 4 ? string.Join(":", parts, 4, parts.Length - 4) : "";
-
-                // Already adopted or pending
-                if (Active.ContainsKey(id))
-                {
-                    // Skip SyncVar echo while the client is actively editing this manager's clipboard.
-                    // Steam lobby data truncation can shorten the echoed value, corrupting the config.
-                    if (!NetworkHelper.IsHost && UI.ManagerConfigPanel.IsOpen
-                        && string.Equals(UI.ManagerConfigPanel.CurrentManagerId, id))
+                    if (string.IsNullOrEmpty(entry)) continue;
+                    var parts = entry.Split(':');
+                    if (parts.Length < 4)
                     {
-                        Logger.Msg($"ApplyManagerState: {id} skipped config update (clipboard open on client)");
+                        Logger.Warning($"ApplyManagerState: skipping malformed entry '{entry}' (parts={parts.Length})");
                         continue;
                     }
 
-                    // Update config on existing managers (host may have changed it)
-                    if (!string.IsNullOrEmpty(configStr))
+                    string id = parts[0];
+                    incomingIds.Add(id);
+
+                    if (!int.TryParse(parts[1], out int seed))
                     {
-                        Active[id].Configuration.Deserialize(DecodeConfig(configStr));
-                        Active[id].ReconcileLockerFromConfig();
+                        Logger.Warning($"ApplyManagerState: bad seed in entry '{entry}'");
+                        continue;
                     }
-                    Logger.Msg($"ApplyManagerState: {id} already in Active, updated config");
-                    continue;
-                }
-                if (_pendingAdoptions.ContainsKey(id))
-                {
-                    _pendingAdoptions[id].ConfigStr = configStr;
-                    Logger.Msg($"ApplyManagerState: {id} already pending, updated config");
-                    continue;
-                }
-
-                // Find FishNet NPC by ObjectId
-                NPC npc = FindNetworkNpc(netObjId);
-                if (npc == null)
-                {
-                    // Queue for retry — NPC likely hasn't replicated yet
-                    _pendingAdoptions[id] = new PendingAdoption
+                    string bizCode = parts[2];
+                    if (!int.TryParse(parts[3], out int netObjId))
                     {
-                        Id = id, Seed = seed, BizCode = bizCode,
-                        NetObjId = netObjId, CreatedTime = UnityEngine.Time.time,
-                        ConfigStr = configStr
-                    };
-                    Logger.Msg($"ApplyManagerState: NPC ObjectId {netObjId} not found yet, queued adoption for {id}");
-                    continue;
-                }
+                        Logger.Warning($"ApplyManagerState: bad netObjId in entry '{entry}'");
+                        continue;
+                    }
+                    // Rejoin from index 4 — config data contains ':' separators (item:threshold)
+                    // that get split along with the entry-level ':' separators
+                    string configStr = parts.Length > 4 ? string.Join(":", parts, 4, parts.Length - 4) : "";
 
-                TryAdopt(id, seed, bizCode, netObjId, npc, configStr);
+                    // Already adopted or pending
+                    if (Active.ContainsKey(id))
+                    {
+                        // Skip SyncVar echo while the client is actively editing this manager's clipboard.
+                        // Steam lobby data truncation can shorten the echoed value, corrupting the config.
+                        if (!NetworkHelper.IsHost && UI.ManagerConfigPanel.IsOpen
+                            && string.Equals(UI.ManagerConfigPanel.CurrentManagerId, id))
+                        {
+                            Logger.Msg($"ApplyManagerState: {id} skipped config update (clipboard open on client)");
+                            continue;
+                        }
+
+                        var existing = Active[id];
+
+                        // Update business assignment if manager was transferred
+                        if (!string.Equals(existing.BusinessPropertyCode, bizCode, StringComparison.OrdinalIgnoreCase))
+                        {
+                            foreach (var biz in Il2CppScheduleOne.Property.Business.OwnedBusinesses)
+                            {
+                                if (biz != null && string.Equals(biz.PropertyCode, bizCode, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    existing.AssignedBusiness = biz;
+                                    existing.BusinessPropertyCode = bizCode;
+                                    Logger.Msg($"ApplyManagerState: {id} transferred to {bizCode}");
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Update config on existing managers (host may have changed it)
+                        if (!string.IsNullOrEmpty(configStr))
+                        {
+                            existing.Configuration.Deserialize(DecodeConfig(configStr));
+                            existing.ReconcileLockerFromConfig();
+                        }
+                        Logger.Msg($"ApplyManagerState: {id} already in Active, updated config");
+                        continue;
+                    }
+                    if (_pendingAdoptions.ContainsKey(id))
+                    {
+                        _pendingAdoptions[id].ConfigStr = configStr;
+                        Logger.Msg($"ApplyManagerState: {id} already pending, updated config");
+                        continue;
+                    }
+
+                    // Find FishNet NPC by ObjectId
+                    NPC npc = FindNetworkNpc(netObjId);
+                    if (npc == null)
+                    {
+                        // Queue for retry — NPC likely hasn't replicated yet
+                        _pendingAdoptions[id] = new PendingAdoption
+                        {
+                            Id = id, Seed = seed, BizCode = bizCode,
+                            NetObjId = netObjId, CreatedTime = UnityEngine.Time.time,
+                            ConfigStr = configStr
+                        };
+                        Logger.Msg($"ApplyManagerState: NPC ObjectId {netObjId} not found yet, queued adoption for {id}");
+                        continue;
+                    }
+
+                    TryAdopt(id, seed, bizCode, netObjId, npc, configStr);
+                }
+            }
+
+            // Remove managers from Active that are no longer in the host state (e.g. fired by host)
+            var staleIds = new List<string>();
+            foreach (var id in Active.Keys)
+            {
+                if (!incomingIds.Contains(id))
+                    staleIds.Add(id);
+            }
+            foreach (var id in staleIds)
+            {
+                Logger.Msg($"ApplyManagerState: removing stale manager {id} (not in host state)");
+                if (Active.TryGetValue(id, out var stale))
+                {
+                    stale.ClearMessages();
+                    stale.Despawn();
+                }
+            }
+
+            // Also remove stale pending adoptions
+            var stalePending = new List<string>();
+            foreach (var id in _pendingAdoptions.Keys)
+            {
+                if (!incomingIds.Contains(id))
+                    stalePending.Add(id);
+            }
+            foreach (var id in stalePending)
+            {
+                Logger.Msg($"ApplyManagerState: removing stale pending adoption {id}");
+                _pendingAdoptions.Remove(id);
             }
         }
 

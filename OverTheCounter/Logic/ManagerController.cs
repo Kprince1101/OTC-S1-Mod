@@ -445,28 +445,28 @@ namespace OverTheCounter.Logic
                 instance.TargetLocation = location;
                 instance.ArrivedAtDestination = false;
 
-                // Hold reference to prevent GC
-                Il2CppSystem.Action<NPCMovement.WalkResult> callback =
-                    (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                // Use _destCallback so EnsureMoving re-issues with the same transfer-aware callback
+                instance._destCallback = (Il2CppSystem.Action<NPCMovement.WalkResult>)
                     new Action<NPCMovement.WalkResult>(result =>
                     {
-                        _logger.Msg($"Manager {instance.Id} arrived at new business (result={result})");
-                        CompleteTransfer(instance, targetBusiness);
+                        _logger.Msg($"Manager {instance.Id} transfer walk callback (result={result})");
                         if (result == NPCMovement.WalkResult.Success ||
                             result == NPCMovement.WalkResult.Partial)
                         {
+                            CompleteTransfer(instance, targetBusiness);
                             try
                             {
                                 instance.GameNpc?.Movement?.FaceDirection(location.DestRotation * Vector3.forward);
                             }
                             catch { }
                         }
+                        // On Stopped (e.g. punch): leave TargetLocation set so EnsureMoving resumes walk
                     });
 
-                // Store callback reference on the instance to prevent GC
-                instance._transferCallback = callback;
+                // Also store on _transferCallback to prevent GC
+                instance._transferCallback = instance._destCallback;
 
-                instance.GameNpc.Movement.SetDestination(location.Destination, callback, 3f, 1f);
+                instance.GameNpc.Movement.SetDestination(location.Destination, instance._destCallback, 3f, 1f);
                 _logger.Msg($"Manager {instance.Id} walking to {targetBusiness.PropertyCode}");
             }
             catch (Exception ex)

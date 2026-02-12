@@ -41,16 +41,6 @@ namespace OverTheCounter.Patches
         {
             try
             {
-                // Show "Warehouse hours?" on the initial greeting alongside "I want to hire an employee"
-                if (dialogueLabel == "ENTRY" && ManagerInstance.Active.Count > 0 &&
-                    (BellaSaveData.Instance == null || !BellaSaveData.Instance.NightMarketUnlocked))
-                {
-                    var warehouseChoice = new DialogueChoiceData();
-                    warehouseChoice.ChoiceText = "Can I get into the warehouse before 6pm?";
-                    warehouseChoice.ChoiceLabel = "WarehouseHours";
-                    existingChoices.Add(warehouseChoice);
-                }
-
                 // Detect employee type selection node by presence of "Botanist" choice
                 bool isEmployeeTypeNode = false;
                 for (int i = 0; i < existingChoices.Count; i++)
@@ -60,6 +50,30 @@ namespace OverTheCounter.Patches
                         isEmployeeTypeNode = true;
                         break;
                     }
+                }
+
+                // Detect Manny's intro node (first-time "You the new guy?" dialogue)
+                // by checking for the "Probably" choice — only the intro has it.
+                bool isIntroNode = false;
+                for (int i = 0; i < existingChoices.Count; i++)
+                {
+                    if (existingChoices[i].ChoiceText == "Probably")
+                    {
+                        isIntroNode = true;
+                        break;
+                    }
+                }
+
+                // Show "Warehouse hours?" on ENTRY greeting only (not the intro or employee type node)
+                // Hide once quest is started (stage >= 1) — player already knows about Bella
+                if (dialogueLabel == "ENTRY" && !isEmployeeTypeNode && !isIntroNode &&
+                    ManagerInstance.Active.Count > 0 &&
+                    (BellaSaveData.Instance == null || BellaSaveData.Instance.Stage == 0))
+                {
+                    var warehouseChoice = new DialogueChoiceData();
+                    warehouseChoice.ChoiceText = "Can I get into the warehouse before 6pm?";
+                    warehouseChoice.ChoiceLabel = "WarehouseHours";
+                    existingChoices.Add(warehouseChoice);
                 }
 
                 if (isEmployeeTypeNode)
