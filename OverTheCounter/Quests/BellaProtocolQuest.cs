@@ -1,0 +1,205 @@
+using MelonLoader;
+using MelonLoader.Utils;
+using S1API.Quests;
+using S1API.Saveables;
+using S1API.Utils;
+using System;
+using System.IO;
+using System.Reflection;
+using UnityEngine;
+
+namespace OverTheCounter.Quests
+{
+    public class BellaProtocolQuest : Quest
+    {
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("BellaProtocolQuest");
+
+        protected override string Title => "Executive Privilege";
+        protected override string Description => "Someone at the Fixer's mentioned a contact who can help with warehouse access.";
+        protected override bool AutoBegin => false;
+        protected override Sprite QuestIcon => ImageUtils.LoadImage(
+            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "RinseCycle.png"));
+
+        [SaveableField("bella_quest_stage")]
+        private int _stage; // 0=not started, 1=visit Bella, 2=bring weed, 3=bring meth, 4=bring coke, 5=done
+
+        private QuestEntry _visitEntry;
+        private QuestEntry _weedEntry;
+        private QuestEntry _methEntry;
+        private QuestEntry _cokeEntry;
+
+        public static BellaProtocolQuest Instance { get; private set; }
+
+        public int Stage => _stage;
+
+        private static readonly Vector3 BellaBuilding = new Vector3(74.1f, 1.0f, 57.2f);
+
+        private void TriggerInternalInit()
+        {
+            try
+            {
+                var s1QuestField = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                if (s1QuestField == null) return;
+
+                var s1Quest = s1QuestField.GetValue(this) as Il2CppScheduleOne.Quests.Quest;
+                if (s1Quest == null) return;
+
+                s1Quest.InitializeQuest(Title, Description, Array.Empty<Il2CppScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"TriggerInternalInit failed: {ex.Message}");
+            }
+        }
+
+        public void Initialize()
+        {
+            try
+            {
+                TriggerInternalInit();
+
+                _visitEntry = AddEntry("Visit Bella at the downtown apartment", BellaBuilding);
+                _weedEntry = AddEntry(GetWeedText(), BellaBuilding);
+                _methEntry = AddEntry(GetMethText(), BellaBuilding);
+                _cokeEntry = AddEntry(GetCokeText(), BellaBuilding);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Initialize failed: {ex.Message}");
+            }
+        }
+
+        private static string GetWeedText() =>
+            $"Bring Bella a weed mix worth ${Config.BellaWeedValue.Value:N0}+";
+
+        private static string GetMethText() =>
+            $"Bring Bella a meth mix worth ${Config.BellaMethValue.Value:N0}+";
+
+        private static string GetCokeText() =>
+            $"Bring Bella a cocaine mix worth ${Config.BellaCokeValue.Value:N0}+";
+
+        public void RefreshEntryText()
+        {
+            if (_weedEntry != null && _stage == 2)
+                _weedEntry.Title = GetWeedText();
+            if (_methEntry != null && _stage == 3)
+                _methEntry.Title = GetMethText();
+            if (_cokeEntry != null && _stage == 4)
+                _cokeEntry.Title = GetCokeText();
+        }
+
+        public void StartQuest()
+        {
+            try
+            {
+                _stage = 1;
+                Begin();
+                _visitEntry?.Begin();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"StartQuest failed: {ex.Message}");
+            }
+        }
+
+        public void AdvanceToWeedRequest()
+        {
+            try
+            {
+                _stage = 2;
+                _visitEntry?.Complete();
+                _weedEntry?.Begin();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"AdvanceToWeedRequest failed: {ex.Message}");
+            }
+        }
+
+        public void AdvanceToMethRequest()
+        {
+            try
+            {
+                _stage = 3;
+                _weedEntry?.Complete();
+                _methEntry?.Begin();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"AdvanceToMethRequest failed: {ex.Message}");
+            }
+        }
+
+        public void AdvanceToCocaineRequest()
+        {
+            try
+            {
+                _stage = 4;
+                _methEntry?.Complete();
+                _cokeEntry?.Begin();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"AdvanceToCocaineRequest failed: {ex.Message}");
+            }
+        }
+
+        public void CompleteQuest()
+        {
+            try
+            {
+                _stage = 5;
+                _cokeEntry?.Complete();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"CompleteQuest failed: {ex.Message}");
+            }
+        }
+
+        protected override void OnCreated()
+        {
+            base.OnCreated();
+            Instance = this;
+        }
+
+        protected override void OnLoaded()
+        {
+            base.OnLoaded();
+            Instance = this;
+
+            try
+            {
+                QuestEntries.Clear();
+                _visitEntry = AddEntry("Visit Bella at the downtown apartment", BellaBuilding);
+                _weedEntry = AddEntry(GetWeedText(), BellaBuilding);
+                _methEntry = AddEntry(GetMethText(), BellaBuilding);
+                _cokeEntry = AddEntry(GetCokeText(), BellaBuilding);
+
+                if (_stage >= 1)
+                    _visitEntry?.Begin();
+                if (_stage >= 2)
+                {
+                    _visitEntry?.Complete();
+                    _weedEntry?.Begin();
+                }
+                if (_stage >= 3)
+                {
+                    _weedEntry?.Complete();
+                    _methEntry?.Begin();
+                }
+                if (_stage >= 4)
+                {
+                    _methEntry?.Complete();
+                    _cokeEntry?.Begin();
+                }
+                if (_stage >= 5)
+                    _cokeEntry?.Complete();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"OnLoaded rebuild failed: {ex.Message}");
+            }
+        }
+    }
+}

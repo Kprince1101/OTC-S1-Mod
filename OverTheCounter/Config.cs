@@ -50,6 +50,19 @@ namespace OverTheCounter
 
         public static ConfigEntry<int> ConsolidationThreshold;
 
+        // ── Manager System ──
+        private static MelonPreferences_Category _managers;
+
+        public static ConfigEntry<float> ManagerDailyWage;
+        public static ConfigEntry<float> ManagerSigningFee;
+
+        // ── Bella Protocol ──
+        private static MelonPreferences_Category _bella;
+
+        public static ConfigEntry<float> BellaWeedValue;
+        public static ConfigEntry<float> BellaMethValue;
+        public static ConfigEntry<float> BellaCokeValue;
+
         // ── Drifter System ──
         private static MelonPreferences_Category _drifters;
 
@@ -143,6 +156,24 @@ namespace OverTheCounter
 
             ConsolidationThreshold = Register(_notifications.CreateEntry("ConsolidationThreshold", 5, "Consolidation Threshold",
                 "Minimum contracts in a window before consolidation kicks in"));
+
+            // ── Manager System ──
+            _managers = MelonPreferences.CreateCategory("OverTheCounter_Managers", "Manager System");
+
+            ManagerDailyWage = Register(_managers.CreateEntry("ManagerDailyWage", 500f, "Daily Wage",
+                "Daily wage deducted from the manager's cash pool"));
+            ManagerSigningFee = Register(_managers.CreateEntry("ManagerSigningFee", 500f, "Signing Fee",
+                "One-time fee deducted from player cash when hiring a manager"));
+
+            // ── Bella Protocol ──
+            _bella = MelonPreferences.CreateCategory("OverTheCounter_Bella", "Bella Protocol");
+
+            BellaWeedValue = Register(_bella.CreateEntry("BellaWeedValue", 105f, "Weed Mix Value",
+                "Minimum base price for the weed mix Bella requires"));
+            BellaMethValue = Register(_bella.CreateEntry("BellaMethValue", 200f, "Meth Mix Value",
+                "Minimum base price for the meth mix Bella requires"));
+            BellaCokeValue = Register(_bella.CreateEntry("BellaCokeValue", 400f, "Cocaine Mix Value",
+                "Minimum base price for the cocaine mix Bella requires"));
 
             // ── Drifter System ──
             _drifters = MelonPreferences.CreateCategory("OverTheCounter_Drifters", "Drifter System");

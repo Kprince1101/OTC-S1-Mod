@@ -55,6 +55,10 @@ namespace OverTheCounter.SaveData
         // Runtime-only: guards against double quest creation per session.
         private bool _questCreated;
 
+        // Runtime-only: deferred re-publish after save/load so the client
+        // receives correct state even if the initial SyncVar push missed us.
+        private bool _needsStatePublish;
+
         // Runtime-only: intro text deferred until Static NPC spawns.
         private bool _needsIntroText;
 
@@ -90,7 +94,11 @@ namespace OverTheCounter.SaveData
             Instance = this;
 
             if (_questTriggered)
+            {
                 _questCreated = true;
+                if (NetworkHelper.IsHost)
+                    _needsStatePublish = true;
+            }
         }
 
         /// <summary>
@@ -105,6 +113,14 @@ namespace OverTheCounter.SaveData
             if (_wasInDialogue && !inDialogue)
                 _dialogueStale = true;
             _wasInDialogue = inDialogue;
+
+            // Re-publish game state after save/load so the client receives
+            // the correct static fields (initial push may have missed them).
+            if (_needsStatePublish && NetworkHelper.IsHost)
+            {
+                _needsStatePublish = false;
+                ConfigSyncData.Instance?.PublishGameState();
+            }
 
             if (_dialogueStale && StaticNPC.Instance != null
                 && StaticNPC.Instance.DialogueReady && !inDialogue)

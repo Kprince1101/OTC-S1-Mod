@@ -19,6 +19,7 @@ namespace OverTheCounter
     {
         private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("DebugHelpers");
         private bool _menuVisible;
+        private Vector2 _scrollPos;
 
         private static readonly FieldInfo S1ItemInstanceField =
             typeof(S1API.Items.ItemInstance).GetField("S1ItemInstance",
@@ -113,7 +114,9 @@ namespace OverTheCounter
         {
             if (!_menuVisible) return;
 
-            GUILayout.BeginArea(new Rect(10, 10, 280, 800), "DEV TOOLS", GUI.skin.window);
+            float menuHeight = Mathf.Min(Screen.height - 20f, 900f);
+            GUILayout.BeginArea(new Rect(10, 10, 300, menuHeight), "DEV TOOLS", GUI.skin.window);
+            _scrollPos = GUILayout.BeginScrollView(_scrollPos);
 
             // Show current player position
             try
@@ -172,6 +175,9 @@ namespace OverTheCounter
             if (GUILayout.Button(_speedBoosted ? "Speed: BOOSTED (2.4x)" : "Speed Boost (2.4x)"))
                 ToggleSpeedBoost();
 
+            if (GUILayout.Button(_managerSpeedBoosted ? "Mgr Speed: BOOSTED (2.4x)" : "Mgr Speed Boost (2.4x)"))
+                ToggleManagerSpeedBoost();
+
             GUILayout.Space(8);
 
             if (GUILayout.Button("Force Desperation (Meth)"))
@@ -222,6 +228,23 @@ namespace OverTheCounter
 
             if (GUILayout.Button("Despawn All Drifters"))
                 DrifterInstance.CleanupAll();
+
+            GUILayout.Space(8);
+
+            // Manager debug buttons
+            GUILayout.Label($"Managers: {ManagerInstance.Active.Count} active");
+
+            if (GUILayout.Button("Hire Manager (nearest biz)"))
+                ManagerController.DebugSpawnManager();
+
+            if (GUILayout.Button("Despawn All Managers"))
+                ManagerInstance.CleanupAll();
+
+            if (GUILayout.Button("Manager Status"))
+            {
+                var status = ManagerController.DebugGetStatus();
+                Logger.Msg($"[Debug] {status}");
+            }
 
             GUILayout.Space(8);
 
@@ -310,10 +333,12 @@ namespace OverTheCounter
             if (_hotspotCounter > 0)
                 GUILayout.Label($"Saved this session: {_hotspotCounter}");
 
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
 
         private bool _speedBoosted;
+        private bool _managerSpeedBoosted;
 
         // Hotspot editor state (3-step: 0=spawn, 1=dest, 2=describe)
         private int _hsStep;
@@ -377,6 +402,24 @@ namespace OverTheCounter
                 Logger.Warning($"Speed boost failed: {ex.Message}");
                 _speedBoosted = false;
             }
+        }
+
+        private void ToggleManagerSpeedBoost()
+        {
+            _managerSpeedBoosted = !_managerSpeedBoosted;
+            // Normal manager speed is 0.106f (~30% above default 0.08f); 2.4x = 0.254f
+            float speed = _managerSpeedBoosted ? 0.254f : 0.106f;
+            foreach (var mgr in ManagerInstance.Active.Values)
+            {
+                try
+                {
+                    var speedCtrl = mgr.GameNpc?.Movement?.SpeedController;
+                    speedCtrl?.AddSpeedControl(
+                        new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, speed));
+                }
+                catch { }
+            }
+            Logger.Msg($"Manager speed boost: {(_managerSpeedBoosted ? "ON" : "OFF")} ({speed:F3})");
         }
 
         private static void SpawnPackagedProduct(ProductDefinition productDef, string packagingId, int gramsPerUnit, int count, string label,

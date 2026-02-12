@@ -812,7 +812,8 @@ namespace OverTheCounter.Logic
         // Name generation (gender-specific pools)
         private static readonly string[] MaleFirstNames = {
             "Mike", "Dave", "Tony", "Jimmy", "Frank", "Eddie", "Rick", "Steve",
-            "Ray", "Nick", "Marco", "Luis", "Javier", "Tyler", "Brandon", "Kyle"
+            "Ray", "Nick", "Marco", "Luis", "Javier", "Tyler", "Brandon", "Kyle",
+            "Scott"
         };
 
         private static readonly string[] FemaleFirstNames = {
@@ -823,7 +824,8 @@ namespace OverTheCounter.Logic
         private static readonly string[] LastNames = {
             "Smith", "Jones", "Garcia", "Martinez", "Brown", "Davis", "Wilson",
             "Moore", "Taylor", "Anderson", "Thomas", "Jackson", "White", "Harris",
-            "Clark", "Lewis", "Walker", "Hall", "Young", "King", "Wright", "Hill"
+            "Clark", "Lewis", "Walker", "Hall", "Young", "King", "Wright", "Hill",
+            "Miller"
         };
 
         /// <summary>

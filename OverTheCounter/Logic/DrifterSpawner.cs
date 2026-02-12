@@ -243,7 +243,7 @@ namespace OverTheCounter.Logic
         }
 
         // Face expressions (required to avoid black face)
-        private static readonly string[] FaceExpressions = {
+        internal static readonly string[] FaceExpressions = {
             "Avatar/Layers/Face/Face_Neutral",
             "Avatar/Layers/Face/Face_NeutralPout",
             "Avatar/Layers/Face/Face_SlightSmile",
@@ -268,21 +268,20 @@ namespace OverTheCounter.Logic
         };
 
         // Hair style pools per gender
-        private static readonly string[] MaleHairStyles = {
+        internal static readonly string[] MaleHairStyles = {
             "Avatar/Hair/buzzcut/BuzzCut",
             "Avatar/Hair/closebuzzcut/CloseBuzzCut",
             "Avatar/Hair/franklin/Franklin",
             "Avatar/Hair/spiky/Spiky",
             "Avatar/Hair/peaked/Peaked",
             "Avatar/Hair/tony/Tony",
-            "Avatar/Hair/midfringe/MidFringe",
             "Avatar/Hair/mohawk/Mohawk",
             "Avatar/Hair/receding/Receding",
             "Avatar/Hair/afro/Afro",
             "Avatar/Hair/bowlcut/BowlCut",
         };
 
-        private static readonly string[] FemaleHairStyles = {
+        internal static readonly string[] FemaleHairStyles = {
             "Avatar/Hair/bun/Bun",
             "Avatar/Hair/highbun/HighBun",
             "Avatar/Hair/lowbun/LowBun",
@@ -293,6 +292,7 @@ namespace OverTheCounter.Logic
             "Avatar/Hair/longcurly/LongCurly",
             "Avatar/Hair/doubletopknot/DoubleTopKnot",
             "Avatar/Hair/afro/Afro",
+            "Avatar/Hair/midfringe/MidFringe",
         };
 
         // Shoe options (AccessorySettings, loaded via Resources.Load)
@@ -304,7 +304,7 @@ namespace OverTheCounter.Logic
         };
 
         // Realistic skin tone presets (darkest tones removed — face features become indistinguishable)
-        private static readonly Color[] SkinTones = {
+        internal static readonly Color[] SkinTones = {
             new Color(0.96f, 0.87f, 0.78f), // Very light/fair
             new Color(0.92f, 0.80f, 0.70f), // Light
             new Color(0.85f, 0.70f, 0.55f), // Light-medium

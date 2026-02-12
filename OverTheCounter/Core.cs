@@ -6,6 +6,7 @@ using OverTheCounter.Logic;
 using OverTheCounter.NPCs;
 using OverTheCounter.Patches;
 using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using S1API.PhoneApp;
 using System;
 using System.IO;
@@ -22,11 +23,13 @@ namespace OverTheCounter
         private NotificationManager _notificationManager;
         private DesperationManager _desperationManager;
         private DrifterManager _drifterManager;
+        private ManagerController _managerManager;
 
         public override void OnInitializeMelon()
         {
             Config.Initialize();
             ConfigSyncPatch.TryApply(HarmonyInstance);
+            ManagerClipboardPatch.Apply(HarmonyInstance);
 
             LoggerInstance.Msg("OverTheCounter Initialized.");
 
@@ -39,6 +42,7 @@ namespace OverTheCounter
             _notificationManager = new NotificationManager(LoggerInstance);
             _desperationManager = new DesperationManager(LoggerInstance);
             _drifterManager = new DrifterManager(LoggerInstance);
+            _managerManager = new ManagerController(LoggerInstance);
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
@@ -48,11 +52,18 @@ namespace OverTheCounter
             // S1API recreates these from the save file after the scene loads.
             StaticSaveData.ResetInstance();
             VicSaveData.ResetInstance();
+            BellaSaveData.ResetInstance();
+            Patches.BellaSummonPatch.Reset();
             ContactsAppFix.Reset();
 
             // Drifters are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
             DrifterSpawner.ResetCache();
+
+            // Clean up previous scene's managers — respawned from ManagerSaveData after load
+            ManagerSaveData.ResetInstance();
+            ManagerInstance.CleanupAll();
+            ManagerSpawner.ResetCache();
 
 #if DEBUG
             if (!GameObject.Find("DebugController"))
@@ -81,11 +92,35 @@ namespace OverTheCounter
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
                 StaticSaveData.Instance?.Tick();
+                BellaSaveData.Instance?.Tick();
+                ManagerSaveData.Instance?.Tick();
 
                 ContactsAppFix.Tick();
 
-                // Retry pending drifter NPC adoptions on client (FishNet timing)
+                // Retry pending NPC adoptions on client (FishNet timing)
                 _drifterManager?.RetryPendingAdoptions();
+                ManagerInstance.RetryPendingAdoptions();
+
+                // Immediate wage payment when cash is deposited (host only)
+                _managerManager?.CheckImmediateWages();
+
+                // Resume interrupted manager walks (e.g. after dialogue)
+                foreach (var mgr in ManagerInstance.Active.Values)
+                    mgr.EnsureMoving();
+
+                // Tick supply + distribution run behaviours (host only)
+                if (NetworkHelper.IsHost)
+                {
+                    foreach (var mgr in ManagerInstance.Active.Values)
+                    {
+                        mgr.SupplyBehaviour?.Tick();
+                        mgr.DistributionBehaviour?.Tick();
+                    }
+
+                    // Publish pending text messages to client via dedicated message SyncVar
+                    if (ManagerInstance.HasPendingMessages)
+                        ConfigSyncData.Instance?.PublishManagerMessages();
+                }
 
                 // Update drifter quest timers on client (OnTimeTick is host-only)
                 _drifterManager?.ClientQuestTick();
@@ -102,6 +137,7 @@ namespace OverTheCounter
             _notificationManager?.Cleanup();
             _desperationManager?.Cleanup();
             _drifterManager?.Cleanup();
+            _managerManager?.Cleanup();
         }
 
         /// <summary>
@@ -121,6 +157,7 @@ namespace OverTheCounter
             ExtractResource(iconDir, "RinseCycle.png");
             ExtractResource(iconDir, "CrimeWareQuest.png");
             ExtractResource(iconDir, "ExecutivePrivilege.png");
+            ExtractResource(iconDir, "ManagerIcon.png");
         }
 
         private void ExtractResource(string directory, string fileName)
