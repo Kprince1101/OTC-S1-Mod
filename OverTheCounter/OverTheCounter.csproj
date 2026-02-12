@@ -19,6 +19,8 @@
 	  <None Remove="Resources\DrifterQuestIcon.png" />
 	  <None Remove="Resources\DrifterProfileIcon.png" />
 	  <None Remove="Resources\RinseCycle.png" />
+	  <None Remove="Resources\CrimeWareQuest.png" />
+	  <None Remove="Resources\ExecutivePrivilege.png" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -540,6 +542,12 @@
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
 	  <EmbeddedResource Include="Resources\DrifterQuestIcon.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
+	  <EmbeddedResource Include="Resources\CrimeWareQuest.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
+	  <EmbeddedResource Include="Resources\ExecutivePrivilege.png">
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
 	</ItemGroup>

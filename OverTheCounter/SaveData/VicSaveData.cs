@@ -359,6 +359,7 @@ namespace OverTheCounter.SaveData
 
                 case "VIC_LAUNDER":
                     int launderDay = TimeManager.ElapsedDays;
+                    _lastDepositDay = launderDay;
                     if (_lastTrustIncrementDay < launderDay)
                     {
                         _lastTrustIncrementDay = launderDay;

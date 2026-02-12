@@ -596,8 +596,10 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Stocks the drifter's inventory with the actual items from the handover.
-        /// Preserves packaging so pickpocketed items match what the player delivered.
+        /// Stocks the drifter's inventory with copies of the handed-over items.
+        /// Clones each item so the NPC's inventory is independent of the
+        /// HandoverScreen slots (which get cleared after the callback for
+        /// non-robber drifters, invalidating the original references).
         /// </summary>
         public void StockInventory(Il2CppSystem.Collections.Generic.List<ItemInstance> items)
         {
@@ -616,8 +618,12 @@ namespace OverTheCounter.Logic
                     var item = items[i];
                     if (item != null)
                     {
-                        inventory.InsertItem(item, true);
-                        count++;
+                        var copy = item.GetCopy(item.Quantity);
+                        if (copy != null)
+                        {
+                            inventory.InsertItem(copy, true);
+                            count++;
+                        }
                     }
                 }
 

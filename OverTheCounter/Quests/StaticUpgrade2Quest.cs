@@ -19,7 +19,7 @@ namespace OverTheCounter.Quests
         protected override string Description => "Static has the final tier-3 enterprise upgrade available. Bring premium meth and go all in.";
         protected override bool AutoBegin => false;
         protected override Sprite QuestIcon => ImageUtils.LoadImage(
-            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "RinseCycle.png"));
+            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "ExecutivePrivilege.png"));
 
         [SaveableField("static_upgrade2_stage")]
         private int _stage; // 0=not started, 1=active, 2=done

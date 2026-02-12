@@ -19,7 +19,7 @@ namespace OverTheCounter.Quests
         protected override string Description => "Someone at the casino noticed your deposits. Find Static after 4 PM when the casino opens.";
         protected override bool AutoBegin => false;
         protected override Sprite QuestIcon => ImageUtils.LoadImage(
-            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "RinseCycle.png"));
+            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "CrimeWareQuest.png"));
 
         [SaveableField("static_quest_stage")]
         private int _stage; // 0=not started, 1=talk to Static, 2=bring supplies, 3=done

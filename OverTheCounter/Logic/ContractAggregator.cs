@@ -20,6 +20,16 @@ namespace OverTheCounter.Logic
         public int Deficit => Math.Max(0, AmountNeeded - AmountInInventory);
     }
 
+    /// <summary>
+    /// A single contract's product requirement (not aggregated across contracts).
+    /// Used by smart fill to ensure each contract gets properly packaged items.
+    /// </summary>
+    public class ContractProductNeed
+    {
+        public string ProductID { get; set; }
+        public int Quantity { get; set; }
+    }
+
     public static class ContractAggregator
     {
         /// <summary>
@@ -91,6 +101,26 @@ namespace OverTheCounter.Logic
                 Melon<Core>.Logger.Error($"[ContractAggregator] Error aggregating contracts: {ex.Message}");
             }
 
+            // Include accepted drifter deals (not in Contract.Contracts)
+            try
+            {
+                var drifterDeals = DrifterManager.Instance?.GetAcceptedDealRequirements();
+                if (drifterDeals != null)
+                {
+                    foreach (var (productId, quantity) in drifterDeals)
+                    {
+                        if (productTotals.ContainsKey(productId))
+                            productTotals[productId] += quantity;
+                        else
+                            productTotals[productId] = quantity;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Error($"[ContractAggregator] Error reading drifter deals: {ex.Message}");
+            }
+
             // Count what the player has in product units (jar=5, baggie=1)
             var inventoryCounts = new Dictionary<string, int>();
             try
@@ -142,6 +172,125 @@ namespace OverTheCounter.Logic
             }
 
             return manifest;
+        }
+
+        /// <summary>
+        /// Returns per-contract product needs (not aggregated) with player inventory
+        /// already allocated. Used by smart fill so each contract gets independently
+        /// optimal packaging (e.g. 6 units = 1 jar + 1 baggie, not half of 2 jars).
+        /// </summary>
+        public static List<ContractProductNeed> CalculatePerContractNeeds(bool includeFuture)
+        {
+            var needs = new List<ContractProductNeed>();
+
+            try
+            {
+                var contracts = Contract.Contracts;
+                if (contracts == null)
+                    return needs;
+
+                int currentTime = TimeManager.CurrentTime;
+
+                for (int i = 0; i < contracts.Count; i++)
+                {
+                    var contract = contracts[i];
+                    if (contract == null) continue;
+
+                    if (!includeFuture)
+                    {
+                        var deliveryWindow = contract.DeliveryWindow;
+                        if (deliveryWindow != null && deliveryWindow.WindowStartTime > currentTime)
+                            continue;
+                    }
+
+                    if (contract.ProductList?.entries == null) continue;
+
+                    var entries = contract.ProductList.entries;
+                    for (int j = 0; j < entries.Count; j++)
+                    {
+                        var entry = entries[j];
+                        if (entry == null || string.IsNullOrEmpty(entry.ProductID)) continue;
+
+                        needs.Add(new ContractProductNeed
+                        {
+                            ProductID = entry.ProductID,
+                            Quantity = entry.Quantity
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Error($"[ContractAggregator] Error reading contracts: {ex.Message}");
+            }
+
+            // Include accepted drifter deals (not in Contract.Contracts)
+            try
+            {
+                var drifterDeals = DrifterManager.Instance?.GetAcceptedDealRequirements();
+                if (drifterDeals != null)
+                {
+                    foreach (var (productId, quantity) in drifterDeals)
+                    {
+                        needs.Add(new ContractProductNeed
+                        {
+                            ProductID = productId,
+                            Quantity = quantity
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Error($"[ContractAggregator] Error reading drifter deals: {ex.Message}");
+            }
+
+            // Subtract player inventory (greedy allocation across contracts)
+            var inventoryCounts = new Dictionary<string, int>();
+            try
+            {
+                var playerInv = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerInventory>.Instance;
+                if (playerInv != null)
+                {
+                    var slots = playerInv.hotbarSlots;
+                    if (slots != null)
+                    {
+                        for (int i = 0; i < slots.Count; i++)
+                        {
+                            var slot = slots[i];
+                            if (slot == null || slot.ItemInstance == null) continue;
+
+                            string id = slot.ItemInstance.ID;
+                            if (string.IsNullOrEmpty(id)) continue;
+
+                            int multiplier = GetPackagingMultiplier(slot.ItemInstance);
+                            int productUnits = slot.Quantity * multiplier;
+
+                            if (inventoryCounts.ContainsKey(id))
+                                inventoryCounts[id] += productUnits;
+                            else
+                                inventoryCounts[id] = productUnits;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Error($"[ContractAggregator] Error reading player inventory: {ex.Message}");
+            }
+
+            foreach (var need in needs)
+            {
+                if (inventoryCounts.TryGetValue(need.ProductID, out int available) && available > 0)
+                {
+                    int allocated = Math.Min(available, need.Quantity);
+                    need.Quantity -= allocated;
+                    inventoryCounts[need.ProductID] -= allocated;
+                }
+            }
+
+            needs.RemoveAll(n => n.Quantity <= 0);
+            return needs;
         }
     }
 }

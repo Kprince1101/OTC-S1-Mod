@@ -105,8 +105,6 @@ namespace OverTheCounter.Logic
                                     }
 
                                     quest.Fail(false);
-                                    _staleCleaned = true;
-                                    break; // Done — don't continue failing more quests in this scan
                                 }
                             }
                             catch (System.Exception ex)

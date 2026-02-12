@@ -12,7 +12,7 @@ using System.IO;
 using System.Reflection;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.1.1", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.1.2", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
 namespace OverTheCounter
@@ -119,6 +119,8 @@ namespace OverTheCounter
             ExtractResource(iconDir, "DrifterQuestIcon.png");
             ExtractResource(iconDir, "DrifterProfileIcon.png");
             ExtractResource(iconDir, "RinseCycle.png");
+            ExtractResource(iconDir, "CrimeWareQuest.png");
+            ExtractResource(iconDir, "ExecutivePrivilege.png");
         }
 
         private void ExtractResource(string directory, string fileName)

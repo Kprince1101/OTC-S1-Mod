@@ -47,6 +47,24 @@ namespace OverTheCounter.Logic
 
         public static DrifterManager Instance { get; private set; }
 
+        /// <summary>
+        /// Returns product requirements for all accepted drifter deals (not yet completed).
+        /// Used by ContractAggregator to include drifter deals in the delivery manifest / smart fill.
+        /// </summary>
+        public List<(string productId, int quantity)> GetAcceptedDealRequirements()
+        {
+            var results = new List<(string, int)>();
+            foreach (var evt in _activeEvents.Values)
+            {
+                if (evt.State == DrifterEventState.DealAccepted &&
+                    !string.IsNullOrEmpty(evt.ProductId) && evt.Quantity > 0)
+                {
+                    results.Add((evt.ProductId, evt.Quantity));
+                }
+            }
+            return results;
+        }
+
         public DrifterManager(MelonLogger.Instance logger)
         {
             _logger = logger;
@@ -1817,14 +1835,6 @@ namespace OverTheCounter.Logic
             catch { }
 
             return Player.Local;
-        }
-
-        /// <summary>
-        /// Gets all active drifter events that have accepted deals (for handover detection).
-        /// </summary>
-        public IEnumerable<DrifterEvent> GetAcceptedDeals()
-        {
-            return _activeEvents.Values.Where(e => e.State == DrifterEventState.DealAccepted);
         }
 
         /// <summary>

@@ -23,9 +23,16 @@ namespace OverTheCounter.UI
         private static GameObject _overlayRoot;
         private static Transform _listContent;
         private static bool _includeAllShifts;
+        private static bool _isCompact;
         private static Text _statusText;
+        private static Text _collapseText;
+        private static RectTransform _panelRect;
+        private static GameObject _bodyContainer;
         private static Il2CppSystem.Action _refreshAction;
         private static StorageEntity _subscribedStorageEntity;
+
+        private const float ExpandedHeight = 440f;
+        private const float CompactHeight = 40f;
 
         public static void Show()
         {
@@ -52,6 +59,9 @@ namespace OverTheCounter.UI
             }
             _listContent = null;
             _statusText = null;
+            _collapseText = null;
+            _panelRect = null;
+            _bodyContainer = null;
         }
 
         private static void SubscribeToChanges()
@@ -161,12 +171,12 @@ namespace OverTheCounter.UI
             panelCanvas.overrideSorting = true;
             panelCanvas.sortingOrder = 81;
             panelObj.AddComponent<GraphicRaycaster>();
-            var panelRect = panelObj.GetComponent<RectTransform>();
-            panelRect.anchorMin = new Vector2(1f, 0.5f);
-            panelRect.anchorMax = new Vector2(1f, 0.5f);
-            panelRect.pivot = new Vector2(1f, 0.5f);
-            panelRect.sizeDelta = new Vector2(260f, 440f);
-            panelRect.anchoredPosition = new Vector2(-10f, 0f);
+            _panelRect = panelObj.GetComponent<RectTransform>();
+            _panelRect.anchorMin = new Vector2(1f, 0.5f);
+            _panelRect.anchorMax = new Vector2(1f, 0.5f);
+            _panelRect.pivot = new Vector2(1f, 0.5f);
+            _panelRect.sizeDelta = new Vector2(260f, ExpandedHeight);
+            _panelRect.anchoredPosition = new Vector2(-10f, 0f);
 
             // Header
             var headerText = UIFactory.Text("Header", "<b>Delivery Manifest</b>", panelObj.transform, 16, TextAnchor.MiddleCenter);
@@ -174,16 +184,54 @@ namespace OverTheCounter.UI
             headerRect.anchorMin = new Vector2(0, 1);
             headerRect.anchorMax = new Vector2(1, 1);
             headerRect.pivot = new Vector2(0.5f, 1);
-            headerRect.anchoredPosition = new Vector2(0, -6);
-            headerRect.sizeDelta = new Vector2(0, 28);
+            headerRect.anchoredPosition = new Vector2(-12, -6);
+            headerRect.sizeDelta = new Vector2(-24, 28);
+
+            // Collapse/expand button (right side of header)
+            var collapseBtnObj = new GameObject("CollapseBtn");
+            collapseBtnObj.transform.SetParent(panelObj.transform, false);
+            var collapseBtnRect = collapseBtnObj.AddComponent<RectTransform>();
+            collapseBtnRect.anchorMin = new Vector2(1, 1);
+            collapseBtnRect.anchorMax = new Vector2(1, 1);
+            collapseBtnRect.pivot = new Vector2(1, 1);
+            collapseBtnRect.anchoredPosition = new Vector2(-6, -6);
+            collapseBtnRect.sizeDelta = new Vector2(28, 28);
+
+            var collapseBtnImage = collapseBtnObj.AddComponent<Image>();
+            collapseBtnImage.color = new Color(0.22f, 0.22f, 0.22f, 0.8f);
+
+            var collapseBtn = collapseBtnObj.AddComponent<Button>();
+            var collapseBtnColors = collapseBtn.colors;
+            collapseBtnColors.normalColor = new Color(0.22f, 0.22f, 0.22f, 0.8f);
+            collapseBtnColors.highlightedColor = new Color(0.35f, 0.35f, 0.35f, 0.9f);
+            collapseBtnColors.pressedColor = new Color(0.15f, 0.15f, 0.15f, 1f);
+            collapseBtnColors.selectedColor = new Color(0.22f, 0.22f, 0.22f, 0.8f);
+            collapseBtn.colors = collapseBtnColors;
+            collapseBtn.onClick.AddListener(new Action(OnCompactToggle));
+
+            _collapseText = UIFactory.Text("CollapseIcon", "\u25B2", collapseBtnObj.transform, 12, TextAnchor.MiddleCenter); // ▲ up arrow
+            var collapseTextRect = _collapseText.gameObject.GetComponent<RectTransform>();
+            collapseTextRect.anchorMin = Vector2.zero;
+            collapseTextRect.anchorMax = Vector2.one;
+            collapseTextRect.offsetMin = Vector2.zero;
+            collapseTextRect.offsetMax = Vector2.zero;
+
+            // Body container — holds everything below the header
+            _bodyContainer = new GameObject("BodyContainer");
+            _bodyContainer.transform.SetParent(panelObj.transform, false);
+            var bodyRect = _bodyContainer.AddComponent<RectTransform>();
+            bodyRect.anchorMin = Vector2.zero;
+            bodyRect.anchorMax = Vector2.one;
+            bodyRect.offsetMin = Vector2.zero;
+            bodyRect.offsetMax = new Vector2(0, -38);
 
             var listContainer = new GameObject("ManifestList");
-            listContainer.transform.SetParent(panelObj.transform, false);
+            listContainer.transform.SetParent(_bodyContainer.transform, false);
             var listRect = listContainer.AddComponent<RectTransform>();
             listRect.anchorMin = new Vector2(0, 0);
             listRect.anchorMax = new Vector2(1, 1);
             listRect.offsetMin = new Vector2(12, 100);
-            listRect.offsetMax = new Vector2(-8, -38);
+            listRect.offsetMax = new Vector2(-8, 0);
 
             var contentLayout = listContainer.AddComponent<VerticalLayoutGroup>();
             contentLayout.spacing = 3;
@@ -196,7 +244,7 @@ namespace OverTheCounter.UI
             _listContent = listContainer.transform;
 
             var toggleObj = new GameObject("IncludeAllToggle");
-            toggleObj.transform.SetParent(panelObj.transform, false);
+            toggleObj.transform.SetParent(_bodyContainer.transform, false);
             var toggleRect = toggleObj.AddComponent<RectTransform>();
             toggleRect.anchorMin = new Vector2(0, 0);
             toggleRect.anchorMax = new Vector2(1, 0);
@@ -241,7 +289,7 @@ namespace OverTheCounter.UI
 
             // Smart Fill button
             var (btnMask, btn, btnLabel) = UIFactory.RoundedButtonWithLabel(
-                "SmartFillBtn", "Smart Fill", panelObj.transform,
+                "SmartFillBtn", "Smart Fill", _bodyContainer.transform,
                 new Color(0.2f, 0.5f, 0.2f), 230, 32, 14, Color.white
             );
 
@@ -261,7 +309,7 @@ namespace OverTheCounter.UI
             btn.onClick.AddListener(new Action(OnSmartFillClicked));
 
             // Status text
-            _statusText = UIFactory.Text("StatusText", "", panelObj.transform, 12, TextAnchor.MiddleCenter);
+            _statusText = UIFactory.Text("StatusText", "", _bodyContainer.transform, 12, TextAnchor.MiddleCenter);
             _statusText.color = new Color(0.7f, 0.7f, 0.7f);
             var statusRect = _statusText.gameObject.GetComponent<RectTransform>();
             statusRect.anchorMin = new Vector2(0, 0);
@@ -270,7 +318,29 @@ namespace OverTheCounter.UI
             statusRect.anchoredPosition = new Vector2(0, 6);
             statusRect.sizeDelta = new Vector2(0, 22);
 
+            // Apply initial compact state
+            if (_isCompact)
+                ApplyCompactMode(true);
+
             _overlayRoot.SetActive(true);
+        }
+
+        private static void OnCompactToggle()
+        {
+            _isCompact = !_isCompact;
+            ApplyCompactMode(_isCompact);
+        }
+
+        private static void ApplyCompactMode(bool compact)
+        {
+            if (_bodyContainer != null)
+                _bodyContainer.SetActive(!compact);
+
+            if (_panelRect != null)
+                _panelRect.sizeDelta = new Vector2(260f, compact ? CompactHeight : ExpandedHeight);
+
+            if (_collapseText != null)
+                _collapseText.text = compact ? "\u25BC" : "\u25B2"; // ▼ collapsed, ▲ expanded
         }
 
         private static void RefreshManifest()
@@ -381,8 +451,10 @@ namespace OverTheCounter.UI
                     return;
                 }
 
-                var manifest = ContractAggregator.CalculateManifest(_includeAllShifts);
-                if (manifest.Count == 0)
+                // Per-contract needs ensure each contract gets independently optimal
+                // packaging (e.g. 6 units = 1 jar + 1 baggie, not half of 2 jars).
+                var perContractNeeds = ContractAggregator.CalculatePerContractNeeds(_includeAllShifts);
+                if (perContractNeeds.Count == 0)
                 {
                     SetStatus("Nothing needed!");
                     return;
@@ -391,11 +463,9 @@ namespace OverTheCounter.UI
                 int totalTransferredUnits = 0;
                 bool inventoryFull = false;
 
-                foreach (var req in manifest)
+                foreach (var need in perContractNeeds)
                 {
-                    if (req.Deficit <= 0) continue;
-
-                    int remainingUnits = req.Deficit;
+                    int remainingUnits = need.Quantity;
 
                     // Build a list of matching container slot indices, sorted by packaging
                     // multiplier descending (jars first, then baggies)
@@ -409,7 +479,7 @@ namespace OverTheCounter.UI
                         try { slotId = slot.ItemInstance.ID; }
                         catch { continue; }
 
-                        if (slotId != req.ProductID) continue;
+                        if (slotId != need.ProductID) continue;
                         if (slot.Quantity <= 0) continue;
 
                         int mult = ContractAggregator.GetPackagingMultiplier(slot.ItemInstance);
@@ -429,8 +499,13 @@ namespace OverTheCounter.UI
                         int slotQty = slot.Quantity;
                         if (slotQty <= 0) continue;
 
-                        int itemsNeeded = (remainingUnits + multiplier - 1) / multiplier;
+                        // Floor division: take only what fits without overshooting,
+                        // letting the remainder cascade to smaller packaging tiers.
+                        int itemsNeeded = remainingUnits / multiplier;
                         int itemsToTake = Math.Min(itemsNeeded, slotQty);
+
+                        // Can't take whole units at this tier — skip to smaller packaging
+                        if (itemsToTake <= 0) continue;
 
                         int placed = TryPlaceInHotbar(hotbar, slot.ItemInstance, itemsToTake);
                         if (placed <= 0)

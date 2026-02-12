@@ -221,8 +221,6 @@ namespace OverTheCounter.NPCs
         /// </summary>
         public void RefreshDialogue()
         {
-            if (Dialogue.IsDialogueInProgress) return;
-
             int stage = VicIntroQuest.Instance?.Stage ?? 0;
 
             // If the quest was just created but Instance isn't ready yet,
@@ -266,7 +264,7 @@ namespace OverTheCounter.NPCs
                             choices.Add("LEAVE", "Not yet", "LEAVE_EXIT");
                         });
 
-                        container.AddNode("HANDOVER_EXIT", "Nice doing business. Your limits just got a lot friendlier.");
+                        container.AddNode("HANDOVER_EXIT", "Nice doing business. Come find me whenever you want to clean some cash.");
                         container.AddNode("LEAVE_EXIT", "Don't take too long.");
                     }
                     else
@@ -451,9 +449,12 @@ namespace OverTheCounter.NPCs
                     Money.ChangeCashBalance(-cost, true, true);
                     Money.CreateOnlineTransaction("Consulting Fee", payout, 1f, "VR Services");
 
+                    // Set cooldown immediately (host + client) so the callback's own
+                    // re-check blocks any double-clicks before the dialogue rebuilds.
+                    VicSaveData.Instance?.OnLaunderComplete(today);
+
                     if (NetworkHelper.IsHost)
                     {
-                        VicSaveData.Instance?.OnLaunderComplete(today);
                         if (tier2)
                             VicSaveData.Instance?.MarkTier2IntroShown();
                     }
