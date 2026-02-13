@@ -71,7 +71,7 @@ Settings are stored in MelonLoader's config file and organized into four categor
 * **Contract Notifications** — Consolidation threshold (minimum contracts before grouping kicks in).
 * **Drifter System** — Spawn chance per hour, max active drifters, active hours, offer window, delivery deadline, linger duration, and minimum deal value.
 
-You can edit the config file directly, or use [ModsApp by k0Mods](https://thunderstore.io/c/schedule-i/p/k0Mods/ModsApp/) for an in-game settings UI (optional, not required).
+Every setting includes a full description visible in [ModsApp by k0Mods](https://thunderstore.io/c/schedule-i/p/k0Mods/ModsApp/) (recommended, open-source). Also compatible with [Mod Manager & Phone App](https://www.nexusmods.com/schedule1/mods/397) (descriptions not supported). You can always edit the config file directly if you prefer.
 
 In multiplayer, the host's settings are automatically synced to all clients (except local-only preferences like consolidation threshold).
 

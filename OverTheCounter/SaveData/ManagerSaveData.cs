@@ -1,3 +1,4 @@
+using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Property;
@@ -44,7 +45,7 @@ namespace OverTheCounter.SaveData
         {
             public string ManagerId;
             public float Cash;
-            public readonly List<(string itemId, int qty)> Items = new();
+            public readonly List<(string itemId, int qty, string destGuid)> Items = new();
         }
         private readonly List<PendingNpcRestore> _pendingNpcRestores = new();
         private float _pendingNpcRestoreStartTime;
@@ -303,11 +304,13 @@ namespace OverTheCounter.SaveData
 
         // ==================================================================
         // NPC Inventory serialization — saves items/cash the manager is carrying
-        // Format: mgrId=cash:itemId*qty+itemId*qty;mgrId=cash:itemId*qty
+        // Format: mgrId=cash:itemId*qty@destGuid+itemId*qty;mgrId=cash:itemId*qty
+        // Per-slot (no aggregation) to preserve destination tracking.
+        // Items without @destGuid have no distribution destination (supply items).
         // ==================================================================
 
         /// <summary>
-        /// Serializes all managers' NPC inventory contents (items + cash).
+        /// Serializes all managers' NPC inventory contents (items + cash + destinations).
         /// </summary>
         private static string SerializeNpcInventories()
         {
@@ -340,14 +343,31 @@ namespace OverTheCounter.SaveData
                     }
 
                     float cash = npcInv.GetCashInInventory();
+                    var slotDests = mgr.DistributionBehaviour?.SlotDestinations;
 
-                    // Aggregate items by ID (skip cash slots)
-                    var items = new Dictionary<string, int>();
+                    // Serialize per-slot to preserve destination tracking
+                    var itemParts = new List<string>();
                     for (int i = 0; i < npcInv.ItemSlots.Count; i++)
                     {
                         var slot = npcInv.ItemSlots[i];
                         if (slot?.ItemInstance == null) continue;
-                        if (slot.ItemInstance.TryCast<CashInstance>() != null) continue;
+
+                        // Cash with a destination = distribution cash (serialize per-slot with balance)
+                        // Cash without a destination = supply cash (covered by the cash field above)
+                        var cashInst = slot.ItemInstance.TryCast<CashInstance>();
+                        if (cashInst != null)
+                        {
+                            string destGuid = null;
+                            slotDests?.TryGetValue(i, out destGuid);
+                            if (!string.IsNullOrEmpty(destGuid))
+                            {
+                                // Serialize distribution cash with balance as the qty value
+                                itemParts.Add($"cash*{(int)cashInst.Balance}@{destGuid}");
+                                // Subtract from the supply cash total to avoid double-counting
+                                cash -= cashInst.Balance;
+                            }
+                            continue; // supply cash is handled by the cash field
+                        }
 
                         var def = slot.ItemInstance.Definition;
                         if (def == null) continue;
@@ -355,20 +375,22 @@ namespace OverTheCounter.SaveData
                         string itemId = def.ID;
                         if (string.IsNullOrEmpty(itemId)) continue;
 
-                        if (items.ContainsKey(itemId))
-                            items[itemId] += slot.Quantity;
-                        else
-                            items[itemId] = slot.Quantity;
+                        string entry = $"{itemId}*{slot.Quantity}";
+
+                        // Append destination GUID if this slot has one
+                        string destGuidItem = null;
+                        slotDests?.TryGetValue(i, out destGuidItem);
+                        if (!string.IsNullOrEmpty(destGuidItem))
+                            entry += $"@{destGuidItem}";
+
+                        itemParts.Add(entry);
                     }
+                    if (cash < 0f) cash = 0f;
 
                     // Only save if NPC is carrying something
-                    if (cash <= 0f && items.Count == 0) continue;
+                    if (cash <= 0f && itemParts.Count == 0) continue;
 
                     string cashStr = cash.ToString("F0", CultureInfo.InvariantCulture);
-                    var itemParts = new List<string>();
-                    foreach (var kv in items)
-                        itemParts.Add($"{kv.Key}*{kv.Value}");
-
                     parts.Add($"{mgr.Id}={cashStr}:{string.Join("+", itemParts)}");
                 }
                 catch (Exception ex)
@@ -419,8 +441,17 @@ namespace OverTheCounter.SaveData
                             if (starIdx < 0) continue;
 
                             string itemId = itemEntry.Substring(0, starIdx);
-                            if (int.TryParse(itemEntry.Substring(starIdx + 1), out int qty) && qty > 0)
-                                pending.Items.Add((itemId, qty));
+                            string qtyAndDest = itemEntry.Substring(starIdx + 1);
+
+                            // Parse optional @destGuid suffix
+                            string destGuid = "";
+                            int atIdx = qtyAndDest.IndexOf('@');
+                            string qtyStr = atIdx >= 0 ? qtyAndDest.Substring(0, atIdx) : qtyAndDest;
+                            if (atIdx >= 0)
+                                destGuid = qtyAndDest.Substring(atIdx + 1);
+
+                            if (int.TryParse(qtyStr, out int qty) && qty > 0)
+                                pending.Items.Add((itemId, qty, destGuid));
                         }
                     }
 
@@ -480,11 +511,29 @@ namespace OverTheCounter.SaveData
                     // Restore items into NPC inventory
                     for (int j = p.Items.Count - 1; j >= 0; j--)
                     {
-                        var (itemId, qty) = p.Items[j];
+                        var (itemId, qty, destGuid) = p.Items[j];
                         try
                         {
-                            ManagerSupplyBehaviour.AddToNpcInventory(npcInv, itemId, qty, p.ManagerId);
-                            Logger.Msg($"RestoreNpcInv: {p.ManagerId} restored {qty}x {itemId} to NPC");
+                            if (string.IsNullOrEmpty(destGuid))
+                            {
+                                // Supply item — stacking OK
+                                ManagerSupplyBehaviour.AddToNpcInventory(npcInv, itemId, qty, p.ManagerId);
+                            }
+                            else if (itemId == "cash")
+                            {
+                                // Distribution cash — create via MoneyManager (GetCopy loses Balance)
+                                int slotIdx = RestoreCashToEmptySlot(npcInv, (float)qty, p.ManagerId);
+                                if (slotIdx >= 0)
+                                    mgr.DistributionBehaviour?.SetSlotDestination(slotIdx, destGuid);
+                            }
+                            else
+                            {
+                                // Distribution item — place into empty slot (no stacking) to preserve destination mapping
+                                int slotIdx = RestoreToEmptySlot(npcInv, itemId, qty, p.ManagerId);
+                                if (slotIdx >= 0)
+                                    mgr.DistributionBehaviour?.SetSlotDestination(slotIdx, destGuid);
+                            }
+                            Logger.Msg($"RestoreNpcInv: {p.ManagerId} restored {qty}x {itemId}{(string.IsNullOrEmpty(destGuid) ? "" : $" → dest {destGuid}")} to NPC");
                             p.Items.RemoveAt(j);
                         }
                         catch (Exception ex)
@@ -506,6 +555,69 @@ namespace OverTheCounter.SaveData
                     Logger.Warning($"RetryPendingNpcRestores: {p.ManagerId} error: {ex.Message}");
                 }
             }
+        }
+
+        /// <summary>
+        /// Restores an item into an empty NPC inventory slot (no stacking).
+        /// Returns the slot index used, or -1 if no empty slot was available.
+        /// Used for distribution items to preserve per-slot destination tracking.
+        /// </summary>
+        private static int RestoreToEmptySlot(Il2CppScheduleOne.NPCs.NPCInventory inventory, string itemId, int quantity, string mgrId)
+        {
+            var itemDef = Il2CppScheduleOne.Registry.GetItem(itemId);
+            if (itemDef == null) { Logger.Warning($"RestoreToEmptySlot: {mgrId} Registry.GetItem('{itemId}') returned null"); return -1; }
+
+            var storableDef = itemDef.TryCast<Il2CppScheduleOne.ItemFramework.StorableItemDefinition>();
+            if (storableDef == null) { Logger.Warning($"RestoreToEmptySlot: {mgrId} item '{itemId}' not StorableItemDefinition"); return -1; }
+
+            var instance = storableDef.GetDefaultInstance(quantity);
+            if (instance == null) { Logger.Warning($"RestoreToEmptySlot: {mgrId} GetDefaultInstance null for '{itemId}'"); return -1; }
+
+            for (int i = 0; i < inventory.ItemSlots.Count; i++)
+            {
+                var slot = inventory.ItemSlots[i];
+                if (slot != null && slot.ItemInstance == null && !slot.IsLocked && !slot.IsAddLocked)
+                {
+                    slot.InsertItem(instance);
+                    return i;
+                }
+            }
+
+            Logger.Warning($"RestoreToEmptySlot: {mgrId} no empty slot for '{itemId}'");
+            return -1;
+        }
+
+        /// <summary>
+        /// Restores a cash item into an empty NPC inventory slot with the correct balance.
+        /// Uses MoneyManager.GetCashInstance instead of Registry (GetCopy loses Balance).
+        /// Returns the slot index used, or -1 if no empty slot was available.
+        /// </summary>
+        private static int RestoreCashToEmptySlot(Il2CppScheduleOne.NPCs.NPCInventory inventory, float balance, string mgrId)
+        {
+            try
+            {
+                var cashInstance = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance
+                    .GetCashInstance(balance);
+                if (cashInstance == null) { Logger.Warning($"RestoreCashToEmptySlot: {mgrId} GetCashInstance returned null"); return -1; }
+
+                for (int i = 0; i < inventory.ItemSlots.Count; i++)
+                {
+                    var slot = inventory.ItemSlots[i];
+                    if (slot != null && slot.ItemInstance == null && !slot.IsLocked && !slot.IsAddLocked)
+                    {
+                        slot.InsertItem(cashInstance);
+                        return i;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"RestoreCashToEmptySlot: {mgrId} failed: {ex.Message}");
+                return -1;
+            }
+
+            Logger.Warning($"RestoreCashToEmptySlot: {mgrId} no empty slot for ${balance:F0} cash");
+            return -1;
         }
 
         /// <summary>

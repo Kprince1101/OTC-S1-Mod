@@ -5,6 +5,7 @@ using MelonLoader;
 using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -59,12 +60,31 @@ namespace OverTheCounter.Logic
         private Vector3 _currentWalkTarget;
         private float _lastEnsureMovingLog;
 
+        // Stuck detection — warp if stationary for too long during walks
+        private Vector3 _lastMovedPosition;
+        private float _lastMovedTime;
+        private Vector3 _stuckCheckTarget;
+        private Vector3 _currentAccessTarget; // inner access point for property walks
+        private const float STUCK_WARP_TIMEOUT = 8f;
+        private const float STUCK_MOVE_THRESHOLD = 0.5f;
+
+        // Maps NPC inventory slot index → destination storage GUID.
+        // DepositItems only processes slots whose destination matches the current target,
+        // preventing leftover items from previous routes being deposited at the wrong destination.
+        // Persists through saves via ManagerSaveData.
+        private readonly Dictionary<int, string> _slotDestinations = new();
+
         // NavMesh switching — civilian (outdoor) vs employee (indoor) settings
         private int _savedAgentTypeID;
         private int _savedAreaMask;
         private bool _usingEmployeeNavMesh;
         private Vector3? _currentPropertyExterior; // saved so we can walk back out after indoor interaction
         private Action _exitBuildingContinuation;  // action to run after exiting building on employee NavMesh
+
+        // Resume delivery state — for delivering items restored from save
+        private bool _isResuming;
+        private Queue<string> _resumeDestQueue;
+        private string _resumeDestGuid;
 
         // IL2CPP callback references (prevent GC collection)
         private Il2CppSystem.Action<NPCMovement.WalkResult> _sourcePropertyWalkCallback;
@@ -73,6 +93,27 @@ namespace OverTheCounter.Logic
         private Il2CppSystem.Action<NPCMovement.WalkResult> _destWalkCallback;
         private Il2CppSystem.Action<NPCMovement.WalkResult> _propertyExitWalkCallback;
         private Il2CppSystem.Action<NPCMovement.WalkResult> _idleWalkCallback;
+
+        /// <summary>
+        /// Read-only view of the slot→destination mapping. Used by save system.
+        /// </summary>
+        internal IReadOnlyDictionary<int, string> SlotDestinations => _slotDestinations;
+
+        /// <summary>
+        /// Records a destination GUID for a specific NPC inventory slot.
+        /// Called by save restore to rebuild the mapping after load.
+        /// </summary>
+        internal void SetSlotDestination(int slotIndex, string destGuid)
+        {
+            if (!string.IsNullOrEmpty(destGuid))
+                _slotDestinations[slotIndex] = destGuid;
+        }
+
+        /// <summary>
+        /// Returns true if the specified NPC slot has a destination reservation (distribution delivery).
+        /// Used by ManagerSupplyBehaviour to skip destination-tagged slots.
+        /// </summary>
+        public bool IsSlotReservedForDelivery(int slotIndex) => _slotDestinations.ContainsKey(slotIndex);
 
         public ManagerDistributionBehaviour(ManagerInstance manager)
         {
@@ -130,6 +171,82 @@ namespace OverTheCounter.Logic
             Logger.Msg($"Manager {_manager.Id}: starting distribution run ({_routePlan.Count} routes)");
             StartNextRoute();
             return true;
+        }
+
+        /// <summary>
+        /// Resumes delivery of items that were in NPC inventory when the game was saved.
+        /// Each item has a recorded destination GUID from its original pickup.
+        /// Returns true if a delivery run was started.
+        /// </summary>
+        public bool TryResumeDeliveries()
+        {
+            if (_slotDestinations.Count == 0) return false;
+            if (State != DistributionState.Idle) return false;
+            if (!_manager.PaidForToday) return false;
+            if (_manager.State != ManagerState.Idle) return false;
+
+            // Don't resume while in dialogue
+            try
+            {
+                var dialogueHandler = _manager.GameNpc?.DialogueHandler;
+                if (dialogueHandler != null && dialogueHandler.IsDialogueInProgress) return false;
+            }
+            catch { }
+
+            // Collect unique destination GUIDs
+            var uniqueDests = new HashSet<string>(_slotDestinations.Values);
+            _resumeDestQueue = new Queue<string>(uniqueDests);
+            _isResuming = true;
+            _consecutiveWalkFailures = 0;
+            _manager.State = ManagerState.DistributionRun;
+
+            Logger.Msg($"Manager {_manager.Id}: resuming deliveries for {uniqueDests.Count} destinations ({_slotDestinations.Count} slots)");
+            DeliverNextResumeDest();
+            return true;
+        }
+
+        /// <summary>
+        /// Advances to the next resume destination, or finishes the resume run.
+        /// </summary>
+        private void DeliverNextResumeDest()
+        {
+            while (_resumeDestQueue != null && _resumeDestQueue.Count > 0)
+            {
+                string destGuid = _resumeDestQueue.Dequeue();
+                var storage = ManagerConfiguration.ResolveStorage(destGuid);
+                if (storage?.StorageEntity == null)
+                {
+                    Logger.Warning($"Manager {_manager.Id}: resume dest GUID '{destGuid}' not found, dropping items");
+                    // Remove entries for this unreachable destination
+                    var toRemove = new List<int>();
+                    foreach (var kv in _slotDestinations)
+                        if (kv.Value == destGuid) toRemove.Add(kv.Key);
+                    foreach (var idx in toRemove)
+                        _slotDestinations.Remove(idx);
+                    continue;
+                }
+
+                // Use a synthetic route with just the destination (no source — items already in NPC)
+                _resumeDestGuid = destGuid;
+                _currentRoute = new ManagerConfiguration.DistributionRoute { Destination = storage };
+                _currentRouteIndex = -1;
+
+                // Walk to destination using existing infrastructure
+                WalkToDest();
+                return;
+            }
+
+            // All resume destinations processed — clean up
+            _isResuming = false;
+            _resumeDestQueue = null;
+            _resumeDestGuid = null;
+            _currentRoute = null;
+
+            Logger.Msg($"Manager {_manager.Id}: resume deliveries complete");
+
+            State = DistributionState.Idle;
+            _manager.State = ManagerState.Idle;
+            _manager.TryStartNextJob();
         }
 
         // ==================================================================
@@ -198,6 +315,8 @@ namespace OverTheCounter.Logic
                 StartNextRoute();
                 return;
             }
+
+            _currentAccessTarget = accessPos.Value;
 
             if (isReachable)
             {
@@ -355,8 +474,10 @@ namespace OverTheCounter.Logic
             catch { }
 
             var source = _currentRoute.Source;
+            var destination = _currentRoute.Destination;
             var npcInventory = GetNpcInventory();
             int totalPickedUp = 0;
+            string destGuid = ManagerConfiguration.GetGuid(destination);
 
             if (source?.StorageEntity != null && npcInventory != null)
             {
@@ -371,8 +492,31 @@ namespace OverTheCounter.Logic
                         var slot = source.StorageEntity.ItemSlots[i];
                         if (slot?.ItemInstance == null) continue;
 
-                        // Skip cash
-                        if (slot.ItemInstance.TryCast<CashInstance>() != null) continue;
+                        // Skip items the destination won't accept (filter pre-check)
+                        if (destination?.StorageEntity != null &&
+                            StorageFilterHelper.HowManyCanFitFiltered(
+                                destination.StorageEntity, slot.ItemInstance) <= 0)
+                            continue;
+
+                        int npcSlotIdx = FindEmptyNpcSlot(npcInventory);
+                        if (npcSlotIdx < 0) break;
+
+                        // Cash needs special handling: GetCopy loses the Balance
+                        var sourceCash = slot.ItemInstance.TryCast<CashInstance>();
+                        if (sourceCash != null)
+                        {
+                            float balance = sourceCash.Balance;
+                            if (balance <= 0f) continue;
+
+                            slot.ChangeQuantity(-slot.Quantity);
+                            var newCash = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance
+                                .GetCashInstance(balance);
+                            npcInventory.ItemSlots[npcSlotIdx].InsertItem(newCash);
+                            _slotDestinations[npcSlotIdx] = destGuid;
+                            totalPickedUp++;
+                            freeSlots--;
+                            continue;
+                        }
 
                         int qty = slot.Quantity;
 
@@ -380,9 +524,11 @@ namespace OverTheCounter.Logic
                         var copy = slot.ItemInstance.GetCopy(qty);
                         if (copy == null) continue;
 
-                        // Remove from source, then add copy to NPC inventory
+                        // Place into an empty NPC slot (not InsertItem which may stack with
+                        // leftover items from a previous route, mixing ownership)
                         slot.ChangeQuantity(-qty);
-                        npcInventory.InsertItem(copy);
+                        npcInventory.ItemSlots[npcSlotIdx].InsertItem(copy);
+                        _slotDestinations[npcSlotIdx] = destGuid;
 
                         totalPickedUp += qty;
                         freeSlots--;
@@ -420,10 +566,11 @@ namespace OverTheCounter.Logic
             {
                 Logger.Warning($"Manager {_manager.Id}: can't find dest position for route {_currentRouteIndex}");
                 ClearNonCashNpcInventory();
-                _routePlanStep++;
-                StartNextRoute();
+                AdvanceAfterDestError();
                 return;
             }
+
+            _currentAccessTarget = accessPos.Value;
 
             if (isReachable)
             {
@@ -497,8 +644,7 @@ namespace OverTheCounter.Logic
                 {
                     Logger.Error($"Manager {_manager.Id}: WalkToDestProperty failed: {ex.Message}");
                     ClearNonCashNpcInventory();
-                    _routePlanStep++;
-                    StartNextRoute();
+                    AdvanceAfterDestError();
                 }
             }
         }
@@ -545,6 +691,20 @@ namespace OverTheCounter.Logic
             {
                 Logger.Error($"Manager {_manager.Id}: IssueWalkToDest failed: {ex.Message}");
                 ClearNonCashNpcInventory();
+                AdvanceAfterDestError();
+            }
+        }
+
+        /// <summary>
+        /// Advances after a destination walk error. Routes to the correct continuation
+        /// depending on whether this is a normal route run or a save-resume delivery.
+        /// </summary>
+        private void AdvanceAfterDestError()
+        {
+            if (_isResuming)
+                DeliverNextResumeDest();
+            else
+            {
                 _routePlanStep++;
                 StartNextRoute();
             }
@@ -585,45 +745,81 @@ namespace OverTheCounter.Logic
             var npcInventory = GetNpcInventory();
             int totalDeposited = 0;
             int totalOverflow = 0;
+            string currentDestGuid = _isResuming ? _resumeDestGuid : ManagerConfiguration.GetGuid(destination);
 
             if (destination?.StorageEntity != null && npcInventory != null)
             {
+                // Only deposit items whose destination matches the current target.
+                // Leftover items for other destinations stay untouched in their slots.
                 for (int i = 0; i < npcInventory.ItemSlots.Count; i++)
                 {
+                    if (!_slotDestinations.TryGetValue(i, out var slotDest) || slotDest != currentDestGuid)
+                        continue;
+
                     try
                     {
                         var slot = npcInventory.ItemSlots[i];
-                        if (slot?.ItemInstance == null) continue;
+                        if (slot?.ItemInstance == null)
+                        {
+                            _slotDestinations.Remove(i); // stale entry
+                            continue;
+                        }
 
-                        // Skip cash
-                        if (slot.ItemInstance.TryCast<CashInstance>() != null) continue;
+                        // Cash needs special handling: GetCopy loses the Balance
+                        var cashItem = slot.ItemInstance.TryCast<CashInstance>();
+                        if (cashItem != null)
+                        {
+                            float balance = cashItem.Balance;
+                            if (balance <= 0f) { _slotDestinations.Remove(i); continue; }
+
+                            float placed = DepositCash(destination.StorageEntity, balance);
+                            if (placed >= balance)
+                            {
+                                slot.ChangeQuantity(-slot.Quantity);
+                                _slotDestinations.Remove(i);
+                                totalDeposited++;
+                            }
+                            else if (placed > 0f)
+                            {
+                                cashItem.SetBalance(balance - placed, true);
+                                totalDeposited++;
+                                totalOverflow++;
+                            }
+                            else
+                            {
+                                totalOverflow++;
+                            }
+                            continue;
+                        }
 
                         int qty = slot.Quantity;
 
                         // Use GetCopy to preserve actual product type (jar, brick, etc.)
-                        int canFit = destination.StorageEntity.HowManyCanFit(slot.ItemInstance);
+                        int canFit = StorageFilterHelper.HowManyCanFitFiltered(destination.StorageEntity, slot.ItemInstance);
                         if (canFit <= 0)
                         {
+                            // Items stay in NPC inventory — will be retried on the next cycle
                             totalOverflow += qty;
-                            slot.ClearStoredInstance();
                             continue;
                         }
 
                         if (canFit < qty)
                         {
-                            // Partial deposit — copy only what fits
+                            // Partial deposit — only remove what was actually placed
                             var partialCopy = slot.ItemInstance.GetCopy(canFit);
-                            destination.StorageEntity.InsertItem(partialCopy, true);
+                            StorageFilterHelper.InsertItemFiltered(destination.StorageEntity, partialCopy);
                             totalDeposited += canFit;
                             totalOverflow += (qty - canFit);
-                            slot.ChangeQuantity(-qty); // clear the rest (overflow)
+                            slot.ChangeQuantity(-canFit);
+                            // Destination mapping stays — remaining items still need this dest
                         }
                         else
                         {
                             var copy = slot.ItemInstance.GetCopy(qty);
                             slot.ChangeQuantity(-qty);
-                            destination.StorageEntity.InsertItem(copy, true);
+                            StorageFilterHelper.InsertItemFiltered(destination.StorageEntity, copy);
                             totalDeposited += qty;
+                            _slotDestinations.Remove(i); // slot fully emptied
                         }
                     }
                     catch (Exception ex)
@@ -639,14 +835,22 @@ namespace OverTheCounter.Logic
             }
 
             if (totalOverflow > 0)
-                Logger.Warning($"Manager {_manager.Id}: {totalOverflow} items didn't fit in destination for route {_currentRouteIndex}");
+                Logger.Warning($"Manager {_manager.Id}: {totalOverflow} items didn't fit in destination for route {_currentRouteIndex} (retained in NPC inventory)");
 
             Logger.Msg($"Manager {_manager.Id}: deposited {totalDeposited} items at route {_currentRouteIndex} destination");
 
-            // Walk out of building on employee NavMesh before restoring civilian for outdoor travel
-            _lastRouteIndex = _currentRouteIndex;
-            _routePlanStep++;
-            ExitBuildingThen(() => StartNextRoute());
+            if (_isResuming)
+            {
+                // Resume mode — advance to next destination or finish
+                ExitBuildingThen(() => DeliverNextResumeDest());
+            }
+            else
+            {
+                // Normal route mode — advance to next route
+                _lastRouteIndex = _currentRouteIndex;
+                _routePlanStep++;
+                ExitBuildingThen(() => StartNextRoute());
+            }
         }
 
         // ==================================================================
@@ -715,6 +919,9 @@ namespace OverTheCounter.Logic
             _manager.State = ManagerState.Idle;
             _routePlan = null;
             _currentRoute = null;
+            _isResuming = false;
+            _resumeDestQueue = null;
+            _resumeDestGuid = null;
             Logger.Msg($"Manager {_manager.Id}: distribution run complete");
 
             // Immediately check for next job instead of waiting for next tick
@@ -736,6 +943,9 @@ namespace OverTheCounter.Logic
             State = DistributionState.Idle;
             _routePlan = null;
             _currentRoute = null;
+            _isResuming = false;
+            _resumeDestQueue = null;
+            _resumeDestGuid = null;
         }
 
         // ==================================================================
@@ -772,6 +982,7 @@ namespace OverTheCounter.Logic
                 State == DistributionState.WalkingToPropertyExit ||
                 State == DistributionState.WalkingToIdle)
             {
+                CheckStuckDuringWalk();
                 EnsureMovingDuringRun();
             }
         }
@@ -823,6 +1034,72 @@ namespace OverTheCounter.Logic
             {
                 Logger.Warning($"Manager {_manager.Id}: EnsureMovingDuringRun failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Detects if the manager is stuck (hasn't moved for STUCK_WARP_TIMEOUT seconds)
+        /// and warps to the appropriate target, transitioning state to match
+        /// the existing MAX_WALK_FAILURES warp patterns.
+        /// </summary>
+        private void CheckStuckDuringWalk()
+        {
+            var pos = _manager.Position ?? Vector3.zero;
+
+            // Reset timer when walk target changes (new walk segment started)
+            if (_currentWalkTarget != _stuckCheckTarget)
+            {
+                _stuckCheckTarget = _currentWalkTarget;
+                _lastMovedPosition = pos;
+                _lastMovedTime = UnityEngine.Time.time;
+                return;
+            }
+
+            // Check if NPC has moved
+            if (Vector3.Distance(pos, _lastMovedPosition) > STUCK_MOVE_THRESHOLD)
+            {
+                _lastMovedPosition = pos;
+                _lastMovedTime = UnityEngine.Time.time;
+                return;
+            }
+
+            // NPC hasn't moved — check timeout
+            if (_lastMovedTime <= 0f || UnityEngine.Time.time - _lastMovedTime < STUCK_WARP_TIMEOUT)
+                return;
+
+            Logger.Warning($"Manager {_manager.Id}: stuck for {STUCK_WARP_TIMEOUT}s during {State}, warping");
+            _consecutiveWalkFailures = 0;
+
+            switch (State)
+            {
+                case DistributionState.WalkingToSourceProperty:
+                case DistributionState.WalkingToSource:
+                    WarpToPosition(_currentAccessTarget);
+                    State = DistributionState.AtSource;
+                    _sourceArrivalTime = UnityEngine.Time.time;
+                    break;
+
+                case DistributionState.WalkingToDestProperty:
+                case DistributionState.WalkingToDest:
+                    WarpToPosition(_currentAccessTarget);
+                    State = DistributionState.AtDest;
+                    _destArrivalTime = UnityEngine.Time.time;
+                    break;
+
+                case DistributionState.WalkingToPropertyExit:
+                    WarpToPosition(_currentWalkTarget);
+                    RestoreCivilianNavMesh();
+                    _currentPropertyExterior = null;
+                    _exitBuildingContinuation?.Invoke();
+                    _exitBuildingContinuation = null;
+                    break;
+
+                case DistributionState.WalkingToIdle:
+                    WarpToPosition(_currentWalkTarget);
+                    FinishRun();
+                    break;
+            }
+
+            _lastMovedTime = UnityEngine.Time.time;
         }
 
         // ==================================================================
@@ -1070,7 +1347,7 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Checks if a storage entity has any non-cash items.
+        /// Checks if a storage entity has any items (including cash).
         /// </summary>
         private static bool SourceHasItems(Il2CppScheduleOne.ObjectScripts.PlaceableStorageEntity storage)
         {
@@ -1082,7 +1359,6 @@ namespace OverTheCounter.Logic
                 {
                     var slot = storage.StorageEntity.ItemSlots[i];
                     if (slot?.ItemInstance == null) continue;
-                    if (slot.ItemInstance.TryCast<CashInstance>() != null) continue;
                     return true;
                 }
             }
@@ -1091,7 +1367,7 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Checks if the destination can accept at least one non-cash item from the source.
+        /// Checks if the destination can accept at least one item from the source (including cash).
         /// Prevents wasted trips where the manager picks up items only to find the destination full.
         /// </summary>
         private static bool DestinationCanAcceptSourceItems(
@@ -1107,15 +1383,75 @@ namespace OverTheCounter.Logic
                 {
                     var slot = source.StorageEntity.ItemSlots[i];
                     if (slot?.ItemInstance == null) continue;
-                    if (slot.ItemInstance.TryCast<CashInstance>() != null) continue;
 
-                    // Use actual ItemInstance (not GetDefaultInstance) to preserve product type
-                    if (destination.StorageEntity.HowManyCanFit(slot.ItemInstance) > 0)
+                    if (StorageFilterHelper.HowManyCanFitFiltered(destination.StorageEntity, slot.ItemInstance) > 0)
                         return true;
                 }
             }
             catch { }
             return false;
+        }
+
+        /// <summary>
+        /// Deposits cash into a storage entity, returning the amount actually deposited.
+        /// Phase 1: fills existing cash slots (up to $1000 each).
+        /// Phase 2: creates new cash in empty filter-compatible slots via direct insert
+        /// (bypasses GetCopy which loses the Balance on CashInstance).
+        /// </summary>
+        private static float DepositCash(Il2CppScheduleOne.Storage.StorageEntity storage, float amount)
+        {
+            const float MAX_PER_SLOT = 1000f;
+            float deposited = 0f;
+
+            // Phase 1: top up existing cash slots
+            for (int i = 0; i < storage.ItemSlots.Count; i++)
+            {
+                if (deposited >= amount) break;
+                try
+                {
+                    var slot = storage.ItemSlots[i];
+                    if (slot?.ItemInstance == null) continue;
+                    var existing = slot.ItemInstance.TryCast<CashInstance>();
+                    if (existing == null) continue;
+                    float space = MAX_PER_SLOT - existing.Balance;
+                    if (space <= 0f) continue;
+                    float add = Math.Min(amount - deposited, space);
+                    existing.ChangeBalance(add);
+                    deposited += add;
+                }
+                catch { }
+            }
+
+            // Phase 2: create new cash in empty slots
+            while (deposited < amount)
+            {
+                float slotAmount = Math.Min(amount - deposited, MAX_PER_SLOT);
+                try
+                {
+                    var newCash = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance
+                        .GetCashInstance(slotAmount);
+                    bool placed = false;
+                    for (int i = 0; i < storage.ItemSlots.Count; i++)
+                    {
+                        var slot = storage.ItemSlots[i];
+                        if (slot == null || slot.IsLocked || slot.IsAddLocked) continue;
+                        if (slot.ItemInstance != null) continue;
+                        if (slot.GetCapacityForItem(newCash, true) <= 0) continue;
+                        slot.InsertItem(newCash);
+                        // InsertItem goes through the networked SetStoredItem path which can
+                        // lose CashInstance.Balance — re-apply it on the stored instance.
+                        var stored = slot.ItemInstance?.TryCast<CashInstance>();
+                        stored?.SetBalance(slotAmount, true);
+                        placed = true;
+                        break;
+                    }
+                    if (!placed) break;
+                    deposited += slotAmount;
+                }
+                catch { break; }
+            }
+
+            return deposited;
         }
 
         private Il2CppScheduleOne.NPCs.NPCInventory GetNpcInventory()
@@ -1128,7 +1464,8 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Clears all non-cash items from NPC inventory.
+        /// Clears distribution items from NPC inventory. Preserves supply cash
+        /// (cash without a destination tag, used for Night Market purchases).
         /// </summary>
         private void ClearNonCashNpcInventory()
         {
@@ -1141,11 +1478,16 @@ namespace OverTheCounter.Logic
                 {
                     var slot = inventory.ItemSlots[i];
                     if (slot?.ItemInstance == null) continue;
-                    if (slot.ItemInstance.TryCast<CashInstance>() != null) continue;
+
+                    // Preserve supply cash (cash without a distribution destination)
+                    if (slot.ItemInstance.TryCast<CashInstance>() != null && !_slotDestinations.ContainsKey(i))
+                        continue;
+
                     slot.ClearStoredInstance();
                 }
             }
             catch { }
+            _slotDestinations.Clear();
         }
 
         /// <summary>
@@ -1166,6 +1508,26 @@ namespace OverTheCounter.Logic
             }
             catch { }
             return free;
+        }
+
+        /// <summary>
+        /// Returns the index of the first empty, unlocked NPC inventory slot, or -1 if full.
+        /// Used instead of InsertItem to prevent stacking with leftover items from other routes.
+        /// </summary>
+        private static int FindEmptyNpcSlot(Il2CppScheduleOne.NPCs.NPCInventory inventory)
+        {
+            if (inventory?.ItemSlots == null) return -1;
+            try
+            {
+                for (int i = 0; i < inventory.ItemSlots.Count; i++)
+                {
+                    var slot = inventory.ItemSlots[i];
+                    if (slot != null && slot.ItemInstance == null && !slot.IsLocked && !slot.IsAddLocked)
+                        return i;
+                }
+            }
+            catch { }
+            return -1;
         }
 
         private void WarpToPosition(Vector3 position)

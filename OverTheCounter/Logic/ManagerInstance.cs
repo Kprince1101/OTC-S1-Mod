@@ -106,7 +106,10 @@ namespace OverTheCounter.Logic
             if (State != ManagerState.Idle) return false;
             if (!PaidForToday) return false;
 
-            // Supply takes priority
+            // Resume pending deliveries first (items from a previous session with recorded destinations)
+            if (DistributionBehaviour?.TryResumeDeliveries() ?? false) return true;
+
+            // Supply takes priority over new distribution routes
             if (SupplyBehaviour?.TryStartSupplyRun() ?? false) return true;
 
             // Then distribution

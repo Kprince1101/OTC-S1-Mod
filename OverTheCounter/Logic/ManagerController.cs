@@ -67,15 +67,7 @@ namespace OverTheCounter.Logic
             {
                 foreach (var mgr in ManagerInstance.Active.Values)
                 {
-                    if (mgr.State != ManagerState.Idle) continue;
-                    if (!mgr.PaidForToday) continue;
-
-                    // Supply takes priority
-                    bool supplyStarted = mgr.SupplyBehaviour?.TryStartSupplyRun() ?? false;
-                    if (supplyStarted) continue;
-
-                    // Supply didn't trigger (fully stocked) — try distribution
-                    mgr.DistributionBehaviour?.TryStartDistributionRun();
+                    mgr.TryStartNextJob();
                 }
             }
             catch (Exception ex)

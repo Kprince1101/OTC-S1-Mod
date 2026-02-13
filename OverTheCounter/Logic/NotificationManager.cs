@@ -184,6 +184,14 @@ namespace OverTheCounter.Logic
                 var contract = contracts[i];
                 if (contract == null) continue;
 
+                // Skip contracts assigned to dealers (only consolidate player contracts)
+                try
+                {
+                    if (contract.Dealer != null)
+                        continue;
+                }
+                catch { }
+
                 // Skip desperation deals tracked by DesperationManager
                 try
                 {

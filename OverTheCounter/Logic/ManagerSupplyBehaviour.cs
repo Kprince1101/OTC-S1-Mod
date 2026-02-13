@@ -50,6 +50,13 @@ namespace OverTheCounter.Logic
         private Vector3 _currentWalkTarget;
         private float _lastEnsureMovingLog;
 
+        // Stuck detection — warp if stationary for too long during walks
+        private Vector3 _lastMovedPosition;
+        private float _lastMovedTime;
+        private Vector3 _stuckCheckTarget;
+        private const float STUCK_WARP_TIMEOUT = 8f;
+        private const float STUCK_MOVE_THRESHOLD = 0.5f;
+
         // IL2CPP callback references (prevent GC collection)
         private Il2CppSystem.Action<NPCMovement.WalkResult> _storeWalkCallback;
         private Il2CppSystem.Action<NPCMovement.WalkResult> _storageWalkCallback;
@@ -451,7 +458,21 @@ namespace OverTheCounter.Logic
 
                     // Split capacity: how many can stack into existing slots vs needing free slots
                     int stackableCapacity = GetStackableCapacity(storage.StorageEntity, itemId, stackLimit);
-                    int newSlotCapacity = remainingFreeSlots * stackLimit;
+
+                    // Filter-aware: only count empty slots that accept this item type
+                    int filteredFreeForItem = remainingFreeSlots;
+                    try
+                    {
+                        var filterDef = Il2CppScheduleOne.Registry.GetItem(itemId);
+                        var filterStorable = filterDef?.TryCast<StorableItemDefinition>();
+                        var testInst = filterStorable?.GetDefaultInstance(1);
+                        if (testInst != null)
+                            filteredFreeForItem = Math.Min(remainingFreeSlots,
+                                StorageFilterHelper.CountFilteredFreeSlots(storage.StorageEntity, testInst));
+                    }
+                    catch { }
+
+                    int newSlotCapacity = filteredFreeForItem * stackLimit;
                     int physicalCapacity = stackableCapacity + newSlotCapacity;
 
                     // Cap by storage capacity — reservation limits how many free slots this item can use
@@ -479,6 +500,7 @@ namespace OverTheCounter.Logic
                         // capped by this item's reservation to protect other items' reserved slots
                         int needsBeyondStack = Math.Max(0, deficit - stackableCapacity);
                         int freeSlotsConsumed = (needsBeyondStack + stackLimit - 1) / stackLimit;
+                        freeSlotsConsumed = Math.Min(freeSlotsConsumed, filteredFreeForItem);
                         if (reservedSlots != null)
                             freeSlotsConsumed = Math.Min(freeSlotsConsumed, resFreeSlots);
                         remainingFreeSlots = Math.Max(0, remainingFreeSlots - freeSlotsConsumed);
@@ -1455,7 +1477,7 @@ namespace OverTheCounter.Logic
                         var newInstance = storableDef.GetDefaultInstance(qty);
                         if (newInstance == null) { totalSkipped += qty; continue; }
 
-                        int canFit = storage.StorageEntity.HowManyCanFit(newInstance);
+                        int canFit = StorageFilterHelper.HowManyCanFitFiltered(storage.StorageEntity, newInstance);
                         if (canFit <= 0)
                         {
                             Logger.Msg($"Manager {_manager.Id}: storage full, can't fit {itemId} x{qty}");
@@ -1468,13 +1490,13 @@ namespace OverTheCounter.Logic
                         {
                             // Partial deposit
                             var partialInstance = storableDef.GetDefaultInstance(depositQty);
-                            storage.StorageEntity.InsertItem(partialInstance, true);
+                            StorageFilterHelper.InsertItemFiltered(storage.StorageEntity, partialInstance);
                             slot.ChangeQuantity(-depositQty, true);
                             totalDeposited += depositQty;
                         }
                         else
                         {
-                            storage.StorageEntity.InsertItem(newInstance, true);
+                            StorageFilterHelper.InsertItemFiltered(storage.StorageEntity, newInstance);
                             slot.ClearStoredInstance();
                             totalDeposited += depositQty;
                         }
@@ -1647,6 +1669,7 @@ namespace OverTheCounter.Logic
                 State == SupplyState.WalkingToStorage ||
                 State == SupplyState.WalkingToIdle)
             {
+                CheckStuckDuringWalk();
                 EnsureMovingDuringRun();
             }
 
@@ -1744,6 +1767,62 @@ namespace OverTheCounter.Logic
             }
         }
 
+        /// <summary>
+        /// Detects if the manager is stuck (hasn't moved for STUCK_WARP_TIMEOUT seconds)
+        /// and warps to the appropriate target, transitioning state to match
+        /// the existing MAX_WALK_FAILURES warp patterns.
+        /// </summary>
+        private void CheckStuckDuringWalk()
+        {
+            var pos = _manager.Position ?? Vector3.zero;
+
+            // Reset timer when walk target changes (new walk segment started)
+            if (_currentWalkTarget != _stuckCheckTarget)
+            {
+                _stuckCheckTarget = _currentWalkTarget;
+                _lastMovedPosition = pos;
+                _lastMovedTime = UnityEngine.Time.time;
+                return;
+            }
+
+            // Check if NPC has moved
+            if (Vector3.Distance(pos, _lastMovedPosition) > STUCK_MOVE_THRESHOLD)
+            {
+                _lastMovedPosition = pos;
+                _lastMovedTime = UnityEngine.Time.time;
+                return;
+            }
+
+            // NPC hasn't moved — check timeout
+            if (_lastMovedTime <= 0f || UnityEngine.Time.time - _lastMovedTime < STUCK_WARP_TIMEOUT)
+                return;
+
+            Logger.Warning($"Manager {_manager.Id}: stuck for {STUCK_WARP_TIMEOUT}s during {State}, warping");
+            _consecutiveWalkFailures = 0;
+
+            switch (State)
+            {
+                case SupplyState.WalkingToStore:
+                    WarpToPosition(_currentWalkTarget);
+                    State = SupplyState.AtStore;
+                    _storeArrivalTime = UnityEngine.Time.time;
+                    break;
+
+                case SupplyState.WalkingToStorage:
+                    WarpToPosition(_currentWalkTarget);
+                    State = SupplyState.AtStorage;
+                    _storageArrivalTime = UnityEngine.Time.time;
+                    break;
+
+                case SupplyState.WalkingToIdle:
+                    WarpToPosition(_currentWalkTarget);
+                    FinishRun();
+                    break;
+            }
+
+            _lastMovedTime = UnityEngine.Time.time;
+        }
+
         // ==================================================================
         // Status description (for NPC dialogue)
         // ==================================================================
@@ -1801,7 +1880,13 @@ namespace OverTheCounter.Logic
             {
                 var item = inventory.ItemSlots[i]?.ItemInstance;
                 if (item != null && item.TryCast<CashInstance>() == null)
+                {
+                    // Skip slots reserved for distribution delivery — those items
+                    // have a recorded destination and should not be deposited at supply storage
+                    if (_manager.DistributionBehaviour?.IsSlotReservedForDelivery(i) == true)
+                        continue;
                     return true;
+                }
             }
             return false;
         }
@@ -2028,13 +2113,30 @@ namespace OverTheCounter.Logic
                 remaining -= add;
             }
 
-            // Phase 2: Create new slot(s) for any remainder
+            // Phase 2: Create new slot(s) for any remainder.
+            // Cannot use InsertItemFiltered here — it calls GetCopy() internally,
+            // which creates a CashInstance with Balance=0 (GetCopy doesn't copy Balance).
             while (remaining > 0f)
             {
                 float slotAmount = Math.Min(remaining, MAX_PER_SLOT);
                 var newCash = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance
                     .GetCashInstance(slotAmount);
-                storage.InsertItem(newCash, true);
+                bool placed = false;
+                for (int i = 0; i < storage.ItemSlots.Count; i++)
+                {
+                    var slot = storage.ItemSlots[i];
+                    if (slot == null || slot.IsLocked || slot.IsAddLocked) continue;
+                    if (slot.ItemInstance != null) continue;
+                    if (slot.GetCapacityForItem(newCash, true) <= 0) continue;
+                    slot.InsertItem(newCash);
+                    // InsertItem goes through the networked SetStoredItem path which can
+                    // lose CashInstance.Balance — re-apply it on the stored instance.
+                    var stored = slot.ItemInstance?.TryCast<CashInstance>();
+                    stored?.SetBalance(slotAmount, true);
+                    placed = true;
+                    break;
+                }
+                if (!placed) break;
                 remaining -= slotAmount;
             }
         }
@@ -2135,7 +2237,7 @@ namespace OverTheCounter.Logic
                     if (def == null) continue;
 
                     var testInstance = def.GetDefaultInstance(1);
-                    if (testInstance != null && storage.StorageEntity.HowManyCanFit(testInstance) > 0)
+                    if (testInstance != null && StorageFilterHelper.HowManyCanFitFiltered(storage.StorageEntity, testInstance) > 0)
                         return true;
                 }
                 catch { }
@@ -2300,7 +2402,7 @@ namespace OverTheCounter.Logic
                 var testInstance = storableDef.GetDefaultInstance(1);
                 if (testInstance == null) return int.MaxValue;
 
-                return storage.HowManyCanFit(testInstance);
+                return StorageFilterHelper.HowManyCanFitFiltered(storage, testInstance);
             }
             catch { return int.MaxValue; }
         }
@@ -2427,6 +2529,18 @@ namespace OverTheCounter.Logic
                 int newSlotsNeeded = needsBeyondStack > 0
                     ? (needsBeyondStack + stackLimit - 1) / stackLimit
                     : 0;
+
+                // Cap by filter-compatible empty slots for this item type
+                try
+                {
+                    var resDef = Il2CppScheduleOne.Registry.GetItem(itemId);
+                    var resStorable = resDef?.TryCast<StorableItemDefinition>();
+                    var resTest = resStorable?.GetDefaultInstance(1);
+                    if (resTest != null)
+                        newSlotsNeeded = Math.Min(newSlotsNeeded,
+                            StorageFilterHelper.CountFilteredFreeSlots(storageEntity, resTest));
+                }
+                catch { }
 
                 int totalClaim = existingSlots + npcSlots + newSlotsNeeded;
                 if (totalClaim == 0) { result[itemId] = 0; continue; }

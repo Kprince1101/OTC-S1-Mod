@@ -211,7 +211,7 @@ namespace OverTheCounter.Logic
             return false;
         }
 
-        private static string GetGuid(PlaceableStorageEntity entity)
+        internal static string GetGuid(PlaceableStorageEntity entity)
         {
             if (entity == null) return "";
             try
@@ -227,7 +227,7 @@ namespace OverTheCounter.Logic
             return "";
         }
 
-        private static PlaceableStorageEntity ResolveStorage(string guidStr)
+        internal static PlaceableStorageEntity ResolveStorage(string guidStr)
         {
             if (string.IsNullOrEmpty(guidStr)) return null;
 
