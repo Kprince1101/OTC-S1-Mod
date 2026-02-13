@@ -78,6 +78,7 @@ namespace OverTheCounter.Logic
         {
             CleanupStaleConversations();
 
+            if (!Config.DrifterEnabled.Value) return;
             if (!NetworkHelper.IsHost) return;
 
             try

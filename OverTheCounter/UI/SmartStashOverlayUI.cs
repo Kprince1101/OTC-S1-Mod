@@ -279,7 +279,7 @@ namespace OverTheCounter.UI
             toggle.targetGraphic = bgImage;
             toggle.onValueChanged.AddListener(new Action<bool>(OnToggleChanged));
 
-            var toggleLabel = UIFactory.Text("ToggleLabel", "Include All Shifts", toggleObj.transform, 13, TextAnchor.MiddleLeft);
+            var toggleLabel = UIFactory.Text("ToggleLabel", "Include All Delivery Windows", toggleObj.transform, 13, TextAnchor.MiddleLeft);
             toggleLabel.color = new Color(0.8f, 0.8f, 0.8f);
             var labelRect = toggleLabel.gameObject.GetComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0, 0);

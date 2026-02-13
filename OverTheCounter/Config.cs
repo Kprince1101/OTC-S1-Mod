@@ -11,6 +11,7 @@ namespace OverTheCounter
         // ── Desperation System ──
         private static MelonPreferences_Category _desperation;
 
+        public static ConfigEntry<bool> DesperationEnabled;
         public static ConfigEntry<float> FiendAddictionThreshold;
         public static ConfigEntry<float> TriggerChancePerHour;
         public static ConfigEntry<int> MaxEventsPerDay;
@@ -48,6 +49,7 @@ namespace OverTheCounter
         // ── Contract Notifications ──
         private static MelonPreferences_Category _notifications;
 
+        public static ConfigEntry<bool> ConsolidationEnabled;
         public static ConfigEntry<int> ConsolidationThreshold;
 
         // ── Manager System ──
@@ -66,6 +68,7 @@ namespace OverTheCounter
         // ── Drifter System ──
         private static MelonPreferences_Category _drifters;
 
+        public static ConfigEntry<bool> DrifterEnabled;
         public static ConfigEntry<float> DrifterSpawnChancePerHour;
         public static ConfigEntry<int> MaxActiveDrifters;
         public static ConfigEntry<int> DrifterDayStartHour;
@@ -79,11 +82,13 @@ namespace OverTheCounter
         // All entries for bulk operations
         private static readonly Dictionary<string, ConfigEntry<float>> _floatEntries = new();
         private static readonly Dictionary<string, ConfigEntry<int>> _intEntries = new();
+        private static readonly Dictionary<string, ConfigEntry<bool>> _boolEntries = new();
 
         // Settings that are purely local (cosmetic/UI) and should never be
         // synced from host to client. Each client reads their own preference.
         private static readonly HashSet<string> _localOnlyKeys = new()
         {
+            "ConsolidationEnabled",
             "ConsolidationThreshold"
         };
 
@@ -92,6 +97,8 @@ namespace OverTheCounter
             // ── Desperation System ──
             _desperation = MelonPreferences.CreateCategory("OverTheCounter", "Desperation System");
 
+            DesperationEnabled = Register(_desperation.CreateEntry("Enabled", true, "Enabled",
+                "Enable/disable the desperation system (urgent fiend requests)"));
             FiendAddictionThreshold = Register(_desperation.CreateEntry("FiendAddictionThreshold", 0.67f, "Fiend Addiction Threshold",
                 "Addiction level required to qualify as a Fiend (0.0–1.0)"));
             TriggerChancePerHour = Register(_desperation.CreateEntry("TriggerChancePerHour", 0.12f, "Trigger Chance Per Hour",
@@ -154,6 +161,8 @@ namespace OverTheCounter
             // ── Contract Notifications ──
             _notifications = MelonPreferences.CreateCategory("OverTheCounter_Notifications", "Contract Notifications");
 
+            ConsolidationEnabled = Register(_notifications.CreateEntry("Enabled", true, "Enabled",
+                "Enable/disable contract consolidation (groups same-window deliveries into one HUD entry)"));
             ConsolidationThreshold = Register(_notifications.CreateEntry("ConsolidationThreshold", 5, "Consolidation Threshold",
                 "Minimum contracts in a window before consolidation kicks in"));
 
@@ -178,6 +187,8 @@ namespace OverTheCounter
             // ── Drifter System ──
             _drifters = MelonPreferences.CreateCategory("OverTheCounter_Drifters", "Drifter System");
 
+            DrifterEnabled = Register(_drifters.CreateEntry("Enabled", true, "Enabled",
+                "Enable/disable the drifter system (random street NPCs offering one-time deals)"));
             DrifterSpawnChancePerHour = Register(_drifters.CreateEntry("DrifterSpawnChancePerHour", 0.38f, "Spawn Chance Per Hour",
                 "Base spawn chance per hour at max regions (6). Scaled down by unlocked region count."));
             MaxActiveDrifters = Register(_drifters.CreateEntry("MaxActiveDrifters", 3, "Max Active Drifters",
@@ -212,6 +223,13 @@ namespace OverTheCounter
             return wrapped;
         }
 
+        private static ConfigEntry<bool> Register(MelonPreferences_Entry<bool> entry)
+        {
+            var wrapped = new ConfigEntry<bool>(entry);
+            _boolEntries[entry.Identifier] = wrapped;
+            return wrapped;
+        }
+
         /// <summary>
         /// Serializes all config values as "key=value|key=value|..." for network transport.
         /// Float values use InvariantCulture to avoid locale issues.
@@ -232,6 +250,12 @@ namespace OverTheCounter
             {
                 if (_localOnlyKeys.Contains(kvp.Key)) continue;
                 parts.Add($"{kvp.Key}={kvp.Value.RawEntry.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            foreach (var kvp in _boolEntries)
+            {
+                if (_localOnlyKeys.Contains(kvp.Key)) continue;
+                parts.Add($"{kvp.Key}={kvp.Value.RawEntry.Value}");
             }
 
             return string.Join("|", parts);
@@ -257,6 +281,11 @@ namespace OverTheCounter
                     if (int.TryParse(kvp.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int iVal))
                         intEntry.SetOverride(iVal);
                 }
+                else if (_boolEntries.TryGetValue(kvp.Key, out var boolEntry))
+                {
+                    if (bool.TryParse(kvp.Value, out bool bVal))
+                        boolEntry.SetOverride(bVal);
+                }
             }
         }
 
@@ -269,6 +298,9 @@ namespace OverTheCounter
                 entry.ClearOverride();
 
             foreach (var entry in _intEntries.Values)
+                entry.ClearOverride();
+
+            foreach (var entry in _boolEntries.Values)
                 entry.ClearOverride();
         }
     }

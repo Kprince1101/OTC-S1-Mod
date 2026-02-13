@@ -53,6 +53,14 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void ProcessContractState()
         {
+            if (!Config.ConsolidationEnabled.Value)
+            {
+                // Deactivate all groups and restore HUDs when toggled off
+                if (_activeGroups.Count > 0)
+                    Cleanup();
+                return;
+            }
+
             // Stale cleanup: dismiss any ConsolidatedQuest left in the game's
             // Quest.Quests registry from a previous session's save data.
             // S1API registers loaded quests via QuestStart (Unity Start lifecycle)

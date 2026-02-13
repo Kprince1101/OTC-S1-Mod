@@ -58,6 +58,7 @@ namespace OverTheCounter.Logic
         /// </summary>
         private void OnTimeTick()
         {
+            if (!Config.DesperationEnabled.Value) return;
             if (!NetworkHelper.IsHost) return;
 
             try

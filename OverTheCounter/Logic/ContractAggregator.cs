@@ -77,8 +77,25 @@ namespace OverTheCounter.Logic
                     if (!includeFuture)
                     {
                         var deliveryWindow = contract.DeliveryWindow;
-                        if (deliveryWindow != null && deliveryWindow.WindowStartTime > currentTime)
-                            continue;
+                        if (deliveryWindow != null)
+                        {
+                            // Always include desperation contracts
+                            bool isImmediate = false;
+                            try { isImmediate = deliveryWindow.TryCast<ImmediateQuestWindowConfig>() != null; }
+                            catch { }
+
+                            if (!isImmediate)
+                            {
+                                int start = deliveryWindow.WindowStartTime;
+                                int end = deliveryWindow.WindowEndTime;
+
+                                // Only include contracts whose window is currently active.
+                                // The old WindowStartTime > currentTime check failed for
+                                // overnight windows (0-600) where start=0 always passes.
+                                if (currentTime < start || currentTime >= end)
+                                    continue;
+                            }
+                        }
                     }
 
                     if (contract.ProductList?.entries == null) continue;
@@ -199,8 +216,22 @@ namespace OverTheCounter.Logic
                     if (!includeFuture)
                     {
                         var deliveryWindow = contract.DeliveryWindow;
-                        if (deliveryWindow != null && deliveryWindow.WindowStartTime > currentTime)
-                            continue;
+                        if (deliveryWindow != null)
+                        {
+                            // Always include desperation contracts
+                            bool isImmediate = false;
+                            try { isImmediate = deliveryWindow.TryCast<ImmediateQuestWindowConfig>() != null; }
+                            catch { }
+
+                            if (!isImmediate)
+                            {
+                                int start = deliveryWindow.WindowStartTime;
+                                int end = deliveryWindow.WindowEndTime;
+                                // Same window-active check as CalculateManifest
+                                if (currentTime < start || currentTime >= end)
+                                    continue;
+                            }
+                        }
                     }
 
                     if (contract.ProductList?.entries == null) continue;
