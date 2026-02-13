@@ -59,6 +59,9 @@ namespace OverTheCounter.SaveData
         // receives correct state even if the initial SyncVar push missed us.
         private bool _needsStatePublish;
 
+        // Runtime-only: deferred quest reconciliation guard (fires once per session in Tick).
+        private bool _questReconciled;
+
         // Runtime-only: intro text deferred until Static NPC spawns.
         private bool _needsIntroText;
 
@@ -99,6 +102,25 @@ namespace OverTheCounter.SaveData
                 if (NetworkHelper.IsHost)
                     _needsStatePublish = true;
             }
+
+            ConfigSyncData.ApplyPendingGameState();
+            ReconcileQuest();
+        }
+
+        /// <summary>
+        /// Advances StaticIntroQuest to match this SaveData's effective stage.
+        /// Covers the case where the quest loaded before this Saveable received host state.
+        /// </summary>
+        private void ReconcileQuest()
+        {
+            if (StaticIntroQuest.Instance == null) return;
+            int effectiveStage = _crmTier >= 1 ? 3 : _introCompleted ? 2 : _questTriggered ? 1 : 0;
+            if (effectiveStage <= StaticIntroQuest.Instance.Stage) return;
+
+            if (effectiveStage >= 2 && StaticIntroQuest.Instance.Stage < 2)
+                StaticIntroQuest.Instance.CompleteObj1();
+            if (effectiveStage >= 3 && StaticIntroQuest.Instance.Stage < 3)
+                StaticIntroQuest.Instance.CompleteObj2();
         }
 
         /// <summary>
@@ -107,6 +129,19 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void Tick()
         {
+            // Safety net: reconcile quest once after everything is loaded.
+            if (!_questReconciled && _questTriggered
+                && StaticIntroQuest.Instance != null)
+            {
+                _questReconciled = true;
+                int effectiveStage = _crmTier >= 1 ? 3 : _introCompleted ? 2 : 1;
+                if (StaticIntroQuest.Instance.Stage < effectiveStage)
+                {
+                    Logger.Msg($"Tick reconciliation: quest stage {StaticIntroQuest.Instance.Stage} → {effectiveStage}");
+                    ReconcileQuest();
+                }
+            }
+
             // Detect dialogue closing edge — forces a rebuild so weed count,
             // bank balance, and other dynamic data is fresh on next interaction.
             bool inDialogue = StaticNPC.Instance != null && StaticNPC.Instance.IsInDialogue;

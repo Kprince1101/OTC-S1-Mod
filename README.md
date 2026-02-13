@@ -55,12 +55,12 @@ Built from the ground up for co-op.
 1.  Ensure you are on the **IL2CPP Branch** of *Schedule I*.
 2.  Install **MelonLoader v0.7.0**.
 3.  Install **S1API** (ifBars fork) — modding API layer.
-4.  Install **SteamNetworkLib IL2CPP** — required for multiplayer sync.
+4.  *(Multiplayer only)* Install **SteamNetworkLib IL2CPP** — required for multiplayer sync. Not needed for single-player.
 5.  Download the latest `OverTheCounter.dll` from Releases.
 6.  Drop the `.dll` file into your `Mods` folder.
 7.  Launch the game.
 
-> If installing via Thunderstore mod manager, S1API and SteamNetworkLib are installed automatically as dependencies.
+> If installing via Thunderstore mod manager, S1API is installed automatically. SteamNetworkLib is optional (multiplayer only).
 
 ## Configuration
 Settings are stored in MelonLoader's config file and organized into four categories:

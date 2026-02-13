@@ -1,5 +1,6 @@
 using MelonLoader;
 using MelonLoader.Utils;
+using OverTheCounter.SaveData;
 using S1API.Quests;
 using S1API.Quests.Constants;
 using S1API.Saveables;
@@ -129,6 +130,17 @@ namespace OverTheCounter.Quests
 
             try
             {
+                // StaticSaveData is the authority — host state may have advanced
+                // via SyncVar before this quest's save was loaded.
+                if (StaticSaveData.Instance != null)
+                {
+                    int hostStage = StaticSaveData.Instance.CrmTier >= 1 ? 3
+                        : StaticSaveData.Instance.IntroCompleted ? 2
+                        : StaticSaveData.Instance.QuestTriggered ? 1 : 0;
+                    if (hostStage > _stage)
+                        _stage = hostStage;
+                }
+
                 // Entries aren't restored from save — rebuild them
                 QuestEntries.Clear();
                 _talkToStaticEntry = AddEntry("Talk to Static in the casino after 4 PM", StaticPosition);

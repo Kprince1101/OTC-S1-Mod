@@ -62,6 +62,9 @@ namespace OverTheCounter.SaveData
         // receives correct state even if the initial SyncVar push missed us.
         private bool _needsStatePublish;
 
+        // Runtime-only: deferred quest reconciliation guard (fires once per session in Tick).
+        private bool _questReconciled;
+
         private int _tickCounter;
         private const int TICK_INTERVAL = 300; // ~5 seconds at 60fps
         private bool _positionFixed;
@@ -123,8 +126,14 @@ namespace OverTheCounter.SaveData
                 _questCreated = true;
                 if (NetworkHelper.IsHost)
                     _needsStatePublish = true;
+
+                ConfigSyncData.ApplyPendingGameState();
+                ReconcileQuest();
                 return;
             }
+
+            // Re-apply host state even if quest hasn't triggered locally
+            ConfigSyncData.ApplyPendingGameState();
 
             if (_triggerPendingDay >= 0)
                 return;
@@ -133,6 +142,22 @@ namespace OverTheCounter.SaveData
             // a pending day. Flag it so the next sleep triggers the intro.
             if (IsCleanCashQuestStarted())
                 _triggerPendingDay = 0;
+        }
+
+        /// <summary>
+        /// Advances VicIntroQuest to match this SaveData's effective stage.
+        /// Covers the case where the quest loaded before this Saveable received host state.
+        /// </summary>
+        private void ReconcileQuest()
+        {
+            if (VicIntroQuest.Instance == null) return;
+            int effectiveStage = _unlocked ? 3 : _questAccepted ? 2 : _hasBeenTexted ? 1 : 0;
+            if (effectiveStage <= VicIntroQuest.Instance.Stage) return;
+
+            if (effectiveStage >= 2 && VicIntroQuest.Instance.Stage < 2)
+                VicIntroQuest.Instance.CompleteObj1();
+            if (effectiveStage >= 3 && VicIntroQuest.Instance.Stage < 3)
+                VicIntroQuest.Instance.CompleteObj2();
         }
 
         /// <summary>
@@ -173,6 +198,19 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void Tick()
         {
+            // Safety net: reconcile quest once after everything is loaded.
+            if (!_questReconciled && _hasBeenTexted
+                && VicIntroQuest.Instance != null)
+            {
+                _questReconciled = true;
+                int effectiveStage = _unlocked ? 3 : _questAccepted ? 2 : 1;
+                if (VicIntroQuest.Instance.Stage < effectiveStage)
+                {
+                    Logger.Msg($"Tick reconciliation: quest stage {VicIntroQuest.Instance.Stage} → {effectiveStage}");
+                    ReconcileQuest();
+                }
+            }
+
             // Detect dialogue closing edge — forces a rebuild so weed count
             // (and any other dynamic data) is always fresh on next interaction.
             bool inDialogue = VicNPC.Instance != null && VicNPC.Instance.IsInDialogue;

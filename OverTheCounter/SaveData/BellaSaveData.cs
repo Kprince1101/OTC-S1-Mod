@@ -26,6 +26,7 @@ namespace OverTheCounter.SaveData
         private bool _needsStatePublish;
         private bool _positionFixed;
         private bool _warehouseHoursApplied;
+        private bool _questReconciled;
         private int _tickCounter;
         private const int TICK_INTERVAL = 300;
 
@@ -48,6 +49,8 @@ namespace OverTheCounter.SaveData
         {
             Instance = this;
 
+            Logger.Msg($"OnLoaded: _stage={_stage} (from save), quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
+
             if (_stage > 0)
                 _questCreated = true;
 
@@ -61,10 +64,51 @@ namespace OverTheCounter.SaveData
             // receive bella_stage=0 and lose quest progress.
             if (_stage > 0)
                 _needsStatePublish = true;
+
+            // Re-apply any host state that arrived before this Saveable loaded.
+            // Also reconciles the quest if it loaded before us with a stale stage.
+            ConfigSyncData.ApplyPendingGameState();
+
+            Logger.Msg($"OnLoaded after pending apply: _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
+
+            ReconcileQuest();
+        }
+
+        /// <summary>
+        /// If the quest was already loaded with a stale stage, advance it to match.
+        /// Covers the case where BellaProtocolQuest.OnLoaded ran before this Saveable.
+        /// </summary>
+        private void ReconcileQuest()
+        {
+            if (_stage < 2 || BellaProtocolQuest.Instance == null) return;
+            if (BellaProtocolQuest.Instance.Stage >= _stage) return;
+
+            if (_stage >= 2 && BellaProtocolQuest.Instance.Stage < 2)
+                BellaProtocolQuest.Instance.AdvanceToWeedRequest();
+            if (_stage >= 3 && BellaProtocolQuest.Instance.Stage < 3)
+                BellaProtocolQuest.Instance.AdvanceToMethRequest();
+            if (_stage >= 4 && BellaProtocolQuest.Instance.Stage < 4)
+                BellaProtocolQuest.Instance.AdvanceToCocaineRequest();
+            if (_stage >= 5 && BellaProtocolQuest.Instance.Stage < 5)
+                BellaProtocolQuest.Instance.CompleteQuest();
         }
 
         public void Tick()
         {
+            // Safety net: reconcile quest once after everything is loaded.
+            // Covers all load-order timing edge cases between SaveData, Quest,
+            // and SyncVar callbacks that OnLoaded reconciliation may miss.
+            if (!_questReconciled && _stage >= 2
+                && BellaProtocolQuest.Instance != null)
+            {
+                _questReconciled = true;
+                if (BellaProtocolQuest.Instance.Stage < _stage)
+                {
+                    Logger.Msg($"Tick reconciliation: quest stage {BellaProtocolQuest.Instance.Stage} → {_stage}");
+                    ReconcileQuest();
+                }
+            }
+
             if (_needsSpawn)
             {
                 _needsSpawn = false;
@@ -250,6 +294,8 @@ namespace OverTheCounter.SaveData
         public void ApplyHostState(int stage, bool unlocked)
         {
             bool changed = false;
+
+            Logger.Msg($"ApplyHostState: host stage={stage}, local _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
 
             if (stage > _stage)
             {

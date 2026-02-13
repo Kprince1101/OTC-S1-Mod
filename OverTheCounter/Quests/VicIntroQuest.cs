@@ -1,5 +1,6 @@
 using MelonLoader;
 using MelonLoader.Utils;
+using OverTheCounter.SaveData;
 using S1API.Quests;
 using S1API.Saveables;
 using S1API.Utils;
@@ -127,6 +128,17 @@ namespace OverTheCounter.Quests
 
             try
             {
+                // VicSaveData is the authority — host state may have advanced
+                // via SyncVar before this quest's save was loaded.
+                if (VicSaveData.Instance != null)
+                {
+                    int hostStage = VicSaveData.Instance.Unlocked ? 3
+                        : VicSaveData.Instance.QuestAccepted ? 2
+                        : VicSaveData.Instance.HasBeenTexted ? 1 : 0;
+                    if (hostStage > _stage)
+                        _stage = hostStage;
+                }
+
                 // Entries aren't restored from save — rebuild them
                 QuestEntries.Clear();
                 _meetVicEntry = AddEntry("Meet Vic in the alleyway behind the bank", VicPosition);

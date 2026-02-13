@@ -1,5 +1,6 @@
 using MelonLoader;
 using MelonLoader.Utils;
+using OverTheCounter.SaveData;
 using S1API.Quests;
 using S1API.Saveables;
 using S1API.Utils;
@@ -170,6 +171,17 @@ namespace OverTheCounter.Quests
 
             try
             {
+                int saveStage = _stage;
+                int bellaStage = BellaSaveData.Instance?.Stage ?? -1;
+                Logger.Msg($"OnLoaded: save _stage={saveStage}, BellaSaveData.Stage={bellaStage}");
+
+                // BellaSaveData is the authority — host state may have advanced
+                // the stage via SyncVar before this quest's save was loaded.
+                if (BellaSaveData.Instance != null && BellaSaveData.Instance.Stage > _stage)
+                    _stage = BellaSaveData.Instance.Stage;
+
+                Logger.Msg($"OnLoaded: rebuilding entries at _stage={_stage}");
+
                 QuestEntries.Clear();
                 _visitEntry = AddEntry("Visit Bella at the downtown apartment", BellaBuilding);
                 _weedEntry = AddEntry(GetWeedText(), BellaBuilding);

@@ -15,6 +15,7 @@ using UnityEngine;
 
 [assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.2.0", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
+[assembly: MelonOptionalDependencies("SteamNetworkLib")]
 
 namespace OverTheCounter
 {
@@ -30,6 +31,10 @@ namespace OverTheCounter
             Config.Initialize();
             ConfigSyncPatch.TryApply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
+
+            if (!ConfigSyncData.IsNetworkLibAvailable)
+                LoggerInstance.Warning("SteamNetworkLib not installed — multiplayer sync disabled. " +
+                    "Single-player works fine. Install SteamNetworkLib for co-op support.");
 
             LoggerInstance.Msg("OverTheCounter Initialized.");
 

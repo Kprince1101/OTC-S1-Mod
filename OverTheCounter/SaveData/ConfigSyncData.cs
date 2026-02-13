@@ -1,32 +1,16 @@
-using Il2CppSteamworks;
 using MelonLoader;
 using OverTheCounter.Logic;
 using OverTheCounter.Quests;
 using OverTheCounter.Utilities;
 using S1API.Internal.Abstraction;
 using S1API.Saveables;
-using SteamNetworkLib;
-using SteamNetworkLib.Sync;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace OverTheCounter.SaveData
 {
-    /// <summary>
-    /// Pass-through serializer that avoids JSON encoding. SteamNetworkLib's
-    /// default JsonSyncSerializer wraps strings in quotes which get lost in
-    /// the Steam lobby data round-trip (IL2CPP marshaling), causing
-    /// "Invalid JSON string format" on deserialization. Since our SyncVars
-    /// only carry pipe-delimited strings we serialize ourselves, JSON adds
-    /// no value — raw pass-through is correct.
-    /// </summary>
-    internal class RawStringSerializer : ISyncSerializer
-    {
-        public string Serialize<T>(T value) => value?.ToString() ?? "";
-        public T Deserialize<T>(string data) => (T)(object)(data ?? "");
-        public bool CanSerialize(Type type) => type == typeof(string);
-    }
-
     public class ConfigSyncData : Saveable
     {
         private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ConfigSync");
@@ -38,36 +22,30 @@ namespace OverTheCounter.SaveData
         // Static so it persists even if ConfigSyncData.Instance hasn't been created yet.
         private static Dictionary<string, string> _pendingGameState;
 
-        private static bool _networkInitialized;
-        private static bool _initialSyncDone;
-
-        // SteamNetworkLib client and SyncVars.
-        private static SteamNetworkClient _netClient;
-        private static HostSyncVar<string> _configVar;    // Host → Client: pipe-delimited config
-        private static HostSyncVar<string> _stateVar;     // Host → Client: pipe-delimited state
-        private static HostSyncVar<string> _drifterVar;   // Host → Client: drifter state (separate to avoid lobby data truncation)
-        private static HostSyncVar<string> _managerVar;  // Host → Client: manager state (separate to avoid lobby data truncation)
-        private static HostSyncVar<string> _mgrMsgVar;   // Host → Client: manager text messages (separate to avoid 255-char SyncVar truncation)
-        private static ClientSyncVar<string> _actionVar;  // Client → Host: "seq:ACTION"
-
-        private static int _msgSeq; // Counter to prevent SyncVar dedup on identical messages
-
-        private static readonly NetworkSyncOptions _syncOptions = new NetworkSyncOptions
-        {
-            KeyPrefix = "OTC_",
-            Serializer = new RawStringSerializer()
-        };
-
-        // Lobby member data for client→host quest action sync.
+        // Sequence counters for SyncVar dedup (pure ints, no SteamNetworkLib dependency)
+        private static int _msgSeq;
         private static int _actionSeq;
-        private static readonly Dictionary<ulong, string> _processedActions = new Dictionary<ulong, string>();
-
-        // Fallback polling for ClientSyncVar: LobbyDataUpdate_t may not fire for
-        // member data changes in IL2CPP. Host polls Refresh() periodically instead.
-        private static long _lastActionPollTick;
-        private const long ACTION_POLL_INTERVAL_MS = 1000;
 
         public static ConfigSyncData Instance { get; private set; }
+
+        // ==================================================================
+        // Runtime guard — SteamNetworkLib optional dependency
+        // ==================================================================
+
+        private static bool? _networkLibAvailable;
+
+        /// <summary>
+        /// True when the SteamNetworkLib assembly is loaded. Cached on first access.
+        /// All calls to NetworkSyncBridge are gated behind this check to prevent
+        /// TypeLoadException when the DLL is absent.
+        /// </summary>
+        internal static bool IsNetworkLibAvailable =>
+            _networkLibAvailable ??= AppDomain.CurrentDomain.GetAssemblies()
+                .Any(a => a.GetName().Name.Contains("SteamNetworkLib"));
+
+        // ==================================================================
+        // Lifecycle
+        // ==================================================================
 
         public ConfigSyncData()
         {
@@ -89,17 +67,23 @@ namespace OverTheCounter.SaveData
             // Push current config + state via SyncVar. On the host this
             // publishes the fresh config to clients. On the client the
             // HostSyncVar silently ignores the write (not lobby owner).
-            if (_configVar != null)
-            {
-                _configVar.Value = Config.SerializeAll();
-                _stateVar.Value = SerializeGameState();
-                if (_drifterVar != null)
-                    _drifterVar.Value = DrifterManager.Instance?.SerializeDrifterState() ?? "";
-                if (_managerVar != null)
-                    _managerVar.Value = SerializeManagerSyncVar();
-                Logger.Msg("Pushed config, game state, drifter state, and manager state to SyncVars.");
-            }
+            if (IsNetworkLibAvailable)
+                OnLoadedNetworkPush();
         }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void OnLoadedNetworkPush()
+        {
+            NetworkSyncBridge.PushOnLoaded(
+                Config.SerializeAll(),
+                SerializeGameState(),
+                DrifterManager.Instance?.SerializeDrifterState() ?? "",
+                SerializeManagerSyncVar());
+        }
+
+        // ==================================================================
+        // Public API — guarded delegates to NetworkSyncBridge
+        // ==================================================================
 
         /// <summary>
         /// Initializes SteamNetworkClient and SyncVars. Called from Core.OnLateUpdate()
@@ -108,162 +92,25 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public static void EnsureNetworkReady()
         {
-            if (_networkInitialized) return;
-            _networkInitialized = true;
-
-            try
-            {
-                _netClient = new SteamNetworkClient();
-                if (!_netClient.Initialize())
-                {
-                    Logger.Warning("SteamNetworkClient.Initialize() returned false (single-player?).");
-                    _netClient = null;
-                    return;
-                }
-
-                _configVar = _netClient.CreateHostSyncVar("cfg", "", _syncOptions);
-                _stateVar = _netClient.CreateHostSyncVar("state", "", _syncOptions);
-                _drifterVar = _netClient.CreateHostSyncVar("drifters", "", _syncOptions);
-                _managerVar = _netClient.CreateHostSyncVar("managers", "", _syncOptions);
-                _mgrMsgVar = _netClient.CreateHostSyncVar("mgrmsg", "", _syncOptions);
-                _actionVar = _netClient.CreateClientSyncVar("action", "", _syncOptions);
-
-                // Diagnostic error handlers — surface silent SyncVar failures.
-                _configVar.OnSyncError += (ex) => Logger.Warning($"Config SyncVar error: {ex.Message}");
-                _stateVar.OnSyncError += (ex) => Logger.Warning($"State SyncVar error: {ex.Message}");
-                _drifterVar.OnSyncError += (ex) => Logger.Warning($"Drifter SyncVar error: {ex.Message}");
-                _managerVar.OnSyncError += (ex) => Logger.Warning($"Manager SyncVar error: {ex.Message}");
-                _mgrMsgVar.OnSyncError += (ex) => Logger.Warning($"MgrMsg SyncVar error: {ex.Message}");
-                _actionVar.OnSyncError += (ex) => Logger.Warning($"Action SyncVar error: {ex.Message}");
-                _configVar.OnWriteIgnored += (_) => Logger.Warning("Config SyncVar write ignored (not lobby owner).");
-                _stateVar.OnWriteIgnored += (_) => Logger.Warning("State SyncVar write ignored (not lobby owner).");
-
-                // Client callbacks: receive config and state from host.
-                _configVar.OnValueChanged += OnConfigChanged;
-                _stateVar.OnValueChanged += OnStateChanged;
-                _drifterVar.OnValueChanged += OnDrifterStateChanged;
-                _managerVar.OnValueChanged += OnManagerStateChanged;
-                _mgrMsgVar.OnValueChanged += OnManagerMessageChanged;
-
-                // Host callback: receive quest actions from clients.
-                _actionVar.OnValueChanged += OnActionChanged;
-
-                // NOTE: Initial value push is deferred to ProcessMessages() after lobby
-                // discovery. SyncVar writes before _currentLobby is set fail silently.
-
-                Logger.Msg($"SteamNetworkLib SyncVars initialized (inLobby={_netClient.IsInLobby}).");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"Failed to initialize SteamNetworkLib: {ex.Message}");
-                _netClient = null;
-            }
+            if (!IsNetworkLibAvailable) return;
+            EnsureNetworkReadyImpl();
         }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void EnsureNetworkReadyImpl() => NetworkSyncBridge.EnsureNetworkReady();
 
         /// <summary>
         /// Processes incoming SyncVar messages (both host and client).
         /// Called from Core.OnLateUpdate() every frame.
-        ///
-        /// On the first frame where IsInLobby becomes true (after LobbyEnter_t
-        /// is delivered by ProcessIncomingMessages), pushes initial values AND
-        /// refreshes from lobby data. We do BOTH unconditionally because
-        /// NetworkHelper.IsHost (FishNet) is not yet reliable this early —
-        /// HostSyncVar silently ignores non-host writes internally, so the
-        /// push is safe on clients (no-op), and refresh is safe on the host
-        /// (reads own values).
         /// </summary>
         public static void ProcessMessages()
         {
-            if (_netClient == null) return;
-            _netClient.ProcessIncomingMessages();
-
-            if (!_initialSyncDone && _netClient.IsInLobby)
-            {
-                _initialSyncDone = true;
-                try
-                {
-                    // OnLoaded() applies save-file config as overrides before we know
-                    // the network role. On the host those overrides are stale — the
-                    // host's authority is its own MelonPreferences, not the save file.
-                    if (_netClient.IsHost)
-                        Config.ClearAllOverrides();
-
-                    string cfg = Config.SerializeAll();
-                    if (!string.IsNullOrEmpty(cfg) && _configVar != null)
-                        _configVar.Value = cfg;
-
-                    string state = SerializeGameState();
-                    if (!string.IsNullOrEmpty(state) && _stateVar != null)
-                        _stateVar.Value = state;
-
-                    string drifterState = DrifterManager.Instance?.SerializeDrifterState() ?? "";
-                    if (_drifterVar != null)
-                        _drifterVar.Value = drifterState;
-
-                    string managerState = SerializeManagerSyncVar();
-                    if (_managerVar != null)
-                        _managerVar.Value = managerState;
-
-                    // Refresh — picks up values already in lobby data (covers
-                    // client reading host values, and host reading its own on rejoin).
-                    _configVar?.Refresh();
-                    _stateVar?.Refresh();
-                    _drifterVar?.Refresh();
-                    _managerVar?.Refresh();
-                    _mgrMsgVar?.Refresh();
-                    _actionVar?.Refresh();
-
-                    Logger.Msg($"Initial SyncVar sync after lobby discovery (lobbyHost={_netClient.IsHost}).");
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning($"Post-lobby-discovery sync failed: {ex.Message}");
-                }
-            }
-
-            // Fallback polling for ClientSyncVar on the host. LobbyDataUpdate_t
-            // callbacks fire reliably for lobby data (HostSyncVar) in IL2CPP but
-            // may not fire for member data (ClientSyncVar). Refresh() clears the
-            // internal cache; GetAllValues() then re-reads fresh member data from
-            // Steam for each lobby member. We process the values explicitly here
-            // since Refresh() does NOT fire OnValueChanged callbacks.
-            if (_netClient.IsHost && _actionVar != null && _initialSyncDone)
-            {
-                long now = Environment.TickCount64;
-                if (now - _lastActionPollTick >= ACTION_POLL_INTERVAL_MS)
-                {
-                    _lastActionPollTick = now;
-                    try
-                    {
-                        _actionVar.Refresh();
-                        var allValues = _actionVar.GetAllValues();
-                        foreach (var kvp in allValues)
-                        {
-                            if (kvp.Key.m_SteamID == _netClient.LocalPlayerId.m_SteamID) continue;
-                            string val = kvp.Value;
-                            if (string.IsNullOrEmpty(val)) continue;
-
-                            // Deduplicate: skip if we already processed this exact value from this sender.
-                            if (_processedActions.TryGetValue(kvp.Key.m_SteamID, out string last) && last == val)
-                                continue;
-                            _processedActions[kvp.Key.m_SteamID] = val;
-
-                            // Parse "seq:ACTION_NAME"
-                            int colonIdx = val.IndexOf(':');
-                            if (colonIdx <= 0 || colonIdx >= val.Length - 1) continue;
-                            string action = val.Substring(colonIdx + 1);
-
-                            Logger.Msg($"Host received quest action '{action}' from {kvp.Key} (polled)");
-                            ProcessQuestAction(action);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning($"Action poll failed: {ex.Message}");
-                    }
-                }
-            }
+            if (!IsNetworkLibAvailable) return;
+            ProcessMessagesImpl();
         }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ProcessMessagesImpl() => NetworkSyncBridge.ProcessMessages();
 
         /// <summary>
         /// Disposes the SteamNetworkClient and resets all SyncVar references.
@@ -271,36 +118,200 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public static void Cleanup()
         {
+            _pendingGameState = null;
+            if (!IsNetworkLibAvailable) return;
+            CleanupImpl();
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void CleanupImpl() => NetworkSyncBridge.Cleanup();
+
+        /// <summary>
+        /// Called by host after config changes (e.g. ModsApp Apply postfix).
+        /// Updates the saveable payload and pushes to SyncVar for connected clients.
+        /// </summary>
+        public void RefreshFromConfig()
+        {
+            if (!NetworkHelper.IsHost) return;
+            _payload = Config.SerializeAll();
+
+            if (IsNetworkLibAvailable)
+                RefreshFromConfigImpl(_payload);
+
+            RefreshQuestText();
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void RefreshFromConfigImpl(string payload) => NetworkSyncBridge.PushConfig(payload);
+
+        /// <summary>
+        /// Called by host when quest/game state changes (e.g. ATM threshold met,
+        /// Vic intro triggered). Serializes key flags and pushes to clients.
+        /// </summary>
+        public void PublishGameState()
+        {
+            if (!NetworkHelper.IsHost) return;
+
             try
             {
-                _netClient?.Dispose();
+                string statePayload = SerializeGameState();
+                Logger.Msg($"PublishGameState: payload length={statePayload?.Length ?? 0}");
+                if (IsNetworkLibAvailable)
+                    PublishGameStateImpl(statePayload);
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Cleanup failed: {ex.Message}");
+                Logger.Warning($"PublishGameState failed: {ex.Message}");
             }
-
-            _netClient = null;
-            _configVar = null;
-            _stateVar = null;
-            _drifterVar = null;
-            _managerVar = null;
-            _mgrMsgVar = null;
-            _actionVar = null;
-            _pendingGameState = null;
-            _processedActions.Clear();
-            _networkInitialized = false;
-            _initialSyncDone = false;
         }
 
-        /// <summary>
-        /// Client callback when host config SyncVar changes.
-        /// </summary>
-        private static void OnConfigChanged(string oldValue, string newValue)
-        {
-            if (_netClient?.IsHost == true) return;
-            if (string.IsNullOrEmpty(newValue)) return;
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PublishGameStateImpl(string payload) => NetworkSyncBridge.PushState(payload);
 
+        /// <summary>
+        /// Publishes drifter state to the dedicated drifter SyncVar.
+        /// Separate from PublishGameState to avoid lobby data truncation.
+        /// </summary>
+        public void PublishDrifterState()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                string drifterState = DrifterManager.Instance?.SerializeDrifterState() ?? "";
+                if (IsNetworkLibAvailable)
+                    PublishDrifterStateImpl(drifterState);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"PublishDrifterState failed: {ex.Message}");
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PublishDrifterStateImpl(string payload) => NetworkSyncBridge.PushDrifterState(payload);
+
+        /// <summary>
+        /// Publishes manager state to the dedicated manager SyncVar.
+        /// Separate from PublishGameState to avoid lobby data truncation.
+        /// </summary>
+        public void PublishManagerState()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            ManagerSaveData.Instance?.CaptureState();
+
+            try
+            {
+                string managerState = SerializeManagerSyncVar();
+                Logger.Msg($"PublishManagerState: {managerState.Length} chars");
+                if (IsNetworkLibAvailable)
+                    PublishManagerStateImpl(managerState);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"PublishManagerState failed: {ex.Message}");
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PublishManagerStateImpl(string payload) => NetworkSyncBridge.PushManagerState(payload);
+
+        /// <summary>
+        /// Publishes pending manager text messages to the dedicated message SyncVar.
+        /// Called from Core.OnLateUpdate when HasPendingMessages is true.
+        /// Format: "seq;managerId|messageText;managerId2|messageText2"
+        /// </summary>
+        public void PublishManagerMessages()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                var msgParts = new List<string>();
+                msgParts.Add((_msgSeq++).ToString()); // Sequence counter prevents SyncVar dedup
+
+                foreach (var mgr in ManagerInstance.Active.Values)
+                {
+                    if (!string.IsNullOrEmpty(mgr.PendingClientMessage))
+                    {
+                        msgParts.Add($"{mgr.Id}|{mgr.PendingClientMessage}");
+                        mgr.PendingClientMessage = null;
+                    }
+                }
+                ManagerInstance.HasPendingMessages = false;
+
+                if (msgParts.Count > 1 && IsNetworkLibAvailable) // > 1 because first entry is seq
+                {
+                    string payload = string.Join(";", msgParts);
+                    PublishManagerMessagesImpl(payload);
+                    Logger.Msg($"PublishManagerMessages: {payload.Length} chars, {msgParts.Count - 1} messages");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"PublishManagerMessages failed: {ex.Message}");
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PublishManagerMessagesImpl(string payload) => NetworkSyncBridge.PushManagerMessages(payload);
+
+        /// <summary>
+        /// Sends a quest action to the host via ClientSyncVar.
+        /// No-ops on the host (host executes state changes directly).
+        /// Uses a sequence counter so repeated actions (e.g. VIC_LAUNDER)
+        /// are not deduplicated away.
+        /// </summary>
+        public static void SendQuestAction(string action)
+        {
+            if (NetworkHelper.IsHost) return;
+            if (!IsNetworkLibAvailable) return;
+            SendQuestActionImpl(action);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void SendQuestActionImpl(string action)
+        {
+            string value = $"{++_actionSeq}:{action}";
+            NetworkSyncBridge.SendAction(value);
+        }
+
+        // ==================================================================
+        // Internal API — called by NetworkSyncBridge callbacks
+        // ==================================================================
+
+        /// <summary>
+        /// Provides serialized config for the bridge's initial sync push.
+        /// </summary>
+        internal static string GetSerializedConfig() => Config.SerializeAll();
+
+        /// <summary>
+        /// Provides serialized game state for the bridge's initial sync push.
+        /// </summary>
+        internal static string GetSerializedGameState() => SerializeGameState();
+
+        /// <summary>
+        /// Provides serialized drifter state for the bridge's initial sync push.
+        /// </summary>
+        internal static string GetSerializedDrifterState() =>
+            DrifterManager.Instance?.SerializeDrifterState() ?? "";
+
+        /// <summary>
+        /// Provides serialized manager state for the bridge's initial sync push.
+        /// </summary>
+        internal static string GetSerializedManagerState() => SerializeManagerSyncVar();
+
+        /// <summary>
+        /// Clears config overrides on the host during initial lobby sync.
+        /// </summary>
+        internal static void ClearOverridesForHost() => Config.ClearAllOverrides();
+
+        /// <summary>
+        /// Client callback: host config SyncVar changed — apply overrides.
+        /// </summary>
+        internal static void HandleConfigChanged(string newValue)
+        {
             try
             {
                 var cfgData = ParsePayload(newValue);
@@ -310,18 +321,15 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"OnConfigChanged failed: {ex.Message}");
+                Logger.Warning($"HandleConfigChanged failed: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Client callback when host state SyncVar changes.
+        /// Client callback: host state SyncVar changed — cache and apply game state.
         /// </summary>
-        private static void OnStateChanged(string oldValue, string newValue)
+        internal static void HandleStateChanged(string newValue)
         {
-            if (_netClient?.IsHost == true) return;
-            if (string.IsNullOrEmpty(newValue)) return;
-
             try
             {
                 var state = ParsePayload(newValue);
@@ -331,18 +339,15 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"OnStateChanged failed: {ex.Message}");
+                Logger.Warning($"HandleStateChanged failed: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Client callback when host drifter state SyncVar changes.
+        /// Client callback: host drifter state SyncVar changed.
         /// </summary>
-        private static void OnDrifterStateChanged(string oldValue, string newValue)
+        internal static void HandleDrifterStateChanged(string newValue)
         {
-            if (_netClient?.IsHost == true) return;
-            if (string.IsNullOrEmpty(newValue)) return;
-
             try
             {
                 DrifterManager.Instance?.ApplyDrifterState(newValue);
@@ -350,17 +355,15 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"OnDrifterStateChanged failed: {ex.Message}");
+                Logger.Warning($"HandleDrifterStateChanged failed: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Client callback when host manager state SyncVar changes.
+        /// Client callback: host manager state SyncVar changed.
         /// </summary>
-        private static void OnManagerStateChanged(string oldValue, string newValue)
+        internal static void HandleManagerStateChanged(string newValue)
         {
-            if (_netClient?.IsHost == true) return;
-
             try
             {
                 // Empty value = all managers fired/removed
@@ -395,19 +398,16 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"OnManagerStateChanged failed: {ex.Message}");
+                Logger.Warning($"HandleManagerStateChanged failed: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Client callback when host publishes a manager text message via the dedicated SyncVar.
+        /// Client callback: host manager text message SyncVar changed.
         /// Format: "seq;managerId|messageText" or "seq;id1|msg1;id2|msg2" for multiple.
         /// </summary>
-        private static void OnManagerMessageChanged(string oldValue, string newValue)
+        internal static void HandleManagerMessageChanged(string newValue)
         {
-            if (_netClient?.IsHost == true) return;
-            if (string.IsNullOrEmpty(newValue)) return;
-
             try
             {
                 var entries = newValue.Split(';');
@@ -434,226 +434,21 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"OnManagerMessageChanged failed: {ex.Message}");
+                Logger.Warning($"HandleManagerMessageChanged failed: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Host callback when any client's action SyncVar changes.
+        /// Host callback: quest action received from a client or polled.
         /// </summary>
-        private static void OnActionChanged(CSteamID sender, string oldValue, string newValue)
+        internal static void HandleActionReceived(string action)
         {
-            if (_netClient?.IsHost != true) return;
-            if (string.IsNullOrEmpty(newValue)) return;
-
-            ulong senderId = sender.m_SteamID;
-
-            // Ignore own actions (host doesn't send actions to itself).
-            if (_netClient != null && senderId == _netClient.LocalPlayerId.m_SteamID) return;
-
-            try
-            {
-                // Deduplicate: track last processed value per sender.
-                if (_processedActions.TryGetValue(senderId, out string last) && last == newValue)
-                    return;
-                _processedActions[senderId] = newValue;
-
-                // Parse "seq:ACTION_NAME"
-                int colonIdx = newValue.IndexOf(':');
-                if (colonIdx <= 0 || colonIdx >= newValue.Length - 1) return;
-                string action = newValue.Substring(colonIdx + 1);
-
-                Logger.Msg($"Host received quest action '{action}' from {sender}");
-                ProcessQuestAction(action);
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"OnActionChanged failed: {ex.Message}");
-            }
+            ProcessQuestAction(action);
         }
 
-        /// <summary>
-        /// Called by host after config changes (e.g. ModsApp Apply postfix).
-        /// Updates the saveable payload and pushes to SyncVar for connected clients.
-        /// </summary>
-        public void RefreshFromConfig()
-        {
-            if (!NetworkHelper.IsHost) return;
-            _payload = Config.SerializeAll();
-
-            if (_configVar != null)
-                _configVar.Value = _payload;
-
-            RefreshQuestText();
-        }
-
-        /// <summary>
-        /// Updates quest entry text on all active quests to reflect current Config values.
-        /// Called after config changes on both host and client.
-        /// </summary>
-        private static void RefreshQuestText()
-        {
-            try
-            {
-                VicIntroQuest.Instance?.RefreshEntryText();
-                StaticIntroQuest.Instance?.RefreshEntryText();
-                StaticUpgrade1Quest.Instance?.RefreshEntryText();
-                StaticUpgrade2Quest.Instance?.RefreshEntryText();
-                BellaProtocolQuest.Instance?.RefreshEntryText();
-            }
-            catch (System.Exception ex)
-            {
-                Logger.Warning($"RefreshQuestText failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Called by host when quest/game state changes (e.g. ATM threshold met,
-        /// Vic intro triggered). Serializes key flags and pushes to clients.
-        /// </summary>
-        public void PublishGameState()
-        {
-            if (!NetworkHelper.IsHost) return;
-
-            try
-            {
-                string statePayload = SerializeGameState();
-                Logger.Msg($"PublishGameState: payload length={statePayload?.Length ?? 0}");
-                if (_stateVar != null)
-                    _stateVar.Value = statePayload;
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"PublishGameState failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Publishes drifter state to the dedicated drifter SyncVar.
-        /// Separate from PublishGameState to avoid lobby data truncation.
-        /// </summary>
-        public void PublishDrifterState()
-        {
-            if (!NetworkHelper.IsHost) return;
-
-            try
-            {
-                string drifterState = DrifterManager.Instance?.SerializeDrifterState() ?? "";
-                if (_drifterVar != null)
-                    _drifterVar.Value = drifterState;
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"PublishDrifterState failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Publishes manager state to the dedicated manager SyncVar.
-        /// Separate from PublishGameState to avoid lobby data truncation.
-        /// </summary>
-        public void PublishManagerState()
-        {
-            if (!NetworkHelper.IsHost) return;
-
-            ManagerSaveData.Instance?.CaptureState();
-
-            try
-            {
-                string managerState = SerializeManagerSyncVar();
-                Logger.Msg($"PublishManagerState: {managerState.Length} chars");
-                if (_managerVar != null)
-                    _managerVar.Value = managerState;
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"PublishManagerState failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Publishes pending manager text messages to the dedicated message SyncVar.
-        /// Called from Core.OnLateUpdate when HasPendingMessages is true.
-        /// Format: "seq;managerId|messageText;managerId2|messageText2"
-        /// </summary>
-        public void PublishManagerMessages()
-        {
-            if (!NetworkHelper.IsHost) return;
-
-            try
-            {
-                var msgParts = new List<string>();
-                msgParts.Add((_msgSeq++).ToString()); // Sequence counter prevents SyncVar dedup
-
-                foreach (var mgr in ManagerInstance.Active.Values)
-                {
-                    if (!string.IsNullOrEmpty(mgr.PendingClientMessage))
-                    {
-                        msgParts.Add($"{mgr.Id}|{mgr.PendingClientMessage}");
-                        mgr.PendingClientMessage = null;
-                    }
-                }
-                ManagerInstance.HasPendingMessages = false;
-
-                if (msgParts.Count > 1 && _mgrMsgVar != null) // > 1 because first entry is seq
-                {
-                    string payload = string.Join(";", msgParts);
-                    _mgrMsgVar.Value = payload;
-                    Logger.Msg($"PublishManagerMessages: {payload.Length} chars, {msgParts.Count - 1} messages");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"PublishManagerMessages failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Serializes manager business assignments + NPC data for the dedicated SyncVar.
-        /// Format: biz=code1,code2|data=id:seed:biz:netObjId;id:seed:biz:netObjId
-        /// </summary>
-        private static string SerializeManagerSyncVar()
-        {
-            var parts = new List<string>();
-
-            string mgrBiz = ManagerInstance.GetManagedBusinessCodes();
-            if (!string.IsNullOrEmpty(mgrBiz))
-                parts.Add($"biz={mgrBiz}");
-
-            string mgrData = ManagerInstance.SerializeManagerState();
-            if (!string.IsNullOrEmpty(mgrData))
-                parts.Add($"data={mgrData}");
-
-            return string.Join("|", parts);
-        }
-
-        /// <summary>
-        /// Sends a quest action to the host via ClientSyncVar.
-        /// No-ops on the host (host executes state changes directly).
-        /// Uses a sequence counter so repeated actions (e.g. VIC_LAUNDER)
-        /// are not deduplicated away.
-        /// </summary>
-        public static void SendQuestAction(string action)
-        {
-            if (NetworkHelper.IsHost) return;
-
-            try
-            {
-                if (_actionVar == null)
-                {
-                    Logger.Warning($"SendQuestAction({action}): SyncVar not initialized yet.");
-                    return;
-                }
-
-                string value = $"{++_actionSeq}:{action}";
-                _actionVar.Value = value;
-                Logger.Msg($"Sent quest action via SyncVar: {value}");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"SendQuestAction({action}) failed: {ex.Message}");
-            }
-        }
+        // ==================================================================
+        // Quest action routing (pure game logic)
+        // ==================================================================
 
         private static void ProcessQuestAction(string action)
         {
@@ -757,6 +552,10 @@ namespace OverTheCounter.SaveData
             }
         }
 
+        // ==================================================================
+        // Pending state for late-created SaveData instances
+        // ==================================================================
+
         /// <summary>
         /// Called by SaveData instances when they're created on the client
         /// (e.g. fallback creation in NPC.OnCreated). Applies any cached
@@ -767,6 +566,49 @@ namespace OverTheCounter.SaveData
             if (_pendingGameState == null || _pendingGameState.Count == 0) return;
             ApplyGameState(_pendingGameState);
             Logger.Msg("Applied pending game state to newly created SaveData.");
+        }
+
+        // ==================================================================
+        // Serialization / deserialization (pure game logic)
+        // ==================================================================
+
+        /// <summary>
+        /// Updates quest entry text on all active quests to reflect current Config values.
+        /// Called after config changes on both host and client.
+        /// </summary>
+        private static void RefreshQuestText()
+        {
+            try
+            {
+                VicIntroQuest.Instance?.RefreshEntryText();
+                StaticIntroQuest.Instance?.RefreshEntryText();
+                StaticUpgrade1Quest.Instance?.RefreshEntryText();
+                StaticUpgrade2Quest.Instance?.RefreshEntryText();
+                BellaProtocolQuest.Instance?.RefreshEntryText();
+            }
+            catch (System.Exception ex)
+            {
+                Logger.Warning($"RefreshQuestText failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Serializes manager business assignments + NPC data for the dedicated SyncVar.
+        /// Format: biz=code1,code2|data=id:seed:biz:netObjId;id:seed:biz:netObjId
+        /// </summary>
+        private static string SerializeManagerSyncVar()
+        {
+            var parts = new List<string>();
+
+            string mgrBiz = ManagerInstance.GetManagedBusinessCodes();
+            if (!string.IsNullOrEmpty(mgrBiz))
+                parts.Add($"biz={mgrBiz}");
+
+            string mgrData = ManagerInstance.SerializeManagerState();
+            if (!string.IsNullOrEmpty(mgrData))
+                parts.Add($"data={mgrData}");
+
+            return string.Join("|", parts);
         }
 
         private static string SerializeGameState()
@@ -862,7 +704,7 @@ namespace OverTheCounter.SaveData
             }
             DesperationManager.UpdateClientDesperateIds(despIds);
 
-            // Manager data is now on its own SyncVar (_managerVar) — handled in OnManagerStateChanged.
+            // Manager data is now on its own SyncVar (_managerVar) — handled in HandleManagerStateChanged.
         }
 
         private static string BoolToStr(bool v) => v ? "1" : "0";
