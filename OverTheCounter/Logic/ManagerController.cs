@@ -147,7 +147,9 @@ namespace OverTheCounter.Logic
                                 mgr.NoNightMarketCashTextSent = true;
                                 mgr.LockerCashAtWarning = remaining;
                                 string itemList = FormatItemList(unaffordable);
-                                mgr.SendTextMessage($"Boss, I paid my wages for today but I don't have enough to buy {itemList} from Oscar's store.");
+                                string wageWarning = remaining < wage ? $" I also won't have enough for tomorrow's ${wage:F0} wage." : "";
+                                if (remaining < wage) mgr.NoFundsTextSent = true;
+                                mgr.SendTextMessage($"Boss, I paid my wages for today but I don't have enough to buy {itemList} from Oscar's store.{wageWarning}");
                             }
                         }
                     }
@@ -155,21 +157,16 @@ namespace OverTheCounter.Logic
                     {
                         mgr.State = ManagerState.NoFunds;
                         _logger.Msg($"Manager {mgr.Id}: insufficient funds in locker (has: ${available:F0}, need: ${wage})");
-                        if (!mgr.NoFundsTextSent)
+                        if (!mgr.NoFundsTextSent && !mgr.NoNightMarketCashTextSent)
                         {
                             mgr.NoFundsTextSent = true;
+                            mgr.NoNightMarketCashTextSent = true;
+                            mgr.LockerCashAtWarning = available;
                             string homeType = mgr.AssignedLocker?.HomeType?.ToLower() ?? "locker";
 
-                            // Case 2: Include NM items only if not already warned
-                            var nmToReport = (!mgr.NoNightMarketCashTextSent)
-                                ? nightMarketItems.ConvertAll(x => x.name)
-                                : new List<string>();
-
-                            if (nmToReport.Count > 0)
+                            if (nightMarketItems.Count > 0)
                             {
-                                mgr.NoNightMarketCashTextSent = true;
-                                mgr.LockerCashAtWarning = available;
-                                string itemList = FormatItemList(nmToReport);
+                                string itemList = FormatItemList(nightMarketItems.ConvertAll(x => x.name));
                                 if (available <= 0f)
                                     mgr.SendTextMessage($"Boss, there's no money in my {homeType}! I need ${wage:F0} for today's wage and I won't have enough to buy {itemList} from Oscar's store.");
                                 else
@@ -397,9 +394,6 @@ namespace OverTheCounter.Logic
             string oldBizCode = instance.BusinessPropertyCode;
             instance.AssignedBusiness = targetBusiness;
             instance.BusinessPropertyCode = targetBusiness.PropertyCode;
-
-            // Send text message
-            instance.SendTextMessage($"On my way to {targetBusiness.PropertyName}. I'll get set up there shortly.");
 
             // Walk to new business
             var location = ManagerLocations.GetLocation(targetPropertyCode);

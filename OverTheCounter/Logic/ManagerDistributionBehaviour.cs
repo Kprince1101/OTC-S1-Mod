@@ -83,6 +83,7 @@ namespace OverTheCounter.Logic
 
         // Resume delivery state — for delivering items restored from save
         private bool _isResuming;
+        private bool _returningToSource; // true when retrying delivery back to source storage
         private Queue<string> _resumeDestQueue;
         private string _resumeDestGuid;
 
@@ -197,6 +198,7 @@ namespace OverTheCounter.Logic
             var uniqueDests = new HashSet<string>(_slotDestinations.Values);
             _resumeDestQueue = new Queue<string>(uniqueDests);
             _isResuming = true;
+            _returningToSource = false;
             _consecutiveWalkFailures = 0;
             _manager.State = ManagerState.DistributionRun;
 
@@ -241,6 +243,51 @@ namespace OverTheCounter.Logic
             _resumeDestQueue = null;
             _resumeDestGuid = null;
             _currentRoute = null;
+
+            // If slots still have destination mappings, the destinations were full.
+            // Try returning items to their source storage before giving up.
+            if (_slotDestinations.Count > 0)
+            {
+                if (!_returningToSource)
+                {
+                    // Reverse-lookup: destination GUID → source GUID via configured routes
+                    var routes = _manager.Configuration.Routes;
+                    var destToSource = new Dictionary<string, string>();
+                    foreach (var route in routes)
+                    {
+                        if (!route.IsConfigured) continue;
+                        string dstGuid = ManagerConfiguration.GetGuid(route.Destination);
+                        string srcGuid = ManagerConfiguration.GetGuid(route.Source);
+                        if (!string.IsNullOrEmpty(dstGuid) && !string.IsNullOrEmpty(srcGuid))
+                            destToSource[dstGuid] = srcGuid;
+                    }
+
+                    // Remap slot destinations to point at source storages
+                    var keys = new List<int>(_slotDestinations.Keys);
+                    foreach (var key in keys)
+                    {
+                        if (destToSource.TryGetValue(_slotDestinations[key], out var srcGuid))
+                            _slotDestinations[key] = srcGuid;
+                        else
+                            _slotDestinations.Remove(key); // route deleted — keep item, drop mapping
+                    }
+
+                    if (_slotDestinations.Count > 0)
+                    {
+                        Logger.Msg($"Manager {_manager.Id}: returning {_slotDestinations.Count} undeliverable items to source storage");
+                        _returningToSource = true;
+                        _isResuming = true;
+                        _resumeDestQueue = new Queue<string>(new HashSet<string>(_slotDestinations.Values));
+                        DeliverNextResumeDest();
+                        return;
+                    }
+                }
+
+                // Already tried returning or source also full — give up, keep items in inventory
+                _returningToSource = false;
+                Logger.Warning($"Manager {_manager.Id}: {_slotDestinations.Count} slots undeliverable, keeping items in inventory");
+                _slotDestinations.Clear();
+            }
 
             Logger.Msg($"Manager {_manager.Id}: resume deliveries complete");
 

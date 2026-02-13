@@ -1,6 +1,6 @@
 # OverTheCounter for Schedule I
 
-**OverTheCounter** is a Quality of Life, Utility, and Balance overhaul for *Schedule I*. It focuses on streamlining logistics, modernizing the UI, and rebalancing the gameplay loop to make the day phase strategically viable.
+**OverTheCounter** is a Comprehensive logistics expansion for Schedule I. Features physical Manager automation, 24/7 market access via "Executive Privilege," high-stakes "Desperation" daytime deals, a tiered OTC customer app SaaS scam, and manual cash-laundering via the "Rinse Cycle" questline.
 
 > **COMPATIBILITY NOTICE:**
 > This mod is built for the **IL2CPP branch** of the game using **MelonLoader 0.7.0**.

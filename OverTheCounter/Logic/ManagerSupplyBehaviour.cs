@@ -62,7 +62,8 @@ namespace OverTheCounter.Logic
         private Il2CppSystem.Action<NPCMovement.WalkResult> _storageWalkCallback;
         private Il2CppSystem.Action<NPCMovement.WalkResult> _idleWalkCallback;
 
-        // Online payment "can't afford" flag — reset on successful online purchase
+        // Online payment "can't afford" — 24h delay before texting, resets on successful purchase
+        private int _cantAffordOnlineDay = -1;       // game day of first failure (-1 = not tracking)
         private bool _cantAffordOnlineTextSent;
 
         // Items that couldn't be afforded — skip until next in-game hour to prevent loops
@@ -191,10 +192,20 @@ namespace OverTheCounter.Logic
                 return false;
             }
 
-            _manager.State = ManagerState.SupplyRun;
+            // 24h bank affordability warning — fires once, resets when a purchase succeeds
+            if (_cantAffordOnlineDay >= 0 && !_cantAffordOnlineTextSent
+                && TimeManager.ElapsedDays - _cantAffordOnlineDay >= 1)
+            {
+                _cantAffordOnlineTextSent = true;
+                try
+                {
+                    float balance = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance?.onlineBalance ?? 0f;
+                    _manager.SendTextMessage($"Boss, the bank balance is too low to buy what I need. Can you top it up? Balance: ${balance:F0}.");
+                }
+                catch { _manager.SendTextMessage("Boss, the bank balance is too low to buy what I need. Can you top it up?"); }
+            }
 
-            // Fresh run — allow new online "can't afford" warnings
-            _cantAffordOnlineTextSent = false;
+            _manager.State = ManagerState.SupplyRun;
 
             // Plan first leg from current position
             if (!PlanAndContinue())
@@ -335,7 +346,10 @@ namespace OverTheCounter.Logic
                         string itemNames = string.Join(", ", nmItems.Select(i => i.ItemName));
                         float totalCash = npcCash + lockerCash;
                         string cashPhrase = totalCash > 0f ? $"I only have ${totalCash:F0} left" : "I don't have any cash left";
-                        _manager.SendTextMessage($"Boss, I ran out of cash while trying to buy {itemNames}. {cashPhrase}.");
+                        float wage = Config.ManagerDailyWage.Value;
+                        string wageWarning = totalCash < wage ? $" I also won't have enough for tomorrow's ${wage:F0} wage." : "";
+                        if (totalCash < wage) _manager.NoFundsTextSent = true;
+                        _manager.SendTextMessage($"Boss, I ran out of cash while trying to buy {itemNames}. {cashPhrase}.{wageWarning}");
                     }
                 }
 
@@ -1093,11 +1107,15 @@ namespace OverTheCounter.Logic
                     {
                         if (!_manager.NoNightMarketCashTextSent)
                         {
+                            float lockerCash = _manager.GetLockerCash();
                             _manager.NoNightMarketCashTextSent = true;
-                            _manager.LockerCashAtWarning = _manager.GetLockerCash();
-                            float totalCashOnHand = npcCash + _manager.GetLockerCash();
+                            _manager.LockerCashAtWarning = lockerCash;
+                            float totalCashOnHand = npcCash + lockerCash;
                             string cashPhrase = totalCashOnHand > 0f ? $"I only have ${totalCashOnHand:F0} left" : "I don't have any cash left";
-                            _manager.SendTextMessage($"Boss, I ran out of cash while trying to buy {purchase.ItemName}. {cashPhrase}.");
+                            float wage = Config.ManagerDailyWage.Value;
+                            string wageWarning = totalCashOnHand < wage ? $" I also won't have enough for tomorrow's ${wage:F0} wage." : "";
+                            if (totalCashOnHand < wage) _manager.NoFundsTextSent = true;
+                            _manager.SendTextMessage($"Boss, I ran out of cash while trying to buy {purchase.ItemName}. {cashPhrase}.{wageWarning}");
                         }
                         Logger.Msg($"Manager {_manager.Id}: can't afford {purchase.ItemName} (need ${purchase.UnitPrice * stackLimit:F0} for one stack, have ${npcCash:F0})");
                         _unaffordableItems.Add(purchase.ItemId);
@@ -1149,12 +1167,9 @@ namespace OverTheCounter.Logic
                         }
                         else
                         {
-                            if (!_cantAffordOnlineTextSent)
-                            {
-                                _cantAffordOnlineTextSent = true;
-                                string storeName = visit?.Location?.DisplayName ?? "the store";
-                                _manager.SendTextMessage($"Boss, I don't have enough in the bank to purchase {purchase.ItemName} from {storeName}.");
-                            }
+                            // Start 24h timer on first online purchase failure (text sent after delay)
+                            if (_cantAffordOnlineDay < 0)
+                                _cantAffordOnlineDay = TimeManager.ElapsedDays;
                             Logger.Msg($"Manager {_manager.Id}: can't afford {purchase.ItemName} online (need ${purchase.UnitPrice * stackLimit:F0} for one stack, have ${moneyManager.onlineBalance:F0})");
                             _unaffordableItems.Add(purchase.ItemId);
                         }
@@ -1178,10 +1193,12 @@ namespace OverTheCounter.Logic
 
             if (success)
             {
-                // Reset online "can't afford" flag on successful purchase
+                // Successful online purchase — reset 24h bank affordability timer
                 if (visit?.StoreType != StoreType.NightMarket)
+                {
+                    _cantAffordOnlineDay = -1;
                     _cantAffordOnlineTextSent = false;
-                // NM cash flag resets only when player deposits cash into locker (CheckImmediateWages)
+                }
 
                 if (purchase.ShopListing != null && !purchase.ShopListing.IsUnlimitedStock)
                 {
