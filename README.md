@@ -16,15 +16,15 @@ A complete, simulation-based automation system built on **S1API** for maximum co
 * **True Logistics:** Hire physical **Manager NPCs** at your Laundromat, Post Office, Car Wash, or Taco Ticklers.
 * **Supply Routes:** Managers automatically physically visit stores to keep your shelves stocked with essential ingredients (fertilizer, chemicals, etc.).
 * **Distribution Routes:** Assign up to **3 custom logic routes** per manager. They move product from Container A to Container B, allowing you to chain storage containers across the map.
-* **The Cost of Business:** Managers cost **$500/day** (paid from their locker's petty cash) and report their status via a daily summary text.
-* **"Executive Privilege" Quest:** A new endgame questline. Prove your worth to the **Night Market Boss** in the downtown high-rises by crafting high-value Weed ($200+), Meth ($400+), and Cocaine ($800+) mixes. Success unlocks 24/7 Night Market access for your automation network.
+* **The Cost of Business:** Managers cost **$350/day** (paid from their locker's petty cash) and report their status via a daily summary text.
+* **"Executive Privilege" Quest:** A new endgame questline. Prove your worth to the **Night Market Boss** in the downtown high-rises by crafting high-value Weed ($105+), Meth ($200+), and Cocaine ($400+) mixes. Success unlocks 24/7 Night Market access for your automation network.
 
 ## 2. Smart Logistics UI (Quality of Life)
 *No more mental math. No more clicking back and forth.*
 
 * **The Contract Aggregator:** Merges all active orders into a single "Pending Deliveries" list, grouped by time window. See exactly what you need for the next run at a glance.
 * **Live Stash Manifest:** When you open a container, a side panel instantly calculates the total product required for your active contracts versus what you are holding.
-* **Smart Fill Button:** One-click transfer that automatically pulls the exact amount of product needed from the container to your inventory, prioritizing jars over baggies to save space.
+* **Smart Fill Button:** One-click transfer that automatically pulls the exact amount of product needed from the container to your inventory, prioritizing jars over baggies to save space. Toggle "Include All Delivery Windows" to limit fills to only your current window's contracts.
 
 ## 3. Dynamic World Events
 *The city feels alive, and the market is volatile.*
@@ -41,10 +41,10 @@ A complete, simulation-based automation system built on **S1API** for maximum co
 
 * **"OverTheCounter" (OTC) App:** The customer list is no longer free.
     * **SaaS Model:** Purchase software tiers ($3k - $12k) to unlock features like Region Sorting, Addiction Indicators, and GPS Customer Tracking.
-    * **Subscription:** Failure to pay the $1,000/month server rent disables the app.
+    * **Subscription:** Failure to pay the $1,000/week server rent disables the app.
 * **Early Game Laundering:**
     * **Meet Vic:** A corrupt associate who offers manual cash laundering once you hit the $10k weekly ATM limit.
-    * **Risk vs. Reward:** Pay a 15-20% fee to clean dirty cash early, bridging the gap between street dealing and owning legitimate businesses.
+    * **Risk vs. Reward:** Pay a 17-20% fee to clean dirty cash early, bridging the gap between street dealing and owning legitimate businesses.
 
 ## Multiplayer Support
 Built from the ground up for co-op.
@@ -63,17 +63,19 @@ Built from the ground up for co-op.
 > If installing via Thunderstore mod manager, S1API is installed automatically. SteamNetworkLib is optional (multiplayer only).
 
 ## Configuration
-Settings are stored in MelonLoader's config file and organized into four categories:
+Settings are stored in MelonLoader's config file and organized into seven categories:
 
-* **Desperation System** — Fiend addiction threshold, trigger chance per hour, max daily events, response/delivery deadlines, bonus multiplier, relationship penalty, cooldown, and active hours.
+* **Desperation System** — Enable/disable toggle, fiend addiction threshold, trigger chance per hour, max daily events, response/delivery deadlines, bonus multiplier, relationship penalty, cooldown, and active hours.
 * **Vic Laundering** — Tier costs, returns, trust unlock threshold, and intro quest requirements.
 * **Static Subscription** — Weekly billing cost, cycle length, ATM deposit trigger, and tier upgrade costs/requirements.
-* **Contract Notifications** — Consolidation threshold (minimum contracts before grouping kicks in).
-* **Drifter System** — Spawn chance per hour, max active drifters, active hours, offer window, delivery deadline, linger duration, and minimum deal value.
+* **Contract Notifications** — Enable/disable toggle, consolidation threshold (minimum contracts before grouping kicks in).
+* **Manager System** — Daily wage and signing fee.
+* **Executive Privilege (Bella)** — Minimum weed, meth, and cocaine mix value thresholds for the quest.
+* **Drifter System** — Enable/disable toggle, spawn chance per hour, max active drifters, active hours, offer window, delivery deadline, linger duration, and minimum deal value.
 
 Every setting includes a full description visible in [ModsApp by k0Mods](https://thunderstore.io/c/schedule-i/p/k0Mods/ModsApp/) (recommended, open-source). Also compatible with [Mod Manager & Phone App](https://www.nexusmods.com/schedule1/mods/397) (descriptions not supported). You can always edit the config file directly if you prefer.
 
-In multiplayer, the host's settings are automatically synced to all clients (except local-only preferences like consolidation threshold).
+In multiplayer, the host's settings are automatically synced to all clients (except local-only preferences like consolidation settings).
 
 ## License
 **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)**

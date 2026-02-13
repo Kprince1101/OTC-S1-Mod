@@ -549,6 +549,7 @@
 		<Compile Include="Quests\BellaProtocolQuest.cs" />
 		<Compile Include="SaveData\BellaSaveData.cs" />
 		<Compile Include="Patches\BellaSummonPatch.cs" />
+		<Compile Include="Patches\QuestInitPatch.cs" />
 	</ItemGroup>
 
 	<ItemGroup>
