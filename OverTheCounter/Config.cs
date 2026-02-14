@@ -57,6 +57,7 @@ namespace OverTheCounter
 
         public static ConfigEntry<float> ManagerDailyWage;
         public static ConfigEntry<float> ManagerSigningFee;
+        public static ConfigEntry<bool> ManagerVerboseLogging;
 
         // ── Bella Protocol ──
         private static MelonPreferences_Category _bella;
@@ -89,7 +90,8 @@ namespace OverTheCounter
         private static readonly HashSet<string> _localOnlyKeys = new()
         {
             "ConsolidationEnabled",
-            "ConsolidationThreshold"
+            "ConsolidationThreshold",
+            "ManagerVerboseLogging"
         };
 
         public static void Initialize()
@@ -173,6 +175,8 @@ namespace OverTheCounter
                 "Daily wage deducted from the manager's cash pool"));
             ManagerSigningFee = Register(_managers.CreateEntry("ManagerSigningFee", 3000f, "Signing Fee",
                 "One-time fee deducted from player cash when hiring a manager"));
+            ManagerVerboseLogging = Register(_managers.CreateEntry("ManagerVerboseLogging", false, "Verbose Logging",
+                "Enable detailed manager logging for troubleshooting (shopping list breakdowns, per-item details)"));
 
             // ── Bella Protocol ──
             _bella = MelonPreferences.CreateCategory("OverTheCounter_Bella", "Bella Protocol");

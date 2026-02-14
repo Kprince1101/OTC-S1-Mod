@@ -565,7 +565,9 @@ namespace OverTheCounter.UI
 
                 try
                 {
-                    if (!slot.ItemInstance.CanStackWith(sourceItem)) continue;
+                    // checkQuantities: false — we cap the add amount manually below;
+                    // default (true) rejects stacking when source slot qty is large
+                    if (!slot.ItemInstance.CanStackWith(sourceItem, false)) continue;
 
                     int stackLimit;
                     try { stackLimit = slot.ItemInstance.StackLimit; }

@@ -1,7 +1,9 @@
 using Il2CppScheduleOne.AvatarFramework;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Employees;
+using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.NPCs.Behaviour;
 using Il2CppScheduleOne.Property;
 using MelonLoader;
 using OverTheCounter.Utilities;
@@ -84,7 +86,13 @@ namespace OverTheCounter.Logic
         internal ManagerLocations.BusinessLocation TargetLocation { get; set; }
         public bool ArrivedAtDestination { get; set; }
         private float _lastEnsureMovingLog;
-        private bool _supplyFirst = true; // on load/hire, run supply before distribution
+
+        // Job rotation: supply → route0 → route1 → route2 → supply → ...
+        // Step 0 = supply, 1-3 = distribution routes 0-2
+        private int _jobRotationStep = 0;
+
+        // Map marker — always-on POI like dealers have
+        public NPCPoI MapPoI { get; private set; }
 
         public bool IsValid => GameNpc != null && GameNpc.gameObject != null;
         public bool HasLocker => AssignedLocker != null && AssignedLocker.Storage != null;
@@ -99,10 +107,85 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Builds a human-readable summary of the NPC's current inventory (e.g. "20x Baggy, 15x OG Kush Jar, $500 cash").
+        /// Returns "empty" if the NPC has nothing.
+        /// </summary>
+        public string GetInventorySummary()
+        {
+            try
+            {
+                var inventory = GameNpc?.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                if (inventory?.ItemSlots == null) return "empty";
+
+                var counts = new Dictionary<string, int>();
+                float cashTotal = 0f;
+
+                for (int i = 0; i < inventory.ItemSlots.Count; i++)
+                {
+                    var item = inventory.ItemSlots[i]?.ItemInstance;
+                    if (item == null) continue;
+
+                    var cash = item.TryCast<Il2CppScheduleOne.ItemFramework.CashInstance>();
+                    if (cash != null)
+                    {
+                        cashTotal += cash.Balance;
+                        continue;
+                    }
+
+                    string name = item.Name ?? item.ID ?? "Unknown";
+                    int qty = inventory.ItemSlots[i].Quantity;
+                    if (counts.ContainsKey(name))
+                        counts[name] += qty;
+                    else
+                        counts[name] = qty;
+                }
+
+                var parts = new List<string>();
+                foreach (var kv in counts)
+                    parts.Add($"{kv.Value}x {kv.Key}");
+                if (cashTotal > 0f)
+                    parts.Add($"${cashTotal:F0} cash");
+
+                return parts.Count > 0 ? string.Join(", ", parts) : "empty";
+            }
+            catch { return "unknown"; }
+        }
+
+        /// <summary>
+        /// Disables the vanilla IdleBehaviour during active runs so it doesn't
+        /// overwrite our walk destination after dialogue ends.
+        /// </summary>
+        public void DisableIdleBehaviour()
+        {
+            try
+            {
+                var idle = GameNpc?.GetComponent<IdleBehaviour>();
+                if (idle != null && idle.Enabled)
+                    idle.Disable();
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Re-enables the vanilla IdleBehaviour after a run completes so the NPC
+        /// returns to its idle point naturally.
+        /// </summary>
+        public void EnableIdleBehaviour()
+        {
+            try
+            {
+                var idle = GameNpc?.GetComponent<IdleBehaviour>();
+                if (idle != null && !idle.Enabled)
+                    idle.Enable();
+            }
+            catch { }
+        }
+
+        /// <summary>
         /// Immediately checks for and starts the next available job.
-        /// Priority: resume deliveries > (supply on first boot) > distribution > supply.
-        /// Distribution takes priority over supply so the manager finishes all routes
-        /// before restocking, preventing a supply-route-0 loop that starves later routes.
+        /// Resumes pending deliveries first, then rotates through a fixed cycle:
+        /// supply → route 0 → route 1 → route 2 → supply → ...
+        /// Skips steps with no work and wraps around once per call.
         /// </summary>
         public bool TryStartNextJob()
         {
@@ -112,18 +195,26 @@ namespace OverTheCounter.Logic
             // Resume pending deliveries first (items from a previous session with recorded destinations)
             if (DistributionBehaviour?.TryResumeDeliveries() ?? false) return true;
 
-            // After load/hire, run supply first to stock sources before distributing
-            if (_supplyFirst)
+            // Rotation: supply(0) → route0(1) → route1(2) → route2(3) → supply(0) → ...
+            // Try each slot in order; skip slots that have no work; wrap around once.
+            int slots = 1 + Configuration.Routes.Length; // 1 supply + 3 routes = 4
+            for (int attempt = 0; attempt < slots; attempt++)
             {
-                if (SupplyBehaviour?.TryStartSupplyRun() ?? false) { _supplyFirst = false; return true; }
-                _supplyFirst = false;
+                int step = _jobRotationStep % slots;
+                _jobRotationStep = (_jobRotationStep + 1) % slots;
+
+                if (step == 0)
+                {
+                    // Supply run
+                    if (SupplyBehaviour?.TryStartSupplyRun() ?? false) return true;
+                }
+                else
+                {
+                    // Distribution route (step 1 = route index 0, etc.)
+                    int routeIndex = step - 1;
+                    if (DistributionBehaviour?.TryStartSingleRoute(routeIndex) ?? false) return true;
+                }
             }
-
-            // Distribution before supply — service all routes before restocking
-            if (DistributionBehaviour?.TryStartDistributionRun() ?? false) return true;
-
-            // Supply only when no distribution routes need servicing
-            if (SupplyBehaviour?.TryStartSupplyRun() ?? false) return true;
 
             return false;
         }
@@ -207,6 +298,9 @@ namespace OverTheCounter.Logic
             // Generate proper mugshot from the applied avatar settings
             instance.GenerateMugshot();
 
+            // Always-on map marker (like dealers)
+            instance.SetupMapMarker();
+
             // Walk to destination if we have a registered location
             if (location != null)
             {
@@ -263,6 +357,9 @@ namespace OverTheCounter.Logic
 
             // Generate proper mugshot from the applied avatar settings
             instance.GenerateMugshot();
+
+            // Always-on map marker (like dealers)
+            instance.SetupMapMarker();
 
             Logger.Msg($"Adopted FishNet NPC for manager {id} ({firstName} {lastName}) at {business.PropertyCode}");
             return instance;
@@ -475,6 +572,36 @@ namespace OverTheCounter.Logic
                 Logger.Warning($"Manager {Id}: mugshot apply failed: {ex.Message}");
                 if (attempt < 1)
                     MelonCoroutines.Start(GenerateMugshotCoroutine(attempt + 1));
+            }
+        }
+
+        /// <summary>
+        /// Creates an always-on map marker for this manager, identical to how dealers appear.
+        /// </summary>
+        public void SetupMapMarker()
+        {
+            try
+            {
+                if (MapPoI != null || GameNpc == null) return;
+
+                var npcManager = NetworkSingleton<NPCManager>.Instance;
+                if (npcManager?.NPCPoIPrefab == null)
+                {
+                    Logger.Warning($"Manager {Id}: NPCManager or NPCPoIPrefab not available, skipping map marker");
+                    return;
+                }
+
+                MapPoI = UnityEngine.Object.Instantiate(npcManager.NPCPoIPrefab, GameNpc.transform);
+                MapPoI.transform.localPosition = Vector3.zero;
+                MapPoI.SetMainText($"{GameNpc.FirstName} {GameNpc.LastName}\n(Manager)");
+                MapPoI.SetNPC(GameNpc);
+                MapPoI.enabled = true;
+
+                Logger.Msg($"Manager {Id}: map marker created");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Manager {Id}: failed to create map marker: {ex.Message}");
             }
         }
 
@@ -880,6 +1007,14 @@ namespace OverTheCounter.Logic
         {
             SupplyBehaviour?.Cancel();
             DistributionBehaviour?.Cancel();
+
+            // Remove map marker
+            if (MapPoI != null)
+            {
+                MapPoI.enabled = false;
+                try { UnityEngine.Object.Destroy(MapPoI.gameObject); } catch { }
+                MapPoI = null;
+            }
 
             Logger.Msg($"Despawning manager {Id}");
             Active.Remove(Id);
