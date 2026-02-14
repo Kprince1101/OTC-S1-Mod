@@ -7,6 +7,7 @@ using Il2CppScheduleOne.NPCs.Behaviour;
 using Il2CppScheduleOne.Property;
 using MelonLoader;
 using OverTheCounter.Utilities;
+using S1API.GameTime;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -93,6 +94,10 @@ namespace OverTheCounter.Logic
 
         // Map marker — always-on POI like dealers have
         public NPCPoI MapPoI { get; private set; }
+
+        // True while the player is viewing this manager's inventory via StorageMenu.
+        // Prevents walk resume and new job starts during the interaction.
+        public bool IsPlayerInteracting { get; set; }
 
         public bool IsValid => GameNpc != null && GameNpc.gameObject != null;
         public bool HasLocker => AssignedLocker != null && AssignedLocker.Storage != null;
@@ -191,6 +196,9 @@ namespace OverTheCounter.Logic
         {
             if (State != ManagerState.Idle) return false;
             if (!PaidForToday) return false;
+
+            // Game time freezes at 4 AM — don't start new jobs, let active ones finish
+            if (TimeManager.CurrentTime == 400) return false;
 
             // Resume pending deliveries first (items from a previous session with recorded destinations)
             if (DistributionBehaviour?.TryResumeDeliveries() ?? false) return true;
@@ -620,9 +628,10 @@ namespace OverTheCounter.Logic
                 var movement = GameNpc?.Movement;
                 if (movement == null) return;
 
-                // Don't resume walking while in dialogue — let the NPC stand still
+                // Don't resume walking while in dialogue or player is viewing inventory
                 var dialogueHandler = GameNpc.DialogueHandler;
                 if (dialogueHandler != null && dialogueHandler.IsDialogueInProgress) return;
+                if (IsPlayerInteracting) return;
 
                 // Also check server-side GenericDialogueBehaviour (active when client initiates dialogue
                 // via Enable_Server RPC — IsDialogueInProgress is only set on the client)

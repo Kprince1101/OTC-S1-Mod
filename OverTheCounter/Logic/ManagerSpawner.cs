@@ -564,7 +564,11 @@ namespace OverTheCounter.Logic
                             return;
                         }
 
-                        // Close dialogue then open storage UI
+                        // Freeze manager while viewing inventory.
+                        // SkipNextDialogueBehaviourEnd keeps GenericDialogueBehaviour.Active true
+                        // on the host so the manager stays frozen for client interactions too.
+                        m.IsPlayerInteracting = true;
+                        m.GameNpc.DialogueHandler?.SkipNextDialogueBehaviourEnd();
                         m.GameNpc.DialogueHandler?.EndDialogue();
                         MelonCoroutines.Start(OpenStorageDelayed(m, inventory));
                     }
@@ -1022,19 +1026,43 @@ namespace OverTheCounter.Logic
             yield return null;
             try
             {
-                if (mgr?.GameNpc == null || inventory == null) yield break;
+                if (mgr?.GameNpc == null || inventory == null)
+                {
+                    if (mgr != null)
+                    {
+                        mgr.IsPlayerInteracting = false;
+                        try { mgr.GameNpc?.Behaviour?.GenericDialogueBehaviour?.Disable_Server(); }
+                        catch { }
+                    }
+                    yield break;
+                }
 
                 string title = mgr.GameNpc.fullName + "'s Inventory";
                 var storageMenu = Singleton<StorageMenu>.Instance;
+                UnityAction closeAction = null;
+                closeAction = (UnityAction)(() =>
+                {
+                    mgr.IsPlayerInteracting = false;
+                    // Release the server-side dialogue lock so the host resumes the manager
+                    try { mgr.GameNpc?.Behaviour?.GenericDialogueBehaviour?.Disable_Server(); }
+                    catch { }
+                    storageMenu.onClosed.RemoveListener(closeAction);
+                });
+                storageMenu.onClosed.AddListener(closeAction);
                 storageMenu.Open(
                     inventory.Cast<Il2CppScheduleOne.ItemFramework.IItemSlotOwner>(),
                     title,
                     "");
-
             }
             catch (Exception ex)
             {
                 Logger.Warning($"OpenStorageDelayed failed: {ex.Message}");
+                if (mgr != null)
+                {
+                    mgr.IsPlayerInteracting = false;
+                    try { mgr.GameNpc?.Behaviour?.GenericDialogueBehaviour?.Disable_Server(); }
+                    catch { }
+                }
             }
         }
 

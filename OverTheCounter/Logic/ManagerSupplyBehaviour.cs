@@ -1526,14 +1526,14 @@ namespace OverTheCounter.Logic
                             if (headroom <= 0)
                             {
                                 if (Config.ManagerVerboseLogging.Value)
-                                Logger.Msg($"Manager {_manager.Id}: threshold reached for {itemId} ({currentInStorage}/{threshold}), skipping deposit of {qty}");
+                                    Logger.Msg($"Manager {_manager.Id}: threshold reached for {itemId} ({currentInStorage}/{threshold}), skipping deposit of {qty}");
                                 totalSkipped += qty;
                                 continue;
                             }
                             if (qty > headroom)
                             {
                                 if (Config.ManagerVerboseLogging.Value)
-                                Logger.Msg($"Manager {_manager.Id}: capping {itemId} deposit from {qty} to {headroom} (threshold {threshold}, inStorage {currentInStorage})");
+                                    Logger.Msg($"Manager {_manager.Id}: capping {itemId} deposit from {qty} to {headroom} (threshold {threshold}, inStorage {currentInStorage})");
                                 qty = headroom;
                             }
                         }
@@ -1819,9 +1819,10 @@ namespace OverTheCounter.Logic
                 var movement = _manager.GameNpc?.Movement;
                 if (movement == null) return;
 
-                // Don't resume while in dialogue
+                // Don't resume while in dialogue or player is viewing inventory
                 var dialogueHandler = _manager.GameNpc.DialogueHandler;
                 if (dialogueHandler != null && dialogueHandler.IsDialogueInProgress) return;
+                if (_manager.IsPlayerInteracting) return;
 
                 // Already has a destination
                 if (movement.HasDestination) return;
