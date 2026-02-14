@@ -324,6 +324,7 @@ namespace OverTheCounter.Logic
                     || !DestinationCanAcceptSourceItems(_currentRoute.Source, _currentRoute.Destination))
                 {
                     Logger.Msg($"Manager {_manager.Id}: route {_currentRouteIndex} skipped (no longer valid/has items/dest full)");
+                    _lastRouteIndex = _currentRouteIndex; // advance round-robin even on skip
                     _routePlanStep++;
                     continue;
                 }

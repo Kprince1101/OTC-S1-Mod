@@ -296,12 +296,12 @@ namespace OverTheCounter.Logic
                     Logger.Warning($"Movement setup failed for manager {id}: {ex.Message}");
                 }
 
-                // Faster walk speed than default NPCs (~30% increase)
+                // 1.8x default NPC walk speed
                 try
                 {
                     var speedCtrl = npc.Movement?.SpeedController;
                     speedCtrl?.AddSpeedControl(
-                        new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, 0.106f));
+                        new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, 0.144f));
                 }
                 catch { }
 

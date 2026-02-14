@@ -73,6 +73,7 @@ namespace OverTheCounter.Logic
                 {
                     var contract = contracts[i];
                     if (contract == null) continue;
+                    try { if (contract.Dealer != null) continue; } catch { }
 
                     if (!includeFuture)
                     {
@@ -212,6 +213,7 @@ namespace OverTheCounter.Logic
                 {
                     var contract = contracts[i];
                     if (contract == null) continue;
+                    try { if (contract.Dealer != null) continue; } catch { }
 
                     if (!includeFuture)
                     {

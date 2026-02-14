@@ -84,6 +84,7 @@ namespace OverTheCounter.Logic
         internal ManagerLocations.BusinessLocation TargetLocation { get; set; }
         public bool ArrivedAtDestination { get; set; }
         private float _lastEnsureMovingLog;
+        private bool _supplyFirst = true; // on load/hire, run supply before distribution
 
         public bool IsValid => GameNpc != null && GameNpc.gameObject != null;
         public bool HasLocker => AssignedLocker != null && AssignedLocker.Storage != null;
@@ -98,8 +99,10 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Immediately checks for and starts the next available job (supply or distribution).
-        /// Returns true if a new job was started, false if nothing to do.
+        /// Immediately checks for and starts the next available job.
+        /// Priority: resume deliveries > (supply on first boot) > distribution > supply.
+        /// Distribution takes priority over supply so the manager finishes all routes
+        /// before restocking, preventing a supply-route-0 loop that starves later routes.
         /// </summary>
         public bool TryStartNextJob()
         {
@@ -109,11 +112,18 @@ namespace OverTheCounter.Logic
             // Resume pending deliveries first (items from a previous session with recorded destinations)
             if (DistributionBehaviour?.TryResumeDeliveries() ?? false) return true;
 
-            // Supply takes priority over new distribution routes
-            if (SupplyBehaviour?.TryStartSupplyRun() ?? false) return true;
+            // After load/hire, run supply first to stock sources before distributing
+            if (_supplyFirst)
+            {
+                if (SupplyBehaviour?.TryStartSupplyRun() ?? false) { _supplyFirst = false; return true; }
+                _supplyFirst = false;
+            }
 
-            // Then distribution
+            // Distribution before supply — service all routes before restocking
             if (DistributionBehaviour?.TryStartDistributionRun() ?? false) return true;
+
+            // Supply only when no distribution routes need servicing
+            if (SupplyBehaviour?.TryStartSupplyRun() ?? false) return true;
 
             return false;
         }
@@ -242,12 +252,12 @@ namespace OverTheCounter.Logic
             ManagerSpawner.SetupInventory(existingNpc);
             ManagerSpawner.SetupDialogueChoices(instance);
 
-            // Faster walk speed (~30% increase)
+            // 1.8x default NPC walk speed
             try
             {
                 var speedCtrl = existingNpc.Movement?.SpeedController;
                 speedCtrl?.AddSpeedControl(
-                    new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, 0.106f));
+                    new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, 0.144f));
             }
             catch { }
 
