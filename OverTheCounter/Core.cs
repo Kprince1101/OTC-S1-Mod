@@ -69,6 +69,7 @@ namespace OverTheCounter
             ManagerSaveData.ResetInstance();
             ManagerInstance.CleanupAll();
             ManagerSpawner.ResetCache();
+            MugshotUtility.ResetSession();
 
 #if DEBUG
             if (!GameObject.Find("DebugController"))

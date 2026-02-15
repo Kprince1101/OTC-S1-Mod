@@ -532,6 +532,7 @@
 		<Compile Include="Config.cs" />
 		<Compile Include="Utilities\ConfigEntry.cs" />
 		<Compile Include="Utilities\StorageFilterHelper.cs" />
+		<Compile Include="Utilities\MugshotUtility.cs" />
 		<Compile Include="SaveData\ConfigSyncData.cs" />
 		<Compile Include="SaveData\NetworkSyncBridge.cs" />
 		<Compile Include="Patches\ConfigSyncPatch.cs" />
@@ -572,6 +573,15 @@
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
 	  <EmbeddedResource Include="Resources\ManagerIcon.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
+	  <EmbeddedResource Include="Resources\Mugshots\Vic.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
+	  <EmbeddedResource Include="Resources\Mugshots\Static.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
+	  <EmbeddedResource Include="Resources\Mugshots\Bella.png">
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
 	</ItemGroup>

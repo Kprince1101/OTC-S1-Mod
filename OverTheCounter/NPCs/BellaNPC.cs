@@ -135,6 +135,10 @@ namespace OverTheCounter.NPCs
                 Appearance.Build();
             }
 
+            // Apply pre-baked mugshot immediately and again after 4s to overwrite
+            // S1API's ProcessMugshotQueue (triggered by Appearance.Build above).
+            MugshotUtility.ApplyPreBaked("Bella", s => { Icon = s; RefreshMessagingIcons(); });
+
             EnsureVoiceDatabase();
 
             // Delay building injection — S1API sets SetVisible(isPhysical) after a 0.1s

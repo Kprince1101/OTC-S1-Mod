@@ -1,4 +1,3 @@
-using Il2CppScheduleOne.AvatarFramework;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.Map;
@@ -9,9 +8,9 @@ using MelonLoader;
 using OverTheCounter.Utilities;
 using S1API.GameTime;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace OverTheCounter.Logic
 {
@@ -98,6 +97,10 @@ namespace OverTheCounter.Logic
         // True while the player is viewing this manager's inventory via StorageMenu.
         // Prevents walk resume and new job starts during the interaction.
         public bool IsPlayerInteracting { get; set; }
+
+        // Mugshot lifecycle — lets locker assignment and other systems react once ready
+        public bool IsMugshotReady { get; private set; }
+        public event Action OnMugshotReady;
 
         public bool IsValid => GameNpc != null && GameNpc.gameObject != null;
         public bool HasLocker => AssignedLocker != null && AssignedLocker.Storage != null;
@@ -427,159 +430,88 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Generates a mugshot from the NPC's current avatar settings via MugshotGenerator.
-        /// Uses a delayed coroutine to avoid conflicts with other mugshot generation in progress.
-        /// Updates NPC.MugshotSprite and the locker display if already assigned.
+        /// Generates a mugshot from the NPC's current avatar settings via MugshotUtility.
+        /// Updates NPC.MugshotSprite, the locker display, phone messaging icon, and map POI.
         /// </summary>
         public void GenerateMugshot()
         {
-            Logger.Msg($"Manager {Id}: GenerateMugshot() called, starting coroutine");
-            MelonCoroutines.Start(GenerateMugshotCoroutine(0));
+            Logger.Msg($"Manager {Id}: GenerateMugshot() called");
+            MugshotUtility.Generate(GameNpc, $"Manager {Id}", sprite =>
+            {
+                if (sprite == null) return;
+
+                GameNpc.MugshotSprite = sprite;
+
+                // Locker
+                if (AssignedLocker?.MugshotSprite != null)
+                {
+                    AssignedLocker.MugshotSprite.sprite = sprite;
+                    Logger.Msg($"Manager {Id}: mugshot applied to locker");
+                }
+
+                // Phone messaging entry icon
+                RefreshPhoneIcon();
+
+                // Map marker POI icon
+                RefreshMapPoiIcon();
+
+                IsMugshotReady = true;
+                try { OnMugshotReady?.Invoke(); } catch { }
+
+                Logger.Msg($"Manager {Id}: mugshot applied to NPC + messaging");
+            });
         }
 
-        private IEnumerator GenerateMugshotCoroutine(int attempt)
+        /// <summary>
+        /// Pushes the current MugshotSprite into the phone messaging entry list icon.
+        /// Safe to call at any time — no-ops if conversation UI doesn't exist yet.
+        /// </summary>
+        private void RefreshPhoneIcon()
         {
-            Logger.Msg($"Manager {Id}: mugshot coroutine started (attempt {attempt})");
-
-            // Delay ~60 frames (~1s at 60fps) on first attempt, ~180 on retry
-            int delayFrames = attempt == 0 ? 60 : 180;
-            for (int i = 0; i < delayFrames; i++)
-                yield return null;
-
-            Logger.Msg($"Manager {Id}: mugshot delay complete, checking prerequisites");
-
-            if (GameNpc?.Avatar?.CurrentSettings == null)
-            {
-                Logger.Warning($"Manager {Id}: mugshot skipped (Avatar or CurrentSettings null)");
-                yield break;
-            }
-
-            var generator = Singleton<MugshotGenerator>.Instance;
-            if (generator == null || generator.MugshotRig == null || generator.Generator == null)
-            {
-                Logger.Warning($"Manager {Id}: MugshotGenerator or IconGenerator not available");
-                yield break;
-            }
-
-            // Wait for MugshotRig to be idle (not in use by another generation)
-            int idleWait = 0;
-            while (generator.MugshotRig.gameObject.activeSelf && idleWait < 300)
-            {
-                idleWait++;
-                yield return null;
-            }
-            if (idleWait > 0)
-                Logger.Msg($"Manager {Id}: waited {idleWait} frames for MugshotRig idle");
-
-            // Direct mugshot capture — bypasses vanilla GenerateMugshot callback system
-            // to avoid race conditions with concurrent mugshot generation (game NPCs).
-            // Replicates the vanilla setup steps then calls GetTexture directly.
-            Texture2D resultTex = null;
             try
             {
-                // Clone settings and normalize height (same as vanilla)
-                var settings = UnityEngine.Object.Instantiate(GameNpc.Avatar.CurrentSettings);
-                settings.Height = 1f;
-
-                // Activate rig and load avatar settings
-                generator.MugshotRig.gameObject.SetActive(true);
-                generator.MugshotRig.LoadAvatarSettings(settings);
-
-                // Set all children to IconGeneration layer (same as vanilla)
-                Il2CppScheduleOne.DevUtilities.LayerUtility.SetLayerRecursively(
-                    generator.MugshotRig.gameObject,
-                    LayerMask.NameToLayer("IconGeneration"));
-
-                // Force all skinned meshes to update even when offscreen (same as vanilla)
-                var skinnedRenderers = generator.MugshotRig.GetComponentsInChildren<SkinnedMeshRenderer>();
-                for (int r = 0; r < skinnedRenderers.Length; r++)
-                    skinnedRenderers[r].updateWhenOffscreen = true;
-
-                // Ensure body mesh is visible (activates BodyContainer, opens eyes)
-                try { generator.MugshotRig.SetVisible(true); } catch { }
-
-                // Deactivate the Impostor billboard gameObject to prevent it from being
-                // captured by RuntimePreviewGenerator. DisableImpostor() is unreliable
-                // in IL2CPP so we deactivate the entire gameObject instead.
-                try
+                var conv = GameNpc?.MSGConversation;
+                if (conv?.entry == null)
                 {
-                    var impostor = generator.MugshotRig.Impostor;
-                    if (impostor != null && impostor.gameObject != null)
-                        impostor.gameObject.SetActive(false);
+                    Logger.Msg($"Manager {Id}: RefreshPhoneIcon — conv.entry is null, skipping");
+                    return;
                 }
-                catch { }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"Manager {Id}: mugshot rig setup failed: {ex.Message}");
-                try { generator.MugshotRig.gameObject.SetActive(false); } catch { }
-                if (attempt < 1)
-                    MelonCoroutines.Start(GenerateMugshotCoroutine(attempt + 1));
-                yield break;
-            }
-
-            // Wait 1 frame so LateUpdate processes bone positions before capture
-            yield return null;
-
-            // Capture directly via IconGenerator (synchronous Camera.Render)
-            try
-            {
-                resultTex = generator.Generator.GetTexture(generator.MugshotRig.transform);
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"Manager {Id}: GetTexture failed: {ex.Message}");
-            }
-
-            // Reset rig to default settings and deactivate
-            try
-            {
-                generator.MugshotRig.LoadAvatarSettings(generator.DefaultSettings);
-                generator.MugshotRig.gameObject.SetActive(false);
-            }
-            catch { }
-
-            if (resultTex == null)
-            {
-                Logger.Warning($"Manager {Id}: mugshot capture returned null (attempt {attempt})");
-                if (attempt < 1)
-                    MelonCoroutines.Start(GenerateMugshotCoroutine(attempt + 1));
-                yield break;
-            }
-
-            Logger.Msg($"Manager {Id}: mugshot captured {resultTex.width}x{resultTex.height} (direct capture)");
-
-            // Apply mugshot to NPC, locker, and messaging UI
-            try
-            {
-                resultTex.Apply();
-                GameNpc.MugshotSprite = Sprite.Create(resultTex,
-                    new Rect(0, 0, resultTex.width, resultTex.height),
-                    new Vector2(0.5f, 0.5f));
-                if (AssignedLocker?.MugshotSprite != null)
-                    AssignedLocker.MugshotSprite.sprite = GameNpc.MugshotSprite;
-
-                // Update phone messaging entry icon (set to null during CreateConversationUI
-                // because mugshot wasn't ready yet)
-                try
+                var iconImg = conv.entry.Find("IconMask/Icon")?.GetComponent<Image>();
+                if (iconImg != null)
                 {
-                    var conv = GameNpc.MSGConversation;
-                    if (conv?.entry != null)
+                    iconImg.sprite = GameNpc.MugshotSprite;
+                    Logger.Msg($"Manager {Id}: RefreshPhoneIcon — entry icon updated (sprite null={GameNpc.MugshotSprite == null})");
+                }
+                else
+                {
+                    Logger.Warning($"Manager {Id}: RefreshPhoneIcon — IconMask/Icon Image not found");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Manager {Id}: RefreshPhoneIcon failed: {ex.Message}");
+            }
+        }
+
+        private void RefreshMapPoiIcon()
+        {
+            try
+            {
+                if (MapPoI == null || GameNpc?.MugshotSprite == null) return;
+                var iconTransform = ((Il2CppScheduleOne.Map.POI)MapPoI).IconContainer?.Find("Outline/Icon");
+                if (iconTransform != null)
+                {
+                    var img = iconTransform.GetComponent<Image>();
+                    if (img != null)
                     {
-                        var iconImg = conv.entry.Find("IconMask/Icon")?.GetComponent<UnityEngine.UI.Image>();
-                        if (iconImg != null)
-                            iconImg.sprite = GameNpc.MugshotSprite;
+                        img.sprite = GameNpc.MugshotSprite;
+                        Logger.Msg($"Manager {Id}: map POI icon updated");
                     }
                 }
-                catch { }
-
-                Logger.Msg($"Manager {Id}: mugshot applied to NPC + locker + messaging (attempt {attempt})");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {Id}: mugshot apply failed: {ex.Message}");
-                if (attempt < 1)
-                    MelonCoroutines.Start(GenerateMugshotCoroutine(attempt + 1));
+                Logger.Warning($"Manager {Id}: RefreshMapPoiIcon failed: {ex.Message}");
             }
         }
 
@@ -748,15 +680,28 @@ namespace OverTheCounter.Logic
                 if (locker.NameLabel != null && GameNpc != null)
                     locker.NameLabel.text = $"{GameNpc.FirstName}\n{GameNpc.LastName}";
 
-                Logger.Msg($"Manager {Id}: locker mugshot state: locker.MugshotSprite={locker.MugshotSprite != null}, GameNpc.MugshotSprite={GameNpc?.MugshotSprite != null}");
+                Logger.Msg($"Manager {Id}: locker mugshot state: locker.MugshotSprite={locker.MugshotSprite != null}, GameNpc.MugshotSprite={GameNpc?.MugshotSprite != null}, IsMugshotReady={IsMugshotReady}");
                 if (locker.MugshotSprite != null && GameNpc?.MugshotSprite != null)
                 {
                     locker.MugshotSprite.sprite = GameNpc.MugshotSprite;
-                    Logger.Msg($"Manager {Id}: set locker mugshot sprite");
+                    Logger.Msg($"Manager {Id}: set locker mugshot sprite immediately");
                 }
-                else if (GameNpc?.MugshotSprite == null)
+                else if (!IsMugshotReady && locker.MugshotSprite != null)
                 {
-                    GenerateMugshot(); // Mugshot not ready yet; re-trigger — will update locker when done
+                    // Mugshot coroutine still running — subscribe to update locker when it finishes
+                    Logger.Msg($"Manager {Id}: mugshot not ready, subscribing to OnMugshotReady for locker");
+                    OnMugshotReady += () =>
+                    {
+                        try
+                        {
+                            if (AssignedLocker == locker && locker.MugshotSprite != null && GameNpc?.MugshotSprite != null)
+                            {
+                                locker.MugshotSprite.sprite = GameNpc.MugshotSprite;
+                                Logger.Msg($"Manager {Id}: locker mugshot updated via OnMugshotReady");
+                            }
+                        }
+                        catch { }
+                    };
                 }
 
                 if (locker.Clipboard != null)

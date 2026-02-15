@@ -145,6 +145,10 @@ namespace OverTheCounter.NPCs
                 Appearance.Build();
             }
 
+            // Apply pre-baked mugshot immediately and again after 4s to overwrite
+            // S1API's ProcessMugshotQueue (triggered by Appearance.Build above).
+            MugshotUtility.ApplyPreBaked("Static", s => { Icon = s; RefreshMessagingIcons(); });
+
             EnsureVoiceDatabase();
 
             // Schedule + pathfinding run on host only. The host's Movement.Warp()

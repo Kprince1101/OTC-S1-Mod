@@ -222,6 +222,12 @@ namespace OverTheCounter.Logic
                     return null;
                 }
 
+                // Clear stale state inherited from the clone source so
+                // InitializeMessaging creates a fresh conversation and the
+                // mugshot callback writes to the correct NPC.
+                npc.MSGConversation = null;
+                npc.MugshotSprite = null;
+
                 // Configure identity
                 npc.ID = id;
                 npc.FirstName = firstName;
@@ -452,12 +458,6 @@ namespace OverTheCounter.Logic
 
             try
             {
-                if (npc.MSGConversation != null)
-                {
-                    Logger.Msg($"Messaging already initialized for manager {npc.ID}");
-                    return;
-                }
-
                 var conversation = new MSGConversation(npc, npc.fullName);
                 npc.MSGConversation = conversation;
                 conversation.SetIsKnown(true);
