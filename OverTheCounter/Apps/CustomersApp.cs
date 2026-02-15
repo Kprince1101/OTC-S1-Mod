@@ -246,13 +246,9 @@ namespace OverTheCounter.Apps
 
             debugBtn.onClick.AddListener(new System.Action(() =>
             {
-                MelonLogger.Msg("[CustomersApp] DEBUG button clicked - triggering random desperation");
-                MelonLogger.Msg(DesperationManager.DebugGetStatus());
                 bool success = DesperationManager.DebugForceRandomTrigger();
                 if (success)
-                {
                     RefreshCustomerList();
-                }
             }));
 #endif
 

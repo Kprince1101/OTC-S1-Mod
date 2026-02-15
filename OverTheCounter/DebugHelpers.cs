@@ -17,7 +17,7 @@ namespace OverTheCounter
 {
     public class DebugHelpers : MonoBehaviour
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("DebugHelpers");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:DebugHelpers");
         private bool _menuVisible;
         private Vector2 _scrollPos;
 

@@ -32,7 +32,7 @@ namespace OverTheCounter.UI
     /// </summary>
     public static class ManagerConfigPanel
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ManagerConfigPanel");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerConfigPanel");
 
         private static GameObject _panelRoot;
         private static ManagerInstance _currentManager;
@@ -168,7 +168,8 @@ namespace OverTheCounter.UI
             Close();
             _currentManager = mgr;
             CreatePanel();
-            Logger.Msg($"Config panel opened for manager {mgr.Id}");
+            if (Config.ManagerVerboseLogging.Value)
+                Logger.Msg($"Config panel opened for manager {mgr.Id}");
         }
 
         /// <summary>
@@ -812,7 +813,8 @@ namespace OverTheCounter.UI
                 confirmTextRT.offsetMax = Vector2.zero;
 
                 _thresholdScreenRoot.SetActive(true);
-                Logger.Msg($"Showing threshold screen for {_pendingItemDef?.Name} (current={currentThreshold})");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Showing threshold screen for {_pendingItemDef?.Name} (current={currentThreshold})");
             }
             catch (Exception ex)
             {
@@ -851,7 +853,8 @@ namespace OverTheCounter.UI
                 SyncConfig();
 
                 RefreshItemSlots();
-                Logger.Msg($"Manager {_currentManager.Id}: slot {savedSlot} = {savedItemId} (threshold={savedThreshold})");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {_currentManager.Id}: slot {savedSlot} = {savedItemId} (threshold={savedThreshold})");
             }
         }
 
@@ -1289,7 +1292,8 @@ namespace OverTheCounter.UI
             SyncConfig();
 
             RefreshLabels();
-            Logger.Msg($"Manager {_currentManager.Id}: {slotType}[{routeIndex}] = {GetStorageName(selected)}");
+            if (Config.ManagerVerboseLogging.Value)
+                Logger.Msg($"Manager {_currentManager.Id}: {slotType}[{routeIndex}] = {GetStorageName(selected)}");
         }
 
         private static void OnClearClicked(string slotType, int routeIndex, bool isSource)
@@ -1329,7 +1333,8 @@ namespace OverTheCounter.UI
             SyncConfig();
 
             RefreshLabels();
-            Logger.Msg($"Manager {_currentManager.Id}: deleted route {routeIndex}");
+            if (Config.ManagerVerboseLogging.Value)
+                Logger.Msg($"Manager {_currentManager.Id}: deleted route {routeIndex}");
         }
 
         // ========== Label Refresh ==========

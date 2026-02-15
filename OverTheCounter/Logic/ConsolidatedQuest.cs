@@ -95,7 +95,8 @@ namespace OverTheCounter.Logic
                     if (s1Quest != null)
                     {
                         _gameQuestInstanceId = s1Quest.GetInstanceID();
-                        Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Cached GameQuestInstanceId={_gameQuestInstanceId}");
+                        if (Config.VerboseLogging.Value)
+                            Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Cached GameQuestInstanceId={_gameQuestInstanceId}");
                     }
                 }
                 catch { }
@@ -129,7 +130,8 @@ namespace OverTheCounter.Logic
 
             _currentCount = deliveryCount;
             UpdateTitle();
-            Melon<Core>.Logger.Msg($"[ConsolidatedQuest] UpdateSummary: count={deliveryCount}, products={productSummaries.Count}, title='{Title}'");
+            if (Config.VerboseLogging.Value)
+                Melon<Core>.Logger.Msg($"[ConsolidatedQuest] UpdateSummary: count={deliveryCount}, products={productSummaries.Count}, title='{Title}'");
 
             try
             {
@@ -325,7 +327,7 @@ namespace OverTheCounter.Logic
                 if (s1Quest.hudUI != null)
                     s1Quest.hudUI.UpdateMainLabel();
 
-                if (!_subtitleDebugLogged)
+                if (!_subtitleDebugLogged && Config.VerboseLogging.Value)
                 {
                     Melon<Core>.Logger.Msg($"[ConsolidatedQuest] SetSubtitle: '{subtitle}', hudUI={s1Quest.hudUI != null}, Subtitle='{s1Quest.Subtitle}'");
                     _subtitleDebugLogged = true;
@@ -473,7 +475,7 @@ namespace OverTheCounter.Logic
 
                 var go = s1Quest.hudUI.gameObject;
 
-                if (!_showDebugLogged)
+                if (!_showDebugLogged && Config.VerboseLogging.Value)
                 {
                     var cg0 = go.GetComponent<CanvasGroup>();
                     Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Show: hudUI exists, active={go.activeSelf}, alpha={cg0?.alpha}, title='{s1Quest.title}', entries={s1Quest.Entries?.Count}");
@@ -509,7 +511,8 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void Dismiss()
         {
-            Melon<Core>.Logger.Msg("[ConsolidatedQuest] Dismiss() called");
+            if (Config.VerboseLogging.Value)
+                Melon<Core>.Logger.Msg("[ConsolidatedQuest] Dismiss() called");
 
             try { ClearAllEntries(); }
             catch (System.Exception ex) { Melon<Core>.Logger.Warning($"[ConsolidatedQuest] Dismiss: ClearAllEntries threw: {ex.Message}"); }
@@ -525,12 +528,14 @@ namespace OverTheCounter.Logic
 
                 int stateBefore = (int)s1Quest.State;
                 string titleBefore = s1Quest.title ?? "(null)";
-                Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: calling Fail(false) — state={stateBefore}, title='{titleBefore}', GUID='{s1Quest.StaticGUID}'");
+                if (Config.VerboseLogging.Value)
+                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: calling Fail(false) — state={stateBefore}, title='{titleBefore}', GUID='{s1Quest.StaticGUID}'");
 
                 s1Quest.Fail(false);
 
                 int stateAfter = (int)s1Quest.State;
-                Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: Fail(false) returned — state changed {stateBefore} → {stateAfter}");
+                if (Config.VerboseLogging.Value)
+                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: Fail(false) returned — state changed {stateBefore} → {stateAfter}");
 
 #if DEBUG
                 // Verify removal from game registries
@@ -549,7 +554,8 @@ namespace OverTheCounter.Logic
                 }
                 catch { }
 
-                Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: post-Fail registry check — stillInGameQuestsList={inQuestQuests}");
+                if (Config.VerboseLogging.Value)
+                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: post-Fail registry check — stillInGameQuestsList={inQuestQuests}");
 #endif
             }
             catch (System.Exception ex)

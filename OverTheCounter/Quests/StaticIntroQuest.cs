@@ -14,7 +14,7 @@ namespace OverTheCounter.Quests
 {
     public class StaticIntroQuest : Quest
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("StaticIntroQuest");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:StaticIntroQuest");
 
         protected override string Title => "Crimeware as a Service";
         protected override string Description => "Someone at the casino noticed your deposits. Find Static after 4 PM when the casino opens.";

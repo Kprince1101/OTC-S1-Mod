@@ -17,7 +17,7 @@ namespace OverTheCounter.Utilities
     /// </summary>
     internal static class MugshotUtility
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("MugshotUtility");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:MugshotUtility");
 
         // Prevents multiple coroutines from capturing simultaneously.
         // All coroutines resume after the same 3s delay; without this flag
@@ -67,7 +67,8 @@ namespace OverTheCounter.Utilities
                 var sprite = Sprite.Create(tex,
                     new Rect(0, 0, tex.width, tex.height),
                     new Vector2(0.5f, 0.5f));
-                Logger.Msg($"Loaded pre-baked mugshot: {name} ({tex.width}x{tex.height})");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Loaded pre-baked mugshot: {name} ({tex.width}x{tex.height})");
                 return sprite;
             }
             catch (Exception ex)
@@ -149,7 +150,8 @@ namespace OverTheCounter.Utilities
             }
             if (mySession != _sessionId) yield break;
             if (idleWait > 0)
-                Logger.Msg($"{label}: waited {idleWait} frames for MugshotRig idle");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"{label}: waited {idleWait} frames for MugshotRig idle");
 
             _isCapturing = true;
 

@@ -13,7 +13,7 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class ManagerConfiguration
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ManagerConfig");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerConfig");
 
         /// <summary>
         /// The locker entity where the manager draws wages from.

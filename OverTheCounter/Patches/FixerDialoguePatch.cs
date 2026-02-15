@@ -156,7 +156,8 @@ namespace OverTheCounter.Patches
                 {
                     _managerSelected = true;
                     _selectedBusiness = null;
-                    Logger.Msg("Manager employee type selected");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg("Manager employee type selected");
                     return true; // Let vanilla handle dialogue progression
                 }
 
@@ -228,7 +229,8 @@ namespace OverTheCounter.Patches
                     if (node != null)
                     {
                         __instance.handler.ShowNode(node);
-                        Logger.Msg("Navigated to SELECT_LOCATION for manager hiring");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg("Navigated to SELECT_LOCATION for manager hiring");
                     }
                     else
                     {
@@ -246,7 +248,8 @@ namespace OverTheCounter.Patches
                     if (biz != null && string.Equals(biz.PropertyCode, choiceLabel, StringComparison.OrdinalIgnoreCase))
                     {
                         _selectedBusiness = biz;
-                        Logger.Msg($"Business selected for manager: {biz.PropertyCode}");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg($"Business selected for manager: {biz.PropertyCode}");
                         break;
                     }
                 }

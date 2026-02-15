@@ -25,7 +25,7 @@ namespace OverTheCounter.NPCs
 {
     public sealed class BellaNPC : NPC
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("BellaNPC");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:BellaNPC");
 
         private static readonly Vector3 SpawnPosition = new Vector3(74.1f, 1.0f, 57.2f);
         private static readonly Quaternion SpawnRotation = Quaternion.Euler(0f, 180f, 0f);
@@ -103,9 +103,14 @@ namespace OverTheCounter.NPCs
             {
                 _customerComponent = DrifterSpawner.AddCustomerComponentToActive(_gameNpc);
                 if (_customerComponent != null)
-                    Logger.Msg("Customer component added to Bella for HandoverScreen support");
+                {
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg("Customer component added to Bella for HandoverScreen support");
+                }
                 else
+                {
                     Logger.Warning("Failed to add Customer component — HandoverScreen will not be available");
+                }
             }
             catch (Exception ex)
             {
@@ -302,10 +307,11 @@ namespace OverTheCounter.NPCs
 
                 // Verify injection
                 int occupantCount = nearest.OccupantCount;
-                Logger.Msg($"Bella injected into building '{nearest.BuildingName}' (distance: {nearestDist:F1}m, " +
-                           $"occupants={occupantCount}, CanBeSummoned={_gameNpc.CanBeSummoned}, " +
-                           $"CurrentBuilding={((_gameNpc.CurrentBuilding != null) ? "set" : "null")}, " +
-                           $"isVisible={_gameNpc.isVisible})");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Bella injected into building '{nearest.BuildingName}' (distance: {nearestDist:F1}m, " +
+                               $"occupants={occupantCount}, CanBeSummoned={_gameNpc.CanBeSummoned}, " +
+                               $"CurrentBuilding={((_gameNpc.CurrentBuilding != null) ? "set" : "null")}, " +
+                               $"isVisible={_gameNpc.isVisible})");
             }
             catch (Exception ex)
             {
@@ -334,13 +340,15 @@ namespace OverTheCounter.NPCs
                 return;
             }
 
-            Logger.Msg("Re-injecting Bella into building after summon");
+            if (Config.VerboseLogging.Value)
+                Logger.Msg("Re-injecting Bella into building after summon");
             InjectIntoBuilding();
         }
 
         public void RefreshDialogue()
         {
-            if (Dialogue.IsDialogueInProgress) return;
+            // IL2CPP: native Dialogue object may be destroyed after scene transitions while C# wrapper survives
+            try { if (Dialogue.IsDialogueInProgress) return; } catch { return; }
 
             int stage = BellaSaveData.Instance?.Stage ?? 0;
             if (stage == 0 && BellaProtocolQuest.Instance != null)
@@ -529,24 +537,13 @@ namespace OverTheCounter.NPCs
             Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance> items,
             float askingPrice)
         {
-            Logger.Msg($"Handover closed: outcome={outcome}, pendingDrug={_pendingDrugType}, pendingMinPrice=${_pendingMinPrice:F2}");
+            if (Config.VerboseLogging.Value)
+                Logger.Msg($"Handover closed: outcome={outcome}, pendingDrug={_pendingDrugType}, pendingMinPrice=${_pendingMinPrice:F2}");
 
             if (outcome == HandoverScreen.EHandoverOutcome.Cancelled)
             {
                 // Player cancelled — they can talk to Bella again
                 return;
-            }
-
-            // Log all submitted items
-            int itemCount = items?.Count ?? 0;
-            Logger.Msg($"[Handover] Items submitted: {itemCount}");
-            if (items != null)
-            {
-                for (int i = 0; i < items.Count; i++)
-                {
-                    var it = items[i];
-                    Logger.Msg($"[Handover] Item[{i}]: {it?.ID ?? "null"}, type={it?.GetType()?.Name ?? "?"}, qty={it?.Quantity ?? 0}");
-                }
             }
 
             // Check if any handed-over item meets the requirement
@@ -578,7 +575,8 @@ namespace OverTheCounter.NPCs
                 try
                 {
                     _gameNpc?.Behaviour?.ConsumeProduct(acceptedProduct);
-                    Logger.Msg($"Bella consuming product: {acceptedProduct.ID}");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Bella consuming product: {acceptedProduct.ID}");
                 }
                 catch (Exception ex) { Logger.Warning($"ConsumeProduct failed: {ex.Message}"); }
 
@@ -641,49 +639,22 @@ namespace OverTheCounter.NPCs
         {
             try
             {
-                Logger.Msg($"[IsValidMix] Checking item: {item?.ID ?? "null"}, type={item?.GetType()?.Name ?? "?"}, want drugType={drugType}, minPrice={minBasePrice}");
-
                 var productItem = item.TryCast<ProductItemInstance>();
                 if (productItem == null)
-                {
-                    Logger.Msg($"[IsValidMix] REJECT: not a ProductItemInstance (TryCast returned null)");
                     return false;
-                }
 
                 var packaging = productItem.AppliedPackaging;
-                Logger.Msg($"[IsValidMix] Packaging: {(packaging != null ? $"present, qty={packaging.Quantity}" : "null")}");
                 if (packaging == null || packaging.Quantity <= 0)
-                {
-                    Logger.Msg($"[IsValidMix] REJECT: no packaging or quantity <= 0");
                     return false;
-                }
 
                 if (productItem.Definition == null)
-                {
-                    Logger.Msg($"[IsValidMix] REJECT: Definition is null");
                     return false;
-                }
 
                 var productDef = productItem.Definition.TryCast<ProductDefinition>();
                 if (productDef == null)
-                {
-                    Logger.Msg($"[IsValidMix] REJECT: Definition is not a ProductDefinition (type={productItem.Definition.GetType()?.Name})");
                     return false;
-                }
 
-                Logger.Msg($"[IsValidMix] ProductDef: DrugType={productDef.DrugType}, MarketValue={productDef.MarketValue}, BasePrice={productDef.BasePrice}, Name={productDef.name ?? "?"}, ID={productDef.ID ?? "?"}");
-                bool drugMatch = productDef.DrugType == drugType;
-                bool priceMatch = productDef.MarketValue >= minBasePrice;
-                Logger.Msg($"[IsValidMix] drugMatch={drugMatch} (got {productDef.DrugType}, want {drugType}), priceMatch={priceMatch} (got ${productDef.MarketValue:F2}, need >= ${minBasePrice:F2})");
-
-                if (drugMatch && priceMatch)
-                {
-                    Logger.Msg($"[IsValidMix] ACCEPTED");
-                    return true;
-                }
-
-                Logger.Msg($"[IsValidMix] REJECT: drugMatch={drugMatch}, priceMatch={priceMatch}");
-                return false;
+                return productDef.DrugType == drugType && productDef.MarketValue >= minBasePrice;
             }
             catch (Exception ex)
             {

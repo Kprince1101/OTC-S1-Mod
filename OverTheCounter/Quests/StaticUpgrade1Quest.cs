@@ -13,13 +13,13 @@ namespace OverTheCounter.Quests
 {
     public class StaticUpgrade1Quest : Quest
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("StaticUpgrade1Quest");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:StaticUpgrade1Quest");
 
         protected override string Title => "Premium Tier";
         protected override string Description => "Static has the premium tier upgrade available. Check your texts and bring him what he needs.";
         protected override bool AutoBegin => false;
         protected override Sprite QuestIcon => ImageUtils.LoadImage(
-            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "ExecutivePrivilege.png"));
+            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "CrimeWareQuest.png"));
 
         [SaveableField("static_upgrade1_stage")]
         private int _stage; // 0=not started, 1=active, 2=done

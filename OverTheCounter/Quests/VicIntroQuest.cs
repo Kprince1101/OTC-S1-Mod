@@ -12,7 +12,7 @@ namespace OverTheCounter.Quests
 {
     public class VicIntroQuest : Quest
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("VicIntroQuest");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:VicIntroQuest");
 
         protected override string Title => "Rinse Cycle";
         protected override string Description => "Help Vic with his party supplies and he'll help you clean some cash.";

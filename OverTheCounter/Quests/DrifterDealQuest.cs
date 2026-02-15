@@ -13,7 +13,7 @@ namespace OverTheCounter.Quests
 {
     public class DrifterDealQuest : Quest
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("DrifterDealQuest");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:DrifterDealQuest");
 
         protected override string Title => _title ?? "Drifter Deal";
         protected override string Description => _description ?? "Complete a deal with a drifter.";

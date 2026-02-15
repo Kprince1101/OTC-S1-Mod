@@ -23,7 +23,7 @@ namespace OverTheCounter.Logic
     /// </summary>
     public static class DrifterSpawner
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("DrifterSpawner");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:DrifterSpawner");
 
         private static NetworkObject _cachedBasePrefab;
         private static bool _prefabSearched;
@@ -57,7 +57,8 @@ namespace OverTheCounter.Logic
                 }
 
                 int count = spawnablePrefabs.GetObjectCount();
-                Logger.Msg($"Searching {count} spawnable prefabs for CivilianNPC...");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Searching {count} spawnable prefabs for CivilianNPC...");
 
                 for (int i = 0; i < count; i++)
                 {
@@ -69,7 +70,8 @@ namespace OverTheCounter.Logic
                     if (name == "CivilianNPC")
                     {
                         _cachedBasePrefab = obj;
-                        Logger.Msg("Found CivilianNPC prefab");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg("Found CivilianNPC prefab");
                         return _cachedBasePrefab;
                     }
                 }
@@ -208,7 +210,8 @@ namespace OverTheCounter.Logic
                     if (InstanceFinder.ServerManager != null)
                     {
                         InstanceFinder.ServerManager.Spawn(clone);
-                        Logger.Msg($"ServerManager.Spawn completed for drifter {id}");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg($"ServerManager.Spawn completed for drifter {id}");
                     }
                     else
                     {
@@ -468,7 +471,8 @@ namespace OverTheCounter.Logic
                 // Restore random state
                 UnityEngine.Random.state = state;
 
-                Logger.Msg($"Generated random appearance for {npc.ID}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Generated random appearance for {npc.ID}");
             }
             catch (Exception ex)
             {
@@ -541,7 +545,8 @@ namespace OverTheCounter.Logic
                 // Check if conversation already exists
                 if (npc.MSGConversation != null)
                 {
-                    Logger.Msg($"Messaging already initialized for {npc.ID}");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Messaging already initialized for {npc.ID}");
                     return;
                 }
 
@@ -553,7 +558,8 @@ namespace OverTheCounter.Logic
                 conversation.SetIsKnown(true);
                 DrifterConversations[npc.ID] = conversation;
 
-                Logger.Msg($"Initialized messaging for {npc.ID}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Initialized messaging for {npc.ID}");
             }
             catch (Exception ex)
             {
@@ -583,7 +589,8 @@ namespace OverTheCounter.Logic
                     if (other.VoiceOverEmitter?.Database != null)
                     {
                         npc.VoiceOverEmitter.SetDatabase(other.VoiceOverEmitter.Database, false);
-                        Logger.Msg($"Borrowed voice database for {npc.ID}");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg($"Borrowed voice database for {npc.ID}");
                         return;
                     }
                 }
@@ -620,9 +627,14 @@ namespace OverTheCounter.Logic
                 string iconPath = Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "DrifterProfileIcon.png");
                 _drifterIcon = ImageUtils.LoadImage(iconPath);
                 if (_drifterIcon != null)
-                    Logger.Msg("Loaded DrifterProfileIcon.png");
+                {
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg("Loaded DrifterProfileIcon.png");
+                }
                 else
+                {
                     Logger.Warning("DrifterProfileIcon.png not found or failed to load");
+                }
             }
             catch (Exception ex)
             {
@@ -658,7 +670,8 @@ namespace OverTheCounter.Logic
                     if (netObj != null && InstanceFinder.ServerManager != null && netObj.IsSpawned)
                     {
                         InstanceFinder.ServerManager.Despawn(netObj);
-                        Logger.Msg($"ServerManager.Despawn completed for drifter {id}");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg($"ServerManager.Despawn completed for drifter {id}");
                     }
                     else if (npc.gameObject != null)
                     {
@@ -709,7 +722,8 @@ namespace OverTheCounter.Logic
                 // Create default affinity data
                 _drifterCustomerData.DefaultAffinityData = new Il2CppScheduleOne.Economy.CustomerAffinityData();
 
-                Logger.Msg("Created CustomerData for drifters");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg("Created CustomerData for drifters");
                 return _drifterCustomerData;
             }
             catch (Exception ex)
@@ -741,7 +755,8 @@ namespace OverTheCounter.Logic
                 var existing = npc.gameObject.GetComponent<Customer>();
                 if (existing != null)
                 {
-                    Logger.Msg($"Drifter {npc.ID} already has Customer component");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Drifter {npc.ID} already has Customer component");
                     return existing;
                 }
 
@@ -759,7 +774,8 @@ namespace OverTheCounter.Logic
                 // Set customerData directly (IL2CPP exposes this as a property)
                 customer.customerData = customerData;
 
-                Logger.Msg($"Set CustomerData for drifter {npc.ID}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Set CustomerData for drifter {npc.ID}");
 
                 return customer;
             }
@@ -785,7 +801,8 @@ namespace OverTheCounter.Logic
                 var existing = npc.gameObject.GetComponent<Customer>();
                 if (existing != null)
                 {
-                    Logger.Msg($"Drifter {npc.ID} already has Customer component (active)");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Drifter {npc.ID} already has Customer component (active)");
                     return existing;
                 }
 
@@ -808,7 +825,8 @@ namespace OverTheCounter.Logic
                 // Isolate from vanilla deal system (see IsolateDrifterCustomer)
                 IsolateDrifterCustomer(npc);
 
-                Logger.Msg($"Added Customer component to active NPC {npc.ID}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Added Customer component to active NPC {npc.ID}");
                 return customer;
             }
             catch (Exception ex)
@@ -868,7 +886,8 @@ namespace OverTheCounter.Logic
                 customer.TimeSinceLastDealOffered = 0;
                 customer.TimeSinceLastDealCompleted = 0;
 
-                Logger.Msg($"Isolated drifter Customer from vanilla deal system: {npc.ID}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Isolated drifter Customer from vanilla deal system: {npc.ID}");
             }
             catch (Exception ex)
             {

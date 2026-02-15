@@ -25,7 +25,7 @@ namespace OverTheCounter.Logic
     /// </summary>
     public static class ManagerSpawner
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ManagerSpawner");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerSpawner");
 
         private static NetworkObject _cachedBasePrefab;
         private static bool _prefabSearched;
@@ -85,7 +85,8 @@ namespace OverTheCounter.Logic
                     if (obj.gameObject.name == "CivilianNPC")
                     {
                         _cachedBasePrefab = obj;
-                        Logger.Msg("Found CivilianNPC prefab");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg("Found CivilianNPC prefab");
                         return _cachedBasePrefab;
                     }
                 }
@@ -97,7 +98,8 @@ namespace OverTheCounter.Logic
                     if (obj?.gameObject?.GetComponent<NPC>() != null)
                     {
                         _cachedBasePrefab = obj;
-                        Logger.Msg($"Using fallback NPC prefab: {obj.gameObject.name}");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"Using fallback NPC prefab: {obj.gameObject.name}");
                         return _cachedBasePrefab;
                     }
                 }
@@ -271,7 +273,8 @@ namespace OverTheCounter.Logic
                     if (InstanceFinder.ServerManager != null)
                     {
                         InstanceFinder.ServerManager.Spawn(clone);
-                        Logger.Msg($"ServerManager.Spawn completed for manager {id}");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"ServerManager.Spawn completed for manager {id}");
                     }
                     else
                     {
@@ -441,7 +444,8 @@ namespace OverTheCounter.Logic
                 npc.Avatar.LoadAvatarSettings(settings);
                 UnityEngine.Random.state = state;
 
-                Logger.Msg($"Applied manager appearance for {npc.ID}");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Applied manager appearance for {npc.ID}");
             }
             catch (Exception ex)
             {
@@ -461,7 +465,8 @@ namespace OverTheCounter.Logic
                 var conversation = new MSGConversation(npc, npc.fullName);
                 npc.MSGConversation = conversation;
                 conversation.SetIsKnown(true);
-                Logger.Msg($"Initialized messaging for manager {npc.ID}");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Initialized messaging for manager {npc.ID}");
             }
             catch (Exception ex)
             {
@@ -488,7 +493,8 @@ namespace OverTheCounter.Logic
                     if (other.VoiceOverEmitter?.Database != null)
                     {
                         npc.VoiceOverEmitter.SetDatabase(other.VoiceOverEmitter.Database, false);
-                        Logger.Msg($"Borrowed voice database for manager {npc.ID}");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"Borrowed voice database for manager {npc.ID}");
                         return;
                     }
                 }
@@ -676,7 +682,8 @@ namespace OverTheCounter.Logic
 
                         _isReopening = true;
                         MelonCoroutines.Start(ReopenDialogue(capturedDc));
-                        Logger.Msg($"Opened transfer sub-menu for manager {managerId} ({bizChoices.Count - 1} businesses)");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"Opened transfer sub-menu for manager {managerId} ({bizChoices.Count - 1} businesses)");
                     }
                     catch (Exception ex)
                     {
@@ -767,7 +774,8 @@ namespace OverTheCounter.Logic
 
                         _isReopening = true;
                         MelonCoroutines.Start(ReopenDialogue(capturedDc));
-                        Logger.Msg($"Opened fire confirmation for manager {managerId}");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"Opened fire confirmation for manager {managerId}");
                     }
                     catch (Exception ex)
                     {
@@ -781,7 +789,8 @@ namespace OverTheCounter.Logic
                 choices.Add(fireChoice);
 
                 _dialogueChoices[mgr.Id] = choices;
-                Logger.Msg($"Set up dialogue choices for manager {mgr.Id}");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Set up dialogue choices for manager {mgr.Id}");
             }
             catch (Exception ex)
             {
@@ -1084,7 +1093,8 @@ namespace OverTheCounter.Logic
                     existing.CanBePickpocketed = false;
                     existing.SlotCount = 5;
 
-                    Logger.Msg($"Inventory already exists on manager {npc.ID}, configured (slots={existing.ItemSlots?.Count ?? existing.SlotCount})");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg($"Inventory already exists on manager {npc.ID}, configured (slots={existing.ItemSlots?.Count ?? existing.SlotCount})");
                     return;
                 }
 
@@ -1104,7 +1114,8 @@ namespace OverTheCounter.Logic
 
                 if (wasActive) npc.gameObject.SetActive(true);
 
-                Logger.Msg($"Added inventory to manager {npc.ID} (slots={inventory.SlotCount})");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Added inventory to manager {npc.ID} (slots={inventory.SlotCount})");
             }
             catch (Exception ex)
             {
@@ -1155,7 +1166,8 @@ namespace OverTheCounter.Logic
                         _cachedEmployeeAreaMask = empAgent.areaMask;
                         agentTypeID = empAgent.agentTypeID;
                         areaMask = empAgent.areaMask;
-                        Logger.Msg($"Cached employee NavMesh settings: agentTypeID={agentTypeID}, areaMask={areaMask}");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"Cached employee NavMesh settings: agentTypeID={agentTypeID}, areaMask={areaMask}");
                         return true;
                     }
                 }
@@ -1217,7 +1229,8 @@ namespace OverTheCounter.Logic
                     if (netObj != null && InstanceFinder.ServerManager != null && netObj.IsSpawned)
                     {
                         InstanceFinder.ServerManager.Despawn(netObj);
-                        Logger.Msg($"ServerManager.Despawn completed for manager {id}");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"ServerManager.Despawn completed for manager {id}");
                     }
                     else if (npc.gameObject != null)
                     {

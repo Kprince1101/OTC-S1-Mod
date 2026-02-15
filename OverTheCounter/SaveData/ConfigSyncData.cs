@@ -13,7 +13,7 @@ namespace OverTheCounter.SaveData
 {
     public class ConfigSyncData : Saveable
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ConfigSync");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ConfigSync");
 
         [SaveableField("config_sync_payload")]
         private string _payload = "";
@@ -155,7 +155,8 @@ namespace OverTheCounter.SaveData
             try
             {
                 string statePayload = SerializeGameState();
-                Logger.Msg($"PublishGameState: payload length={statePayload?.Length ?? 0}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"PublishGameState: payload length={statePayload?.Length ?? 0}");
                 if (IsNetworkLibAvailable)
                     PublishGameStateImpl(statePayload);
             }
@@ -204,7 +205,8 @@ namespace OverTheCounter.SaveData
             try
             {
                 string managerState = SerializeManagerSyncVar();
-                Logger.Msg($"PublishManagerState: {managerState.Length} chars");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"PublishManagerState: {managerState.Length} chars");
                 if (IsNetworkLibAvailable)
                     PublishManagerStateImpl(managerState);
             }
@@ -245,7 +247,8 @@ namespace OverTheCounter.SaveData
                 {
                     string payload = string.Join(";", msgParts);
                     PublishManagerMessagesImpl(payload);
-                    Logger.Msg($"PublishManagerMessages: {payload.Length} chars, {msgParts.Count - 1} messages");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"PublishManagerMessages: {payload.Length} chars, {msgParts.Count - 1} messages");
                 }
             }
             catch (Exception ex)
@@ -371,7 +374,8 @@ namespace OverTheCounter.SaveData
                 {
                     ManagerInstance.SyncedManagerBusinesses.Clear();
                     ManagerInstance.ApplyManagerState("");
-                    Logger.Msg("Client cleared manager state (empty SyncVar).");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg("Client cleared manager state (empty SyncVar).");
                     return;
                 }
 

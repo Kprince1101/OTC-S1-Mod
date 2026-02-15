@@ -15,7 +15,7 @@ namespace OverTheCounter.Patches
     /// </summary>
     public static class ConfigSyncPatch
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ConfigSync");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ConfigSyncPatch");
 
         /// <summary>
         /// Call during mod initialization to apply patches if ModsApp is present.
@@ -59,7 +59,7 @@ namespace OverTheCounter.Patches
 
             ConfigSyncData.Instance?.RefreshFromConfig();
 
-            if (InstanceFinder.NetworkManager != null && InstanceFinder.IsServer)
+            if (InstanceFinder.NetworkManager != null && InstanceFinder.IsServer && Config.VerboseLogging.Value)
                 Logger.Msg("[ConfigSync] Host config updated and published via SyncVar.");
         }
     }

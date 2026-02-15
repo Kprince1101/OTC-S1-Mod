@@ -22,7 +22,7 @@ namespace OverTheCounter.NPCs
 {
     public sealed class StaticNPC : NPC
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("StaticNPC");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:StaticNPC");
         private static readonly EVOLineType[] DismissalSounds = { EVOLineType.Angry, EVOLineType.Annoyed, EVOLineType.No };
 
         private Il2CppScheduleOne.NPCs.NPC _gameNpc;
@@ -34,7 +34,8 @@ namespace OverTheCounter.NPCs
         public bool DialogueReady { get; private set; }
 
         /// <summary>True while the player is in an active dialogue with Static.</summary>
-        public bool IsInDialogue => Dialogue?.IsDialogueInProgress ?? false;
+        /// <remarks>Try-catch: IL2CPP native object may be destroyed after scene transitions while C# wrapper survives.</remarks>
+        public bool IsInDialogue { get { try { return Dialogue?.IsDialogueInProgress ?? false; } catch { return false; } } }
 
         public Vector3? CurrentPosition
         {
@@ -225,7 +226,8 @@ namespace OverTheCounter.NPCs
 
         public void RefreshDialogue()
         {
-            if (Dialogue.IsDialogueInProgress) return;
+            // IL2CPP: native Dialogue object may be destroyed after scene transitions while C# wrapper survives
+            try { if (Dialogue.IsDialogueInProgress) return; } catch { return; }
 
             bool introCompleted = StaticSaveData.Instance?.IntroCompleted ?? false;
             bool saasActive = StaticSaveData.Instance?.SaasActive ?? false;

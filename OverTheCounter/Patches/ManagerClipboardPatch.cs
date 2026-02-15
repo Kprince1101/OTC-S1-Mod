@@ -24,7 +24,7 @@ namespace OverTheCounter.Patches
     /// </summary>
     public static class ManagerClipboardPatch
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ManagerClipboard");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerClipboard");
 
         // Highlight tracking
         private static NPC _highlightedNpc;
@@ -44,7 +44,8 @@ namespace OverTheCounter.Patches
                     harmony.Patch(updateTarget,
                         prefix: new HarmonyMethod(typeof(ManagerClipboardPatch), nameof(UpdatePrefix)),
                         postfix: new HarmonyMethod(typeof(ManagerClipboardPatch), nameof(UpdatePostfix)));
-                    Logger.Msg("Patched ManagementClipboard_Equippable.Update (prefix + postfix)");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg("Patched ManagementClipboard_Equippable.Update (prefix + postfix)");
                 }
                 else
                 {
@@ -59,7 +60,8 @@ namespace OverTheCounter.Patches
                 {
                     harmony.Patch(setEmployeeTarget,
                         postfix: new HarmonyMethod(typeof(ManagerClipboardPatch), nameof(SetAssignedEmployeePostfix)));
-                    Logger.Msg("Patched EmployeeHome.SetAssignedEmployee");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg("Patched EmployeeHome.SetAssignedEmployee");
                 }
 
                 // Patch ManagementClipboard_Equippable.Unequip to clear manager outline
@@ -69,7 +71,8 @@ namespace OverTheCounter.Patches
                 {
                     harmony.Patch(unequipTarget,
                         postfix: new HarmonyMethod(typeof(ManagerClipboardPatch), nameof(UnequipPostfix)));
-                    Logger.Msg("Patched ManagementClipboard_Equippable.Unequip");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg("Patched ManagementClipboard_Equippable.Unequip");
                 }
 
                 // Patch ManagementClipboard.Close to clean up our panel
@@ -80,7 +83,8 @@ namespace OverTheCounter.Patches
                 {
                     harmony.Patch(closeTarget,
                         postfix: new HarmonyMethod(typeof(ManagerClipboardPatch), nameof(ClosePostfix)));
-                    Logger.Msg("Patched ManagementClipboard.Close");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg("Patched ManagementClipboard.Close");
                 }
                 else
                 {
@@ -146,7 +150,8 @@ namespace OverTheCounter.Patches
                 // Inject our custom panel (EnforceUI in postfix handles persistent label fixes)
                 ManagerConfigPanel.Open(mgr);
 
-                Logger.Msg($"Opened config panel for manager {mgr.Id}");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Opened config panel for manager {mgr.Id}");
                 return false; // Skip vanilla Update logic for this frame
             }
             catch (Exception ex)
@@ -242,7 +247,8 @@ namespace OverTheCounter.Patches
                 if (ManagerConfigPanel.IsOpen)
                 {
                     ManagerConfigPanel.Close();
-                    Logger.Msg("Config panel closed (clipboard closed)");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg("Config panel closed (clipboard closed)");
                 }
             }
             catch (Exception ex)
@@ -351,7 +357,8 @@ namespace OverTheCounter.Patches
                     if (mgr.Id == npcId)
                     {
                         // Re-link the reference so future lookups use the fast path
-                        Logger.Msg($"FindManagerByNpc: re-linked {npcId} via ID fallback");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"FindManagerByNpc: re-linked {npcId} via ID fallback");
                         return mgr;
                     }
                 }

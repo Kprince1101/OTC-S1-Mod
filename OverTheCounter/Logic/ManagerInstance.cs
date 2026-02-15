@@ -20,7 +20,7 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class ManagerInstance
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ManagerInstance");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerInstance");
 
         /// <summary>
         /// All active manager instances, keyed by ID.
@@ -261,7 +261,8 @@ namespace OverTheCounter.Logic
             }
 
             // Use ManagerLocations if available, otherwise fall back to business spawn point
-            Logger.Msg($"Looking up ManagerLocation for PropertyCode=\"{business.PropertyCode}\"");
+            if (Config.ManagerVerboseLogging.Value)
+                Logger.Msg($"Looking up ManagerLocation for PropertyCode=\"{business.PropertyCode}\"");
             var location = ManagerLocations.GetLocation(business.PropertyCode);
 
             Vector3 spawnPos;
@@ -397,7 +398,6 @@ namespace OverTheCounter.Logic
                 _destCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
                     new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
                     {
-                        Logger.Msg($"Manager {Id} walk callback (result={result})");
                         if (result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
                             result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
                         {
@@ -409,7 +409,8 @@ namespace OverTheCounter.Logic
                     });
 
                 GameNpc.Movement.SetDestination(location.Destination, _destCallback, 3f, 1f);
-                Logger.Msg($"Manager {Id} walking to destination: {location.Destination}");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {Id} walking to destination: {location.Destination}");
             }
             catch (Exception ex)
             {
@@ -435,7 +436,8 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void GenerateMugshot()
         {
-            Logger.Msg($"Manager {Id}: GenerateMugshot() called");
+            if (Config.ManagerVerboseLogging.Value)
+                Logger.Msg($"Manager {Id}: GenerateMugshot() called");
             MugshotUtility.Generate(GameNpc, $"Manager {Id}", sprite =>
             {
                 if (sprite == null) return;
@@ -446,7 +448,8 @@ namespace OverTheCounter.Logic
                 if (AssignedLocker?.MugshotSprite != null)
                 {
                     AssignedLocker.MugshotSprite.sprite = sprite;
-                    Logger.Msg($"Manager {Id}: mugshot applied to locker");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg($"Manager {Id}: mugshot applied to locker");
                 }
 
                 // Phone messaging entry icon
@@ -458,7 +461,8 @@ namespace OverTheCounter.Logic
                 IsMugshotReady = true;
                 try { OnMugshotReady?.Invoke(); } catch { }
 
-                Logger.Msg($"Manager {Id}: mugshot applied to NPC + messaging");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {Id}: mugshot applied to NPC + messaging");
             });
         }
 
@@ -473,14 +477,16 @@ namespace OverTheCounter.Logic
                 var conv = GameNpc?.MSGConversation;
                 if (conv?.entry == null)
                 {
-                    Logger.Msg($"Manager {Id}: RefreshPhoneIcon — conv.entry is null, skipping");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg($"Manager {Id}: RefreshPhoneIcon — conv.entry is null, skipping");
                     return;
                 }
                 var iconImg = conv.entry.Find("IconMask/Icon")?.GetComponent<Image>();
                 if (iconImg != null)
                 {
                     iconImg.sprite = GameNpc.MugshotSprite;
-                    Logger.Msg($"Manager {Id}: RefreshPhoneIcon — entry icon updated (sprite null={GameNpc.MugshotSprite == null})");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg($"Manager {Id}: RefreshPhoneIcon — entry icon updated (sprite null={GameNpc.MugshotSprite == null})");
                 }
                 else
                 {
@@ -505,7 +511,8 @@ namespace OverTheCounter.Logic
                     if (img != null)
                     {
                         img.sprite = GameNpc.MugshotSprite;
-                        Logger.Msg($"Manager {Id}: map POI icon updated");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"Manager {Id}: map POI icon updated");
                     }
                 }
             }
@@ -537,7 +544,8 @@ namespace OverTheCounter.Logic
                 MapPoI.SetNPC(GameNpc);
                 MapPoI.enabled = true;
 
-                Logger.Msg($"Manager {Id}: map marker created");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {Id}: map marker created");
             }
             catch (Exception ex)
             {
@@ -583,7 +591,7 @@ namespace OverTheCounter.Logic
                     var dist = Vector3.Distance(pos, TargetLocation.Destination);
                     if (dist > 3f)
                     {
-                        if (UnityEngine.Time.time - _lastEnsureMovingLog > 10f)
+                        if (Config.ManagerVerboseLogging.Value && UnityEngine.Time.time - _lastEnsureMovingLog > 10f)
                         {
                             Logger.Msg($"Manager {Id}: resuming walk to destination (interrupted, dist={dist:F1}m)");
                             _lastEnsureMovingLog = UnityEngine.Time.time;
@@ -628,7 +636,8 @@ namespace OverTheCounter.Logic
                     });
 
                 GameNpc.Movement.SetDestination(location.SpawnPosition, _fireCallback, 3f, 1f);
-                Logger.Msg($"Fired manager {Id} walking to spawn before despawn");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Fired manager {Id} walking to spawn before despawn");
             }
             catch (Exception ex)
             {
@@ -651,7 +660,8 @@ namespace OverTheCounter.Logic
             // Clear any vanilla employee already assigned to this locker (e.g. from BusinessEmployment mod)
             if (locker.AssignedEmployee != null)
             {
-                Logger.Msg($"Manager {Id}: clearing existing employee '{locker.AssignedEmployee.fullName}' from locker");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {Id}: clearing existing employee '{locker.AssignedEmployee.fullName}' from locker");
                 locker.SetAssignedEmployee(null);
             }
 
@@ -660,7 +670,8 @@ namespace OverTheCounter.Logic
             {
                 if (other != this && other.AssignedLocker == locker)
                 {
-                    Logger.Msg($"Manager {Id}: clearing other manager {other.Id} from same locker");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg($"Manager {Id}: clearing other manager {other.Id} from same locker");
                     other.ClearLocker();
                 }
             }
@@ -680,16 +691,19 @@ namespace OverTheCounter.Logic
                 if (locker.NameLabel != null && GameNpc != null)
                     locker.NameLabel.text = $"{GameNpc.FirstName}\n{GameNpc.LastName}";
 
-                Logger.Msg($"Manager {Id}: locker mugshot state: locker.MugshotSprite={locker.MugshotSprite != null}, GameNpc.MugshotSprite={GameNpc?.MugshotSprite != null}, IsMugshotReady={IsMugshotReady}");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {Id}: locker mugshot state: locker.MugshotSprite={locker.MugshotSprite != null}, GameNpc.MugshotSprite={GameNpc?.MugshotSprite != null}, IsMugshotReady={IsMugshotReady}");
                 if (locker.MugshotSprite != null && GameNpc?.MugshotSprite != null)
                 {
                     locker.MugshotSprite.sprite = GameNpc.MugshotSprite;
-                    Logger.Msg($"Manager {Id}: set locker mugshot sprite immediately");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg($"Manager {Id}: set locker mugshot sprite immediately");
                 }
                 else if (!IsMugshotReady && locker.MugshotSprite != null)
                 {
                     // Mugshot coroutine still running — subscribe to update locker when it finishes
-                    Logger.Msg($"Manager {Id}: mugshot not ready, subscribing to OnMugshotReady for locker");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg($"Manager {Id}: mugshot not ready, subscribing to OnMugshotReady for locker");
                     OnMugshotReady += () =>
                     {
                         try
@@ -697,7 +711,8 @@ namespace OverTheCounter.Logic
                             if (AssignedLocker == locker && locker.MugshotSprite != null && GameNpc?.MugshotSprite != null)
                             {
                                 locker.MugshotSprite.sprite = GameNpc.MugshotSprite;
-                                Logger.Msg($"Manager {Id}: locker mugshot updated via OnMugshotReady");
+                                if (Config.ManagerVerboseLogging.Value)
+                                    Logger.Msg($"Manager {Id}: locker mugshot updated via OnMugshotReady");
                             }
                         }
                         catch { }
@@ -715,7 +730,8 @@ namespace OverTheCounter.Logic
                 // Recolor locker band to red (vanilla uses colored bands per employee type)
                 ApplyLockerRecoloring(locker);
 
-                Logger.Msg($"Manager {Id}: assigned locker at {locker.transform.position}");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {Id}: assigned locker at {locker.transform.position}");
             }
             catch (Exception ex)
             {
@@ -946,7 +962,8 @@ namespace OverTheCounter.Logic
                 if (conv.entry != null)
                     conv.SetEntryVisibility(false);
 
-                Logger.Msg($"Manager {Id}: cleared text messages");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {Id}: cleared text messages");
             }
             catch (Exception ex)
             {
@@ -995,7 +1012,8 @@ namespace OverTheCounter.Logic
             {
                 if (IsAdopted)
                 {
-                    Logger.Msg($"Manager {Id}: releasing adopted FishNet NPC");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg($"Manager {Id}: releasing adopted FishNet NPC");
                 }
                 else
                 {
@@ -1064,7 +1082,8 @@ namespace OverTheCounter.Logic
                 parts.Add($"{mgr.Id}:{mgr.SpawnSeed}:{mgr.BusinessPropertyCode}:{mgr.NetworkObjectId}:{configStr}");
             }
             string result = string.Join(";", parts);
-            Logger.Msg($"SerializeManagerState: {Active.Count} managers → '{result}'");
+            if (Config.ManagerVerboseLogging.Value)
+                Logger.Msg($"SerializeManagerState: {Active.Count} managers → '{result}'");
             return result;
         }
 
@@ -1095,7 +1114,8 @@ namespace OverTheCounter.Logic
         /// </summary>
         public static void ApplyManagerState(string stateString)
         {
-            Logger.Msg($"ApplyManagerState: processing '{stateString ?? ""}' (Active={Active.Count}, Pending={_pendingAdoptions.Count})");
+            if (Config.ManagerVerboseLogging.Value)
+                Logger.Msg($"ApplyManagerState: processing '{stateString ?? ""}' (Active={Active.Count}, Pending={_pendingAdoptions.Count})");
 
             // Collect IDs present in the incoming host state
             var incomingIds = new HashSet<string>();
@@ -1139,7 +1159,8 @@ namespace OverTheCounter.Logic
                         if (!NetworkHelper.IsHost && UI.ManagerConfigPanel.IsOpen
                             && string.Equals(UI.ManagerConfigPanel.CurrentManagerId, id))
                         {
-                            Logger.Msg($"ApplyManagerState: {id} skipped config update (clipboard open on client)");
+                            if (Config.ManagerVerboseLogging.Value)
+                                Logger.Msg($"ApplyManagerState: {id} skipped config update (clipboard open on client)");
                             continue;
                         }
 
@@ -1166,13 +1187,15 @@ namespace OverTheCounter.Logic
                             existing.Configuration.Deserialize(DecodeConfig(configStr));
                             existing.ReconcileLockerFromConfig();
                         }
-                        Logger.Msg($"ApplyManagerState: {id} already in Active, updated config");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"ApplyManagerState: {id} already in Active, updated config");
                         continue;
                     }
                     if (_pendingAdoptions.ContainsKey(id))
                     {
                         _pendingAdoptions[id].ConfigStr = configStr;
-                        Logger.Msg($"ApplyManagerState: {id} already pending, updated config");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"ApplyManagerState: {id} already pending, updated config");
                         continue;
                     }
 
@@ -1187,7 +1210,8 @@ namespace OverTheCounter.Logic
                             NetObjId = netObjId, CreatedTime = UnityEngine.Time.time,
                             ConfigStr = configStr
                         };
-                        Logger.Msg($"ApplyManagerState: NPC ObjectId {netObjId} not found yet, queued adoption for {id}");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"ApplyManagerState: NPC ObjectId {netObjId} not found yet, queued adoption for {id}");
                         continue;
                     }
 
@@ -1221,7 +1245,8 @@ namespace OverTheCounter.Logic
             }
             foreach (var id in stalePending)
             {
-                Logger.Msg($"ApplyManagerState: removing stale pending adoption {id}");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"ApplyManagerState: removing stale pending adoption {id}");
                 _pendingAdoptions.Remove(id);
             }
         }

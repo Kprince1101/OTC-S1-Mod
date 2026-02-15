@@ -20,7 +20,7 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class ManagerSupplyBehaviour
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ManagerSupply");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerSupply");
 
         public enum SupplyState
         {
@@ -942,7 +942,8 @@ namespace OverTheCounter.Logic
                     });
 
                 _manager.GameNpc.Movement.SetDestination(visit.Location.Position, _storeWalkCallback, 3f, 1f);
-                Logger.Msg($"Manager {_manager.Id}: walking to {visit.Location.DisplayName} | inventory: [{_manager.GetInventorySummary()}]");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {_manager.Id}: walking to {visit.Location.DisplayName} | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
@@ -1401,7 +1402,8 @@ namespace OverTheCounter.Logic
                     });
 
                 _manager.GameNpc.Movement.SetDestination(storagePos.Value, _storageWalkCallback, 2f, 1f);
-                Logger.Msg($"Manager {_manager.Id}: walking to supply storage | inventory: [{_manager.GetInventorySummary()}]");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {_manager.Id}: walking to supply storage | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
@@ -1650,7 +1652,8 @@ namespace OverTheCounter.Logic
                     });
 
                 _manager.GameNpc.Movement.SetDestination(location.Destination, _idleWalkCallback, 3f, 1f);
-                Logger.Msg($"Manager {_manager.Id}: walking to idle point (supply) | inventory: [{_manager.GetInventorySummary()}]");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {_manager.Id}: walking to idle point (supply) | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
@@ -1800,7 +1803,8 @@ namespace OverTheCounter.Logic
             // Only redirect if the store is meaningfully closer AND we can afford something there
             if (storeDist < destDist - 10f && CanAffordAnyItem(visit))
             {
-                Logger.Msg($"Manager {_manager.Id}: reconsidering route — {visit.Location.DisplayName} ({storeDist:F0}m) is closer than current dest ({destDist:F0}m)");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {_manager.Id}: reconsidering route — {visit.Location.DisplayName} ({storeDist:F0}m) is closer than current dest ({destDist:F0}m)");
                 _nextVisit = visit;
                 State = SupplyState.WalkingToStore;
                 WalkToStore(visit);
@@ -1831,7 +1835,7 @@ namespace OverTheCounter.Logic
                 float dist = Vector3.Distance(pos, _currentWalkTarget);
                 if (dist > 3f)
                 {
-                    if (UnityEngine.Time.time - _lastEnsureMovingLog > 10f)
+                    if (Config.ManagerVerboseLogging.Value && UnityEngine.Time.time - _lastEnsureMovingLog > 10f)
                     {
                         Logger.Msg($"Manager {_manager.Id}: resuming supply run walk (dist={dist:F1}m)");
                         _lastEnsureMovingLog = UnityEngine.Time.time;
@@ -2135,7 +2139,8 @@ namespace OverTheCounter.Logic
                 }
 
                 npcInventory.AddCash(withdraw);
-                Logger.Msg($"Manager {_manager.Id}: withdrew ${withdraw:F0} cash from locker (total on hand: ${npcInventory.GetCashInInventory():F0})");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {_manager.Id}: withdrew ${withdraw:F0} cash from locker (total on hand: ${npcInventory.GetCashInInventory():F0})");
             }
             catch (Exception ex)
             {
@@ -2161,7 +2166,8 @@ namespace OverTheCounter.Logic
 
                 npcInventory.RemoveCash(cash);
                 DepositCashToStorage(_manager.AssignedLocker.Storage, cash);
-                Logger.Msg($"Manager {_manager.Id}: returned ${cash:F0} cash to locker");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {_manager.Id}: returned ${cash:F0} cash to locker");
 
                 // Bump the warning threshold so returned change doesn't false-trigger a flag reset
                 if (_manager.NoNightMarketCashTextSent)
@@ -2568,7 +2574,7 @@ namespace OverTheCounter.Logic
 
             int totalNpcItemSlots = 0;
             foreach (var kv in npcSlotsPerItem) totalNpcItemSlots += kv.Value;
-            if (totalNpcItemSlots > 0)
+            if (totalNpcItemSlots > 0 && Config.ManagerVerboseLogging.Value)
                 Logger.Msg($"Manager {_manager.Id}: [Reservations] rawFree={rawFreeSlots}, npcItems={totalNpcItemSlots}, npcPerItem=[{string.Join(", ", npcSlotsPerItem.Select(kv => $"{kv.Key}={kv.Value}"))}]");
 
             // Pre-deduct NPC slots for fully-served items (deficit <= 0 but holding NPC items).

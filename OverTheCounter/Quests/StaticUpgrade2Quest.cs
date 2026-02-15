@@ -13,13 +13,13 @@ namespace OverTheCounter.Quests
 {
     public class StaticUpgrade2Quest : Quest
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("StaticUpgrade2Quest");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:StaticUpgrade2Quest");
 
         protected override string Title => "Full Scale";
         protected override string Description => "Static has the final tier-3 enterprise upgrade available. Bring premium meth and go all in.";
         protected override bool AutoBegin => false;
         protected override Sprite QuestIcon => ImageUtils.LoadImage(
-            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "ExecutivePrivilege.png"));
+            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "CrimeWareQuest.png"));
 
         [SaveableField("static_upgrade2_stage")]
         private int _stage; // 0=not started, 1=active, 2=done

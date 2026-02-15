@@ -14,7 +14,7 @@ namespace OverTheCounter.SaveData
 {
     public class StaticSaveData : Saveable
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("StaticSaveData");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:StaticSaveData");
 
         [SaveableField("static_intro_completed")]
         private bool _introCompleted;
@@ -137,7 +137,8 @@ namespace OverTheCounter.SaveData
                 int effectiveStage = _crmTier >= 1 ? 3 : _introCompleted ? 2 : 1;
                 if (StaticIntroQuest.Instance.Stage < effectiveStage)
                 {
-                    Logger.Msg($"Tick reconciliation: quest stage {StaticIntroQuest.Instance.Stage} → {effectiveStage}");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Tick reconciliation: quest stage {StaticIntroQuest.Instance.Stage} → {effectiveStage}");
                     ReconcileQuest();
                 }
             }

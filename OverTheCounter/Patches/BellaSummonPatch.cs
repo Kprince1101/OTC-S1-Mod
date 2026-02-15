@@ -40,7 +40,8 @@ namespace OverTheCounter.Patches
                 {
                     if (_bellaSummoned)
                     {
-                        Logger.Msg("Bella is already summoned, ignoring duplicate request");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg("Bella is already summoned, ignoring duplicate request");
                         return false;
                     }
 
@@ -55,7 +56,8 @@ namespace OverTheCounter.Patches
                     // This handles: warp to door, SetVisible(true), remove from occupants,
                     // face direction, re-enable awareness — the full vanilla flow.
                     string buildingGuid = building.GUID.ToString();
-                    Logger.Msg($"Summoning Bella via ExitBuilding (building={building.BuildingName}, GUID={buildingGuid})");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Summoning Bella via ExitBuilding (building={building.BuildingName}, GUID={buildingGuid})");
 
                     npc.ExitBuilding(buildingGuid);
                     _bellaSummoned = true;
@@ -92,14 +94,16 @@ namespace OverTheCounter.Patches
                     // Bella destroyed or already back in a building — stop tracking
                     if (npc == null || BellaNPC.Instance == null)
                     {
-                        Logger.Msg("SummonTimer: Bella no longer valid, stopping timer");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg("SummonTimer: Bella no longer valid, stopping timer");
                         _bellaSummoned = false;
                         yield break;
                     }
 
                     if (npc.CurrentBuilding != null)
                     {
-                        Logger.Msg("SummonTimer: Bella already back in building, stopping timer");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg("SummonTimer: Bella already back in building, stopping timer");
                         _bellaSummoned = false;
                         yield break;
                     }
@@ -135,7 +139,8 @@ namespace OverTheCounter.Patches
 
                     if (idleTime >= IDLE_TIMEOUT)
                     {
-                        Logger.Msg($"SummonTimer: Bella idle for {idleTime:F0}s, re-injecting into building");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg($"SummonTimer: Bella idle for {idleTime:F0}s, re-injecting into building");
                         _bellaSummoned = false;
                         BellaNPC.Instance.ReInjectIntoBuilding();
                         yield break;

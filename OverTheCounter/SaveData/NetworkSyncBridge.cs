@@ -32,7 +32,7 @@ namespace OverTheCounter.SaveData
     /// </summary>
     internal static class NetworkSyncBridge
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("NetworkSync");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:NetworkSync");
 
         private static bool _networkInitialized;
         private static bool _initialSyncDone;
@@ -93,8 +93,8 @@ namespace OverTheCounter.SaveData
                 _managerVar.OnSyncError += (ex) => Logger.Warning($"Manager SyncVar error: {ex.Message}");
                 _mgrMsgVar.OnSyncError += (ex) => Logger.Warning($"MgrMsg SyncVar error: {ex.Message}");
                 _actionVar.OnSyncError += (ex) => Logger.Warning($"Action SyncVar error: {ex.Message}");
-                _configVar.OnWriteIgnored += (_) => Logger.Warning("Config SyncVar write ignored (not lobby owner).");
-                _stateVar.OnWriteIgnored += (_) => Logger.Warning("State SyncVar write ignored (not lobby owner).");
+                _configVar.OnWriteIgnored += (_) => { if (Config.VerboseLogging.Value) Logger.Msg("Config SyncVar write ignored (not lobby owner)."); };
+                _stateVar.OnWriteIgnored += (_) => { if (Config.VerboseLogging.Value) Logger.Msg("State SyncVar write ignored (not lobby owner)."); };
 
                 // Client callbacks: receive config and state from host.
                 _configVar.OnValueChanged += OnConfigChanged;
@@ -294,7 +294,8 @@ namespace OverTheCounter.SaveData
                     return;
                 }
                 _actionVar.Value = value;
-                Logger.Msg($"Sent quest action via SyncVar: {value}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Sent quest action via SyncVar: {value}");
             }
             catch (Exception ex)
             {
@@ -315,7 +316,8 @@ namespace OverTheCounter.SaveData
                 _drifterVar.Value = drifterPayload;
             if (_managerVar != null)
                 _managerVar.Value = managerPayload;
-            Logger.Msg("Pushed config, game state, drifter state, and manager state to SyncVars.");
+            if (Config.VerboseLogging.Value)
+                Logger.Msg("Pushed config, game state, drifter state, and manager state to SyncVars.");
         }
 
         // ==================================================================

@@ -15,7 +15,7 @@ namespace OverTheCounter.SaveData
 {
     public class VicSaveData : Saveable
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("VicSaveData");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:VicSaveData");
 
         [SaveableField("vic_unlocked")]
         private bool _unlocked;
@@ -206,7 +206,8 @@ namespace OverTheCounter.SaveData
                 int effectiveStage = _unlocked ? 3 : _questAccepted ? 2 : 1;
                 if (VicIntroQuest.Instance.Stage < effectiveStage)
                 {
-                    Logger.Msg($"Tick reconciliation: quest stage {VicIntroQuest.Instance.Stage} → {effectiveStage}");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Tick reconciliation: quest stage {VicIntroQuest.Instance.Stage} → {effectiveStage}");
                     ReconcileQuest();
                 }
             }

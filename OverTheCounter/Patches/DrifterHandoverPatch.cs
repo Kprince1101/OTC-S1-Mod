@@ -54,7 +54,8 @@ namespace OverTheCounter.Patches
                     return;
 
                 _pendingDrifterId.Value = npcId;
-                Melon<Core>.Logger.Msg($"[DrifterHandoverPatch] Detected drifter handover for {npcId}");
+                if (Config.VerboseLogging.Value)
+                    Melon<Core>.Logger.Msg($"[DrifterHandoverPatch] Detected drifter handover for {npcId}");
             }
             catch (Exception ex)
             {

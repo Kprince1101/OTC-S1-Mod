@@ -20,7 +20,7 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class DrifterInstance
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("DrifterInstance");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:DrifterInstance");
         private static readonly EVOLineType[] DismissalSounds = { EVOLineType.Annoyed, EVOLineType.No };
 
         /// <summary>
@@ -186,7 +186,8 @@ namespace OverTheCounter.Logic
             MelonCoroutines.Start(DelayedAppearanceReapply(existingNpc, seed));
 
             Active[id] = instance;
-            Logger.Msg($"Adopted FishNet NPC for drifter {id} ({firstName} {lastName}): Type={type}, Hotspot={hotspot.Name}");
+            if (Config.VerboseLogging.Value)
+                Logger.Msg($"Adopted FishNet NPC for drifter {id} ({firstName} {lastName}): Type={type}, Hotspot={hotspot.Name}");
             return instance;
         }
 
@@ -204,7 +205,8 @@ namespace OverTheCounter.Logic
                 try
                 {
                     DrifterSpawner.GenerateRandomAppearance(npc, seed);
-                    Logger.Msg($"[Adopt] Delayed appearance re-apply completed for {npc.ID}");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"[Adopt] Delayed appearance re-apply completed for {npc.ID}");
                 }
                 catch (Exception ex)
                 {
@@ -280,7 +282,8 @@ namespace OverTheCounter.Logic
                 _destCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
                     new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
                     {
-                        Logger.Msg($"Drifter {Id} arrived at destination (result={result})");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg($"Drifter {Id} arrived at destination (result={result})");
                         if (result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
                             result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
                         {
@@ -293,7 +296,8 @@ namespace OverTheCounter.Logic
                 _lastStuckCheckTime = Time.time;
                 _lastStuckCheckPos = null;
                 _stuckCount = 0;
-                Logger.Msg($"Drifter {Id} walking to destination: {Hotspot.Position}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Drifter {Id} walking to destination: {Hotspot.Position}");
             }
             catch (Exception ex)
             {
@@ -376,7 +380,8 @@ namespace OverTheCounter.Logic
                     {
                         if (Time.time - _lastEnsureMovingLog > 10f)
                         {
-                            Logger.Msg($"Drifter {Id}: resuming walk to spawn (interrupted, dist={dist:F1}m)");
+                            if (Config.VerboseLogging.Value)
+                                Logger.Msg($"Drifter {Id}: resuming walk to spawn (interrupted, dist={dist:F1}m)");
                             _lastEnsureMovingLog = Time.time;
                         }
                         GameNpc.Movement.SetDestination(Hotspot.SpawnPosition, _spawnCallback, 3f, 1f);
@@ -389,7 +394,8 @@ namespace OverTheCounter.Logic
                     {
                         if (Time.time - _lastEnsureMovingLog > 10f)
                         {
-                            Logger.Msg($"Drifter {Id}: resuming walk to destination (interrupted, dist={dist:F1}m)");
+                            if (Config.VerboseLogging.Value)
+                                Logger.Msg($"Drifter {Id}: resuming walk to destination (interrupted, dist={dist:F1}m)");
                             _lastEnsureMovingLog = Time.time;
                         }
                         GameNpc.Movement.SetDestination(Hotspot.Position, _destCallback, 3f, 1f);
@@ -432,14 +438,16 @@ namespace OverTheCounter.Logic
                 _spawnCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
                     new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
                     {
-                        Logger.Msg($"Drifter {Id} arrived at spawn (result={result})");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg($"Drifter {Id} arrived at spawn (result={result})");
                         if (result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
                             result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
                             FaceDirection(Hotspot.SpawnRotation);
                     });
 
                 GameNpc.Movement.SetDestination(Hotspot.SpawnPosition, _spawnCallback, 3f, 1f);
-                Logger.Msg($"Drifter {Id} walking back to spawn: {Hotspot.SpawnPosition}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Drifter {Id} walking back to spawn: {Hotspot.SpawnPosition}");
             }
             catch (Exception ex)
             {
@@ -457,7 +465,6 @@ namespace OverTheCounter.Logic
             {
                 if (GameNpc?.Movement == null) return;
                 GameNpc.Movement.MovementSpeedScale = 0.9f;
-                Logger.Msg($"Drifter {Id}: set to run speed");
             }
             catch (Exception ex)
             {
@@ -519,7 +526,8 @@ namespace OverTheCounter.Logic
                     consumeBehaviour.onConsumeDone.AddListener((UnityAction)(() =>
                     {
                         IsConsuming = false;
-                        Logger.Msg($"Drifter {Id}: consume animation finished, walking to spawn");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg($"Drifter {Id}: consume animation finished, walking to spawn");
                         WalkToSpawn();
                     }));
                 }
@@ -533,7 +541,8 @@ namespace OverTheCounter.Logic
                 {
                     consumeBehaviour.SendProduct(productInstance);
                     consumeBehaviour.Activate();
-                    Logger.Msg($"Drifter {Id}: started consume animation for {productId}");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Drifter {Id}: started consume animation for {productId}");
                 }
                 catch (Exception ex)
                 {
@@ -627,7 +636,8 @@ namespace OverTheCounter.Logic
                     }
                 }
 
-                Logger.Msg($"Drifter {Id}: stocked inventory with {count} items from handover");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Drifter {Id}: stocked inventory with {count} items from handover");
             }
             catch (Exception ex)
             {
@@ -651,7 +661,8 @@ namespace OverTheCounter.Logic
                 }
 
                 inventory.AddCash(amount);
-                Logger.Msg($"Drifter {Id}: stocked ${amount:F0} cash in inventory");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Drifter {Id}: stocked ${amount:F0} cash in inventory");
             }
             catch (Exception ex)
             {
@@ -679,7 +690,6 @@ namespace OverTheCounter.Logic
                 if (string.IsNullOrEmpty(weaponPath))
                 {
                     combatBehaviour.DefaultWeapon = null;
-                    Logger.Msg($"Drifter {Id}: equipped fists (no weapon)");
                     return;
                 }
 
@@ -708,11 +718,11 @@ namespace OverTheCounter.Logic
                 if (string.IsNullOrEmpty(assetPath))
                 {
                     avatarWeapon.AssetPath = weaponPath;
-                    Logger.Msg($"Drifter {Id}: fixed empty AssetPath → '{weaponPath}'");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Drifter {Id}: fixed empty AssetPath → '{weaponPath}'");
                 }
 
                 combatBehaviour.DefaultWeapon = avatarWeapon;
-                Logger.Msg($"Drifter {Id}: equipped weapon '{weaponPath}' (AssetPath='{avatarWeapon.AssetPath}', type={avatarWeapon.GetType().Name})");
             }
             catch (Exception ex)
             {
@@ -772,7 +782,8 @@ namespace OverTheCounter.Logic
                 if (IsAdopted)
                 {
                     // FishNet-adopted NPC: release reference only, server handles destroy
-                    Logger.Msg($"Drifter {Id}: releasing adopted FishNet NPC");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Drifter {Id}: releasing adopted FishNet NPC");
                 }
                 else
                 {

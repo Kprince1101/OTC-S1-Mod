@@ -804,30 +804,11 @@ namespace OverTheCounter.Logic
         /// </summary>
         public static bool DebugForceTrigger(Customer customer)
         {
-            if (Instance == null)
-            {
-                MelonLoader.MelonLogger.Msg("[DesperationManager] DEBUG: Instance is null");
-                return false;
-            }
+            if (Instance == null) return false;
+            if (customer?.NPC == null) return false;
+            if (Instance._activeEvents.ContainsKey(customer.NPC.ID)) return false;
 
-            if (customer == null || customer.NPC == null)
-            {
-                MelonLoader.MelonLogger.Msg("[DesperationManager] DEBUG: Customer or NPC is null");
-                return false;
-            }
-
-            string customerId = customer.NPC.ID;
-
-            // Check if already in desperation state
-            if (Instance._activeEvents.ContainsKey(customerId))
-            {
-                MelonLoader.MelonLogger.Msg($"[DesperationManager] DEBUG: {customer.NPC.fullName} is already desperate!");
-                return false;
-            }
-
-            // Force trigger regardless of eligibility
             Instance.TriggerDesperationEvent(customer);
-            MelonLoader.MelonLogger.Msg($"[DesperationManager] DEBUG: Forced desperation for {customer.NPC.fullName}");
             return true;
         }
 
@@ -846,7 +827,6 @@ namespace OverTheCounter.Logic
                 var unlocked = Customer.UnlockedCustomers;
                 if (unlocked == null || unlocked.Count == 0)
                 {
-                    MelonLoader.MelonLogger.Msg("[DesperationManager] DEBUG: No customers available");
                     DebugProductId = null;
                     return false;
                 }

@@ -59,6 +59,11 @@ namespace OverTheCounter
         public static ConfigEntry<float> ManagerSigningFee;
         public static ConfigEntry<bool> ManagerVerboseLogging;
 
+        // ── Debug ──
+        private static MelonPreferences_Category _debug;
+
+        public static ConfigEntry<bool> VerboseLogging;
+
         // ── Bella Protocol ──
         private static MelonPreferences_Category _bella;
 
@@ -91,7 +96,8 @@ namespace OverTheCounter
         {
             "ConsolidationEnabled",
             "ConsolidationThreshold",
-            "ManagerVerboseLogging"
+            "ManagerVerboseLogging",
+            "VerboseLogging"
         };
 
         public static void Initialize()
@@ -177,6 +183,12 @@ namespace OverTheCounter
                 "One-time fee deducted from player cash when hiring a manager"));
             ManagerVerboseLogging = Register(_managers.CreateEntry("ManagerVerboseLogging", false, "Verbose Logging",
                 "Enable detailed manager logging for troubleshooting (shopping list breakdowns, per-item details)"));
+
+            // ── Debug ──
+            _debug = MelonPreferences.CreateCategory("OverTheCounter_Debug", "Debug");
+
+            VerboseLogging = Register(_debug.CreateEntry("VerboseLogging", false, "Verbose Logging",
+                "Enable detailed logging for troubleshooting (drifters, quests, sync, NPCs)"));
 
             // ── Bella Protocol ──
             _bella = MelonPreferences.CreateCategory("OverTheCounter_Bella", "Bella Protocol");

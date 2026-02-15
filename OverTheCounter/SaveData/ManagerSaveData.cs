@@ -15,7 +15,7 @@ namespace OverTheCounter.SaveData
 {
     public class ManagerSaveData : Saveable
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ManagerSaveData");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerSaveData");
 
         [SaveableField("manager_state")]
         private string _managerState;
@@ -61,7 +61,8 @@ namespace OverTheCounter.SaveData
 
             if (!string.IsNullOrEmpty(_managerState))
             {
-                Logger.Msg($"OnLoaded: manager state found ({_managerState.Length} chars), deferring respawn");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"OnLoaded: manager state found ({_managerState.Length} chars), deferring respawn");
                 _needsRespawn = true;
                 _respawnStartTime = UnityEngine.Time.time;
             }
@@ -172,7 +173,8 @@ namespace OverTheCounter.SaveData
             // Queue NPC inventory restoration — deferred until containers resolve
             if (!string.IsNullOrEmpty(_npcInventories))
             {
-                Logger.Msg($"TryRespawn: queuing NPC inventory restore ({_npcInventories.Length} chars): {_npcInventories}");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"TryRespawn: queuing NPC inventory restore ({_npcInventories.Length} chars): {_npcInventories}");
                 ParsePendingNpcInventories(_npcInventories);
             }
 
@@ -291,7 +293,8 @@ namespace OverTheCounter.SaveData
 
                     if (mgr.HasLocker)
                     {
-                        Logger.Msg($"RetryPendingConfigs: {mgr.Id} locker resolved");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"RetryPendingConfigs: {mgr.Id} locker resolved");
                         _pendingConfigs.RemoveAt(i);
                     }
                 }
@@ -458,7 +461,8 @@ namespace OverTheCounter.SaveData
                     if (cash > 0f || pending.Items.Count > 0)
                     {
                         _pendingNpcRestores.Add(pending);
-                        Logger.Msg($"ParsePendingNpcInv: {mgrId} queued cash=${cash:F0}, {pending.Items.Count} item types");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"ParsePendingNpcInv: {mgrId} queued cash=${cash:F0}, {pending.Items.Count} item types");
                     }
                 }
                 catch (Exception ex)
@@ -504,7 +508,8 @@ namespace OverTheCounter.SaveData
                     if (p.Cash > 0f)
                     {
                         npcInv.AddCash(p.Cash);
-                        Logger.Msg($"RestoreNpcInv: {p.ManagerId} restored ${p.Cash:F0} cash to NPC");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"RestoreNpcInv: {p.ManagerId} restored ${p.Cash:F0} cash to NPC");
                         p.Cash = 0f;
                     }
 
@@ -533,7 +538,8 @@ namespace OverTheCounter.SaveData
                                 if (slotIdx >= 0)
                                     mgr.DistributionBehaviour?.SetSlotDestination(slotIdx, destGuid);
                             }
-                            Logger.Msg($"RestoreNpcInv: {p.ManagerId} restored {qty}x {itemId}{(string.IsNullOrEmpty(destGuid) ? "" : $" → dest {destGuid}")} to NPC");
+                            if (Config.ManagerVerboseLogging.Value)
+                                Logger.Msg($"RestoreNpcInv: {p.ManagerId} restored {qty}x {itemId}{(string.IsNullOrEmpty(destGuid) ? "" : $" → dest {destGuid}")} to NPC");
                             p.Items.RemoveAt(j);
                         }
                         catch (Exception ex)
@@ -547,7 +553,8 @@ namespace OverTheCounter.SaveData
                     if (p.Cash <= 0f && p.Items.Count == 0)
                     {
                         _pendingNpcRestores.RemoveAt(i);
-                        Logger.Msg($"RestoreNpcInv: {p.ManagerId} fully restored");
+                        if (Config.ManagerVerboseLogging.Value)
+                            Logger.Msg($"RestoreNpcInv: {p.ManagerId} fully restored");
                     }
                 }
                 catch (Exception ex)

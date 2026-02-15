@@ -13,13 +13,13 @@ namespace OverTheCounter.Quests
 {
     public class BellaProtocolQuest : Quest
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("BellaProtocolQuest");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:BellaProtocolQuest");
 
         protected override string Title => "Executive Privilege";
         protected override string Description => "Someone at the Fixer's mentioned a contact who can help with warehouse access.";
         protected override bool AutoBegin => false;
         protected override Sprite QuestIcon => ImageUtils.LoadImage(
-            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "RinseCycle.png"));
+            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "ExecutivePrivilege.png"));
 
         [SaveableField("bella_quest_stage")]
         private int _stage; // 0=not started, 1=visit Bella, 2=bring weed, 3=bring meth, 4=bring coke, 5=done
@@ -173,14 +173,16 @@ namespace OverTheCounter.Quests
             {
                 int saveStage = _stage;
                 int bellaStage = BellaSaveData.Instance?.Stage ?? -1;
-                Logger.Msg($"OnLoaded: save _stage={saveStage}, BellaSaveData.Stage={bellaStage}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"OnLoaded: save _stage={saveStage}, BellaSaveData.Stage={bellaStage}");
 
                 // BellaSaveData is the authority — host state may have advanced
                 // the stage via SyncVar before this quest's save was loaded.
                 if (BellaSaveData.Instance != null && BellaSaveData.Instance.Stage > _stage)
                     _stage = BellaSaveData.Instance.Stage;
 
-                Logger.Msg($"OnLoaded: rebuilding entries at _stage={_stage}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"OnLoaded: rebuilding entries at _stage={_stage}");
 
                 QuestEntries.Clear();
                 _visitEntry = AddEntry("Visit Bella at the downtown apartment", BellaBuilding);

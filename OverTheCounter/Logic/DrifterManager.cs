@@ -2395,10 +2395,7 @@ namespace OverTheCounter.Logic
         public static bool DebugSpawnDrifter(DrifterType type)
         {
             if (Instance == null)
-            {
-                MelonLoader.MelonLogger.Msg("[DrifterManager] DEBUG: Instance is null!");
                 return false;
-            }
 
             // Use the main SpawnDrifter path — ensures ObjectId capture, lifecycle, and state sync
             Instance.SpawnDrifter(type);

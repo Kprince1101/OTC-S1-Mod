@@ -13,7 +13,7 @@ namespace OverTheCounter.SaveData
 {
     public class BellaSaveData : Saveable
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("BellaSaveData");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:BellaSaveData");
 
         [SaveableField("bella_stage")]
         private int _stage;
@@ -49,7 +49,8 @@ namespace OverTheCounter.SaveData
         {
             Instance = this;
 
-            Logger.Msg($"OnLoaded: _stage={_stage} (from save), quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
+            if (Config.VerboseLogging.Value)
+                Logger.Msg($"OnLoaded: _stage={_stage} (from save), quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
 
             if (_stage > 0)
                 _questCreated = true;
@@ -69,7 +70,8 @@ namespace OverTheCounter.SaveData
             // Also reconciles the quest if it loaded before us with a stale stage.
             ConfigSyncData.ApplyPendingGameState();
 
-            Logger.Msg($"OnLoaded after pending apply: _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
+            if (Config.VerboseLogging.Value)
+                Logger.Msg($"OnLoaded after pending apply: _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
 
             ReconcileQuest();
         }
@@ -104,7 +106,8 @@ namespace OverTheCounter.SaveData
                 _questReconciled = true;
                 if (BellaProtocolQuest.Instance.Stage < _stage)
                 {
-                    Logger.Msg($"Tick reconciliation: quest stage {BellaProtocolQuest.Instance.Stage} → {_stage}");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Tick reconciliation: quest stage {BellaProtocolQuest.Instance.Stage} → {_stage}");
                     ReconcileQuest();
                 }
             }
@@ -295,7 +298,8 @@ namespace OverTheCounter.SaveData
         {
             bool changed = false;
 
-            Logger.Msg($"ApplyHostState: host stage={stage}, local _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
+            if (Config.VerboseLogging.Value)
+                Logger.Msg($"ApplyHostState: host stage={stage}, local _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
 
             if (stage > _stage)
             {

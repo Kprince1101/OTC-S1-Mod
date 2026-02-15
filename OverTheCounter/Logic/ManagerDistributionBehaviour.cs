@@ -20,7 +20,7 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class ManagerDistributionBehaviour
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("ManagerDistribution");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerDistribution");
 
         public enum DistributionState
         {
@@ -311,7 +311,8 @@ namespace OverTheCounter.Logic
                 if (!_currentRoute.IsConfigured || !SourceHasItems(_currentRoute.Source)
                     || !DestinationCanAcceptSourceItems(_currentRoute.Source, _currentRoute.Destination))
                 {
-                    Logger.Msg($"Manager {_manager.Id}: distribution route {_currentRouteIndex + 1} skipped (no longer valid/has items/dest full)");
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg($"Manager {_manager.Id}: distribution route {_currentRouteIndex + 1} skipped (no longer valid/has items/dest full)");
                     // route skipped — advance plan step
                     _routePlanStep++;
                     continue;
@@ -470,7 +471,8 @@ namespace OverTheCounter.Logic
                     });
 
                 _manager.GameNpc.Movement.SetDestination(target, _sourceWalkCallback, 2f, 1f);
-                Logger.Msg($"Manager {_manager.Id}: walking to source for route {_currentRouteIndex + 1} | inventory: [{_manager.GetInventorySummary()}]");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {_manager.Id}: walking to source for route {_currentRouteIndex + 1} | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
@@ -723,7 +725,8 @@ namespace OverTheCounter.Logic
                     });
 
                 _manager.GameNpc.Movement.SetDestination(target, _destWalkCallback, 2f, 1f);
-                Logger.Msg($"Manager {_manager.Id}: walking to destination for route {_currentRouteIndex + 1} | inventory: [{_manager.GetInventorySummary()}]");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {_manager.Id}: walking to destination for route {_currentRouteIndex + 1} | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
@@ -936,7 +939,8 @@ namespace OverTheCounter.Logic
                     });
 
                 _manager.GameNpc.Movement.SetDestination(location.Destination, _idleWalkCallback, 3f, 1f);
-                Logger.Msg($"Manager {_manager.Id}: walking to idle point after distribution | inventory: [{_manager.GetInventorySummary()}]");
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"Manager {_manager.Id}: walking to idle point after distribution | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {

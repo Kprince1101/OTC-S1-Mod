@@ -14,7 +14,7 @@ namespace OverTheCounter.Logic
     /// </summary>
     public static class DrifterHotspots
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("DrifterHotspots");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:DrifterHotspots");
 
         /// <summary>
         /// Minimum distance from any player for a spawn point to be considered safe.
@@ -206,7 +206,8 @@ namespace OverTheCounter.Logic
 
                 if (IsSpawnSafeFromPlayers(pick.SpawnPosition, playerPositions))
                 {
-                    Logger.Msg($"Safe hotspot found on attempt {attempt + 1}: {pick.Name}");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"Safe hotspot found on attempt {attempt + 1}: {pick.Name}");
                     return pick;
                 }
             }
@@ -225,7 +226,8 @@ namespace OverTheCounter.Logic
             if (halfSafe.Count > 0)
             {
                 var pick = halfSafe[UnityEngine.Random.Range(0, halfSafe.Count)];
-                Logger.Msg($"No perfectly safe hotspot found. Picked from {halfSafe.Count} half-safe candidates: {pick.Name}");
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"No perfectly safe hotspot found. Picked from {halfSafe.Count} half-safe candidates: {pick.Name}");
                 return pick;
             }
 

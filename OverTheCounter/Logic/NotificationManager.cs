@@ -258,13 +258,15 @@ namespace OverTheCounter.Logic
         /// </summary>
         private void ActivateGroup((int, int) windowKey, List<Contract> contracts)
         {
-            _logger.Msg($"[Activate] Creating ConsolidatedQuest for {contracts.Count} contracts, window {windowKey.Item1}-{windowKey.Item2}");
+            if (Config.VerboseLogging.Value)
+                _logger.Msg($"[Activate] Creating ConsolidatedQuest for {contracts.Count} contracts, window {windowKey.Item1}-{windowKey.Item2}");
 
             var quest = (ConsolidatedQuest)S1API.Quests.QuestManager.CreateQuest<ConsolidatedQuest>();
             if (quest != null)
             {
                 quest.Initialize();
-                _logger.Msg("[Activate] Quest created and initialized.");
+                if (Config.VerboseLogging.Value)
+                    _logger.Msg("[Activate] Quest created and initialized.");
             }
             else
             {
@@ -275,7 +277,8 @@ namespace OverTheCounter.Logic
             // Read the instance ID right now while it's fresh — storing it in our
             // own managed class avoids IL2CPP field clobbering on the quest object.
             int instanceId = quest.GameQuestInstanceId;
-            _logger.Msg($"[Activate] Stored GameQuestInstanceId={instanceId} for window {windowKey}");
+            if (Config.VerboseLogging.Value)
+                _logger.Msg($"[Activate] Stored GameQuestInstanceId={instanceId} for window {windowKey}");
 
             _activeGroups[windowKey] = new ConsolidatedGroup { Quest = quest, GameQuestInstanceId = instanceId };
         }
@@ -288,7 +291,8 @@ namespace OverTheCounter.Logic
             if (!_activeGroups.TryGetValue(windowKey, out var group))
                 return;
 
-            _logger.Msg($"[Deactivate] Removing group window {windowKey.Item1}-{windowKey.Item2}");
+            if (Config.VerboseLogging.Value)
+                _logger.Msg($"[Deactivate] Removing group window {windowKey.Item1}-{windowKey.Item2}");
 
             // Restore all contract HUDs — the next frame's HideGroupHUDs will
             // re-hide contracts that are still in other active groups.
@@ -300,7 +304,8 @@ namespace OverTheCounter.Logic
             }
 
             _activeGroups.Remove(windowKey);
-            _logger.Msg("[Deactivate] Group removed.");
+            if (Config.VerboseLogging.Value)
+                _logger.Msg("[Deactivate] Group removed.");
         }
 
         /// <summary>
@@ -402,7 +407,8 @@ namespace OverTheCounter.Logic
             {
                 if (!group.DebugUpdateLogged)
                 {
-                    _logger.Msg($"[UpdateGroupSummary] Window {windowKey}: data changed, count={contracts.Count}, products={productSummaries.Count}");
+                    if (Config.VerboseLogging.Value)
+                        _logger.Msg($"[UpdateGroupSummary] Window {windowKey}: data changed, count={contracts.Count}, products={productSummaries.Count}");
                     group.DebugUpdateLogged = true;
                 }
                 // Data changed — update tracking and quest content

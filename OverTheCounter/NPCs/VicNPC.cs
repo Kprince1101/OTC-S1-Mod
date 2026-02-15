@@ -26,7 +26,7 @@ namespace OverTheCounter.NPCs
     /// </summary>
     public sealed class VicNPC : NPC
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("VicNPC");
+        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:VicNPC");
         private static readonly EVOLineType[] DismissalSounds = { EVOLineType.Angry, EVOLineType.Annoyed, EVOLineType.No };
 
         private static readonly Vector3 SpawnPosition = new Vector3(67.75f, 0.97f, 32.36f);
@@ -43,7 +43,8 @@ namespace OverTheCounter.NPCs
         public bool DialogueReady { get; private set; }
 
         /// <summary>True while the player is in an active dialogue with Vic.</summary>
-        public bool IsInDialogue => Dialogue?.IsDialogueInProgress ?? false;
+        /// <remarks>Try-catch: IL2CPP native object may be destroyed after scene transitions while C# wrapper survives.</remarks>
+        public bool IsInDialogue { get { try { return Dialogue?.IsDialogueInProgress ?? false; } catch { return false; } } }
 
         public Vector3? CurrentPosition
         {
