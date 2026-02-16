@@ -121,6 +121,8 @@ namespace OverTheCounter.SaveData
             if (_questAccepted)
                 _questCreated = true;
 
+            _dialogueStale = true;
+
             if (_hasBeenTexted)
             {
                 _questCreated = true;

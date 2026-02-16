@@ -162,8 +162,15 @@ namespace OverTheCounter.NPCs
                 Schedule.EnforceState();
             }
 
-            SetupDialogue();
-            DialogueReady = true;
+            try
+            {
+                SetupDialogue();
+                DialogueReady = true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"SetupDialogue FAILED: {ex.Message}\n{ex.StackTrace}");
+            }
 
             try
             {
@@ -229,6 +236,7 @@ namespace OverTheCounter.NPCs
             // IL2CPP: native Dialogue object may be destroyed after scene transitions while C# wrapper survives
             try { if (Dialogue.IsDialogueInProgress) return; } catch { return; }
 
+            bool canTalk = CanTalkToStatic;
             bool introCompleted = StaticSaveData.Instance?.IntroCompleted ?? false;
             bool saasActive = StaticSaveData.Instance?.SaasActive ?? false;
             int crmTier = StaticSaveData.Instance?.CrmTier ?? 0;
@@ -240,7 +248,7 @@ namespace OverTheCounter.NPCs
 
             Dialogue.BuildAndRegisterContainer("StaticGreeting", container =>
             {
-                if (!CanTalkToStatic)
+                if (!canTalk)
                 {
                     container.AddNode("ENTRY", "You lost? I don't talk to tourists. Come back when you're moving real volume.", choices =>
                     {

@@ -29,6 +29,7 @@ namespace OverTheCounter.Quests
         private QuestEntry _bringSuppliesEntry;
 
         public static StaticIntroQuest Instance { get; private set; }
+        internal static void ResetInstance() => Instance = null;
 
         public int Stage => _stage;
 

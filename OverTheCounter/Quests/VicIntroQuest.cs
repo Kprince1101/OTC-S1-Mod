@@ -27,6 +27,7 @@ namespace OverTheCounter.Quests
         private QuestEntry _bringWeedEntry;
 
         public static VicIntroQuest Instance { get; private set; }
+        internal static void ResetInstance() => Instance = null;
 
         public int Stage => _stage;
 

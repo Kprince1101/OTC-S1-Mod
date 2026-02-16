@@ -103,6 +103,8 @@ namespace OverTheCounter.SaveData
                     _needsStatePublish = true;
             }
 
+            _dialogueStale = true;
+
             ConfigSyncData.ApplyPendingGameState();
             ReconcileQuest();
         }

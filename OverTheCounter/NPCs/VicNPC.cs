@@ -164,8 +164,15 @@ namespace OverTheCounter.NPCs
                 Schedule.EnforceState();
             }
 
-            SetupDialogue();
-            DialogueReady = true;
+            try
+            {
+                SetupDialogue();
+                DialogueReady = true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"SetupDialogue FAILED: {ex.Message}\n{ex.StackTrace}");
+            }
 
             if (VicSaveData.Instance == null)
             {

@@ -30,6 +30,7 @@ namespace OverTheCounter.Quests
         private QuestEntry _cokeEntry;
 
         public static BellaProtocolQuest Instance { get; private set; }
+        internal static void ResetInstance() => Instance = null;
 
         public int Stage => _stage;
 

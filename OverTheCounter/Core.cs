@@ -5,6 +5,7 @@ using OverTheCounter.Apps;
 using OverTheCounter.Logic;
 using OverTheCounter.NPCs;
 using OverTheCounter.Patches;
+using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1API.PhoneApp;
@@ -29,6 +30,7 @@ namespace OverTheCounter
         public override void OnInitializeMelon()
         {
             Config.Initialize();
+            NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
             ConfigSyncPatch.TryApply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
 
@@ -58,6 +60,11 @@ namespace OverTheCounter
             StaticSaveData.ResetInstance();
             VicSaveData.ResetInstance();
             BellaSaveData.ResetInstance();
+            StaticIntroQuest.ResetInstance();
+            StaticUpgrade1Quest.ResetInstance();
+            StaticUpgrade2Quest.ResetInstance();
+            VicIntroQuest.ResetInstance();
+            BellaProtocolQuest.ResetInstance();
             Patches.BellaSummonPatch.Reset();
             ContactsAppFix.Reset();
 
