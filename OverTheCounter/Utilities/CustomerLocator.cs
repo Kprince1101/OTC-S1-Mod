@@ -1,4 +1,4 @@
-﻿using HarmonyLib;
+using HarmonyLib;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Map;
@@ -6,6 +6,7 @@ using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.UI.Phone.Map;
 using MelonLoader;
 using OverTheCounter.Apps;
+using OverTheCounter.Logic;
 using UnityEngine;
 
 namespace OverTheCounter.Utilities
@@ -76,6 +77,32 @@ namespace OverTheCounter.Utilities
         }
 
         /// <summary>
+        /// Opens the map focused on the manager's world position.
+        /// Managers already have permanent POIs on the map, so no temporary POI is created.
+        /// </summary>
+        public static void PinManagerToMap(ManagerInstance mgr)
+        {
+            if (mgr?.GameNpc == null)
+            {
+                MelonLogger.Warning("Cannot locate null manager.");
+                return;
+            }
+
+            var mapPosUtil = Singleton<MapPositionUtility>.Instance;
+            var mapApp = PlayerSingleton<MapApp>.Instance;
+            if (mapPosUtil == null || mapApp == null) return;
+
+            var mapPos = mapPosUtil.GetMapPosition(mgr.GameNpc.transform.position);
+
+            if (CustomersApp.Instance != null)
+                CustomersApp.Instance.CloseApp();
+
+            mapApp.FocusPosition(mapPos);
+            mapApp.SkipFocusPlayer = true;
+            mapApp.SetOpen(true);
+        }
+
+        /// <summary>
         /// Hides the customer marker and resets map focus when the map is closed.
         /// </summary>
         [HarmonyPatch(typeof(MapApp), "SetOpen")]
@@ -85,7 +112,7 @@ namespace OverTheCounter.Utilities
             {
                 if (open) return;
 
-                // Cleanup the POI marker
+                // Cleanup customer POI
                 if (LastCustomerShownOnMap != null && LastCustomerShownOnMap.potentialCustomerPoI != null)
                 {
                     LastCustomerShownOnMap.potentialCustomerPoI.enabled = false;

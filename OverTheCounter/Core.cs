@@ -14,7 +14,7 @@ using System.IO;
 using System.Reflection;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.2.1", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.2.2", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 [assembly: MelonOptionalDependencies("SteamNetworkLib")]
 

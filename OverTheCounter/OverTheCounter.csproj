@@ -22,6 +22,7 @@
 	  <None Remove="Resources\CrimeWareQuest.png" />
 	  <None Remove="Resources\ExecutivePrivilege.png" />
 	  <None Remove="Resources\ManagerIcon.png" />
+	  <None Remove="Resources\ChevronIcon.png" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -494,6 +495,9 @@
 
 	<ItemGroup>
 		<Compile Include="Apps\CustomersApp.cs" />
+		<Compile Include="Apps\CustomersApp.Managers.cs" />
+		<Compile Include="Apps\CustomersApp.ManagerDetail.cs" />
+		<Compile Include="Apps\CustomersApp.Customers.cs" />
 		<Compile Include="Core.cs" />
 		<Compile Include="DebugHelpers.cs" />
 		<Compile Include="NPCs\VicNPC.cs" />
@@ -583,6 +587,9 @@
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
 	  <EmbeddedResource Include="Resources\Mugshots\Bella.png">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </EmbeddedResource>
+	  <EmbeddedResource Include="Resources\ChevronIcon.png">
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
 	</ItemGroup>
