@@ -5,6 +5,7 @@ using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.NPCs.Behaviour;
 using Il2CppScheduleOne.Property;
 using MelonLoader;
+using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1API.GameTime;
 using System;
@@ -33,6 +34,10 @@ namespace OverTheCounter.Logic
         /// </summary>
         internal static HashSet<string> SyncedManagerBusinesses { get; } = new HashSet<string>();
 
+        // Per-manager SyncVar slot tracking
+        private static readonly Dictionary<string, int> _managerSlot = new();  // managerId → slot index
+        private static readonly string[] _slotManagerId = new string[NetworkSyncBridge.ManagerSlotCount]; // slot → managerId
+
         // Identity
         public string Id { get; }
         public int SpawnSeed { get; }
@@ -54,9 +59,36 @@ namespace OverTheCounter.Logic
         // Locker — EmployeeHome used for cash storage (player deposits cash here)
         public EmployeeHome AssignedLocker { get; private set; }
 
-        // Lifecycle state
-        public ManagerState State { get; set; } = ManagerState.Idle;
-        public bool PaidForToday { get; set; }
+        // Lifecycle state — setters flag for network publish so the host
+        // pushes changes to clients automatically on the next frame.
+        private ManagerState _state = ManagerState.Idle;
+        public ManagerState State
+        {
+            get => _state;
+            set
+            {
+                if (_state != value) { _state = value; StatePublishNeeded = true; }
+            }
+        }
+
+        private bool _paidForToday;
+        public bool PaidForToday
+        {
+            get => _paidForToday;
+            set
+            {
+                if (_paidForToday != value) { _paidForToday = value; StatePublishNeeded = true; }
+            }
+        }
+
+        /// <summary>
+        /// Set by State/PaidForToday setters when a change occurs.
+        /// Checked in Core.OnLateUpdate to trigger per-slot SyncVar publish.
+        /// </summary>
+        public static bool StatePublishNeeded { get; set; }
+
+        // Sub-phase code synced from host for client-side display (0=none, 1=depositing, 2=purchasing/picking up)
+        internal int _subPhaseCode;
         public bool IsAdopted { get; private set; }
         public int NetworkObjectId { get; set; }
         public bool GreetingSent { get; set; }
@@ -308,7 +340,7 @@ namespace OverTheCounter.Logic
                 Logger.Warning($"No ManagerLocation for {business.PropertyCode}, using business spawn point");
             }
 
-            var npc = ManagerSpawner.Spawn(id, seed, spawnPos, spawnRot);
+            var (npc, avatarSettings) = ManagerSpawner.Spawn(id, seed, spawnPos, spawnRot);
             if (npc == null)
             {
                 Logger.Error($"Failed to spawn manager NPC for {id}");
@@ -331,8 +363,8 @@ namespace OverTheCounter.Logic
             // Set up dialogue choices (fire/transfer)
             ManagerSpawner.SetupDialogueChoices(instance);
 
-            // Generate proper mugshot from the applied avatar settings
-            instance.GenerateMugshot();
+            // Generate mugshot using the exact settings from ApplyAppearance
+            instance.GenerateMugshot(avatarSettings);
 
             // Always-on map marker (like dealers)
             instance.SetupMapMarker();
@@ -363,7 +395,12 @@ namespace OverTheCounter.Logic
             existingNpc.FirstName = firstName;
             existingNpc.LastName = lastName;
 
-            ManagerSpawner.ApplyAppearance(existingNpc, seed);
+            // Clear stale mugshot from the source prefab so MugshotUtility
+            // polling detects our freshly generated sprite, not the clone's.
+            existingNpc.MSGConversation = null;
+            existingNpc.MugshotSprite = null;
+
+            var avatarSettings = ManagerSpawner.ApplyAppearance(existingNpc, seed);
             ManagerSpawner.InitializeMessaging(existingNpc);
             ManagerSpawner.EnsureVoiceDatabase(existingNpc);
 
@@ -391,8 +428,8 @@ namespace OverTheCounter.Logic
             }
             catch { }
 
-            // Generate proper mugshot from the applied avatar settings
-            instance.GenerateMugshot();
+            // Generate mugshot using the exact settings from ApplyAppearance
+            instance.GenerateMugshot(avatarSettings);
 
             // Always-on map marker (like dealers)
             instance.SetupMapMarker();
@@ -455,23 +492,26 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Generates a mugshot from the NPC's current avatar settings via MugshotUtility.
+        /// Generates a mugshot from the NPC's avatar settings via MugshotUtility.
+        /// If explicit settings are provided, those are used directly for the capture
+        /// (ensures host/client determinism). Otherwise falls back to Avatar.CurrentSettings.
         /// Updates NPC.MugshotSprite, the locker display, phone messaging icon, and map POI.
         /// </summary>
-        public void GenerateMugshot()
+        public void GenerateMugshot(Il2CppScheduleOne.AvatarFramework.AvatarSettings explicitSettings = null)
         {
             if (Config.ManagerVerboseLogging.Value)
-                Log("GenerateMugshot() called");
+                Log($"GenerateMugshot() called (explicitSettings={explicitSettings != null})");
             MugshotUtility.Generate(GameNpc, $"Manager {Id}", sprite =>
             {
                 if (sprite == null) return;
 
                 GameNpc.MugshotSprite = sprite;
 
-                // Locker
+                // Locker — S1API creates sprites with Vector2.zero pivot (bottom-left),
+                // but the 3D SpriteRenderer on the clipboard needs centered pivot.
                 if (AssignedLocker?.MugshotSprite != null)
                 {
-                    AssignedLocker.MugshotSprite.sprite = sprite;
+                    AssignedLocker.MugshotSprite.sprite = CreateCenteredSprite(sprite);
                     if (Config.ManagerVerboseLogging.Value)
                         Log("mugshot applied to locker");
                 }
@@ -487,7 +527,7 @@ namespace OverTheCounter.Logic
 
                 if (Config.ManagerVerboseLogging.Value)
                     Log("mugshot applied to NPC + messaging");
-            });
+            }, explicitSettings);
         }
 
         /// <summary>
@@ -544,6 +584,17 @@ namespace OverTheCounter.Logic
             {
                 LogWarning($"RefreshMapPoiIcon failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Re-creates a sprite with centered pivot (0.5, 0.5) for 3D SpriteRenderers like the locker clipboard.
+        /// S1API creates mugshot sprites with Vector2.zero pivot which offsets them on world-space renderers.
+        /// </summary>
+        private static Sprite CreateCenteredSprite(Sprite source)
+        {
+            return Sprite.Create(source.texture,
+                new Rect(0, 0, source.texture.width, source.texture.height),
+                new Vector2(0.5f, 0.5f));
         }
 
         /// <summary>
@@ -719,7 +770,7 @@ namespace OverTheCounter.Logic
                     Log($"locker mugshot state: locker.MugshotSprite={locker.MugshotSprite != null}, GameNpc.MugshotSprite={GameNpc?.MugshotSprite != null}, IsMugshotReady={IsMugshotReady}");
                 if (locker.MugshotSprite != null && GameNpc?.MugshotSprite != null)
                 {
-                    locker.MugshotSprite.sprite = GameNpc.MugshotSprite;
+                    locker.MugshotSprite.sprite = CreateCenteredSprite(GameNpc.MugshotSprite);
                     if (Config.ManagerVerboseLogging.Value)
                         Log("set locker mugshot sprite immediately");
                 }
@@ -734,7 +785,7 @@ namespace OverTheCounter.Logic
                         {
                             if (AssignedLocker == locker && locker.MugshotSprite != null && GameNpc?.MugshotSprite != null)
                             {
-                                locker.MugshotSprite.sprite = GameNpc.MugshotSprite;
+                                locker.MugshotSprite.sprite = CreateCenteredSprite(GameNpc.MugshotSprite);
                                 if (Config.ManagerVerboseLogging.Value)
                                     Log("locker mugshot updated via OnMugshotReady");
                             }
@@ -1116,6 +1167,156 @@ namespace OverTheCounter.Logic
         /// <summary>Restores config separators from escaped form.</summary>
         internal static string DecodeConfig(string encoded) => encoded.Replace('~', '|').Replace('^', ';');
 
+        // ==================================================================
+        // Per-manager SyncVar slot management
+        // ==================================================================
+
+        /// <summary>
+        /// Serializes a single manager for its SyncVar slot.
+        /// Format: id:seed:biz:netObjId:stateCode:encodedConfig
+        /// State codes: tens=state, ones=sub-phase (e.g. 21=supply-depositing, 32=distribution-picking up)
+        /// </summary>
+        internal static string SerializeSingleManager(ManagerInstance mgr)
+        {
+            string configStr = EncodeConfig(mgr.Configuration.Serialize());
+            int stateCode = mgr.State switch
+            {
+                ManagerState.Idle when mgr.PaidForToday => 10,
+                ManagerState.SupplyRun => 20 + GetSupplySubPhase(mgr),
+                ManagerState.DistributionRun => 30 + GetDistributionSubPhase(mgr),
+                ManagerState.Transferring => 40,
+                _ => 0 // Idle+unpaid or NoFunds
+            };
+            return $"{mgr.Id}:{mgr.SpawnSeed}:{mgr.BusinessPropertyCode}:{mgr.NetworkObjectId}:{stateCode}:{configStr}";
+        }
+
+        // Sub-phase: 0=generic, 1=depositing, 2=purchasing
+        private static int GetSupplySubPhase(ManagerInstance mgr)
+        {
+            if (mgr.SupplyBehaviour == null) return 0;
+            return mgr.SupplyBehaviour.State switch
+            {
+                ManagerSupplyBehaviour.SupplyState.WalkingToStorage
+                    or ManagerSupplyBehaviour.SupplyState.AtStorage => 1,
+                ManagerSupplyBehaviour.SupplyState.WalkingToStore
+                    or ManagerSupplyBehaviour.SupplyState.AtStore => 2,
+                _ => 0,
+            };
+        }
+
+        // Sub-phase: 0=generic, 1=depositing, 2=picking up
+        private static int GetDistributionSubPhase(ManagerInstance mgr)
+        {
+            if (mgr.DistributionBehaviour == null) return 0;
+            return mgr.DistributionBehaviour.State switch
+            {
+                ManagerDistributionBehaviour.DistributionState.WalkingToDestProperty
+                    or ManagerDistributionBehaviour.DistributionState.WalkingToDest
+                    or ManagerDistributionBehaviour.DistributionState.AtDest => 1,
+                ManagerDistributionBehaviour.DistributionState.WalkingToSourceProperty
+                    or ManagerDistributionBehaviour.DistributionState.WalkingToSource
+                    or ManagerDistributionBehaviour.DistributionState.AtSource => 2,
+                _ => 0,
+            };
+        }
+
+        private static int AllocateSlot(string managerId)
+        {
+            if (_managerSlot.TryGetValue(managerId, out int existing))
+                return existing;
+            for (int i = 0; i < _slotManagerId.Length; i++)
+            {
+                if (_slotManagerId[i] == null)
+                {
+                    _slotManagerId[i] = managerId;
+                    _managerSlot[managerId] = i;
+                    return i;
+                }
+            }
+            Logger.Warning($"AllocateSlot: no free slots for {managerId} (all {_slotManagerId.Length} in use)");
+            return -1;
+        }
+
+        private static void FreeSlot(string managerId)
+        {
+            if (_managerSlot.TryGetValue(managerId, out int slot))
+            {
+                _slotManagerId[slot] = null;
+                _managerSlot.Remove(managerId);
+            }
+        }
+
+        /// <summary>
+        /// Publishes each active manager to its own SyncVar slot.
+        /// Clears slots for managers that no longer exist.
+        /// Called from ConfigSyncData.PublishManagerState (host only).
+        /// </summary>
+        public static void PublishAllSlots()
+        {
+            // Assign slots to active (non-fired) managers and write their data
+            var activeIds = new HashSet<string>();
+            foreach (var mgr in Active.Values)
+            {
+                if (mgr.State == ManagerState.Fired) continue;
+                activeIds.Add(mgr.Id);
+
+                int slot = AllocateSlot(mgr.Id);
+                if (slot < 0) continue;
+
+                string payload = SerializeSingleManager(mgr);
+                NetworkSyncBridge.PushManagerSlot(slot, payload);
+
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"PublishSlot[{slot}]: {mgr.Id} ({payload.Length} chars)");
+            }
+
+            // Clear slots for managers that are no longer active
+            for (int i = 0; i < _slotManagerId.Length; i++)
+            {
+                if (_slotManagerId[i] != null && !activeIds.Contains(_slotManagerId[i]))
+                {
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg($"PublishSlot[{i}]: clearing (was {_slotManagerId[i]})");
+                    NetworkSyncBridge.ClearManagerSlot(i);
+                    _managerSlot.Remove(_slotManagerId[i]);
+                    _slotManagerId[i] = null;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Resets slot tracking state. Called on scene transitions / cleanup.
+        /// </summary>
+        internal static void ResetSlots()
+        {
+            _managerSlot.Clear();
+            for (int i = 0; i < _slotManagerId.Length; i++)
+                _slotManagerId[i] = null;
+        }
+
+        /// <summary>
+        /// Applies a state code from the host to a client-side manager.
+        /// Uses direct field access to avoid setting StatePublishNeeded on the client.
+        /// State codes: tens=state, ones=sub-phase (e.g. 21=supply-depositing)
+        /// </summary>
+        private static void ApplyStateCode(ManagerInstance mgr, int stateCode)
+        {
+            int top = stateCode / 10;
+            mgr._subPhaseCode = stateCode % 10;
+            switch (top)
+            {
+                case 1: mgr._state = ManagerState.Idle; mgr._paidForToday = true; break;
+                case 2: mgr._state = ManagerState.SupplyRun; mgr._paidForToday = true; break;
+                case 3: mgr._state = ManagerState.DistributionRun; mgr._paidForToday = true; break;
+                case 4: mgr._state = ManagerState.Transferring; mgr._paidForToday = false; break;
+                default: mgr._state = ManagerState.Idle; mgr._paidForToday = false; break; // 0 = NoFunds
+            }
+        }
+
+        // ==================================================================
+        // Client adoption
+        // ==================================================================
+
         // Pending adoptions: managers whose FishNet NPC hasn't replicated yet
         private static readonly Dictionary<string, PendingAdoption> _pendingAdoptions = new();
         private static float _lastAdoptionRetry;
@@ -1128,154 +1329,177 @@ namespace OverTheCounter.Logic
             public int NetObjId;
             public float CreatedTime;
             public string ConfigStr;
+            public int StateCode;
         }
 
         /// <summary>
-        /// Applies manager state from host on client. Finds FishNet NPCs by ObjectId
-        /// and adopts them (applies appearance, name, messaging).
-        /// Queues pending adoptions for NPCs that haven't replicated yet.
-        /// Does NOT modify SyncedManagerBusinesses — that's handled by OnManagerStateChanged in ConfigSyncData.
+        /// Applies a single manager slot update from the host.
+        /// Called from ConfigSyncData.HandleManagerSlotChanged for each slot individually.
         /// </summary>
-        public static void ApplyManagerState(string stateString)
+        public static void ApplyManagerSlot(int slot, string data)
         {
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"ApplyManagerState: processing '{stateString ?? ""}' (Active={Active.Count}, Pending={_pendingAdoptions.Count})");
+                Logger.Msg($"ApplyManagerSlot[{slot}]: '{data}' (Active={Active.Count}, Pending={_pendingAdoptions.Count})");
 
-            // Collect IDs present in the incoming host state
-            var incomingIds = new HashSet<string>();
-
-            if (!string.IsNullOrEmpty(stateString))
+            // Empty slot → manager was removed/fired
+            if (string.IsNullOrEmpty(data))
             {
-                var entries = stateString.Split(';');
-                foreach (var entry in entries)
+                string oldId = _slotManagerId[slot];
+                if (oldId != null)
                 {
-                    if (string.IsNullOrEmpty(entry)) continue;
-                    var parts = entry.Split(':');
-                    if (parts.Length < 4)
+                    _slotManagerId[slot] = null;
+                    _managerSlot.Remove(oldId);
+
+                    // Despawn if active
+                    if (Active.TryGetValue(oldId, out var stale))
                     {
-                        Logger.Warning($"ApplyManagerState: skipping malformed entry '{entry}' (parts={parts.Length})");
-                        continue;
+                        Logger.Msg($"ApplyManagerSlot[{slot}]: despawning {oldId} (slot cleared by host)");
+                        stale.ClearMessages();
+                        stale.Despawn();
                     }
-
-                    string id = parts[0];
-                    incomingIds.Add(id);
-
-                    if (!int.TryParse(parts[1], out int seed))
+                    // Remove pending adoption
+                    if (_pendingAdoptions.ContainsKey(oldId))
                     {
-                        Logger.Warning($"ApplyManagerState: bad seed in entry '{entry}'");
-                        continue;
+                        _pendingAdoptions.Remove(oldId);
                     }
-                    string bizCode = parts[2];
-                    if (!int.TryParse(parts[3], out int netObjId))
-                    {
-                        Logger.Warning($"ApplyManagerState: bad netObjId in entry '{entry}'");
-                        continue;
-                    }
-                    // Rejoin from index 4 — config data contains ':' separators (item:threshold)
-                    // that get split along with the entry-level ':' separators
-                    string configStr = parts.Length > 4 ? string.Join(":", parts, 4, parts.Length - 4) : "";
-
-                    // Already adopted or pending
-                    if (Active.ContainsKey(id))
-                    {
-                        // Skip SyncVar echo while the client is actively editing this manager's clipboard.
-                        // Steam lobby data truncation can shorten the echoed value, corrupting the config.
-                        if (!NetworkHelper.IsHost && UI.ManagerConfigPanel.IsOpen
-                            && string.Equals(UI.ManagerConfigPanel.CurrentManagerId, id))
-                        {
-                            if (Config.ManagerVerboseLogging.Value)
-                                Logger.Msg($"ApplyManagerState: {id} skipped config update (clipboard open on client)");
-                            continue;
-                        }
-
-                        var existing = Active[id];
-
-                        // Update business assignment if manager was transferred
-                        if (!string.Equals(existing.BusinessPropertyCode, bizCode, StringComparison.OrdinalIgnoreCase))
-                        {
-                            foreach (var biz in Il2CppScheduleOne.Property.Business.OwnedBusinesses)
-                            {
-                                if (biz != null && string.Equals(biz.PropertyCode, bizCode, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    existing.AssignedBusiness = biz;
-                                    existing.BusinessPropertyCode = bizCode;
-                                    Logger.Msg($"ApplyManagerState: {id} transferred to {bizCode}");
-                                    break;
-                                }
-                            }
-                        }
-
-                        // Update config on existing managers (host may have changed it)
-                        if (!string.IsNullOrEmpty(configStr))
-                        {
-                            existing.Configuration.Deserialize(DecodeConfig(configStr));
-                            existing.ReconcileLockerFromConfig();
-                        }
-                        if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"ApplyManagerState: {id} already in Active, updated config");
-                        continue;
-                    }
-                    if (_pendingAdoptions.ContainsKey(id))
-                    {
-                        _pendingAdoptions[id].ConfigStr = configStr;
-                        if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"ApplyManagerState: {id} already pending, updated config");
-                        continue;
-                    }
-
-                    // Find FishNet NPC by ObjectId
-                    NPC npc = FindNetworkNpc(netObjId);
-                    if (npc == null)
-                    {
-                        // Queue for retry — NPC likely hasn't replicated yet
-                        _pendingAdoptions[id] = new PendingAdoption
-                        {
-                            Id = id, Seed = seed, BizCode = bizCode,
-                            NetObjId = netObjId, CreatedTime = UnityEngine.Time.time,
-                            ConfigStr = configStr
-                        };
-                        if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"ApplyManagerState: NPC ObjectId {netObjId} not found yet, queued adoption for {id}");
-                        continue;
-                    }
-
-                    TryAdopt(id, seed, bizCode, netObjId, npc, configStr);
                 }
+                RebuildSyncedBusinesses();
+                return;
             }
 
-            // Remove managers from Active that are no longer in the host state (e.g. fired by host)
-            var staleIds = new List<string>();
-            foreach (var id in Active.Keys)
+            // Parse single entry: id:seed:biz:netObjId:stateCode:config
+            var parts = data.Split(':');
+            if (parts.Length < 5)
             {
-                if (!incomingIds.Contains(id))
-                    staleIds.Add(id);
+                Logger.Warning($"ApplyManagerSlot[{slot}]: malformed data '{data}' (parts={parts.Length})");
+                return;
             }
-            foreach (var id in staleIds)
+
+            string id = parts[0];
+            if (!int.TryParse(parts[1], out int seed))
             {
-                Logger.Msg($"ApplyManagerState: removing stale manager {id} (not in host state)");
-                if (Active.TryGetValue(id, out var stale))
+                Logger.Warning($"ApplyManagerSlot[{slot}]: bad seed in '{data}'");
+                return;
+            }
+            string bizCode = parts[2];
+            if (!int.TryParse(parts[3], out int netObjId))
+            {
+                Logger.Warning($"ApplyManagerSlot[{slot}]: bad netObjId in '{data}'");
+                return;
+            }
+            int.TryParse(parts[4], out int stateCode);
+            string configStr = parts.Length > 5 ? string.Join(":", parts, 5, parts.Length - 5) : "";
+
+            // Track slot assignment
+            string prevId = _slotManagerId[slot];
+            if (prevId != null && prevId != id)
+            {
+                // Slot was reassigned to a different manager — despawn old one
+                _managerSlot.Remove(prevId);
+                if (Active.TryGetValue(prevId, out var old))
                 {
-                    stale.ClearMessages();
-                    stale.Despawn();
+                    old.ClearMessages();
+                    old.Despawn();
                 }
+                _pendingAdoptions.Remove(prevId);
             }
+            _slotManagerId[slot] = id;
+            _managerSlot[id] = slot;
 
-            // Also remove stale pending adoptions
-            var stalePending = new List<string>();
-            foreach (var id in _pendingAdoptions.Keys)
+            // Already adopted — update config/business
+            if (Active.ContainsKey(id))
             {
-                if (!incomingIds.Contains(id))
-                    stalePending.Add(id);
-            }
-            foreach (var id in stalePending)
-            {
+                // Skip SyncVar echo while the client is actively editing this manager's clipboard
+                if (!NetworkHelper.IsHost && UI.ManagerConfigPanel.IsOpen
+                    && string.Equals(UI.ManagerConfigPanel.CurrentManagerId, id))
+                {
+                    if (Config.ManagerVerboseLogging.Value)
+                        Logger.Msg($"ApplyManagerSlot[{slot}]: {id} skipped config update (clipboard open on client)");
+                    RebuildSyncedBusinesses();
+                    return;
+                }
+
+                var existing = Active[id];
+
+                // Update business assignment if manager was transferred
+                if (!string.Equals(existing.BusinessPropertyCode, bizCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var biz in Il2CppScheduleOne.Property.Business.OwnedBusinesses)
+                    {
+                        if (biz != null && string.Equals(biz.PropertyCode, bizCode, StringComparison.OrdinalIgnoreCase))
+                        {
+                            existing.AssignedBusiness = biz;
+                            existing.BusinessPropertyCode = bizCode;
+                            Logger.Msg($"ApplyManagerSlot[{slot}]: {id} transferred to {bizCode}");
+                            break;
+                        }
+                    }
+                }
+
+                // Update config
+                if (!string.IsNullOrEmpty(configStr))
+                {
+                    existing.Configuration.Deserialize(DecodeConfig(configStr));
+                    existing.ReconcileLockerFromConfig();
+                }
+
+                // Apply host state (bypass setter to avoid setting StatePublishNeeded on client)
+                ApplyStateCode(existing, stateCode);
+
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"ApplyManagerState: removing stale pending adoption {id}");
-                _pendingAdoptions.Remove(id);
+                    Logger.Msg($"ApplyManagerSlot[{slot}]: {id} already in Active, updated config+state");
+                RebuildSyncedBusinesses();
+                return;
             }
+
+            // Already pending — update config + state
+            if (_pendingAdoptions.ContainsKey(id))
+            {
+                _pendingAdoptions[id].ConfigStr = configStr;
+                _pendingAdoptions[id].StateCode = stateCode;
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"ApplyManagerSlot[{slot}]: {id} already pending, updated config");
+                RebuildSyncedBusinesses();
+                return;
+            }
+
+            // Find FishNet NPC by ObjectId
+            NPC npc = FindNetworkNpc(netObjId);
+            if (npc == null)
+            {
+                _pendingAdoptions[id] = new PendingAdoption
+                {
+                    Id = id, Seed = seed, BizCode = bizCode,
+                    NetObjId = netObjId, CreatedTime = UnityEngine.Time.time,
+                    ConfigStr = configStr, StateCode = stateCode
+                };
+                if (Config.ManagerVerboseLogging.Value)
+                    Logger.Msg($"ApplyManagerSlot[{slot}]: NPC ObjectId {netObjId} not found yet, queued adoption for {id}");
+                RebuildSyncedBusinesses();
+                return;
+            }
+
+            TryAdopt(id, seed, bizCode, netObjId, npc, configStr, stateCode);
+            RebuildSyncedBusinesses();
         }
 
-        private static void TryAdopt(string id, int seed, string bizCode, int netObjId, NPC npc, string configStr = "")
+        /// <summary>
+        /// Rebuilds SyncedManagerBusinesses from current slot + active state.
+        /// </summary>
+        private static void RebuildSyncedBusinesses()
+        {
+            SyncedManagerBusinesses.Clear();
+            foreach (var mgr in Active.Values)
+            {
+                if (mgr.State != ManagerState.Fired)
+                    SyncedManagerBusinesses.Add(mgr.BusinessPropertyCode);
+            }
+            // Also include pending adoptions (manager exists but NPC not found yet)
+            foreach (var pa in _pendingAdoptions.Values)
+                SyncedManagerBusinesses.Add(pa.BizCode);
+        }
+
+        private static void TryAdopt(string id, int seed, string bizCode, int netObjId, NPC npc, string configStr = "", int stateCode = 1)
         {
             Business business = null;
             foreach (var biz in Business.OwnedBusinesses)
@@ -1305,11 +1529,13 @@ namespace OverTheCounter.Logic
                     instance.ReconcileLockerFromConfig();
                 }
 
+                // Apply host state (bypass setter to avoid setting StatePublishNeeded on client)
+                ApplyStateCode(instance, stateCode);
+
                 // Send greeting text locally (host sends its own during HireManager)
                 instance.SendGreeting($"Hey boss! I'm your new manager at {business.PropertyName}. Use the clipboard to assign me a locker and I'll get to work.");
 
                 Logger.Msg($"Adopted manager {id} at {bizCode} (NetObjId={netObjId}, config={!string.IsNullOrEmpty(configStr)})");
-
             }
         }
 
@@ -1341,7 +1567,7 @@ namespace OverTheCounter.Logic
                 NPC npc = FindNetworkNpc(pa.NetObjId);
                 if (npc != null)
                 {
-                    TryAdopt(pa.Id, pa.Seed, pa.BizCode, pa.NetObjId, npc, pa.ConfigStr);
+                    TryAdopt(pa.Id, pa.Seed, pa.BizCode, pa.NetObjId, npc, pa.ConfigStr, pa.StateCode);
                     completed.Add(kv.Key);
                 }
             }
@@ -1405,6 +1631,7 @@ namespace OverTheCounter.Logic
                 }
             }
             Active.Clear();
+            ResetSlots();
         }
     }
 

@@ -33,7 +33,15 @@ namespace OverTheCounter.Logic
 
         private readonly ManagerInstance _manager;
 
-        public SupplyState State { get; private set; } = SupplyState.Idle;
+        private SupplyState _state = SupplyState.Idle;
+        public SupplyState State
+        {
+            get => _state;
+            private set
+            {
+                if (_state != value) { _state = value; ManagerInstance.StatePublishNeeded = true; }
+            }
+        }
 
         // Route planning — rebuilt after each store visit
         private StoreVisit _nextVisit;
@@ -1327,27 +1335,45 @@ namespace OverTheCounter.Logic
         private void AfterPurchaseComplete()
         {
             _nextVisit = null;
-            if (!PlanAndContinue())
+
+            // Always deposit items before considering more shopping. This ensures
+            // the manager finishes one load before going back for more, keeping the
+            // supply storage fed and enabling distribution routes to start sooner.
+            // After depositing, TryStartNextJob → TryStartSupplyRun will naturally
+            // re-trigger another supply run if items remain on the shopping list.
+            if (HasItemsInNpcInventory())
             {
-                if (HasItemsInNpcInventory())
+                if (CanStorageAcceptAnyItem())
                 {
                     WalkToStorage();
                 }
                 else
                 {
-                    // Run complete — return cash and walk home (mirrors DepositItems flow)
+                    _manager.Log($"storage full after purchase, idling with items");
                     ReturnCashToLocker();
                     _purchaseQueue = null;
                     State = SupplyState.Idle;
                     _manager.State = ManagerState.Idle;
-                    _nextVisit = null;
                     _manager.EnableIdleBehaviour();
+                }
+                return;
+            }
 
-                    if (!_manager.TryStartNextJob())
-                    {
-                        _manager.State = ManagerState.SupplyRun;
-                        WalkToIdle();
-                    }
+            // No items in inventory — check if more shopping is needed
+            if (!PlanAndContinue())
+            {
+                // Run complete — return cash and walk home
+                ReturnCashToLocker();
+                _purchaseQueue = null;
+                State = SupplyState.Idle;
+                _manager.State = ManagerState.Idle;
+                _nextVisit = null;
+                _manager.EnableIdleBehaviour();
+
+                if (!_manager.TryStartNextJob())
+                {
+                    _manager.State = ManagerState.SupplyRun;
+                    WalkToIdle();
                 }
             }
         }

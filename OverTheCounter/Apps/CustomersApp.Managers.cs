@@ -1,5 +1,6 @@
 using S1API.UI;
 using System;
+using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
@@ -67,11 +68,13 @@ namespace OverTheCounter.Apps
                 return;
             }
 
-            foreach (var mgr in ManagerInstance.Active.Values)
-            {
-                if (mgr.State == ManagerState.Fired) continue;
+            // Sort by ID for deterministic ordering between host and client
+            // (Dictionary enumeration order depends on insertion order which differs)
+            var sorted = ManagerInstance.Active.Values
+                .Where(m => m.State != ManagerState.Fired)
+                .OrderBy(m => m.Id);
+            foreach (var mgr in sorted)
                 CreateManagerCard(contentParent, mgr);
-            }
         }
 
         // Chevron icon sprite (cached across cards)
@@ -224,7 +227,7 @@ namespace OverTheCounter.Apps
 
                 // Read directly from NPC inventory slot
                 Sprite icon = null;
-                int qty = 0;
+                string displayQty = null;
                 try
                 {
                     if (npcInventory?.ItemSlots != null && i < npcInventory.ItemSlots.Count)
@@ -233,7 +236,8 @@ namespace OverTheCounter.Apps
                         if (slot?.ItemInstance?.Definition != null)
                         {
                             icon = slot.ItemInstance.Definition.Icon;
-                            qty = slot.Quantity;
+                            var cash = slot.ItemInstance.TryCast<Il2CppScheduleOne.ItemFramework.CashInstance>();
+                            displayQty = cash != null ? $"${cash.Balance:N0}" : slot.Quantity.ToString();
                         }
                     }
                 }
@@ -254,9 +258,9 @@ namespace OverTheCounter.Apps
                     iconRect.offsetMax = Vector2.zero;
 
                     // Quantity overlay (bottom-right)
-                    if (qty > 0)
+                    if (displayQty != null)
                     {
-                        var qtyText = UIFactory.Text($"Qty_{i}", qty.ToString(), slotPanel.transform, 13, TextAnchor.LowerRight);
+                        var qtyText = UIFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 13, TextAnchor.LowerRight);
                         qtyText.color = Color.white;
                         var qtyRect = qtyText.gameObject.GetComponent<RectTransform>();
                         qtyRect.anchorMin = Vector2.zero;
@@ -283,7 +287,7 @@ namespace OverTheCounter.Apps
             chevRect.pivot = new Vector2(0.5f, 1f);
             chevRect.anchoredPosition = Vector2.zero;
             chevLabel.gameObject.SetActive(false);
-            _chevronSprite ??= LoadIconResource("ChevronIcon");
+            if (_chevronSprite == null) _chevronSprite = LoadIconResource("ChevronIcon");
             if (_chevronSprite != null)
             {
                 var chevIcon = new GameObject("ChevronIcon");

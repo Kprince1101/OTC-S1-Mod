@@ -102,7 +102,7 @@ namespace OverTheCounter.Apps
             _logScrollRect.content = contentRect;
 
             // Log text
-            _logText = UIFactory.Text("LogText", "", content.transform, 11, TextAnchor.UpperLeft);
+            _logText = UIFactory.Text("LogText", "", content.transform, 15, TextAnchor.UpperLeft);
             _logText.color = new Color(0.45f, 0.85f, 0.45f);
             _logText.supportRichText = false;
             _logText.horizontalOverflow = HorizontalWrapMode.Wrap;

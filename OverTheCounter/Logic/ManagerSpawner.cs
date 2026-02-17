@@ -184,7 +184,7 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Spawns a new Manager NPC at the specified position.
         /// </summary>
-        public static NPC Spawn(string id, int seed, Vector3 position, Quaternion rotation)
+        public static (NPC npc, AvatarSettings settings) Spawn(string id, int seed, Vector3 position, Quaternion rotation)
         {
             try
             {
@@ -192,7 +192,7 @@ namespace OverTheCounter.Logic
                 if (basePrefab == null)
                 {
                     Logger.Error($"Cannot spawn manager {id}: no base prefab");
-                    return null;
+                    return (null, null);
                 }
 
                 var (firstName, lastName) = GetManagerName(seed);
@@ -202,7 +202,7 @@ namespace OverTheCounter.Logic
                 if (clone == null || clone.gameObject == null)
                 {
                     Logger.Error($"Failed to instantiate prefab for manager {id}");
-                    return null;
+                    return (null, null);
                 }
 
                 clone.gameObject.name = $"Manager_{id}";
@@ -221,7 +221,7 @@ namespace OverTheCounter.Logic
                 {
                     Logger.Error($"Cloned object missing NPC component for manager {id}");
                     UnityEngine.Object.Destroy(clone.gameObject);
-                    return null;
+                    return (null, null);
                 }
 
                 // Clear stale state inherited from the clone source so
@@ -286,8 +286,8 @@ namespace OverTheCounter.Logic
                     Logger.Warning($"ServerManager.Spawn failed for manager {id}: {ex.Message}");
                 }
 
-                // Apply appearance
-                ApplyAppearance(npc, seed);
+                // Apply appearance and capture settings for mugshot
+                var avatarSettings = ApplyAppearance(npc, seed);
 
                 // Initialize messaging and voice
                 InitializeMessaging(npc);
@@ -315,12 +315,12 @@ namespace OverTheCounter.Logic
                 catch { }
 
                 Logger.Msg($"Spawned manager {id} ({firstName} {lastName}) at {spawnPos}");
-                return npc;
+                return (npc, avatarSettings);
             }
             catch (Exception ex)
             {
                 Logger.Error($"Spawn failed for manager {id}: {ex.Message}\n{ex.StackTrace}");
-                return null;
+                return (null, null);
             }
         }
 
@@ -345,13 +345,14 @@ namespace OverTheCounter.Logic
         /// Applies deterministic Handler-style appearance to a Manager NPC.
         /// Uses button-up shirt, dark slacks, and dress shoes for a professional look.
         /// Biometrics (skin, hair, eyes) are randomized from seed for variety.
+        /// Returns the generated AvatarSettings for use in mugshot generation.
         /// </summary>
-        public static void ApplyAppearance(NPC npc, int seed)
+        public static AvatarSettings ApplyAppearance(NPC npc, int seed)
         {
             if (npc?.Avatar == null)
             {
                 Logger.Warning("Cannot apply appearance: NPC or Avatar is null");
-                return;
+                return null;
             }
 
             try
@@ -359,9 +360,10 @@ namespace OverTheCounter.Logic
                 var state = UnityEngine.Random.state;
                 UnityEngine.Random.InitState(seed);
 
-                var settings = npc.Avatar.CurrentSettings;
-                if (settings == null)
-                    settings = ScriptableObject.CreateInstance<AvatarSettings>();
+                // Always create a fresh AvatarSettings. FishNet-replicated NPCs may
+                // share the same ScriptableObject reference from the prefab clone. Modifying
+                // it in-place would corrupt all NPCs that share the reference.
+                var settings = ScriptableObject.CreateInstance<AvatarSettings>();
 
                 if (settings.FaceLayerSettings == null)
                     settings.FaceLayerSettings = new Il2CppSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
@@ -400,6 +402,7 @@ namespace OverTheCounter.Logic
                 settings.HairPath = hairPool[UnityEngine.Random.Range(0, hairPool.Length)];
 
                 settings.EyeBallTint = Color.white;
+                settings.EyeballMaterialIdentifier = "Default";
                 settings.PupilDilation = UnityEngine.Random.Range(0.5f, 0.8f);
                 settings.EyebrowScale = UnityEngine.Random.Range(0.8f, 1.1f);
                 settings.EyebrowThickness = UnityEngine.Random.Range(0.7f, 1.2f);
@@ -446,10 +449,13 @@ namespace OverTheCounter.Logic
 
                 if (Config.ManagerVerboseLogging.Value)
                     Logger.Msg($"Applied manager appearance for {npc.ID}");
+
+                return settings;
             }
             catch (Exception ex)
             {
                 Logger.Warning($"ApplyAppearance failed for manager {npc.ID}: {ex.Message}");
+                return null;
             }
         }
 

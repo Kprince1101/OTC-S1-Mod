@@ -11,6 +11,7 @@ using System.Collections;
 using HarmonyLib;
 using System;
 using OverTheCounter.Logic;
+using OverTheCounter.Utilities;
 
 namespace OverTheCounter.Apps
 {
@@ -122,34 +123,49 @@ namespace OverTheCounter.Apps
 
             if (state == ManagerState.SupplyRun)
             {
-                var sub = mgr.SupplyBehaviour?.State;
-                string phase = sub switch
+                string phase;
+                if (NetworkHelper.IsHost)
                 {
-                    ManagerSupplyBehaviour.SupplyState.WalkingToStorage
-                        or ManagerSupplyBehaviour.SupplyState.AtStorage => "Depositing",
-                    ManagerSupplyBehaviour.SupplyState.WalkingToStore
-                        or ManagerSupplyBehaviour.SupplyState.AtStore => "Purchasing",
-                    _ => null,
-                };
+                    phase = mgr.SupplyBehaviour?.State switch
+                    {
+                        ManagerSupplyBehaviour.SupplyState.WalkingToStorage
+                            or ManagerSupplyBehaviour.SupplyState.AtStorage => "Depositing",
+                        ManagerSupplyBehaviour.SupplyState.WalkingToStore
+                            or ManagerSupplyBehaviour.SupplyState.AtStore => "Purchasing",
+                        _ => null,
+                    };
+                }
+                else
+                {
+                    phase = mgr._subPhaseCode switch { 1 => "Depositing", 2 => "Purchasing", _ => null };
+                }
                 string label = phase != null ? $"\u25CF Supply Run - {phase}" : "\u25CF Supply Run";
                 return (label, new Color(0.2f, 0.75f, 0.2f));
             }
 
             if (state == ManagerState.DistributionRun)
             {
-                var dist = mgr.DistributionBehaviour;
-                int route = dist?.CurrentRouteDisplay ?? 1;
-                var sub = dist?.State;
-                string phase = sub switch
+                int route = NetworkHelper.IsHost
+                    ? mgr.DistributionBehaviour?.CurrentRouteDisplay ?? 1
+                    : 1;
+                string phase;
+                if (NetworkHelper.IsHost)
                 {
-                    ManagerDistributionBehaviour.DistributionState.WalkingToDestProperty
-                        or ManagerDistributionBehaviour.DistributionState.WalkingToDest
-                        or ManagerDistributionBehaviour.DistributionState.AtDest => "Depositing",
-                    ManagerDistributionBehaviour.DistributionState.WalkingToSourceProperty
-                        or ManagerDistributionBehaviour.DistributionState.WalkingToSource
-                        or ManagerDistributionBehaviour.DistributionState.AtSource => "Picking Up",
-                    _ => null,
-                };
+                    phase = mgr.DistributionBehaviour?.State switch
+                    {
+                        ManagerDistributionBehaviour.DistributionState.WalkingToDestProperty
+                            or ManagerDistributionBehaviour.DistributionState.WalkingToDest
+                            or ManagerDistributionBehaviour.DistributionState.AtDest => "Depositing",
+                        ManagerDistributionBehaviour.DistributionState.WalkingToSourceProperty
+                            or ManagerDistributionBehaviour.DistributionState.WalkingToSource
+                            or ManagerDistributionBehaviour.DistributionState.AtSource => "Picking Up",
+                        _ => null,
+                    };
+                }
+                else
+                {
+                    phase = mgr._subPhaseCode switch { 1 => "Depositing", 2 => "Picking Up", _ => null };
+                }
                 string label = phase != null
                     ? $"\u25CF Distribution Route {route} - {phase}"
                     : $"\u25CF Distribution Route {route}";

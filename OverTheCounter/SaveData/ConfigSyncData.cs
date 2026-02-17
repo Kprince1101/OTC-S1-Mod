@@ -77,8 +77,9 @@ namespace OverTheCounter.SaveData
             NetworkSyncBridge.PushOnLoaded(
                 Config.SerializeAll(),
                 SerializeGameState(),
-                DrifterManager.Instance?.SerializeDrifterState() ?? "",
-                SerializeManagerSyncVar());
+                DrifterManager.Instance?.SerializeDrifterState() ?? "");
+            // Manager slots are pushed via WriteInitialManagerSlots() in ProcessMessages,
+            // or via PublishManagerState() once managers are restored from save.
         }
 
         // ==================================================================
@@ -193,7 +194,7 @@ namespace OverTheCounter.SaveData
         private static void PublishDrifterStateImpl(string payload) => NetworkSyncBridge.PushDrifterState(payload);
 
         /// <summary>
-        /// Publishes manager state to the dedicated manager SyncVar.
+        /// Publishes each active manager to its own SyncVar slot.
         /// Separate from PublishGameState to avoid lobby data truncation.
         /// </summary>
         public void PublishManagerState()
@@ -204,11 +205,8 @@ namespace OverTheCounter.SaveData
 
             try
             {
-                string managerState = SerializeManagerSyncVar();
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"PublishManagerState: {managerState.Length} chars");
                 if (IsNetworkLibAvailable)
-                    PublishManagerStateImpl(managerState);
+                    PublishManagerStateImpl();
             }
             catch (Exception ex)
             {
@@ -217,7 +215,14 @@ namespace OverTheCounter.SaveData
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void PublishManagerStateImpl(string payload) => NetworkSyncBridge.PushManagerState(payload);
+        private static void PublishManagerStateImpl() => ManagerInstance.PublishAllSlots();
+
+        /// <summary>
+        /// Writes manager data to per-manager SyncVar slots during initial lobby sync.
+        /// Called from NetworkSyncBridge.ProcessMessages after lobby discovery.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void WriteInitialManagerSlots() => ManagerInstance.PublishAllSlots();
 
         /// <summary>
         /// Publishes pending manager text messages to the dedicated message SyncVar.
@@ -301,11 +306,6 @@ namespace OverTheCounter.SaveData
             DrifterManager.Instance?.SerializeDrifterState() ?? "";
 
         /// <summary>
-        /// Provides serialized manager state for the bridge's initial sync push.
-        /// </summary>
-        internal static string GetSerializedManagerState() => SerializeManagerSyncVar();
-
-        /// <summary>
         /// Clears config overrides on the host during initial lobby sync.
         /// </summary>
         internal static void ClearOverridesForHost() => Config.ClearAllOverrides();
@@ -363,46 +363,18 @@ namespace OverTheCounter.SaveData
         }
 
         /// <summary>
-        /// Client callback: host manager state SyncVar changed.
+        /// Client callback: a single manager SyncVar slot changed.
         /// </summary>
-        internal static void HandleManagerStateChanged(string newValue)
+        internal static void HandleManagerSlotChanged(int slot, string newValue)
         {
             try
             {
-                // Empty value = all managers fired/removed
-                if (string.IsNullOrEmpty(newValue))
-                {
-                    ManagerInstance.SyncedManagerBusinesses.Clear();
-                    ManagerInstance.ApplyManagerState("");
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg("Client cleared manager state (empty SyncVar).");
-                    return;
-                }
-
-                var state = ParsePayload(newValue);
-
-                // Sync business assignments
-                ManagerInstance.SyncedManagerBusinesses.Clear();
-                if (state.TryGetValue("biz", out var bizStr) && !string.IsNullOrEmpty(bizStr))
-                {
-                    foreach (var code in bizStr.Split(','))
-                    {
-                        if (!string.IsNullOrEmpty(code))
-                            ManagerInstance.SyncedManagerBusinesses.Add(code);
-                    }
-                }
-
-                // Always call ApplyManagerState to adopt new managers AND clean up stale ones
-                string mgrData = "";
-                if (state.TryGetValue("data", out var md))
-                    mgrData = md ?? "";
-                ManagerInstance.ApplyManagerState(mgrData);
-
-                Logger.Msg($"Client applied manager state from SyncVar ({newValue.Length} chars).");
+                ManagerInstance.ApplyManagerSlot(slot, newValue);
+                Logger.Msg($"Client applied manager slot {slot} from SyncVar ({newValue?.Length ?? 0} chars).");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"HandleManagerStateChanged failed: {ex.Message}");
+                Logger.Warning($"HandleManagerSlotChanged[{slot}] failed: {ex.Message}");
             }
         }
 
@@ -596,25 +568,6 @@ namespace OverTheCounter.SaveData
             }
         }
 
-        /// <summary>
-        /// Serializes manager business assignments + NPC data for the dedicated SyncVar.
-        /// Format: biz=code1,code2|data=id:seed:biz:netObjId;id:seed:biz:netObjId
-        /// </summary>
-        private static string SerializeManagerSyncVar()
-        {
-            var parts = new List<string>();
-
-            string mgrBiz = ManagerInstance.GetManagedBusinessCodes();
-            if (!string.IsNullOrEmpty(mgrBiz))
-                parts.Add($"biz={mgrBiz}");
-
-            string mgrData = ManagerInstance.SerializeManagerState();
-            if (!string.IsNullOrEmpty(mgrData))
-                parts.Add($"data={mgrData}");
-
-            return string.Join("|", parts);
-        }
-
         private static string SerializeGameState()
         {
             var parts = new List<string>();
@@ -648,7 +601,7 @@ namespace OverTheCounter.SaveData
             if (!string.IsNullOrEmpty(despIds))
                 parts.Add($"desp_ids={despIds}");
 
-            // Manager data is now on its own SyncVar (_managerVar) to avoid lobby data truncation.
+            // Manager data is on per-manager SyncVar slots (_mgrSlots) to avoid lobby data truncation.
 
             return string.Join("|", parts);
         }
@@ -708,7 +661,7 @@ namespace OverTheCounter.SaveData
             }
             DesperationManager.UpdateClientDesperateIds(despIds);
 
-            // Manager data is now on its own SyncVar (_managerVar) — handled in HandleManagerStateChanged.
+            // Manager data is on per-manager SyncVar slots — handled in HandleManagerSlotChanged.
         }
 
         private static string BoolToStr(bool v) => v ? "1" : "0";

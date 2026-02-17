@@ -3,6 +3,7 @@ using System;
 using UnityEngine;
 using UnityEngine.UI;
 using OverTheCounter.Logic;
+using OverTheCounter.Utilities;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.UI.Phone.Map;
 using Il2CppScheduleOne.Map;
@@ -252,7 +253,7 @@ namespace OverTheCounter.Apps
                 var slotPanel = UIFactory.Panel($"Slot_{i}", invPanel.transform, SlotBg);
 
                 Sprite icon = null;
-                int qty = 0;
+                string displayQty = null;
                 try
                 {
                     if (npcInventory?.ItemSlots != null && i < npcInventory.ItemSlots.Count)
@@ -261,7 +262,8 @@ namespace OverTheCounter.Apps
                         if (slot?.ItemInstance?.Definition != null)
                         {
                             icon = slot.ItemInstance.Definition.Icon;
-                            qty = slot.Quantity;
+                            var cash = slot.ItemInstance.TryCast<Il2CppScheduleOne.ItemFramework.CashInstance>();
+                            displayQty = cash != null ? $"${cash.Balance:N0}" : slot.Quantity.ToString();
                         }
                     }
                 }
@@ -280,9 +282,9 @@ namespace OverTheCounter.Apps
                     iconRect.offsetMin = Vector2.zero;
                     iconRect.offsetMax = Vector2.zero;
 
-                    if (qty > 0)
+                    if (displayQty != null)
                     {
-                        var qtyText = UIFactory.Text($"Qty_{i}", qty.ToString(), slotPanel.transform, 13, TextAnchor.LowerRight);
+                        var qtyText = UIFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 13, TextAnchor.LowerRight);
                         qtyText.color = Color.white;
                         var qtyRect = qtyText.gameObject.GetComponent<RectTransform>();
                         qtyRect.anchorMin = Vector2.zero;
@@ -479,7 +481,7 @@ namespace OverTheCounter.Apps
                     var slotPanel = UIFactory.Panel($"Slot_{i}", _detailInvGrid.transform, SlotBg);
 
                     Sprite icon = null;
-                    int qty = 0;
+                    string displayQty = null;
                     try
                     {
                         if (npcInventory?.ItemSlots != null && i < npcInventory.ItemSlots.Count)
@@ -488,7 +490,8 @@ namespace OverTheCounter.Apps
                             if (slot?.ItemInstance?.Definition != null)
                             {
                                 icon = slot.ItemInstance.Definition.Icon;
-                                qty = slot.Quantity;
+                                var cash = slot.ItemInstance.TryCast<Il2CppScheduleOne.ItemFramework.CashInstance>();
+                                displayQty = cash != null ? $"${cash.Balance:N0}" : slot.Quantity.ToString();
                             }
                         }
                     }
@@ -507,9 +510,9 @@ namespace OverTheCounter.Apps
                         iconRect.offsetMin = Vector2.zero;
                         iconRect.offsetMax = Vector2.zero;
 
-                        if (qty > 0)
+                        if (displayQty != null)
                         {
-                            var qtyText = UIFactory.Text($"Qty_{i}", qty.ToString(), slotPanel.transform, 13, TextAnchor.LowerRight);
+                            var qtyText = UIFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 13, TextAnchor.LowerRight);
                             qtyText.color = Color.white;
                             var qtyRect = qtyText.gameObject.GetComponent<RectTransform>();
                             qtyRect.anchorMin = Vector2.zero;
@@ -528,17 +531,19 @@ namespace OverTheCounter.Apps
 
         private void BuildDebugLogButton(Transform contentArea, ManagerInstance mgr)
         {
-            float yPos = -228f;
+            // Log buffer is only populated on the host — hide on clients
+            if (!NetworkHelper.IsHost) return;
+
             var mgrRef = mgr;
 
             var (mask, btn, label) = UIFactory.RoundedButtonWithLabel(
                 "DebugLogBtn", "Debug Log", contentArea,
                 new Color(0.25f, 0.25f, 0.25f), 360, 36, 6, new Color(0.7f, 0.7f, 0.7f));
             var btnRect = mask.GetComponent<RectTransform>();
-            btnRect.anchorMin = new Vector2(0, 1);
-            btnRect.anchorMax = new Vector2(0, 1);
-            btnRect.pivot = new Vector2(0, 1);
-            btnRect.anchoredPosition = new Vector2(16, yPos);
+            btnRect.anchorMin = new Vector2(0, 0);
+            btnRect.anchorMax = new Vector2(0, 0);
+            btnRect.pivot = new Vector2(0, 0);
+            btnRect.anchoredPosition = new Vector2(16, 12);
 
             label.fontSize = 12;
             label.alignment = TextAnchor.MiddleCenter;

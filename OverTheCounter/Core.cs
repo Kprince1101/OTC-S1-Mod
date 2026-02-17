@@ -130,6 +130,13 @@ namespace OverTheCounter
                     // Publish pending text messages to client via dedicated message SyncVar
                     if (ManagerInstance.HasPendingMessages)
                         ConfigSyncData.Instance?.PublishManagerMessages();
+
+                    // Publish manager state changes (State/PaidForToday) to per-slot SyncVars
+                    if (ManagerInstance.StatePublishNeeded)
+                    {
+                        ManagerInstance.StatePublishNeeded = false;
+                        ConfigSyncData.Instance?.PublishManagerState();
+                    }
                 }
 
                 // Update drifter quest timers on client (OnTimeTick is host-only)

@@ -36,8 +36,16 @@ namespace OverTheCounter.Logic
 
         private readonly ManagerInstance _manager;
 
-        public DistributionState State { get; private set; } = DistributionState.Idle;
-        public int CurrentRouteDisplay => _currentRouteIndex + 1; // 1-indexed for UI
+        private DistributionState _state = DistributionState.Idle;
+        public DistributionState State
+        {
+            get => _state;
+            private set
+            {
+                if (_state != value) { _state = value; ManagerInstance.StatePublishNeeded = true; }
+            }
+        }
+        public int CurrentRouteDisplay => Math.Max(1, _currentRouteIndex + 1); // 1-indexed for UI, clamped during resume runs
 
         // Current run plan
         private List<int> _routePlan;
@@ -312,13 +320,13 @@ namespace OverTheCounter.Logic
                     || !DestinationCanAcceptSourceItems(_currentRoute.Source, _currentRoute.Destination))
                 {
                     if (Config.ManagerVerboseLogging.Value)
-                        _manager.Log($"distribution route {_currentRouteIndex + 1} skipped (no longer valid/has items/dest full)");
+                        _manager.Log($"distribution route {CurrentRouteDisplay} skipped (no longer valid/has items/dest full)");
                     // route skipped — advance plan step
                     _routePlanStep++;
                     continue;
                 }
 
-                _manager.Log($"=== starting distribution route {_currentRouteIndex + 1} ===");
+                _manager.Log($"=== starting distribution route {CurrentRouteDisplay} ===");
                 WalkToSource();
                 return;
             }
@@ -349,7 +357,7 @@ namespace OverTheCounter.Logic
             var accessPos = GetStorageAccessPosition(_currentRoute.Source, out bool isReachable);
             if (accessPos == null)
             {
-                _manager.LogWarning($"can't find source position for route {_currentRouteIndex + 1}");
+                _manager.LogWarning($"can't find source position for route {CurrentRouteDisplay}");
                 _routePlanStep++;
                 StartNextRoute();
                 return;
@@ -377,7 +385,7 @@ namespace OverTheCounter.Logic
                 }
 
                 if (Config.ManagerVerboseLogging.Value)
-                    _manager.Log($"entering building (route {_currentRouteIndex + 1} source)");
+                    _manager.Log($"entering building (route {CurrentRouteDisplay} source)");
                 _currentPropertyExterior = propertyPos.Value;
                 State = DistributionState.WalkingToSourceProperty;
                 _currentWalkTarget = propertyPos.Value;
@@ -472,7 +480,7 @@ namespace OverTheCounter.Logic
 
                 _manager.GameNpc.Movement.SetDestination(target, _sourceWalkCallback, 2f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
-                    _manager.Log($"walking to source for route {_currentRouteIndex + 1} | inventory: [{_manager.GetInventorySummary()}]");
+                    _manager.Log($"walking to source for route {CurrentRouteDisplay} | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
@@ -523,9 +531,25 @@ namespace OverTheCounter.Logic
             {
                 int freeSlots = GetFreeNpcSlots(npcInventory);
 
+                // Check how many items the destination can actually hold so we don't
+                // pick up more than it can accept (avoids overflow → return → repeat loop)
+                int destCapacity = int.MaxValue;
+                if (destination?.StorageEntity != null)
+                {
+                    for (int s = 0; s < source.StorageEntity.ItemSlots.Count; s++)
+                    {
+                        var si = source.StorageEntity.ItemSlots[s]?.ItemInstance;
+                        if (si != null)
+                        {
+                            destCapacity = StorageFilterHelper.HowManyCanFitFiltered(destination.StorageEntity, si);
+                            break;
+                        }
+                    }
+                }
+
                 for (int i = 0; i < source.StorageEntity.ItemSlots.Count; i++)
                 {
-                    if (freeSlots <= 0) break;
+                    if (freeSlots <= 0 || destCapacity <= 0) break;
 
                     try
                     {
@@ -554,11 +578,13 @@ namespace OverTheCounter.Logic
                             npcInventory.ItemSlots[npcSlotIdx].InsertItem(newCash);
                             _slotDestinations[npcSlotIdx] = destGuid;
                             totalPickedUp++;
+                            destCapacity--;
                             freeSlots--;
                             continue;
                         }
 
-                        int qty = slot.Quantity;
+                        int qty = Math.Min(slot.Quantity, destCapacity);
+                        if (qty <= 0) continue;
 
                         // Clone the actual item (GetCopy preserves product type, GetDefaultInstance does not)
                         var copy = slot.ItemInstance.GetCopy(qty);
@@ -571,6 +597,7 @@ namespace OverTheCounter.Logic
                         _slotDestinations[npcSlotIdx] = destGuid;
 
                         totalPickedUp += qty;
+                        destCapacity -= qty;
                         freeSlots--;
                     }
                     catch (Exception ex)
@@ -580,7 +607,7 @@ namespace OverTheCounter.Logic
                 }
             }
 
-            _manager.Log($"picked up {totalPickedUp} items from route {_currentRouteIndex + 1} source | inventory: [{_manager.GetInventorySummary()}]");
+            _manager.Log($"picked up {totalPickedUp} items from route {CurrentRouteDisplay} source | inventory: [{_manager.GetInventorySummary()}]");
 
             if (totalPickedUp > 0)
             {
@@ -604,8 +631,7 @@ namespace OverTheCounter.Logic
             var accessPos = GetStorageAccessPosition(_currentRoute.Destination, out bool isReachable);
             if (accessPos == null)
             {
-                _manager.LogWarning($"can't find dest position for route {_currentRouteIndex + 1}");
-                ClearNonCashNpcInventory();
+                _manager.LogWarning($"can't find dest position for route {CurrentRouteDisplay}, items retained for retry");
                 AdvanceAfterDestError();
                 return;
             }
@@ -631,7 +657,7 @@ namespace OverTheCounter.Logic
                 }
 
                 if (Config.ManagerVerboseLogging.Value)
-                    _manager.Log($"entering building (route {_currentRouteIndex + 1} dest)");
+                    _manager.Log($"entering building (route {CurrentRouteDisplay} dest)");
                 _currentPropertyExterior = propertyPos.Value;
                 State = DistributionState.WalkingToDestProperty;
                 _currentWalkTarget = propertyPos.Value;
@@ -682,8 +708,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    _manager.LogWarning($"WalkToDestProperty failed: {ex.Message}");
-                    ClearNonCashNpcInventory();
+                    _manager.LogWarning($"WalkToDestProperty failed: {ex.Message}, items retained for retry");
                     AdvanceAfterDestError();
                 }
             }
@@ -726,12 +751,11 @@ namespace OverTheCounter.Logic
 
                 _manager.GameNpc.Movement.SetDestination(target, _destWalkCallback, 2f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
-                    _manager.Log($"walking to destination for route {_currentRouteIndex + 1} | inventory: [{_manager.GetInventorySummary()}]");
+                    _manager.Log($"walking to destination for route {CurrentRouteDisplay} | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
-                _manager.LogWarning($"IssueWalkToDest failed: {ex.Message}");
-                ClearNonCashNpcInventory();
+                _manager.LogWarning($"IssueWalkToDest failed: {ex.Message}, items retained for retry");
                 AdvanceAfterDestError();
             }
         }
@@ -871,14 +895,37 @@ namespace OverTheCounter.Logic
             }
             else
             {
-                _manager.LogWarning($"destination storage or NPC inventory gone, clearing items");
-                ClearNonCashNpcInventory();
+                // Don't destroy items — leave them in NPC inventory for TryResumeDeliveries
+                // to retry on the next job cycle. _slotDestinations stay intact.
+                _manager.LogWarning($"destination storage or NPC inventory unavailable, items retained for retry");
             }
 
             if (totalOverflow > 0)
-                _manager.LogWarning($"{totalOverflow} items didn't fit in destination for route {_currentRouteIndex + 1} (retained in NPC inventory)");
+            {
+                _manager.LogWarning($"{totalOverflow} items didn't fit in destination for route {CurrentRouteDisplay} (retained in NPC inventory)");
+                // Diagnostic: log destination slot breakdown to help debug capacity issues
+                try
+                {
+                    var destSlots = destination.StorageEntity?.ItemSlots;
+                    if (destSlots != null)
+                    {
+                        int total = destSlots.Count;
+                        int occupied = 0, locked = 0;
+                        for (int s = 0; s < total; s++)
+                        {
+                            var ds = destSlots[s];
+                            if (ds == null) continue;
+                            if (ds.IsLocked || ds.IsAddLocked) locked++;
+                            else if (ds.ItemInstance != null) occupied++;
+                        }
+                        int free = total - occupied - locked;
+                        _manager.Log($"[DestDiag] slots: {total} total, {occupied} occupied, {locked} locked, {free} free");
+                    }
+                }
+                catch { }
+            }
 
-            _manager.Log($"deposited {totalDeposited} items at route {_currentRouteIndex + 1} destination");
+            _manager.Log($"deposited {totalDeposited} items at route {CurrentRouteDisplay} destination");
 
             if (_isResuming)
             {
@@ -1159,12 +1206,12 @@ namespace OverTheCounter.Logic
             {
                 case DistributionState.WalkingToSourceProperty:
                 case DistributionState.WalkingToSource:
-                    return $"I'm heading to pick up product for route {_currentRouteIndex + 1}.";
+                    return $"I'm heading to pick up product for route {CurrentRouteDisplay}.";
                 case DistributionState.AtSource:
                     return "I'm loading up product for delivery.";
                 case DistributionState.WalkingToDestProperty:
                 case DistributionState.WalkingToDest:
-                    return $"I'm delivering product for route {_currentRouteIndex + 1}.";
+                    return $"I'm delivering product for route {CurrentRouteDisplay}.";
                 case DistributionState.AtDest:
                     return "I'm unloading the delivery.";
                 case DistributionState.WalkingToPropertyExit:
