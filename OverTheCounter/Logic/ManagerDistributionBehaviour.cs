@@ -20,7 +20,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class ManagerDistributionBehaviour
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerDistribution");
 
         public enum DistributionState
         {
@@ -38,6 +37,7 @@ namespace OverTheCounter.Logic
         private readonly ManagerInstance _manager;
 
         public DistributionState State { get; private set; } = DistributionState.Idle;
+        public int CurrentRouteDisplay => _currentRouteIndex + 1; // 1-indexed for UI
 
         // Current run plan
         private List<int> _routePlan;
@@ -188,7 +188,7 @@ namespace OverTheCounter.Logic
             _manager.State = ManagerState.DistributionRun;
             _manager.DisableIdleBehaviour();
 
-            Logger.Msg($"Manager {_manager.Id}: resuming deliveries for {uniqueDests.Count} destinations ({_slotDestinations.Count} slots) | inventory: [{_manager.GetInventorySummary()}]");
+            _manager.Log($"resuming deliveries for {uniqueDests.Count} destinations ({_slotDestinations.Count} slots) | inventory: [{_manager.GetInventorySummary()}]");
             DeliverNextResumeDest();
             return true;
         }
@@ -204,7 +204,7 @@ namespace OverTheCounter.Logic
                 var storage = ManagerConfiguration.ResolveStorage(destGuid);
                 if (storage?.StorageEntity == null)
                 {
-                    Logger.Warning($"Manager {_manager.Id}: resume dest GUID '{destGuid}' not found, dropping items");
+                    _manager.LogWarning($"resume dest GUID '{destGuid}' not found, dropping items");
                     // Remove entries for this unreachable destination
                     var toRemove = new List<int>();
                     foreach (var kv in _slotDestinations)
@@ -260,7 +260,7 @@ namespace OverTheCounter.Logic
 
                     if (_slotDestinations.Count > 0)
                     {
-                        Logger.Msg($"Manager {_manager.Id}: returning {_slotDestinations.Count} undeliverable items to source storage");
+                        _manager.Log($"returning {_slotDestinations.Count} undeliverable items to source storage");
                         _returningToSource = true;
                         _isResuming = true;
                         _resumeDestQueue = new Queue<string>(new HashSet<string>(_slotDestinations.Values));
@@ -271,12 +271,12 @@ namespace OverTheCounter.Logic
 
                 // Already tried returning or source also full — give up, keep items in inventory
                 _returningToSource = false;
-                Logger.Warning($"Manager {_manager.Id}: {_slotDestinations.Count} slots undeliverable, keeping items in inventory");
+                _manager.LogWarning($"{_slotDestinations.Count} slots undeliverable, keeping items in inventory");
                 _slotDestinations.Clear();
             }
 
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Manager {_manager.Id}: resume deliveries complete");
+                _manager.Log($"resume deliveries complete");
 
             State = DistributionState.Idle;
             _manager.State = ManagerState.Idle;
@@ -312,19 +312,19 @@ namespace OverTheCounter.Logic
                     || !DestinationCanAcceptSourceItems(_currentRoute.Source, _currentRoute.Destination))
                 {
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"Manager {_manager.Id}: distribution route {_currentRouteIndex + 1} skipped (no longer valid/has items/dest full)");
+                        _manager.Log($"distribution route {_currentRouteIndex + 1} skipped (no longer valid/has items/dest full)");
                     // route skipped — advance plan step
                     _routePlanStep++;
                     continue;
                 }
 
-                Logger.Msg($"Manager {_manager.Id}: === starting distribution route {_currentRouteIndex + 1} ===");
+                _manager.Log($"=== starting distribution route {_currentRouteIndex + 1} ===");
                 WalkToSource();
                 return;
             }
 
             // All routes processed — check for immediate work before walking home
-            Logger.Msg($"Manager {_manager.Id}: all distribution routes processed, checking for more work");
+            _manager.Log($"all distribution routes processed, checking for more work");
             State = DistributionState.Idle;
             _routePlan = null;
             _currentRoute = null;
@@ -349,7 +349,7 @@ namespace OverTheCounter.Logic
             var accessPos = GetStorageAccessPosition(_currentRoute.Source, out bool isReachable);
             if (accessPos == null)
             {
-                Logger.Warning($"Manager {_manager.Id}: can't find source position for route {_currentRouteIndex + 1}");
+                _manager.LogWarning($"can't find source position for route {_currentRouteIndex + 1}");
                 _routePlanStep++;
                 StartNextRoute();
                 return;
@@ -370,14 +370,14 @@ namespace OverTheCounter.Logic
                 if (propertyPos == null)
                 {
                     // No property context — fall back to direct walk (will warp if needed)
-                    Logger.Warning($"Manager {_manager.Id}: source not reachable and no property exterior, attempting direct walk");
+                    _manager.LogWarning($"source not reachable and no property exterior, attempting direct walk");
                     State = DistributionState.WalkingToSource;
                     IssueWalkToSource(accessPos.Value);
                     return;
                 }
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: entering building (route {_currentRouteIndex + 1} source)");
+                    _manager.Log($"entering building (route {_currentRouteIndex + 1} source)");
                 _currentPropertyExterior = propertyPos.Value;
                 State = DistributionState.WalkingToSourceProperty;
                 _currentWalkTarget = propertyPos.Value;
@@ -403,7 +403,7 @@ namespace OverTheCounter.Logic
                                 else
                                 {
                                     // No employee settings available — warp as fallback
-                                    Logger.Warning($"Manager {_manager.Id}: employee NavMesh unavailable, warping to source");
+                                    _manager.LogWarning($"employee NavMesh unavailable, warping to source");
                                     WarpToPosition(capturedAccessPos);
                                     State = DistributionState.AtSource;
                                     _sourceArrivalTime = UnityEngine.Time.time;
@@ -412,10 +412,10 @@ namespace OverTheCounter.Logic
                             else if (result == NPCMovement.WalkResult.Failed)
                             {
                                 _consecutiveWalkFailures++;
-                                Logger.Warning($"Manager {_manager.Id}: source property walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
+                                _manager.LogWarning($"source property walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
                                 if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
                                 {
-                                    Logger.Warning($"Manager {_manager.Id}: warping to source storage after {MAX_WALK_FAILURES} failures");
+                                    _manager.LogWarning($"warping to source storage after {MAX_WALK_FAILURES} failures");
                                     WarpToPosition(capturedAccessPos);
                                     _consecutiveWalkFailures = 0;
                                     State = DistributionState.AtSource;
@@ -428,7 +428,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"Manager {_manager.Id}: WalkToSourceProperty failed: {ex.Message}");
+                    _manager.LogWarning($"WalkToSourceProperty failed: {ex.Message}");
                     _routePlanStep++;
                     StartNextRoute();
                 }
@@ -458,10 +458,10 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            Logger.Warning($"Manager {_manager.Id}: source walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
+                            _manager.LogWarning($"source walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
                             if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
                             {
-                                Logger.Warning($"Manager {_manager.Id}: warping to source after {MAX_WALK_FAILURES} failures");
+                                _manager.LogWarning($"warping to source after {MAX_WALK_FAILURES} failures");
                                 WarpToPosition(target);
                                 State = DistributionState.AtSource;
                                 _sourceArrivalTime = UnityEngine.Time.time;
@@ -472,11 +472,11 @@ namespace OverTheCounter.Logic
 
                 _manager.GameNpc.Movement.SetDestination(target, _sourceWalkCallback, 2f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: walking to source for route {_currentRouteIndex + 1} | inventory: [{_manager.GetInventorySummary()}]");
+                    _manager.Log($"walking to source for route {_currentRouteIndex + 1} | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Manager {_manager.Id}: IssueWalkToSource failed: {ex.Message}");
+                _manager.LogWarning($"IssueWalkToSource failed: {ex.Message}");
                 _routePlanStep++;
                 StartNextRoute();
             }
@@ -575,12 +575,12 @@ namespace OverTheCounter.Logic
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error($"Manager {_manager.Id}: pickup slot {i} failed: {ex.Message}");
+                        _manager.LogWarning($"pickup slot {i} failed: {ex.Message}");
                     }
                 }
             }
 
-            Logger.Msg($"Manager {_manager.Id}: picked up {totalPickedUp} items from route {_currentRouteIndex + 1} source | inventory: [{_manager.GetInventorySummary()}]");
+            _manager.Log($"picked up {totalPickedUp} items from route {_currentRouteIndex + 1} source | inventory: [{_manager.GetInventorySummary()}]");
 
             if (totalPickedUp > 0)
             {
@@ -604,7 +604,7 @@ namespace OverTheCounter.Logic
             var accessPos = GetStorageAccessPosition(_currentRoute.Destination, out bool isReachable);
             if (accessPos == null)
             {
-                Logger.Warning($"Manager {_manager.Id}: can't find dest position for route {_currentRouteIndex + 1}");
+                _manager.LogWarning($"can't find dest position for route {_currentRouteIndex + 1}");
                 ClearNonCashNpcInventory();
                 AdvanceAfterDestError();
                 return;
@@ -624,14 +624,14 @@ namespace OverTheCounter.Logic
                 var propertyPos = GetPropertyExteriorPoint(_currentRoute.Destination);
                 if (propertyPos == null)
                 {
-                    Logger.Warning($"Manager {_manager.Id}: dest not reachable and no property exterior, attempting direct walk");
+                    _manager.LogWarning($"dest not reachable and no property exterior, attempting direct walk");
                     State = DistributionState.WalkingToDest;
                     IssueWalkToDest(accessPos.Value);
                     return;
                 }
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: entering building (route {_currentRouteIndex + 1} dest)");
+                    _manager.Log($"entering building (route {_currentRouteIndex + 1} dest)");
                 _currentPropertyExterior = propertyPos.Value;
                 State = DistributionState.WalkingToDestProperty;
                 _currentWalkTarget = propertyPos.Value;
@@ -657,7 +657,7 @@ namespace OverTheCounter.Logic
                                 else
                                 {
                                     // No employee settings available — warp as fallback
-                                    Logger.Warning($"Manager {_manager.Id}: employee NavMesh unavailable, warping to dest");
+                                    _manager.LogWarning($"employee NavMesh unavailable, warping to dest");
                                     WarpToPosition(capturedAccessPos);
                                     State = DistributionState.AtDest;
                                     _destArrivalTime = UnityEngine.Time.time;
@@ -666,10 +666,10 @@ namespace OverTheCounter.Logic
                             else if (result == NPCMovement.WalkResult.Failed)
                             {
                                 _consecutiveWalkFailures++;
-                                Logger.Warning($"Manager {_manager.Id}: dest property walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
+                                _manager.LogWarning($"dest property walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
                                 if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
                                 {
-                                    Logger.Warning($"Manager {_manager.Id}: warping to dest storage after {MAX_WALK_FAILURES} failures");
+                                    _manager.LogWarning($"warping to dest storage after {MAX_WALK_FAILURES} failures");
                                     WarpToPosition(capturedAccessPos);
                                     _consecutiveWalkFailures = 0;
                                     State = DistributionState.AtDest;
@@ -682,7 +682,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"Manager {_manager.Id}: WalkToDestProperty failed: {ex.Message}");
+                    _manager.LogWarning($"WalkToDestProperty failed: {ex.Message}");
                     ClearNonCashNpcInventory();
                     AdvanceAfterDestError();
                 }
@@ -712,10 +712,10 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            Logger.Warning($"Manager {_manager.Id}: dest walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
+                            _manager.LogWarning($"dest walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
                             if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
                             {
-                                Logger.Warning($"Manager {_manager.Id}: warping to dest after {MAX_WALK_FAILURES} failures");
+                                _manager.LogWarning($"warping to dest after {MAX_WALK_FAILURES} failures");
                                 WarpToPosition(target);
                                 State = DistributionState.AtDest;
                                 _destArrivalTime = UnityEngine.Time.time;
@@ -726,11 +726,11 @@ namespace OverTheCounter.Logic
 
                 _manager.GameNpc.Movement.SetDestination(target, _destWalkCallback, 2f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: walking to destination for route {_currentRouteIndex + 1} | inventory: [{_manager.GetInventorySummary()}]");
+                    _manager.Log($"walking to destination for route {_currentRouteIndex + 1} | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Manager {_manager.Id}: IssueWalkToDest failed: {ex.Message}");
+                _manager.LogWarning($"IssueWalkToDest failed: {ex.Message}");
                 ClearNonCashNpcInventory();
                 AdvanceAfterDestError();
             }
@@ -865,20 +865,20 @@ namespace OverTheCounter.Logic
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error($"Manager {_manager.Id}: deposit slot {i} failed: {ex.Message}");
+                        _manager.LogWarning($"deposit slot {i} failed: {ex.Message}");
                     }
                 }
             }
             else
             {
-                Logger.Warning($"Manager {_manager.Id}: destination storage or NPC inventory gone, clearing items");
+                _manager.LogWarning($"destination storage or NPC inventory gone, clearing items");
                 ClearNonCashNpcInventory();
             }
 
             if (totalOverflow > 0)
-                Logger.Warning($"Manager {_manager.Id}: {totalOverflow} items didn't fit in destination for route {_currentRouteIndex + 1} (retained in NPC inventory)");
+                _manager.LogWarning($"{totalOverflow} items didn't fit in destination for route {_currentRouteIndex + 1} (retained in NPC inventory)");
 
-            Logger.Msg($"Manager {_manager.Id}: deposited {totalDeposited} items at route {_currentRouteIndex + 1} destination");
+            _manager.Log($"deposited {totalDeposited} items at route {_currentRouteIndex + 1} destination");
 
             if (_isResuming)
             {
@@ -904,7 +904,7 @@ namespace OverTheCounter.Logic
             var location = ManagerLocations.GetLocation(_manager.BusinessPropertyCode);
             if (location == null)
             {
-                Logger.Warning($"Manager {_manager.Id}: no business location after distribution");
+                _manager.LogWarning($"no business location after distribution");
                 FinishRun();
                 return;
             }
@@ -929,7 +929,7 @@ namespace OverTheCounter.Logic
                             _consecutiveWalkFailures++;
                             if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
                             {
-                                Logger.Warning($"Manager {_manager.Id}: warping to idle point");
+                                _manager.LogWarning($"warping to idle point");
                                 WarpToPosition(location.Destination);
                                 try { _manager.GameNpc?.Movement?.FaceDirection(location.DestRotation * Vector3.forward); }
                                 catch { }
@@ -940,11 +940,11 @@ namespace OverTheCounter.Logic
 
                 _manager.GameNpc.Movement.SetDestination(location.Destination, _idleWalkCallback, 3f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: walking to idle point after distribution | inventory: [{_manager.GetInventorySummary()}]");
+                    _manager.Log($"walking to idle point after distribution | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Manager {_manager.Id}: WalkToIdle failed: {ex.Message}");
+                _manager.LogWarning($"WalkToIdle failed: {ex.Message}");
                 FinishRun();
             }
         }
@@ -963,7 +963,7 @@ namespace OverTheCounter.Logic
             _resumeDestQueue = null;
             _resumeDestGuid = null;
             _manager.EnableIdleBehaviour();
-            Logger.Msg($"Manager {_manager.Id}: distribution run complete");
+            _manager.Log($"distribution run complete");
 
             // Immediately check for next job instead of waiting for next tick
             _manager.TryStartNextJob();
@@ -977,7 +977,7 @@ namespace OverTheCounter.Logic
         {
             if (State == DistributionState.Idle) return;
 
-            Logger.Msg($"Manager {_manager.Id}: distribution run cancelled (was {State})");
+            _manager.Log($"distribution run cancelled (was {State})");
 
             RestoreCivilianNavMesh();
             ClearNonCashNpcInventory();
@@ -1056,7 +1056,7 @@ namespace OverTheCounter.Logic
                     if (UnityEngine.Time.time - _lastEnsureMovingLog > 10f)
                     {
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Manager {_manager.Id}: resuming distribution walk (dist={dist:F1}m)");
+                            _manager.Log($"resuming distribution walk (dist={dist:F1}m)");
                         _lastEnsureMovingLog = UnityEngine.Time.time;
                     }
 
@@ -1076,7 +1076,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {_manager.Id}: EnsureMovingDuringRun failed: {ex.Message}");
+                _manager.LogWarning($"EnsureMovingDuringRun failed: {ex.Message}");
             }
         }
 
@@ -1110,7 +1110,7 @@ namespace OverTheCounter.Logic
             if (_lastMovedTime <= 0f || UnityEngine.Time.time - _lastMovedTime < STUCK_WARP_TIMEOUT)
                 return;
 
-            Logger.Warning($"Manager {_manager.Id}: stuck for {STUCK_WARP_TIMEOUT}s during {State}, warping");
+            _manager.LogWarning($"stuck for {STUCK_WARP_TIMEOUT}s during {State}, warping");
             _consecutiveWalkFailures = 0;
 
             switch (State)
@@ -1191,7 +1191,7 @@ namespace OverTheCounter.Logic
 
             if (!ManagerSpawner.TryGetEmployeeNavMeshSettings(out int empAgentType, out int empAreaMask))
             {
-                Logger.Warning($"Manager {_manager.Id}: no employee NavMesh settings available");
+                _manager.LogWarning($"no employee NavMesh settings available");
                 return false;
             }
 
@@ -1213,12 +1213,12 @@ namespace OverTheCounter.Logic
 
                 _usingEmployeeNavMesh = true;
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: switched to employee NavMesh");
+                    _manager.Log($"switched to employee NavMesh");
                 return true;
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {_manager.Id}: SwitchToEmployeeNavMesh failed: {ex.Message}");
+                _manager.LogWarning($"SwitchToEmployeeNavMesh failed: {ex.Message}");
                 return false;
             }
         }
@@ -1243,11 +1243,11 @@ namespace OverTheCounter.Logic
 
                 _usingEmployeeNavMesh = false;
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: restored civilian NavMesh");
+                    _manager.Log($"restored civilian NavMesh");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {_manager.Id}: RestoreCivilianNavMesh failed: {ex.Message}");
+                _manager.LogWarning($"RestoreCivilianNavMesh failed: {ex.Message}");
                 _usingEmployeeNavMesh = false;
             }
         }
@@ -1271,7 +1271,7 @@ namespace OverTheCounter.Logic
             }
 
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Manager {_manager.Id}: walking to property exterior before continuing");
+                _manager.Log($"walking to property exterior before continuing");
             _exitBuildingContinuation = continuation;
             State = DistributionState.WalkingToPropertyExit;
             _currentWalkTarget = _currentPropertyExterior.Value;
@@ -1287,7 +1287,7 @@ namespace OverTheCounter.Logic
                         {
                             _consecutiveWalkFailures = 0;
                             if (Config.ManagerVerboseLogging.Value)
-                                Logger.Msg($"Manager {_manager.Id}: exited building");
+                                _manager.Log($"exited building");
                             RestoreCivilianNavMesh();
                             _currentPropertyExterior = null;
                             _exitBuildingContinuation?.Invoke();
@@ -1296,10 +1296,10 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            Logger.Warning($"Manager {_manager.Id}: property exit walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
+                            _manager.LogWarning($"property exit walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
                             if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
                             {
-                                Logger.Warning($"Manager {_manager.Id}: warping to property exterior");
+                                _manager.LogWarning($"warping to property exterior");
                                 WarpToPosition(_currentPropertyExterior.Value);
                                 _consecutiveWalkFailures = 0;
                                 RestoreCivilianNavMesh();
@@ -1314,7 +1314,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Error($"Manager {_manager.Id}: ExitBuildingThen walk failed: {ex.Message}");
+                _manager.LogWarning($"ExitBuildingThen walk failed: {ex.Message}");
                 RestoreCivilianNavMesh();
                 _currentPropertyExterior = null;
                 _exitBuildingContinuation?.Invoke();
@@ -1595,7 +1595,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {_manager.Id}: Warp failed: {ex.Message}");
+                _manager.LogWarning($"Warp failed: {ex.Message}");
             }
         }
     }

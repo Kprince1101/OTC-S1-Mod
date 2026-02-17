@@ -20,7 +20,7 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class ManagerInstance
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerInstance");
+        internal static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:Manager");
 
         /// <summary>
         /// All active manager instances, keyed by ID.
@@ -101,6 +101,30 @@ namespace OverTheCounter.Logic
         // Mugshot lifecycle — lets locker assignment and other systems react once ready
         public bool IsMugshotReady { get; private set; }
         public event Action OnMugshotReady;
+
+        // In-memory log ring buffer for debug page
+        private const int LOG_BUFFER_CAPACITY = 200;
+        private readonly List<string> _logBuffer = new(LOG_BUFFER_CAPACITY);
+        public IReadOnlyList<string> LogBuffer => _logBuffer;
+
+        public void Log(string message)
+        {
+            Logger.Msg($"Manager {Id}: {message}");
+            AppendToBuffer($"[{DateTime.Now:HH:mm:ss}] {message}");
+        }
+
+        public void LogWarning(string message)
+        {
+            Logger.Warning($"Manager {Id}: {message}");
+            AppendToBuffer($"[{DateTime.Now:HH:mm:ss}] [!] {message}");
+        }
+
+        private void AppendToBuffer(string entry)
+        {
+            if (_logBuffer.Count >= LOG_BUFFER_CAPACITY)
+                _logBuffer.RemoveAt(0);
+            _logBuffer.Add(entry);
+        }
 
         public bool IsValid => GameNpc != null && GameNpc.gameObject != null;
         public bool HasLocker => AssignedLocker != null && AssignedLocker.Storage != null;
@@ -410,11 +434,11 @@ namespace OverTheCounter.Logic
 
                 GameNpc.Movement.SetDestination(location.Destination, _destCallback, 3f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {Id} walking to destination: {location.Destination}");
+                    Log($"walking to destination: {location.Destination}");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"WalkToDestination failed for manager {Id}: {ex.Message}");
+                LogWarning($"WalkToDestination failed: {ex.Message}");
             }
         }
 
@@ -437,7 +461,7 @@ namespace OverTheCounter.Logic
         public void GenerateMugshot()
         {
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Manager {Id}: GenerateMugshot() called");
+                Log("GenerateMugshot() called");
             MugshotUtility.Generate(GameNpc, $"Manager {Id}", sprite =>
             {
                 if (sprite == null) return;
@@ -449,7 +473,7 @@ namespace OverTheCounter.Logic
                 {
                     AssignedLocker.MugshotSprite.sprite = sprite;
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"Manager {Id}: mugshot applied to locker");
+                        Log("mugshot applied to locker");
                 }
 
                 // Phone messaging entry icon
@@ -462,7 +486,7 @@ namespace OverTheCounter.Logic
                 try { OnMugshotReady?.Invoke(); } catch { }
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {Id}: mugshot applied to NPC + messaging");
+                    Log("mugshot applied to NPC + messaging");
             });
         }
 
@@ -478,7 +502,7 @@ namespace OverTheCounter.Logic
                 if (conv?.entry == null)
                 {
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"Manager {Id}: RefreshPhoneIcon — conv.entry is null, skipping");
+                        Log("RefreshPhoneIcon — conv.entry is null, skipping");
                     return;
                 }
                 var iconImg = conv.entry.Find("IconMask/Icon")?.GetComponent<Image>();
@@ -486,16 +510,16 @@ namespace OverTheCounter.Logic
                 {
                     iconImg.sprite = GameNpc.MugshotSprite;
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"Manager {Id}: RefreshPhoneIcon — entry icon updated (sprite null={GameNpc.MugshotSprite == null})");
+                        Log($"RefreshPhoneIcon — entry icon updated (sprite null={GameNpc.MugshotSprite == null})");
                 }
                 else
                 {
-                    Logger.Warning($"Manager {Id}: RefreshPhoneIcon — IconMask/Icon Image not found");
+                    LogWarning("RefreshPhoneIcon — IconMask/Icon Image not found");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {Id}: RefreshPhoneIcon failed: {ex.Message}");
+                LogWarning($"RefreshPhoneIcon failed: {ex.Message}");
             }
         }
 
@@ -512,13 +536,13 @@ namespace OverTheCounter.Logic
                     {
                         img.sprite = GameNpc.MugshotSprite;
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Manager {Id}: map POI icon updated");
+                            Log("map POI icon updated");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {Id}: RefreshMapPoiIcon failed: {ex.Message}");
+                LogWarning($"RefreshMapPoiIcon failed: {ex.Message}");
             }
         }
 
@@ -534,7 +558,7 @@ namespace OverTheCounter.Logic
                 var npcManager = NetworkSingleton<NPCManager>.Instance;
                 if (npcManager?.NPCPoIPrefab == null)
                 {
-                    Logger.Warning($"Manager {Id}: NPCManager or NPCPoIPrefab not available, skipping map marker");
+                    LogWarning("NPCManager or NPCPoIPrefab not available, skipping map marker");
                     return;
                 }
 
@@ -545,11 +569,11 @@ namespace OverTheCounter.Logic
                 MapPoI.enabled = true;
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {Id}: map marker created");
+                    Log("map marker created");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {Id}: failed to create map marker: {ex.Message}");
+                LogWarning($"failed to create map marker: {ex.Message}");
             }
         }
 
@@ -593,7 +617,7 @@ namespace OverTheCounter.Logic
                     {
                         if (Config.ManagerVerboseLogging.Value && UnityEngine.Time.time - _lastEnsureMovingLog > 10f)
                         {
-                            Logger.Msg($"Manager {Id}: resuming walk to destination (interrupted, dist={dist:F1}m)");
+                            Log($"resuming walk to destination (interrupted, dist={dist:F1}m)");
                             _lastEnsureMovingLog = UnityEngine.Time.time;
                         }
                         GameNpc.Movement.SetDestination(TargetLocation.Destination, _destCallback, 3f, 1f);
@@ -602,7 +626,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"EnsureMoving failed for manager {Id}: {ex.Message}");
+                LogWarning($"EnsureMoving failed: {ex.Message}");
             }
         }
 
@@ -631,17 +655,17 @@ namespace OverTheCounter.Logic
                 _fireCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
                     new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
                     {
-                        Logger.Msg($"Fired manager {Id} reached spawn (result={result}), despawning");
+                        Log($"fired, reached spawn (result={result}), despawning");
                         Despawn();
                     });
 
                 GameNpc.Movement.SetDestination(location.SpawnPosition, _fireCallback, 3f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Fired manager {Id} walking to spawn before despawn");
+                    Log("fired, walking to spawn before despawn");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"WalkAwayAndDespawn failed for {Id}: {ex.Message}, despawning immediately");
+                LogWarning($"WalkAwayAndDespawn failed: {ex.Message}, despawning immediately");
                 Despawn();
             }
         }
@@ -661,7 +685,7 @@ namespace OverTheCounter.Logic
             if (locker.AssignedEmployee != null)
             {
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {Id}: clearing existing employee '{locker.AssignedEmployee.fullName}' from locker");
+                    Log($"clearing existing employee '{locker.AssignedEmployee.fullName}' from locker");
                 locker.SetAssignedEmployee(null);
             }
 
@@ -671,7 +695,7 @@ namespace OverTheCounter.Logic
                 if (other != this && other.AssignedLocker == locker)
                 {
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"Manager {Id}: clearing other manager {other.Id} from same locker");
+                        Log($"clearing other manager {other.Id} from same locker");
                     other.ClearLocker();
                 }
             }
@@ -692,18 +716,18 @@ namespace OverTheCounter.Logic
                     locker.NameLabel.text = $"{GameNpc.FirstName}\n{GameNpc.LastName}";
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {Id}: locker mugshot state: locker.MugshotSprite={locker.MugshotSprite != null}, GameNpc.MugshotSprite={GameNpc?.MugshotSprite != null}, IsMugshotReady={IsMugshotReady}");
+                    Log($"locker mugshot state: locker.MugshotSprite={locker.MugshotSprite != null}, GameNpc.MugshotSprite={GameNpc?.MugshotSprite != null}, IsMugshotReady={IsMugshotReady}");
                 if (locker.MugshotSprite != null && GameNpc?.MugshotSprite != null)
                 {
                     locker.MugshotSprite.sprite = GameNpc.MugshotSprite;
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"Manager {Id}: set locker mugshot sprite immediately");
+                        Log("set locker mugshot sprite immediately");
                 }
                 else if (!IsMugshotReady && locker.MugshotSprite != null)
                 {
                     // Mugshot coroutine still running — subscribe to update locker when it finishes
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"Manager {Id}: mugshot not ready, subscribing to OnMugshotReady for locker");
+                        Log("mugshot not ready, subscribing to OnMugshotReady for locker");
                     OnMugshotReady += () =>
                     {
                         try
@@ -712,7 +736,7 @@ namespace OverTheCounter.Logic
                             {
                                 locker.MugshotSprite.sprite = GameNpc.MugshotSprite;
                                 if (Config.ManagerVerboseLogging.Value)
-                                    Logger.Msg($"Manager {Id}: locker mugshot updated via OnMugshotReady");
+                                    Log("locker mugshot updated via OnMugshotReady");
                             }
                         }
                         catch { }
@@ -731,11 +755,11 @@ namespace OverTheCounter.Logic
                 ApplyLockerRecoloring(locker);
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {Id}: assigned locker at {locker.transform.position}");
+                    Log($"assigned locker at {locker.transform.position}");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {Id}: failed to update locker display: {ex.Message}");
+                LogWarning($"failed to update locker display: {ex.Message}");
             }
         }
 
@@ -765,7 +789,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Manager {Id}: ClearLocker display reset failed: {ex.Message}");
+                    LogWarning($"ClearLocker display reset failed: {ex.Message}");
                 }
             }
             AssignedLocker = null;
@@ -795,7 +819,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {Id}: ReconcileLockerFromConfig failed: {ex.Message}");
+                LogWarning($"ReconcileLockerFromConfig failed: {ex.Message}");
             }
         }
 
@@ -887,7 +911,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {Id}: RemoveLockerCash failed: {ex.Message}");
+                LogWarning($"RemoveLockerCash failed: {ex.Message}");
                 return false;
             }
         }
@@ -901,7 +925,7 @@ namespace OverTheCounter.Logic
         {
             if (GameNpc == null)
             {
-                Logger.Warning($"Manager {Id}: cannot send text - GameNpc is null");
+                LogWarning("cannot send text - GameNpc is null");
                 return;
             }
 
@@ -910,7 +934,7 @@ namespace OverTheCounter.Logic
                 var conv = GameNpc.MSGConversation;
                 if (conv == null)
                 {
-                    Logger.Warning($"Manager {Id}: MSGConversation is null, cannot send text");
+                    LogWarning("MSGConversation is null, cannot send text");
                     return;
                 }
                 var msg = new Il2CppScheduleOne.Messaging.Message(
@@ -929,7 +953,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to send text from manager {Id}: {ex.Message}");
+                LogWarning($"failed to send text: {ex.Message}");
             }
         }
 
@@ -963,11 +987,11 @@ namespace OverTheCounter.Logic
                     conv.SetEntryVisibility(false);
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {Id}: cleared text messages");
+                    Log("cleared text messages");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {Id}: ClearMessages failed: {ex.Message}");
+                LogWarning($"ClearMessages failed: {ex.Message}");
             }
         }
 
@@ -987,7 +1011,7 @@ namespace OverTheCounter.Logic
                 MapPoI = null;
             }
 
-            Logger.Msg($"Despawning manager {Id}");
+            Log("despawning");
             Active.Remove(Id);
 
             // Clear configuration
@@ -1013,7 +1037,7 @@ namespace OverTheCounter.Logic
                 if (IsAdopted)
                 {
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"Manager {Id}: releasing adopted FishNet NPC");
+                        Log("releasing adopted FishNet NPC");
                 }
                 else
                 {

@@ -100,9 +100,11 @@ namespace OverTheCounter.Logic
 
                     float wage = Config.ManagerDailyWage.Value;
 
+                    bool midRun = mgr.State == ManagerState.SupplyRun || mgr.State == ManagerState.DistributionRun || mgr.State == ManagerState.Transferring;
+
                     if (!mgr.HasLocker)
                     {
-                        mgr.State = ManagerState.NoFunds;
+                        if (!midRun) mgr.State = ManagerState.NoFunds;
                         _logger.Msg($"Manager {mgr.Id}: no locker assigned, cannot pay wage");
                         if (!mgr.NoLockerTextSent)
                         {
@@ -134,7 +136,7 @@ namespace OverTheCounter.Logic
                         mgr.RemoveLockerCash(wage);
                         mgr.PaidForToday = true;
                         mgr.NoFundsTextSent = false;
-                        mgr.State = ManagerState.Idle;
+                        if (!midRun) mgr.State = ManagerState.Idle;
                         _logger.Msg($"Manager {mgr.Id}: paid ${wage} wage from locker (remaining: ${available - wage:F0})");
 
                         // Case 3: Wages paid — check which Night Market items we can't afford
@@ -155,7 +157,7 @@ namespace OverTheCounter.Logic
                     }
                     else
                     {
-                        mgr.State = ManagerState.NoFunds;
+                        if (!midRun) mgr.State = ManagerState.NoFunds;
                         _logger.Msg($"Manager {mgr.Id}: insufficient funds in locker (has: ${available:F0}, need: ${wage})");
                         if (!mgr.NoFundsTextSent && !mgr.NoNightMarketCashTextSent)
                         {

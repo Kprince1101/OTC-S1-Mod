@@ -194,7 +194,7 @@ namespace OverTheCounter.Apps
             bizRect.offsetMax = Vector2.zero;
 
             // ── Left: Status ──
-            var (statusStr, statusColor) = GetStatusDisplay(mgr.State);
+            var (statusStr, statusColor) = GetStatusDisplay(mgr);
             var statusText = UIFactory.Text("Status", statusStr, cardObj.transform, 12, TextAnchor.MiddleLeft);
             statusText.color = statusColor;
             var statusRect = statusText.gameObject.GetComponent<RectTransform>();
@@ -269,7 +269,6 @@ namespace OverTheCounter.Apps
                         shadow.effectDistance = new Vector2(1, -1);
                     }
                 }
-                else { }
             }
 
             // ── Right: Detail page chevron button ──

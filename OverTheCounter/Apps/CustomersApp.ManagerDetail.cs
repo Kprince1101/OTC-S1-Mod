@@ -80,6 +80,9 @@ namespace OverTheCounter.Apps
                 _managerDetailPage = null;
                 _detailManager = null;
                 _detailMugshotImage = null;
+                _detailInvGrid = null;
+                _detailStatusText = null;
+                _detailCashText = null;
                 _minimapImageRect = null;
                 _minimapMarkerIcon = null;
             }
@@ -194,12 +197,14 @@ namespace OverTheCounter.Apps
                 cashRect.pivot = new Vector2(0, 1);
                 cashRect.anchoredPosition = new Vector2(120, -66);
                 cashRect.sizeDelta = new Vector2(0, 22);
+                _detailCashText = cashText;
             }
 
             // Status
-            var (statusStr, statusColor) = GetStatusDisplay(mgr.State);
+            var (statusStr, statusColor) = GetStatusDisplay(mgr);
             var statusText = UIFactory.Text("Status", statusStr, contentArea.transform, 14, TextAnchor.MiddleLeft);
             statusText.color = statusColor;
+            _detailStatusText = statusText;
             var statusRect = statusText.gameObject.GetComponent<RectTransform>();
             statusRect.anchorMin = new Vector2(0, 1);
             statusRect.anchorMax = new Vector2(0.5f, 1);
@@ -227,6 +232,7 @@ namespace OverTheCounter.Apps
                 displaySlots = Math.Max(5, npcInventory.ItemSlots.Count);
 
             var invPanel = UIFactory.Panel("InvGrid", contentArea.transform, Color.clear);
+            _detailInvGrid = invPanel;
             var invRect = invPanel.GetComponent<RectTransform>();
             invRect.anchorMin = new Vector2(0, 1);
             invRect.anchorMax = new Vector2(0.5f, 1);
@@ -289,60 +295,16 @@ namespace OverTheCounter.Apps
                         shadow.effectDistance = new Vector2(1, -1);
                     }
                 }
-                else { }
             }
 
-            // ── Upgrade buttons below inventory ──
-            BuildUpgradeButtons(contentArea.transform, mgr);
+            // TODO: Upgrade buttons — implement in next update
+            // BuildUpgradeButtons(contentArea.transform, mgr);
+
+            // ── Debug log button ──
+            BuildDebugLogButton(contentArea.transform, mgr);
 
             // ── Right side: Minimap ──
             BuildMinimap(contentArea.transform, mgr);
-        }
-
-        private void BuildUpgradeButtons(Transform contentArea, ManagerInstance mgr)
-        {
-            float yPos = -228f;
-
-            var upgradeLabel = UIFactory.Text("UpgradeLabel", "<b>Upgrades</b>", contentArea, 14, TextAnchor.MiddleLeft);
-            upgradeLabel.color = new Color(0.7f, 0.7f, 0.7f);
-            var upgradeLabelRect = upgradeLabel.gameObject.GetComponent<RectTransform>();
-            upgradeLabelRect.anchorMin = new Vector2(0, 1);
-            upgradeLabelRect.anchorMax = new Vector2(0.5f, 1);
-            upgradeLabelRect.pivot = new Vector2(0, 1);
-            upgradeLabelRect.anchoredPosition = new Vector2(16, yPos);
-            upgradeLabelRect.sizeDelta = new Vector2(0, 22);
-
-            // ── Add Inventory Slot button ──
-            float btnY = yPos - 28f;
-            var (slotMask, slotBtn, slotLabel) = UIFactory.RoundedButtonWithLabel(
-                "AddSlotBtn", "", contentArea,
-                new Color(0.15f, 0.35f, 0.45f), 360, 40, 6, Color.white);
-            var slotBtnRect = slotMask.GetComponent<RectTransform>();
-            slotBtnRect.anchorMin = new Vector2(0, 1);
-            slotBtnRect.anchorMax = new Vector2(0, 1);
-            slotBtnRect.pivot = new Vector2(0, 1);
-            slotBtnRect.anchoredPosition = new Vector2(16, btnY);
-
-            slotLabel.text = "+1 Inventory Slot  —  $500 + $25/day";
-            slotLabel.fontSize = 12;
-            slotLabel.alignment = TextAnchor.MiddleCenter;
-            // Non-functional for now
-
-            // ── Increase Walk Speed button ──
-            float speedBtnY = btnY - 48f;
-            var (speedMask, speedBtn, speedLabel) = UIFactory.RoundedButtonWithLabel(
-                "SpeedBtn", "", contentArea,
-                new Color(0.15f, 0.35f, 0.45f), 360, 40, 6, Color.white);
-            var speedBtnRect = speedMask.GetComponent<RectTransform>();
-            speedBtnRect.anchorMin = new Vector2(0, 1);
-            speedBtnRect.anchorMax = new Vector2(0, 1);
-            speedBtnRect.pivot = new Vector2(0, 1);
-            speedBtnRect.anchoredPosition = new Vector2(16, speedBtnY);
-
-            speedLabel.text = "+20% Walk Speed  —  $1,000";
-            speedLabel.fontSize = 12;
-            speedLabel.alignment = TextAnchor.MiddleCenter;
-            // Non-functional for now
         }
 
         private void BuildMinimap(Transform contentArea, ManagerInstance mgr)
@@ -478,6 +440,149 @@ namespace OverTheCounter.Apps
                 _minimapImageRect.anchoredPosition = new Vector2(-mapPos.x * scaleX, -mapPos.y * scaleY);
             }
             catch { }
+        }
+
+        private void RefreshDetailInventory()
+        {
+            if (_detailManager == null) return;
+
+            // Update status
+            if (_detailStatusText != null)
+            {
+                var (statusStr, statusColor) = GetStatusDisplay(_detailManager);
+                _detailStatusText.text = statusStr;
+                _detailStatusText.color = statusColor;
+            }
+
+            // Update cash
+            if (_detailCashText != null && _detailManager.HasLocker)
+            {
+                float cash = _detailManager.GetLockerCash();
+                _detailCashText.text = $"Balance: <color=#66BF4D>${cash:N0}</color>";
+            }
+
+            // Rebuild inventory slots
+            if (_detailInvGrid != null)
+            {
+                ClearChildren(_detailInvGrid.transform);
+
+                Il2CppScheduleOne.NPCs.NPCInventory npcInventory = null;
+                try { npcInventory = _detailManager.GameNpc?.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>(); }
+                catch { }
+
+                int displaySlots = 5;
+                if (npcInventory?.ItemSlots != null)
+                    displaySlots = Math.Max(5, npcInventory.ItemSlots.Count);
+
+                for (int i = 0; i < displaySlots; i++)
+                {
+                    var slotPanel = UIFactory.Panel($"Slot_{i}", _detailInvGrid.transform, SlotBg);
+
+                    Sprite icon = null;
+                    int qty = 0;
+                    try
+                    {
+                        if (npcInventory?.ItemSlots != null && i < npcInventory.ItemSlots.Count)
+                        {
+                            var slot = npcInventory.ItemSlots[i];
+                            if (slot?.ItemInstance?.Definition != null)
+                            {
+                                icon = slot.ItemInstance.Definition.Icon;
+                                qty = slot.Quantity;
+                            }
+                        }
+                    }
+                    catch { }
+
+                    if (icon != null)
+                    {
+                        var iconObj = new GameObject("Icon");
+                        iconObj.transform.SetParent(slotPanel.transform, false);
+                        var iconImg = iconObj.AddComponent<Image>();
+                        iconImg.sprite = icon;
+                        iconImg.preserveAspect = true;
+                        var iconRect = iconObj.GetComponent<RectTransform>();
+                        iconRect.anchorMin = new Vector2(0.06f, 0.06f);
+                        iconRect.anchorMax = new Vector2(0.94f, 0.94f);
+                        iconRect.offsetMin = Vector2.zero;
+                        iconRect.offsetMax = Vector2.zero;
+
+                        if (qty > 0)
+                        {
+                            var qtyText = UIFactory.Text($"Qty_{i}", qty.ToString(), slotPanel.transform, 13, TextAnchor.LowerRight);
+                            qtyText.color = Color.white;
+                            var qtyRect = qtyText.gameObject.GetComponent<RectTransform>();
+                            qtyRect.anchorMin = Vector2.zero;
+                            qtyRect.anchorMax = Vector2.one;
+                            qtyRect.offsetMin = new Vector2(2, 1);
+                            qtyRect.offsetMax = new Vector2(-3, 0);
+
+                            var shadow = qtyText.gameObject.AddComponent<Shadow>();
+                            shadow.effectColor = new Color(0, 0, 0, 0.85f);
+                            shadow.effectDistance = new Vector2(1, -1);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void BuildDebugLogButton(Transform contentArea, ManagerInstance mgr)
+        {
+            float yPos = -228f;
+            var mgrRef = mgr;
+
+            var (mask, btn, label) = UIFactory.RoundedButtonWithLabel(
+                "DebugLogBtn", "Debug Log", contentArea,
+                new Color(0.25f, 0.25f, 0.25f), 360, 36, 6, new Color(0.7f, 0.7f, 0.7f));
+            var btnRect = mask.GetComponent<RectTransform>();
+            btnRect.anchorMin = new Vector2(0, 1);
+            btnRect.anchorMax = new Vector2(0, 1);
+            btnRect.pivot = new Vector2(0, 1);
+            btnRect.anchoredPosition = new Vector2(16, yPos);
+
+            label.fontSize = 12;
+            label.alignment = TextAnchor.MiddleCenter;
+
+            btn.onClick.AddListener(new Action(() => ShowManagerLog(mgrRef)));
+        }
+
+        private void ShowManagerLog(ManagerInstance mgr)
+        {
+            // Clean up detail page
+            if (_detailManager != null)
+                _detailManager.OnMugshotReady -= OnDetailMugshotReady;
+            StopMinimapTracking();
+
+            if (_managerDetailPage != null)
+            {
+                UnityEngine.Object.Destroy(_managerDetailPage);
+                _managerDetailPage = null;
+                _detailMugshotImage = null;
+                _detailInvGrid = null;
+                _detailStatusText = null;
+                _detailCashText = null;
+                _minimapImageRect = null;
+                _minimapMarkerIcon = null;
+            }
+            _detailManager = null;
+
+            BuildManagerLogPage(mgr);
+        }
+
+        internal void CloseManagerLog()
+        {
+            if (_managerLogPage != null)
+            {
+                UnityEngine.Object.Destroy(_managerLogPage);
+                _managerLogPage = null;
+                _logText = null;
+                _logScrollRect = null;
+            }
+
+            var mgr = _logPageManager;
+            _logPageManager = null;
+            if (mgr != null)
+                ShowManagerDetail(mgr);
         }
     }
 }

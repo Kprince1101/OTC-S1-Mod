@@ -73,6 +73,17 @@ namespace OverTheCounter.Apps
         private float _minimapContentH;
         private Image _minimapMarkerIcon; // mugshot inside map marker circle
 
+        // Manager detail page - refreshable elements
+        private GameObject _detailInvGrid;
+        private Text _detailStatusText;
+        private Text _detailCashText;
+
+        // Manager log page (overlay)
+        private GameObject _managerLogPage;
+        private ManagerInstance _logPageManager;
+        private Text _logText;
+        private ScrollRect _logScrollRect;
+
         public static CustomersApp Instance { get; private set; }
 
         protected override void OnCreated()
@@ -87,12 +98,73 @@ namespace OverTheCounter.Apps
                 UnityEngine.Object.Destroy(parent.GetChild(i).gameObject);
         }
 
+        // Distribution route colors — lighter to darker orange for routes 1, 2, 3
+        private static readonly Color DistRoute1Color = new Color(0.95f, 0.65f, 0.25f);
+        private static readonly Color DistRoute2Color = new Color(0.85f, 0.50f, 0.15f);
+        private static readonly Color DistRoute3Color = new Color(0.75f, 0.38f, 0.08f);
+
+        private static Color GetDistributionRouteColor(int routeDisplay)
+        {
+            return routeDisplay switch
+            {
+                1 => DistRoute1Color,
+                2 => DistRoute2Color,
+                _ => DistRoute3Color,
+            };
+        }
+
+        // Status strings use \u25CF (● filled circle) as a colored bullet prefix
+        internal static (string text, Color color) GetStatusDisplay(ManagerInstance mgr)
+        {
+            var state = mgr.State;
+            if (state == ManagerState.Idle && !mgr.PaidForToday)
+                state = ManagerState.NoFunds;
+
+            if (state == ManagerState.SupplyRun)
+            {
+                var sub = mgr.SupplyBehaviour?.State;
+                string phase = sub switch
+                {
+                    ManagerSupplyBehaviour.SupplyState.WalkingToStorage
+                        or ManagerSupplyBehaviour.SupplyState.AtStorage => "Depositing",
+                    ManagerSupplyBehaviour.SupplyState.WalkingToStore
+                        or ManagerSupplyBehaviour.SupplyState.AtStore => "Purchasing",
+                    _ => null,
+                };
+                string label = phase != null ? $"\u25CF Supply Run - {phase}" : "\u25CF Supply Run";
+                return (label, new Color(0.2f, 0.75f, 0.2f));
+            }
+
+            if (state == ManagerState.DistributionRun)
+            {
+                var dist = mgr.DistributionBehaviour;
+                int route = dist?.CurrentRouteDisplay ?? 1;
+                var sub = dist?.State;
+                string phase = sub switch
+                {
+                    ManagerDistributionBehaviour.DistributionState.WalkingToDestProperty
+                        or ManagerDistributionBehaviour.DistributionState.WalkingToDest
+                        or ManagerDistributionBehaviour.DistributionState.AtDest => "Depositing",
+                    ManagerDistributionBehaviour.DistributionState.WalkingToSourceProperty
+                        or ManagerDistributionBehaviour.DistributionState.WalkingToSource
+                        or ManagerDistributionBehaviour.DistributionState.AtSource => "Picking Up",
+                    _ => null,
+                };
+                string label = phase != null
+                    ? $"\u25CF Distribution Route {route} - {phase}"
+                    : $"\u25CF Distribution Route {route}";
+                return (label, GetDistributionRouteColor(route));
+            }
+
+            return GetStatusDisplay(state);
+        }
+
         internal static (string text, Color color) GetStatusDisplay(ManagerState state)
         {
             return state switch
             {
                 ManagerState.SupplyRun => ("\u25CF Supply Run", new Color(0.2f, 0.75f, 0.2f)),
-                ManagerState.DistributionRun => ("\u25CF Distribution", new Color(0.3f, 0.55f, 0.9f)),
+                ManagerState.DistributionRun => ("\u25CF Distribution", new Color(0.85f, 0.50f, 0.15f)),
                 ManagerState.NoFunds => ("\u25CF No Funds", new Color(0.9f, 0.25f, 0.25f)),
                 ManagerState.Transferring => ("\u25CF Transferring", new Color(0.9f, 0.6f, 0.15f)),
                 _ => ("\u25CF Idle", new Color(0.5f, 0.5f, 0.5f)),
@@ -223,6 +295,16 @@ namespace OverTheCounter.Apps
         {
             _activeTab = tab;
 
+            // Close log page if open
+            if (_managerLogPage != null)
+            {
+                UnityEngine.Object.Destroy(_managerLogPage);
+                _managerLogPage = null;
+                _logPageManager = null;
+                _logText = null;
+                _logScrollRect = null;
+            }
+
             // Close detail page if open
             if (_managerDetailPage != null)
             {
@@ -233,6 +315,9 @@ namespace OverTheCounter.Apps
                 _managerDetailPage = null;
                 _detailManager = null;
                 _detailMugshotImage = null;
+                _detailInvGrid = null;
+                _detailStatusText = null;
+                _detailCashText = null;
                 _minimapImageRect = null;
                 _minimapMarkerIcon = null;
             }
@@ -295,6 +380,16 @@ namespace OverTheCounter.Apps
         internal void RefreshApp()
         {
             UpdateLayout();
+            if (_managerLogPage != null)
+            {
+                RefreshLogContent();
+                return;
+            }
+            if (_managerDetailPage != null)
+            {
+                RefreshDetailInventory();
+                return;
+            }
             SwitchTab(_activeTab);
         }
 
@@ -314,7 +409,11 @@ namespace OverTheCounter.Apps
             while (true)
             {
                 yield return new WaitForSeconds(MANAGER_REFRESH_INTERVAL);
-                if (_managersPage != null && _managersPage.activeInHierarchy)
+                if (_managerLogPage != null)
+                    RefreshLogContent();
+                else if (_managerDetailPage != null)
+                    RefreshDetailInventory();
+                else if (_managersPage != null && _managersPage.activeInHierarchy)
                     RefreshManagersPage();
             }
         }

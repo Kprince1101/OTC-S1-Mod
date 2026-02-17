@@ -20,7 +20,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class ManagerSupplyBehaviour
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerSupply");
 
         public enum SupplyState
         {
@@ -183,7 +182,7 @@ namespace OverTheCounter.Logic
             {
                 if (CanStorageAcceptAnyItem())
                 {
-                    Logger.Msg($"Manager {_manager.Id}: resuming deposit of leftover items from previous run | inventory: [{_manager.GetInventorySummary()}]");
+                    _manager.Log($"resuming deposit of leftover items from previous run | inventory: [{_manager.GetInventorySummary()}]");
                     _manager.State = ManagerState.SupplyRun;
                     _manager.DisableIdleBehaviour();
                     WalkToStorage();
@@ -217,7 +216,7 @@ namespace OverTheCounter.Logic
                 return false;
             }
 
-            Logger.Msg($"Manager {_manager.Id}: starting supply run");
+            _manager.Log($"starting supply run");
             return true;
         }
 
@@ -253,7 +252,7 @@ namespace OverTheCounter.Logic
                     if (!CanStorageAcceptAnyItem())
                     {
                         // Storage is full — idle and wait for space to open up
-                        Logger.Msg($"Manager {_manager.Id}: storage full, idling with items until space opens up");
+                        _manager.Log($"storage full, idling with items until space opens up");
                         ReturnCashToLocker();
                         State = SupplyState.Idle;
                         _manager.State = ManagerState.Idle;
@@ -276,7 +275,7 @@ namespace OverTheCounter.Logic
                 {
                     if (!CanStorageAcceptAnyItem())
                     {
-                        Logger.Msg($"Manager {_manager.Id}: storage full (no reachable stores), idling with items");
+                        _manager.Log($"storage full (no reachable stores), idling with items");
                         ReturnCashToLocker();
                         State = SupplyState.Idle;
                         _manager.State = ManagerState.Idle;
@@ -297,7 +296,7 @@ namespace OverTheCounter.Logic
             while (visit != null && !CanAffordAnyItem(visit) && retries < MAX_RETRIES)
             {
                 retries++;
-                Logger.Msg($"Manager {_manager.Id}: can't afford any items at {visit.Location.DisplayName}, trying next store");
+                _manager.Log($"can't afford any items at {visit.Location.DisplayName}, trying next store");
                 excludedStoreTypes.Add(visit.StoreType);
 
                 // Rebuild items with excluded store options stripped
@@ -330,9 +329,9 @@ namespace OverTheCounter.Logic
             if (visit == null || retries >= MAX_RETRIES)
             {
                 if (retries >= MAX_RETRIES)
-                    Logger.Warning($"Manager {_manager.Id}: hit retry limit in affordability check");
+                    _manager.LogWarning($"hit retry limit in affordability check");
                 else
-                    Logger.Msg($"Manager {_manager.Id}: no affordable stores remaining");
+                    _manager.Log($"no affordable stores remaining");
 
                 // Case 1: ran out of cash for Night Market items mid-day
                 var nmItems = items.Where(i => i.Options.Any(o => o.StoreType == StoreType.NightMarket)).ToList();
@@ -413,7 +412,7 @@ namespace OverTheCounter.Logic
             if (Config.ManagerVerboseLogging.Value)
             {
                 var reservationLog = string.Join(", ", reservedSlots.Select(kv => $"{kv.Key}={kv.Value}free"));
-                Logger.Msg($"Manager {_manager.Id}: [BuildList] storageSlots={totalStorageSlots}, time={currentTime}, reservations: {reservationLog}");
+                _manager.Log($"[BuildList] storageSlots={totalStorageSlots}, time={currentTime}, reservations: {reservationLog}");
             }
 
             // Count free storage slots — shared budget across ALL items.
@@ -463,7 +462,7 @@ namespace OverTheCounter.Logic
                     if (storable != null && !storable.IsUnlocked)
                     {
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Manager {_manager.Id}: skipping locked item '{itemId}'");
+                            _manager.Log($"skipping locked item '{itemId}'");
                         continue;
                     }
                 }
@@ -513,7 +512,7 @@ namespace OverTheCounter.Logic
                         effectiveCapacity = physicalCapacity;
                     }
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"Manager {_manager.Id}: [BuildList] {itemId}: threshold={threshold}, inStorage={inStorage}, inNpc={inNpc}, deficit={deficit}, stackLimit={stackLimit}, resFree={resFreeSlots}, stackable={stackableCapacity}, freeSlots={remainingFreeSlots}, physicalCap={physicalCapacity}, effectiveCap={effectiveCapacity}");
+                        _manager.Log($"[BuildList] {itemId}: threshold={threshold}, inStorage={inStorage}, inNpc={inNpc}, deficit={deficit}, stackLimit={stackLimit}, resFree={resFreeSlots}, stackable={stackableCapacity}, freeSlots={remainingFreeSlots}, physicalCap={physicalCapacity}, effectiveCap={effectiveCapacity}");
 
                     deficit = Math.Min(deficit, effectiveCapacity);
                     if (deficit > 0)
@@ -612,7 +611,7 @@ namespace OverTheCounter.Logic
             // Log shopping list summary
             {
                 var summary = string.Join(", ", purchases.Select(kv => $"{kv.Value}x {kv.Key}"));
-                Logger.Msg($"Manager {_manager.Id}: shopping list: [{summary}] ({slotsUsed}/{availableSlots} NPC slots)");
+                _manager.Log($"shopping list: [{summary}] ({slotsUsed}/{availableSlots} NPC slots)");
             }
             if (Config.ManagerVerboseLogging.Value)
             {
@@ -620,7 +619,7 @@ namespace OverTheCounter.Logic
                 {
                     int stackLimit = stackLimits.GetValueOrDefault(itemId, 20);
                     int slotsNeeded = (totalQty + stackLimit - 1) / stackLimit;
-                    Logger.Msg($"Manager {_manager.Id}: [BuildList] allocated {itemId}: qty={totalQty} ({slotsNeeded} NPC slots, stackLimit={stackLimit})");
+                    _manager.Log($"[BuildList] allocated {itemId}: qty={totalQty} ({slotsNeeded} NPC slots, stackLimit={stackLimit})");
                 }
             }
 
@@ -643,7 +642,7 @@ namespace OverTheCounter.Logic
                 }
                 else
                 {
-                    Logger.Warning($"Manager {_manager.Id}: item '{itemId}' not found in any shop, skipping");
+                    _manager.LogWarning($"item '{itemId}' not found in any shop, skipping");
                 }
             }
 
@@ -702,13 +701,13 @@ namespace OverTheCounter.Logic
                         });
 
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Manager {_manager.Id}: found '{itemId}' at shop '{shopName}' (type={storeType}, price=${listing.Price:F0})");
+                            _manager.Log($"found '{itemId}' at shop '{shopName}' (type={storeType}, price=${listing.Price:F0})");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {_manager.Id}: AllShops lookup error: {ex.Message}");
+                _manager.LogWarning($"AllShops lookup error: {ex.Message}");
             }
 
             // Check Night Market suppliers (physical shop + online/phone items)
@@ -793,7 +792,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {_manager.Id}: Supplier lookup error: {ex.Message}");
+                _manager.LogWarning($"Supplier lookup error: {ex.Message}");
             }
 
             return options;
@@ -898,7 +897,7 @@ namespace OverTheCounter.Logic
 
             if (visit.Purchases.Count == 0) return null;
 
-            Logger.Msg($"Manager {_manager.Id}: next visit → {nearestLoc.DisplayName} ({visit.Purchases.Count} items, {nearestDist:F0}m away)");
+            _manager.Log($"next visit → {nearestLoc.DisplayName} ({visit.Purchases.Count} items, {nearestDist:F0}m away)");
             return visit;
         }
 
@@ -927,10 +926,10 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            Logger.Warning($"Manager {_manager.Id}: walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES}) to {visit.Location.DisplayName}");
+                            _manager.LogWarning($"walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES}) to {visit.Location.DisplayName}");
                             if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
                             {
-                                Logger.Warning($"Manager {_manager.Id}: warping to store after {MAX_WALK_FAILURES} walk failures");
+                                _manager.LogWarning($"warping to store after {MAX_WALK_FAILURES} walk failures");
                                 WarpToPosition(visit.Location.Position);
                                 State = SupplyState.AtStore;
                                 _storeArrivalTime = UnityEngine.Time.time;
@@ -943,11 +942,11 @@ namespace OverTheCounter.Logic
 
                 _manager.GameNpc.Movement.SetDestination(visit.Location.Position, _storeWalkCallback, 3f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: walking to {visit.Location.DisplayName} | inventory: [{_manager.GetInventorySummary()}]");
+                    _manager.Log($"walking to {visit.Location.DisplayName} | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Manager {_manager.Id}: WalkToStore failed: {ex.Message}");
+                _manager.LogWarning($"WalkToStore failed: {ex.Message}");
                 FinishRun();
             }
         }
@@ -1000,7 +999,7 @@ namespace OverTheCounter.Logic
             }
 
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Manager {_manager.Id}: refreshed visit at {_nextVisit.Location.DisplayName} → {_nextVisit.Purchases.Count} items");
+                _manager.Log($"refreshed visit at {_nextVisit.Location.DisplayName} → {_nextVisit.Purchases.Count} items");
         }
 
         /// <summary>
@@ -1018,7 +1017,7 @@ namespace OverTheCounter.Logic
             }
 
             var visit = _nextVisit;
-            Logger.Msg($"Manager {_manager.Id}: purchasing at {visit.Location.DisplayName} ({visit.Purchases.Count} items)");
+            _manager.Log($"purchasing at {visit.Location.DisplayName} ({visit.Purchases.Count} items)");
 
             // Build queue — only check storage capacity upfront.
             // Affordability is checked per-item in ProcessNextPurchase (after previous purchases deduct funds).
@@ -1040,7 +1039,7 @@ namespace OverTheCounter.Logic
                     if (buyQty > headroom)
                     {
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Manager {_manager.Id}: capping {purchase.ItemName} from {buyQty} to {headroom} (threshold {threshold}, inStorage {inStorage}, inNpc {inNpc})");
+                            _manager.Log($"capping {purchase.ItemName} from {buyQty} to {headroom} (threshold {threshold}, inStorage {inStorage}, inNpc {inNpc})");
                         buyQty = headroom;
                     }
                 }
@@ -1051,13 +1050,13 @@ namespace OverTheCounter.Logic
                     if (buyQty > physCap)
                     {
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Manager {_manager.Id}: capping {purchase.ItemName} from {buyQty} to {physCap} (physical storage limit)");
+                            _manager.Log($"capping {purchase.ItemName} from {buyQty} to {physCap} (physical storage limit)");
                         buyQty = physCap;
                     }
                     if (buyQty <= 0)
                     {
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Manager {_manager.Id}: skipping {purchase.ItemName}, no storage capacity left");
+                            _manager.Log($"skipping {purchase.ItemName}, no storage capacity left");
                         continue;
                     }
                 }
@@ -1081,7 +1080,7 @@ namespace OverTheCounter.Logic
                 // finish the run to avoid an infinite plan→buy→0→plan loop.
                 if (visit.Purchases.Count > 0)
                 {
-                    Logger.Msg($"Manager {_manager.Id}: all purchases blocked (storage full), ending supply run");
+                    _manager.Log($"all purchases blocked (storage full), ending supply run");
                     if (HasItemsInNpcInventory()) WalkToStorage();
                     else FinishRun();
                     return;
@@ -1138,7 +1137,7 @@ namespace OverTheCounter.Logic
                     if (reducedQty > 0)
                     {
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Manager {_manager.Id}: can't afford {buyQty}x {purchase.ItemName} (${totalCost:F0}), buying {reducedQty} instead (${purchase.UnitPrice * reducedQty:F0})");
+                            _manager.Log($"can't afford {buyQty}x {purchase.ItemName} (${totalCost:F0}), buying {reducedQty} instead (${purchase.UnitPrice * reducedQty:F0})");
                         buyQty = reducedQty;
                         totalCost = purchase.UnitPrice * buyQty;
                     }
@@ -1157,7 +1156,7 @@ namespace OverTheCounter.Logic
                             _manager.SendTextMessage($"Boss, I ran out of cash while trying to buy {purchase.ItemName}. {cashPhrase}.{wageWarning}");
                         }
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Manager {_manager.Id}: can't afford {purchase.ItemName} (need ${purchase.UnitPrice * stackLimit:F0} for one stack, have ${npcCash:F0})");
+                            _manager.Log($"can't afford {purchase.ItemName} (need ${purchase.UnitPrice * stackLimit:F0} for one stack, have ${npcCash:F0})");
                         _unaffordableItems.Add(purchase.ItemId);
                     }
                 }
@@ -1171,7 +1170,7 @@ namespace OverTheCounter.Logic
                     }
                     catch (Exception ex)
                     {
-                        Logger.Warning($"Manager {_manager.Id}: RemoveCash failed for {purchase.ItemName}: {ex.Message}");
+                        _manager.LogWarning($"RemoveCash failed for {purchase.ItemName}: {ex.Message}");
                     }
                 }
             }
@@ -1183,7 +1182,7 @@ namespace OverTheCounter.Logic
                     var moneyManager = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance;
                     if (moneyManager == null)
                     {
-                        Logger.Warning($"Manager {_manager.Id}: MoneyManager not available");
+                        _manager.LogWarning($"MoneyManager not available");
                     }
                     else if (moneyManager.onlineBalance < totalCost)
                     {
@@ -1195,7 +1194,7 @@ namespace OverTheCounter.Logic
                         if (reducedQty > 0)
                         {
                             if (Config.ManagerVerboseLogging.Value)
-                                Logger.Msg($"Manager {_manager.Id}: can't afford {buyQty}x {purchase.ItemName} online (${totalCost:F0}), buying {reducedQty} instead (${purchase.UnitPrice * reducedQty:F0})");
+                                _manager.Log($"can't afford {buyQty}x {purchase.ItemName} online (${totalCost:F0}), buying {reducedQty} instead (${purchase.UnitPrice * reducedQty:F0})");
                             buyQty = reducedQty;
                             totalCost = purchase.UnitPrice * buyQty;
                             moneyManager.CreateOnlineTransaction(
@@ -1212,7 +1211,7 @@ namespace OverTheCounter.Logic
                             if (_cantAffordOnlineDay < 0)
                                 _cantAffordOnlineDay = TimeManager.ElapsedDays;
                             if (Config.ManagerVerboseLogging.Value)
-                                Logger.Msg($"Manager {_manager.Id}: can't afford {purchase.ItemName} online (need ${purchase.UnitPrice * stackLimit:F0} for one stack, have ${moneyManager.onlineBalance:F0})");
+                                _manager.Log($"can't afford {purchase.ItemName} online (need ${purchase.UnitPrice * stackLimit:F0} for one stack, have ${moneyManager.onlineBalance:F0})");
                             _unaffordableItems.Add(purchase.ItemId);
                         }
                     }
@@ -1229,7 +1228,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"Manager {_manager.Id}: online transaction failed for {purchase.ItemName}: {ex.Message}");
+                    _manager.LogWarning($"online transaction failed for {purchase.ItemName}: {ex.Message}");
                 }
             }
 
@@ -1245,11 +1244,11 @@ namespace OverTheCounter.Logic
                 if (purchase.ShopListing != null && !purchase.ShopListing.IsUnlimitedStock)
                 {
                     try { purchase.ShopListing.RemoveStock(buyQty); }
-                    catch (Exception ex) { Logger.Warning($"Manager {_manager.Id}: RemoveStock failed: {ex.Message}"); }
+                    catch (Exception ex) { _manager.LogWarning($"RemoveStock failed: {ex.Message}"); }
                 }
 
                 AddToNpcInventory(npcInventory, purchase.ItemId, buyQty, _manager.Id);
-                Logger.Msg($"Manager {_manager.Id}: purchased {buyQty}x {purchase.ItemName} (${totalCost:F0})");
+                _manager.Log($"purchased {buyQty}x {purchase.ItemName} (${totalCost:F0})");
             }
 
             // Advance to next item
@@ -1367,7 +1366,7 @@ namespace OverTheCounter.Logic
             var storagePos = GetStorageAccessPosition();
             if (storagePos == null)
             {
-                Logger.Warning($"Manager {_manager.Id}: can't find supply storage position, depositing immediately");
+                _manager.LogWarning($"can't find supply storage position, depositing immediately");
                 DepositItems();
                 return;
             }
@@ -1392,7 +1391,7 @@ namespace OverTheCounter.Logic
                             _consecutiveWalkFailures++;
                             if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
                             {
-                                Logger.Warning($"Manager {_manager.Id}: warping to storage after {MAX_WALK_FAILURES} walk failures");
+                                _manager.LogWarning($"warping to storage after {MAX_WALK_FAILURES} walk failures");
                                 WarpToPosition(storagePos.Value);
                                 State = SupplyState.AtStorage;
                                 _storageArrivalTime = UnityEngine.Time.time;
@@ -1403,11 +1402,11 @@ namespace OverTheCounter.Logic
 
                 _manager.GameNpc.Movement.SetDestination(storagePos.Value, _storageWalkCallback, 2f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: walking to supply storage | inventory: [{_manager.GetInventorySummary()}]");
+                    _manager.Log($"walking to supply storage | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Manager {_manager.Id}: WalkToStorage failed: {ex.Message}");
+                _manager.LogWarning($"WalkToStorage failed: {ex.Message}");
                 DepositItems();
             }
         }
@@ -1435,7 +1434,7 @@ namespace OverTheCounter.Logic
                     var accessPoints = transit.AccessPoints;
                     if (accessPoints != null && accessPoints.Length > 0 && accessPoints[0] != null)
                     {
-                        Logger.Warning($"Manager {_manager.Id}: no reachable access point for supply storage, using AccessPoints[0] fallback");
+                        _manager.LogWarning($"no reachable access point for supply storage, using AccessPoints[0] fallback");
                         return accessPoints[0].position;
                     }
                 }
@@ -1483,7 +1482,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {_manager.Id}: GrabItem animation failed: {ex.Message}");
+                _manager.LogWarning($"GrabItem animation failed: {ex.Message}");
             }
 
             // Transfer items from NPC inventory to supply storage
@@ -1528,14 +1527,14 @@ namespace OverTheCounter.Logic
                             if (headroom <= 0)
                             {
                                 if (Config.ManagerVerboseLogging.Value)
-                                    Logger.Msg($"Manager {_manager.Id}: threshold reached for {itemId} ({currentInStorage}/{threshold}), skipping deposit of {qty}");
+                                    _manager.Log($"threshold reached for {itemId} ({currentInStorage}/{threshold}), skipping deposit of {qty}");
                                 totalSkipped += qty;
                                 continue;
                             }
                             if (qty > headroom)
                             {
                                 if (Config.ManagerVerboseLogging.Value)
-                                    Logger.Msg($"Manager {_manager.Id}: capping {itemId} deposit from {qty} to {headroom} (threshold {threshold}, inStorage {currentInStorage})");
+                                    _manager.Log($"capping {itemId} deposit from {qty} to {headroom} (threshold {threshold}, inStorage {currentInStorage})");
                                 qty = headroom;
                             }
                         }
@@ -1547,7 +1546,7 @@ namespace OverTheCounter.Logic
                         if (canFit <= 0)
                         {
                             if (Config.ManagerVerboseLogging.Value)
-                                Logger.Msg($"Manager {_manager.Id}: storage full, can't fit {itemId} x{qty}");
+                                _manager.Log($"storage full, can't fit {itemId} x{qty}");
                             totalSkipped += qty;
                             continue;
                         }
@@ -1570,20 +1569,20 @@ namespace OverTheCounter.Logic
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error($"Manager {_manager.Id}: deposit slot {i} failed: {ex.Message}");
+                        _manager.LogWarning($"deposit slot {i} failed: {ex.Message}");
                     }
                 }
             }
             else
             {
-                Logger.Warning($"Manager {_manager.Id}: supply storage or NPC inventory gone, discarding items");
+                _manager.LogWarning($"supply storage or NPC inventory gone, discarding items");
                 ClearNpcInventory(npcInventory);
             }
 
             if (totalSkipped > 0)
-                Logger.Warning($"Manager {_manager.Id}: {totalSkipped} items could not be deposited (storage full or error)");
+                _manager.LogWarning($"{totalSkipped} items could not be deposited (storage full or error)");
 
-            Logger.Msg($"Manager {_manager.Id}: deposited {totalDeposited} items, skipped {totalSkipped}");
+            _manager.Log($"deposited {totalDeposited} items, skipped {totalSkipped}");
 
             // Return any remaining cash to the locker
             ReturnCashToLocker();
@@ -1616,7 +1615,7 @@ namespace OverTheCounter.Logic
             var location = ManagerLocations.GetLocation(_manager.BusinessPropertyCode);
             if (location == null)
             {
-                Logger.Warning($"Manager {_manager.Id}: no business location after deposit");
+                _manager.LogWarning($"no business location after deposit");
                 FinishRun();
                 return;
             }
@@ -1642,7 +1641,7 @@ namespace OverTheCounter.Logic
                             _consecutiveWalkFailures++;
                             if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
                             {
-                                Logger.Warning($"Manager {_manager.Id}: warping to idle point");
+                                _manager.LogWarning($"warping to idle point");
                                 WarpToPosition(location.Destination);
                                 try { _manager.GameNpc?.Movement?.FaceDirection(location.DestRotation * Vector3.forward); }
                                 catch { }
@@ -1653,11 +1652,11 @@ namespace OverTheCounter.Logic
 
                 _manager.GameNpc.Movement.SetDestination(location.Destination, _idleWalkCallback, 3f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: walking to idle point (supply) | inventory: [{_manager.GetInventorySummary()}]");
+                    _manager.Log($"walking to idle point (supply) | inventory: [{_manager.GetInventorySummary()}]");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Manager {_manager.Id}: WalkToIdle failed: {ex.Message}");
+                _manager.LogWarning($"WalkToIdle failed: {ex.Message}");
                 FinishRun();
             }
         }
@@ -1689,7 +1688,7 @@ namespace OverTheCounter.Logic
         {
             if (State == SupplyState.Idle) return;
 
-            Logger.Msg($"Manager {_manager.Id}: supply run cancelled (was {State})");
+            _manager.Log($"supply run cancelled (was {State})");
 
             _purchaseQueue = null;
             ReturnCashToLocker();
@@ -1745,7 +1744,7 @@ namespace OverTheCounter.Logic
 
                 if (storeClosed)
                 {
-                    Logger.Msg($"Manager {_manager.Id}: {_nextVisit.Location.DisplayName} closed mid-walk, aborting");
+                    _manager.Log($"{_nextVisit.Location.DisplayName} closed mid-walk, aborting");
                     _nextVisit = null;
                     if (HasItemsInNpcInventory()) WalkToStorage();
                     else FinishRun();
@@ -1787,7 +1786,7 @@ namespace OverTheCounter.Logic
                 // No deficits — but if NPC inventory is now empty (items removed), skip deposit
                 if (State == SupplyState.WalkingToStorage && !HasItemsInNpcInventory())
                 {
-                    Logger.Msg($"Manager {_manager.Id}: NPC inventory empty during walk to storage, heading to idle");
+                    _manager.Log($"NPC inventory empty during walk to storage, heading to idle");
                     WalkToIdle();
                 }
                 return;
@@ -1804,7 +1803,7 @@ namespace OverTheCounter.Logic
             if (storeDist < destDist - 10f && CanAffordAnyItem(visit))
             {
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: reconsidering route — {visit.Location.DisplayName} ({storeDist:F0}m) is closer than current dest ({destDist:F0}m)");
+                    _manager.Log($"reconsidering route — {visit.Location.DisplayName} ({storeDist:F0}m) is closer than current dest ({destDist:F0}m)");
                 _nextVisit = visit;
                 State = SupplyState.WalkingToStore;
                 WalkToStore(visit);
@@ -1837,7 +1836,7 @@ namespace OverTheCounter.Logic
                 {
                     if (Config.ManagerVerboseLogging.Value && UnityEngine.Time.time - _lastEnsureMovingLog > 10f)
                     {
-                        Logger.Msg($"Manager {_manager.Id}: resuming supply run walk (dist={dist:F1}m)");
+                        _manager.Log($"resuming supply run walk (dist={dist:F1}m)");
                         _lastEnsureMovingLog = UnityEngine.Time.time;
                     }
 
@@ -1854,7 +1853,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {_manager.Id}: EnsureMovingDuringRun failed: {ex.Message}");
+                _manager.LogWarning($"EnsureMovingDuringRun failed: {ex.Message}");
             }
         }
 
@@ -1888,7 +1887,7 @@ namespace OverTheCounter.Logic
             if (_lastMovedTime <= 0f || UnityEngine.Time.time - _lastMovedTime < STUCK_WARP_TIMEOUT)
                 return;
 
-            Logger.Warning($"Manager {_manager.Id}: stuck for {STUCK_WARP_TIMEOUT}s during {State}, warping");
+            _manager.LogWarning($"stuck for {STUCK_WARP_TIMEOUT}s during {State}, warping");
             _consecutiveWalkFailures = 0;
 
             switch (State)
@@ -1993,13 +1992,13 @@ namespace OverTheCounter.Logic
             try
             {
                 var itemDef = Il2CppScheduleOne.Registry.GetItem(itemId);
-                if (itemDef == null) { Logger.Warning($"Manager {mgrId}: Registry.GetItem('{itemId}') returned null"); return; }
+                if (itemDef == null) { ManagerInstance.Logger.Warning($"Manager {mgrId}: Registry.GetItem('{itemId}') returned null"); return; }
 
                 var storableDef = itemDef.TryCast<StorableItemDefinition>();
-                if (storableDef == null) { Logger.Warning($"Manager {mgrId}: item '{itemId}' is not StorableItemDefinition"); return; }
+                if (storableDef == null) { ManagerInstance.Logger.Warning($"Manager {mgrId}: item '{itemId}' is not StorableItemDefinition"); return; }
 
                 var instance = storableDef.GetDefaultInstance(quantity);
-                if (instance == null) { Logger.Warning($"Manager {mgrId}: GetDefaultInstance returned null for '{itemId}'"); return; }
+                if (instance == null) { ManagerInstance.Logger.Warning($"Manager {mgrId}: GetDefaultInstance returned null for '{itemId}'"); return; }
 
                 int itemSlotCount = inventory.ItemSlots.Count;
                 int remaining = quantity;
@@ -2035,11 +2034,11 @@ namespace OverTheCounter.Logic
                 }
 
                 if (remaining > 0)
-                    Logger.Warning($"Manager {mgrId}: NPC inventory full, couldn't fit {remaining}x {itemId}");
+                    ManagerInstance.Logger.Warning($"Manager {mgrId}: NPC inventory full, couldn't fit {remaining}x {itemId}");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Manager {mgrId}: AddToNpcInventory failed for {itemId}: {ex.Message}");
+                ManagerInstance.Logger.Warning($"Manager {mgrId}: AddToNpcInventory failed for {itemId}: {ex.Message}");
             }
         }
 
@@ -2122,14 +2121,14 @@ namespace OverTheCounter.Logic
 
                 if (!_manager.RemoveLockerCash(withdraw))
                 {
-                    Logger.Warning($"Manager {_manager.Id}: RemoveLockerCash(${withdraw:F0}) returned false");
+                    _manager.LogWarning($"RemoveLockerCash(${withdraw:F0}) returned false");
                     return;
                 }
 
                 var npcInventory = GetNpcInventory();
                 if (npcInventory == null)
                 {
-                    Logger.Warning($"Manager {_manager.Id}: NPC inventory is null during cash withdrawal");
+                    _manager.LogWarning($"NPC inventory is null during cash withdrawal");
                     try
                     {
                         DepositCashToStorage(_manager.AssignedLocker.Storage, withdraw);
@@ -2140,11 +2139,11 @@ namespace OverTheCounter.Logic
 
                 npcInventory.AddCash(withdraw);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: withdrew ${withdraw:F0} cash from locker (total on hand: ${npcInventory.GetCashInInventory():F0})");
+                    _manager.Log($"withdrew ${withdraw:F0} cash from locker (total on hand: ${npcInventory.GetCashInInventory():F0})");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {_manager.Id}: WithdrawCashFromLocker failed: {ex.Message}");
+                _manager.LogWarning($"WithdrawCashFromLocker failed: {ex.Message}");
             }
         }
 
@@ -2167,7 +2166,7 @@ namespace OverTheCounter.Logic
                 npcInventory.RemoveCash(cash);
                 DepositCashToStorage(_manager.AssignedLocker.Storage, cash);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_manager.Id}: returned ${cash:F0} cash to locker");
+                    _manager.Log($"returned ${cash:F0} cash to locker");
 
                 // Bump the warning threshold so returned change doesn't false-trigger a flag reset
                 if (_manager.NoNightMarketCashTextSent)
@@ -2175,7 +2174,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {_manager.Id}: ReturnCashToLocker failed: {ex.Message}");
+                _manager.LogWarning($"ReturnCashToLocker failed: {ex.Message}");
             }
         }
 
@@ -2275,7 +2274,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"GetStorageQuantity error for '{itemId}': {ex.Message}");
+                ManagerInstance.Logger.Warning($"GetStorageQuantity error for '{itemId}': {ex.Message}");
             }
 
             return total;
@@ -2302,7 +2301,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Manager {_manager.Id}: Warp failed: {ex.Message}");
+                _manager.LogWarning($"Warp failed: {ex.Message}");
             }
         }
 
@@ -2575,7 +2574,7 @@ namespace OverTheCounter.Logic
             int totalNpcItemSlots = 0;
             foreach (var kv in npcSlotsPerItem) totalNpcItemSlots += kv.Value;
             if (totalNpcItemSlots > 0 && Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Manager {_manager.Id}: [Reservations] rawFree={rawFreeSlots}, npcItems={totalNpcItemSlots}, npcPerItem=[{string.Join(", ", npcSlotsPerItem.Select(kv => $"{kv.Key}={kv.Value}"))}]");
+                _manager.Log($"[Reservations] rawFree={rawFreeSlots}, npcItems={totalNpcItemSlots}, npcPerItem=[{string.Join(", ", npcSlotsPerItem.Select(kv => $"{kv.Key}={kv.Value}"))}]");
 
             // Pre-deduct NPC slots for fully-served items (deficit <= 0 but holding NPC items).
             // These items won't participate in distribution but their NPC slots claim raw free slots.
