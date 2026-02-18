@@ -6,6 +6,7 @@ using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Product;
 using Il2CppScheduleOne.VoiceOver;
 using MelonLoader;
+using OverTheCounter.Utilities;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
@@ -129,6 +130,9 @@ namespace OverTheCounter.Logic
             // Set drifter icon for messaging profile (synchronous, always ready)
             DrifterSpawner.SetDrifterIcon(gameNpc);
 
+            // Generate real mugshot asynchronously (replaces generic icon when ready)
+            EnqueueMugshot(gameNpc, id);
+
             Logger.Msg($"Created drifter {id}: Type={type}, Hotspot={hotspot.Name}, Position={hotspot.Position}");
             return instance;
         }
@@ -181,6 +185,9 @@ namespace OverTheCounter.Logic
             DrifterSpawner.EnsureVoiceDatabase(existingNpc);
             DrifterSpawner.SetDrifterIcon(existingNpc);
 
+            // Generate real mugshot asynchronously (replaces generic icon when ready)
+            EnqueueMugshot(existingNpc, id);
+
             // Schedule delayed re-apply: FishNet may not have fully initialized
             // rendering components when Adopt runs immediately after NPC discovery
             MelonCoroutines.Start(DelayedAppearanceReapply(existingNpc, seed));
@@ -215,6 +222,34 @@ namespace OverTheCounter.Logic
             }
         }
 
+        private static void EnqueueMugshot(NPC gameNpc, string id)
+        {
+            var settings = gameNpc.Avatar?.CurrentSettings;
+            if (settings == null) return;
+
+            MugshotUtility.Generate(gameNpc, $"Drifter:{id}", sprite =>
+            {
+                if (sprite == null || gameNpc == null) return;
+                gameNpc.MugshotSprite = sprite;
+
+                // Update the Messages app list entry icon — it was cached with the
+                // generic drifter icon when CreateConversationUI ran before the
+                // async mugshot was ready.
+                try
+                {
+                    var entry = gameNpc.MSGConversation?.entry;
+                    if (entry != null)
+                    {
+                        var iconImage = ((UnityEngine.Component)((UnityEngine.Transform)entry)
+                            .Find("IconMask/Icon"))?.GetComponent<UnityEngine.UI.Image>();
+                        if (iconImage != null)
+                            iconImage.sprite = sprite;
+                    }
+                }
+                catch { }
+            }, UnityEngine.Object.Instantiate(settings));
+        }
+
         /// <summary>
         /// Sends a text message from this drifter to the player.
         /// </summary>
@@ -234,6 +269,33 @@ namespace OverTheCounter.Logic
             catch (Exception ex)
             {
                 Logger.Error($"Failed to send text from drifter {Id}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Delivers a text message locally (no FishNet networking).
+        /// Used by SyncVar callback on clients to display synced messages.
+        /// </summary>
+        public void DeliverTextLocally(string message)
+        {
+            if (GameNpc == null) return;
+
+            try
+            {
+                var conversation = GameNpc.MSGConversation;
+                if (conversation == null) return;
+
+                var msg = new Il2CppScheduleOne.Messaging.Message(
+                    message,
+                    Il2CppScheduleOne.Messaging.Message.ESenderType.Other,
+                    true);
+                conversation.SendMessage(msg, false, false); // local only, no network
+                if (Config.VerboseLogging.Value)
+                    Logger.Msg($"Drifter {Id} delivered synced text locally: \"{message}\"");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"DeliverTextLocally failed for drifter {Id}: {ex.Message}");
             }
         }
 

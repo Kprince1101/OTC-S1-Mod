@@ -127,9 +127,11 @@ namespace OverTheCounter
                         mgr.DistributionBehaviour?.Tick();
                     }
 
-                    // Publish pending text messages to client via dedicated message SyncVar
+                    // Publish pending text messages to client via dedicated message SyncVars
                     if (ManagerInstance.HasPendingMessages)
                         ConfigSyncData.Instance?.PublishManagerMessages();
+                    if (DrifterManager.HasPendingDrifterMessages)
+                        ConfigSyncData.Instance?.PublishDrifterMessages();
 
                     // Publish manager state changes (State/PaidForToday) to per-slot SyncVars
                     if (ManagerInstance.StatePublishNeeded)

@@ -42,6 +42,7 @@ namespace OverTheCounter.SaveData
         private static HostSyncVar<string> _stateVar;
         private static HostSyncVar<string> _drifterVar;
         private static HostSyncVar<string> _mgrMsgVar;
+        private static HostSyncVar<string> _drifterMsgVar;
         private static ClientSyncVar<string> _actionVar;
 
         internal const int ManagerSlotCount = 8;
@@ -85,6 +86,7 @@ namespace OverTheCounter.SaveData
                 _stateVar = _netClient.CreateHostSyncVar("state", "", _syncOptions);
                 _drifterVar = _netClient.CreateHostSyncVar("drifters", "", _syncOptions);
                 _mgrMsgVar = _netClient.CreateHostSyncVar("mgrmsg", "", _syncOptions);
+                _drifterMsgVar = _netClient.CreateHostSyncVar("driftermsg", "", _syncOptions);
                 _actionVar = _netClient.CreateClientSyncVar("action", "", _syncOptions);
 
                 for (int i = 0; i < ManagerSlotCount; i++)
@@ -100,6 +102,7 @@ namespace OverTheCounter.SaveData
                 _stateVar.OnSyncError += (ex) => Logger.Warning($"State SyncVar error: {ex.Message}");
                 _drifterVar.OnSyncError += (ex) => Logger.Warning($"Drifter SyncVar error: {ex.Message}");
                 _mgrMsgVar.OnSyncError += (ex) => Logger.Warning($"MgrMsg SyncVar error: {ex.Message}");
+                _drifterMsgVar.OnSyncError += (ex) => Logger.Warning($"DrifterMsg SyncVar error: {ex.Message}");
                 _actionVar.OnSyncError += (ex) => Logger.Warning($"Action SyncVar error: {ex.Message}");
                 _configVar.OnWriteIgnored += (_) => { if (Config.VerboseLogging.Value) Logger.Msg("Config SyncVar write ignored (not lobby owner)."); };
                 _stateVar.OnWriteIgnored += (_) => { if (Config.VerboseLogging.Value) Logger.Msg("State SyncVar write ignored (not lobby owner)."); };
@@ -109,6 +112,7 @@ namespace OverTheCounter.SaveData
                 _stateVar.OnValueChanged += OnStateChanged;
                 _drifterVar.OnValueChanged += OnDrifterStateChanged;
                 _mgrMsgVar.OnValueChanged += OnManagerMessageChanged;
+                _drifterMsgVar.OnValueChanged += OnDrifterMessageChanged;
 
                 // Host callback: receive quest actions from clients.
                 _actionVar.OnValueChanged += OnActionChanged;
@@ -176,6 +180,7 @@ namespace OverTheCounter.SaveData
                     for (int i = 0; i < ManagerSlotCount; i++)
                         _mgrSlots[i]?.Refresh();
                     _mgrMsgVar?.Refresh();
+                    _drifterMsgVar?.Refresh();
                     _actionVar?.Refresh();
 
                     Logger.Msg($"Initial SyncVar sync after lobby discovery (lobbyHost={_netClient.IsHost}).");
@@ -252,6 +257,7 @@ namespace OverTheCounter.SaveData
             for (int i = 0; i < ManagerSlotCount; i++)
                 _mgrSlots[i] = null;
             _mgrMsgVar = null;
+            _drifterMsgVar = null;
             _actionVar = null;
             _processedActions.Clear();
             _networkInitialized = false;
@@ -296,6 +302,12 @@ namespace OverTheCounter.SaveData
         {
             if (_mgrMsgVar != null)
                 _mgrMsgVar.Value = payload;
+        }
+
+        internal static void PushDrifterMessages(string payload)
+        {
+            if (_drifterMsgVar != null)
+                _drifterMsgVar.Value = payload;
         }
 
         internal static void SendAction(string value)
@@ -369,6 +381,13 @@ namespace OverTheCounter.SaveData
             if (_netClient?.IsHost == true) return;
             if (string.IsNullOrEmpty(newValue)) return;
             ConfigSyncData.HandleManagerMessageChanged(newValue);
+        }
+
+        private static void OnDrifterMessageChanged(string oldValue, string newValue)
+        {
+            if (_netClient?.IsHost == true) return;
+            if (string.IsNullOrEmpty(newValue)) return;
+            ConfigSyncData.HandleDrifterMessageChanged(newValue);
         }
 
         private static void OnActionChanged(CSteamID sender, string oldValue, string newValue)

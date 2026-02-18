@@ -266,6 +266,51 @@ namespace OverTheCounter.SaveData
         private static void PublishManagerMessagesImpl(string payload) => NetworkSyncBridge.PushManagerMessages(payload);
 
         /// <summary>
+        /// Publishes pending drifter text messages to the dedicated message SyncVar.
+        /// Called from Core.OnLateUpdate when HasPendingDrifterMessages is true.
+        /// Format: "seq;drifterId|messageText;drifterId2|messageText2"
+        /// </summary>
+        public void PublishDrifterMessages()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                var msgParts = new List<string>();
+                msgParts.Add((_msgSeq++).ToString());
+
+                var dm = DrifterManager.Instance;
+                if (dm != null)
+                {
+                    foreach (var evt in dm.ActiveEvents.Values)
+                    {
+                        if (!string.IsNullOrEmpty(evt.PendingClientMessage))
+                        {
+                            msgParts.Add($"{evt.DrifterId}|{evt.PendingClientMessage}");
+                            evt.PendingClientMessage = null;
+                        }
+                    }
+                }
+                DrifterManager.HasPendingDrifterMessages = false;
+
+                if (msgParts.Count > 1 && IsNetworkLibAvailable)
+                {
+                    string payload = string.Join(";", msgParts);
+                    PublishDrifterMessagesImpl(payload);
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg($"PublishDrifterMessages: {payload.Length} chars, {msgParts.Count - 1} messages");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"PublishDrifterMessages failed: {ex.Message}");
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PublishDrifterMessagesImpl(string payload) => NetworkSyncBridge.PushDrifterMessages(payload);
+
+        /// <summary>
         /// Sends a quest action to the host via ClientSyncVar.
         /// No-ops on the host (host executes state changes directly).
         /// Uses a sequence counter so repeated actions (e.g. VIC_LAUNDER)
@@ -400,7 +445,8 @@ namespace OverTheCounter.SaveData
                     if (ManagerInstance.Active.TryGetValue(id, out var mgr))
                     {
                         mgr.SendTextMessage(text, queueForClient: false);
-                        Logger.Msg($"Client delivered synced text from manager {id}");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg($"Client delivered synced text from manager {id}");
                     }
                     else
                     {
@@ -411,6 +457,43 @@ namespace OverTheCounter.SaveData
             catch (Exception ex)
             {
                 Logger.Warning($"HandleManagerMessageChanged failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Client callback: host drifter text message SyncVar changed.
+        /// Format: "seq;drifterId|messageText" or "seq;id1|msg1;id2|msg2" for multiple.
+        /// </summary>
+        internal static void HandleDrifterMessageChanged(string newValue)
+        {
+            try
+            {
+                var entries = newValue.Split(';');
+                // First entry is the sequence counter — skip it
+                for (int i = 1; i < entries.Length; i++)
+                {
+                    var entry = entries[i];
+                    int pipeIdx = entry.IndexOf('|');
+                    if (pipeIdx <= 0) continue;
+
+                    var id = entry.Substring(0, pipeIdx);
+                    var text = entry.Substring(pipeIdx + 1);
+
+                    if (DrifterInstance.Active.TryGetValue(id, out var drifter))
+                    {
+                        drifter.DeliverTextLocally(text);
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg($"Client delivered synced text from drifter {id}");
+                    }
+                    else
+                    {
+                        Logger.Warning($"Client received message for unknown drifter {id}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"HandleDrifterMessageChanged failed: {ex.Message}");
             }
         }
 

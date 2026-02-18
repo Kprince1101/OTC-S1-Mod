@@ -40,12 +40,16 @@ namespace OverTheCounter.Logic
 
         // Active drifter tracking: DrifterId -> DrifterEvent
         private readonly Dictionary<string, DrifterEvent> _activeEvents = new();
+        internal IReadOnlyDictionary<string, DrifterEvent> ActiveEvents => _activeEvents;
 
         // Daily/hourly tracking
         private int _lastHourChecked = -1;
         private int _drifterIdCounter = 0;
 
         public static DrifterManager Instance { get; private set; }
+
+        /// <summary>True when there are queued drifter text messages to push via SyncVar.</summary>
+        public static bool HasPendingDrifterMessages { get; set; }
 
         /// <summary>
         /// Returns product requirements for all accepted drifter deals (not yet completed).
@@ -106,6 +110,20 @@ namespace OverTheCounter.Logic
         {
             if (!NetworkHelper.IsHost) return;
             _lastHourChecked = -1;
+
+            // Drifters should never persist across days — despawn all active drifters
+            if (_activeEvents.Count > 0)
+            {
+                if (Config.VerboseLogging.Value)
+                    _logger.Msg($"[DrifterManager] Day pass: despawning {_activeEvents.Count} active drifter(s)");
+                foreach (var evt in _activeEvents.Values)
+                {
+                    var drifter = DrifterInstance.Active.GetValueOrDefault(evt.DrifterId);
+                    DespawnDrifter(evt, drifter);
+                }
+                _activeEvents.Clear();
+                ConfigSyncData.Instance?.PublishDrifterState();
+            }
         }
 
         private bool IsDayPhase(int time24h)
@@ -287,6 +305,61 @@ namespace OverTheCounter.Logic
                     return false;
                 }
 
+                // Simulated enjoyment per drifter type (vanilla range is 0–1)
+                float enjoyment;
+                switch (evt.Type)
+                {
+                    case DrifterType.Whale: enjoyment = 0.8f; break;
+                    case DrifterType.Fiend: enjoyment = 0.9f; break;
+                    default:                enjoyment = 0.65f; break; // Normal, Narc
+                }
+
+                // Vanilla appeal filter: Price/MarketValue ratio determines if product is overpriced
+                // Formula from Customer.GetWeightedRandomProduct: appeal = enjoyment + Lerp(1, -1, priceRatio / 2)
+                // At 2× MarketValue, even max enjoyment → appeal = 0 → filtered out (~160% cap)
+                float marketValue = selectedProduct.MarketValue;
+                if (marketValue > 0)
+                {
+                    float priceRatio = selectedProduct.Price / marketValue;
+                    float appealMod = Mathf.Lerp(1f, -1f, priceRatio / 2f);
+                    float appeal = enjoyment + appealMod;
+
+                    if (appeal < 0.05f)
+                    {
+                        // Selected product is overpriced — try all other listed products
+                        Il2CppScheduleOne.Product.ProductDefinition fallback = null;
+                        float bestAppeal = -1f;
+                        for (int i = 0; i < listedProducts.Count; i++)
+                        {
+                            var p = listedProducts[i];
+                            if (p == null || p == selectedProduct) continue;
+                            float mv = p.MarketValue;
+                            if (mv <= 0) continue;
+                            float pr = p.Price / mv;
+                            float am = Mathf.Lerp(1f, -1f, pr / 2f);
+                            float ap = enjoyment + am;
+                            if (ap >= 0.05f && ap > bestAppeal)
+                            {
+                                bestAppeal = ap;
+                                fallback = p;
+                            }
+                        }
+
+                        if (fallback != null)
+                        {
+                            if (Config.VerboseLogging.Value)
+                                _logger.Msg($"[DrifterManager] {selectedProduct.Name} overpriced (appeal={appeal:F2}), switching to {fallback.Name}");
+                            selectedProduct = fallback;
+                        }
+                        else
+                        {
+                            if (Config.VerboseLogging.Value)
+                                _logger.Msg("[DrifterManager] All products overpriced, aborting deal");
+                            return false;
+                        }
+                    }
+                }
+
                 // Get quantity range and price multiplier based on type
                 int minQty, maxQty;
                 float priceMultiplier;
@@ -313,18 +386,21 @@ namespace OverTheCounter.Logic
                 }
 
                 int quantity = UnityEngine.Random.Range(minQty, maxQty + 1);
-                float basePrice = selectedProduct.Price;
-                float payment = Mathf.Round(basePrice * quantity * priceMultiplier);
+
+                // Vanilla per-unit pricing from Customer.TryGenerateContract:
+                // pricePerUnit = Price × Lerp(0.66, 1.5, enjoyment)
+                float pricePerUnit = selectedProduct.Price * Mathf.Lerp(0.66f, 1.5f, enjoyment);
+                float payment = Mathf.Round(pricePerUnit * quantity * priceMultiplier);
 
                 // Soft minimum: if deal value is too low, bump quantity until it's worth the trip
                 float minDealValue = Config.DrifterMinDealValue.Value;
-                if (payment < minDealValue && basePrice > 0)
+                if (payment < minDealValue && pricePerUnit > 0)
                 {
-                    int needed = Mathf.CeilToInt(minDealValue / (basePrice * priceMultiplier));
+                    int needed = Mathf.CeilToInt(minDealValue / (pricePerUnit * priceMultiplier));
                     if (needed > quantity)
                     {
                         quantity = needed;
-                        payment = Mathf.Round(basePrice * quantity * priceMultiplier);
+                        payment = Mathf.Round(pricePerUnit * quantity * priceMultiplier);
                     }
                 }
 
@@ -392,8 +468,9 @@ namespace OverTheCounter.Logic
                         if (DrifterDealQuest.ActiveQuests.TryGetValue(evt.DrifterId, out var activeQuest))
                             activeQuest.UpdateTiming();
 
-                        // Check delivery deadline
-                        if (currentMinutes >= evt.DeliveryDeadline)
+                        // Check delivery deadline — skip if handover screen is open (race condition:
+                        // timer expiring while player is mid-deal causes immediate fail + linger)
+                        if (currentMinutes >= evt.DeliveryDeadline && !IsDrifterPaused(drifter))
                         {
                             FailDrifterDelivery(evt, drifter);
                         }
@@ -401,6 +478,22 @@ namespace OverTheCounter.Logic
 
                     case DrifterEventState.DealCompleted:
                     case DrifterEventState.Lingering:
+                        // Safety net: ensure every lingering/completed drifter has a hard deadline
+                        if (evt.LingerDeadline <= 0)
+                        {
+                            evt.LingerDeadline = currentMinutes + Config.DrifterLingerMaxMin.Value;
+                            if (Config.VerboseLogging.Value)
+                                _logger.Msg($"[DrifterManager] Set fallback linger deadline for {evt.DrifterId} (state={evt.State})");
+                        }
+
+                        // NPC destroyed or invalid — despawn immediately
+                        if (drifter == null || !drifter.IsValid)
+                        {
+                            DespawnDrifter(evt, drifter);
+                            toRemove.Add(evt.DrifterId);
+                            break;
+                        }
+
                         // Robber KO detection: freeze the body in place for looting
                         if (drifter != null && drifter.IsAttacking && drifter.IsValid)
                         {
@@ -483,6 +576,11 @@ namespace OverTheCounter.Logic
                     msg.messageId = DeterministicHash(evt.DrifterId + "_intro");
                     conversation.SendMessage(msg, true, true); // networked — delivers to all players
                 }
+
+                // Queue for SyncVar delivery to clients (FishNet RPC unreliable for cloned NPCs)
+                evt.PendingClientMessage = message;
+                HasPendingDrifterMessages = true;
+
                 _logger.Msg($"[DrifterManager] Sent intro text for drifter {evt.DrifterId}: {evt.Quantity}x {evt.ProductName} @ ${evt.Payment}");
 
                 ShowDealResponses(evt, drifter);
@@ -577,6 +675,8 @@ namespace OverTheCounter.Logic
                     _ => "Cool. Don't keep me waiting."
                 };
                 drifter.SendTextMessage(confirmMessage);
+                evt.PendingClientMessage = confirmMessage;
+                HasPendingDrifterMessages = true;
             }
         }
 
@@ -616,6 +716,8 @@ namespace OverTheCounter.Logic
                     _ => "Whatever."
                 };
                 drifter.SendTextMessage(declineMessage);
+                evt.PendingClientMessage = declineMessage;
+                HasPendingDrifterMessages = true;
                 drifter.PlayDismissalSound();
             }
 
@@ -1609,7 +1711,10 @@ namespace OverTheCounter.Logic
             {
                 try
                 {
-                    drifter.SendTextMessage(drifter.GetExpiryTextMessage());
+                    string expiryMsg = drifter.GetExpiryTextMessage();
+                    drifter.SendTextMessage(expiryMsg);
+                    evt.PendingClientMessage = expiryMsg;
+                    HasPendingDrifterMessages = true;
                     drifter.GameNpc?.MSGConversation?.ClearResponses(true);
                 }
                 catch { }
@@ -1641,7 +1746,10 @@ namespace OverTheCounter.Logic
             {
                 try
                 {
-                    drifter.SendTextMessage("You're too slow. Deal's off.");
+                    string failMsg = "You're too slow. Deal's off.";
+                    drifter.SendTextMessage(failMsg);
+                    evt.PendingClientMessage = failMsg;
+                    HasPendingDrifterMessages = true;
                 }
                 catch { }
             }
@@ -2447,6 +2555,9 @@ namespace OverTheCounter.Logic
 
         // FishNet ObjectId for reliable client-side NPC lookup
         public int NetworkObjectId { get; set; }
+
+        // Queued text message for SyncVar delivery to clients
+        public string PendingClientMessage { get; set; }
     }
 
     public enum DrifterEventState
