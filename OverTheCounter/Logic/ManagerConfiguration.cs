@@ -48,6 +48,10 @@ namespace OverTheCounter.Logic
             new DistributionRoute()
         };
 
+        // Persistent upgrade tiers (survive transfers and save/load)
+        public int SpeedTier { get; set; }
+        public int ExtraInventorySlots { get; set; }
+
         public class DistributionRoute
         {
             public PlaceableStorageEntity Source { get; set; }
@@ -121,6 +125,10 @@ namespace OverTheCounter.Logic
                 productParts.RemoveAt(productParts.Count - 1);
             parts.Add(string.Join("+", productParts));
 
+            // Upgrade tiers (segment 5): speedTier,extraSlots — omit if both zero to save space
+            if (SpeedTier > 0 || ExtraInventorySlots > 0)
+                parts.Add($"{SpeedTier},{ExtraInventorySlots}");
+
             return string.Join("|", parts);
         }
 
@@ -170,6 +178,16 @@ namespace OverTheCounter.Logic
                         if (pair.Length > 1 && int.TryParse(pair[1], out int thresh))
                             StockedThresholds[i] = thresh;
                     }
+                }
+
+                // Upgrade tiers (segment 5): speedTier,extraSlots — defaults 0,0 if absent
+                if (parts.Length > 5 && !string.IsNullOrEmpty(parts[5]))
+                {
+                    var upgParts = parts[5].Split(',');
+                    if (upgParts.Length >= 1 && int.TryParse(upgParts[0], out int spd))
+                        SpeedTier = Math.Max(0, Math.Min(spd, ManagerUpgrades.MaxSpeedTier));
+                    if (upgParts.Length >= 2 && int.TryParse(upgParts[1], out int inv))
+                        ExtraInventorySlots = Math.Max(0, Math.Min(inv, ManagerUpgrades.MaxExtraSlots));
                 }
             }
             catch (Exception ex)

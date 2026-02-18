@@ -511,6 +511,24 @@ namespace OverTheCounter.SaveData
                             }
                         }
                     }
+                    else if (action.StartsWith("MANAGER_UPGRADE_SPEED:"))
+                    {
+                        string managerId = action.Substring("MANAGER_UPGRADE_SPEED:".Length);
+                        if (ManagerInstance.Active.TryGetValue(managerId, out var mgr))
+                        {
+                            mgr.TryPurchaseSpeedUpgrade();
+                            Instance?.PublishManagerState();
+                        }
+                    }
+                    else if (action.StartsWith("MANAGER_UPGRADE_INV:"))
+                    {
+                        string managerId = action.Substring("MANAGER_UPGRADE_INV:".Length);
+                        if (ManagerInstance.Active.TryGetValue(managerId, out var mgr))
+                        {
+                            mgr.TryPurchaseInventoryUpgrade();
+                            Instance?.PublishManagerState();
+                        }
+                    }
                     else if (action.StartsWith("DRIFTER_COMPLETE:"))
                     {
                         // Format: DRIFTER_COMPLETE:drifterId:playerCode

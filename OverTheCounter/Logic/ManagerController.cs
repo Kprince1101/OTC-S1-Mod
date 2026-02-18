@@ -98,7 +98,7 @@ namespace OverTheCounter.Logic
                 {
                     if (mgr.State == ManagerState.Fired) continue;
 
-                    float wage = Config.ManagerDailyWage.Value;
+                    float wage = mgr.GetDailyWage();
 
                     bool midRun = mgr.State == ManagerState.SupplyRun || mgr.State == ManagerState.DistributionRun || mgr.State == ManagerState.Transferring;
 
@@ -580,7 +580,7 @@ namespace OverTheCounter.Logic
                     // Immediate wage payment for unpaid managers
                     if (mgr.PaidForToday) continue;
 
-                    float wage = Config.ManagerDailyWage.Value;
+                    float wage = mgr.GetDailyWage();
                     float available = mgr.GetLockerCash();
                     if (available >= wage)
                     {
