@@ -1,9 +1,15 @@
-using Il2CppScheduleOne.EntityFramework;
-using Il2CppScheduleOne.ObjectScripts;
 using MelonLoader;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+
+#if IL2CPP
+using Il2CppScheduleOne.EntityFramework;
+using Il2CppScheduleOne.ObjectScripts;
+#else
+using ScheduleOne.EntityFramework;
+using ScheduleOne.ObjectScripts;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -252,8 +258,13 @@ namespace OverTheCounter.Logic
             try
             {
                 var guid = new System.Guid(guidStr);
+#if IL2CPP
                 var obj = Il2Cpp.GUIDManager.GetObject<BuildableItem>(
-                    new Il2CppSystem.Guid(guid.ToByteArray()));
+                    new GameSystem.Guid(guid.ToByteArray()));
+#else
+                var obj = GUIDManager.GetObject<BuildableItem>(
+                    new System.Guid(guid.ToByteArray()));
+#endif
 
                 if (obj != null)
                 {

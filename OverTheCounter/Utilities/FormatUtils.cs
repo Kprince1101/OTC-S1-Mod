@@ -1,7 +1,12 @@
-using Il2CppScheduleOne.Quests;
 using S1API.Items;
 using S1API.Products;
 using System.Collections.Generic;
+
+#if IL2CPP
+using Il2CppScheduleOne.Quests;
+#else
+using ScheduleOne.Quests;
+#endif
 
 namespace OverTheCounter.Utilities
 {
@@ -20,11 +25,12 @@ namespace OverTheCounter.Utilities
             public int Quantity { get; set; }
         }
 
+#if IL2CPP
         /// <summary>
         /// Aggregates all contracts into a list of product summaries.
-        /// Groups by Product ID only (ignores quality for simpler display).
+        /// IL2CPP adapter: converts Il2CppSystem list to System list.
         /// </summary>
-        public static List<ProductSummary> GetProductSummaries(Il2CppSystem.Collections.Generic.List<Contract> contracts)
+        public static List<ProductSummary> GetProductSummaries(GameSystem.Collections.Generic.List<Contract> contracts)
         {
             var contractList = new List<Contract>();
             for (int i = 0; i < contracts.Count; i++)
@@ -33,6 +39,7 @@ namespace OverTheCounter.Utilities
             }
             return GetProductSummaries(contractList);
         }
+#endif
 
         /// <summary>
         /// Aggregates all contracts into a list of product summaries (System.Collections version).
@@ -78,11 +85,12 @@ namespace OverTheCounter.Utilities
             return summaries;
         }
 
+#if IL2CPP
         /// <summary>
         /// Aggregates all contracts into a single formatted string.
-        /// Groups by Product ID only (ignores quality for simpler display).
+        /// IL2CPP adapter: converts Il2CppSystem list to System list.
         /// </summary>
-        public static string BuildProductBreakdownString(Il2CppSystem.Collections.Generic.List<Contract> contracts)
+        public static string BuildProductBreakdownString(GameSystem.Collections.Generic.List<Contract> contracts)
         {
             var contractList = new List<Contract>();
             for (int i = 0; i < contracts.Count; i++)
@@ -91,6 +99,7 @@ namespace OverTheCounter.Utilities
             }
             return BuildProductBreakdownString(contractList);
         }
+#endif
 
         /// <summary>
         /// Aggregates all contracts into a single formatted string (System.Collections version).

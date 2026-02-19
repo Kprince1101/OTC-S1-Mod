@@ -1,4 +1,8 @@
+#if IL2CPP
 using Il2CppFishNet;
+#else
+using FishNet;
+#endif
 
 namespace OverTheCounter.Utilities
 {

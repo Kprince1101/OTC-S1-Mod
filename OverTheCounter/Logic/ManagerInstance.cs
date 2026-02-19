@@ -1,3 +1,13 @@
+﻿using MelonLoader;
+using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
+using S1API.GameTime;
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+#if IL2CPP
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.ItemFramework;
@@ -6,14 +16,16 @@ using Il2CppScheduleOne.Money;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.NPCs.Behaviour;
 using Il2CppScheduleOne.Property;
-using MelonLoader;
-using OverTheCounter.SaveData;
-using OverTheCounter.Utilities;
-using S1API.GameTime;
-using System;
-using System.Collections.Generic;
-using UnityEngine;
-using UnityEngine.UI;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Employees;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.Map;
+using ScheduleOne.Money;
+using ScheduleOne.NPCs;
+using ScheduleOne.NPCs.Behaviour;
+using ScheduleOne.Property;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -180,7 +192,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var inventory = GameNpc?.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                var inventory = GameNpc?.GetComponent<ScheduleOne.NPCs.NPCInventory>();
                 if (inventory?.ItemSlots == null) return "empty";
 
                 var counts = new Dictionary<string, int>();
@@ -191,7 +203,7 @@ namespace OverTheCounter.Logic
                     var item = inventory.ItemSlots[i]?.ItemInstance;
                     if (item == null) continue;
 
-                    var cash = item.TryCast<Il2CppScheduleOne.ItemFramework.CashInstance>();
+                    var cash = item.TryCast<ScheduleOne.ItemFramework.CashInstance>();
                     if (cash != null)
                     {
                         cashTotal += cash.Balance;
@@ -242,7 +254,7 @@ namespace OverTheCounter.Logic
                 speedCtrl.RemoveSpeedControl("manager");
                 float speedVal = ManagerUpgrades.GetSpeedControlValue(Configuration.SpeedTier);
                 speedCtrl.AddSpeedControl(
-                    new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, speedVal));
+                    new ScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, speedVal));
 
                 if (Config.ManagerVerboseLogging.Value)
                     Log($"ApplySpeedUpgrade: tier={Configuration.SpeedTier} speed={speedVal:F3}");
@@ -261,7 +273,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var inventory = GameNpc?.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                var inventory = GameNpc?.GetComponent<ScheduleOne.NPCs.NPCInventory>();
                 if (inventory == null) return;
 
                 int target = ManagerUpgrades.GetTotalSlots(Configuration.ExtraInventorySlots);
@@ -271,8 +283,8 @@ namespace OverTheCounter.Logic
 
                 for (int i = current; i < target; i++)
                 {
-                    var slot = new Il2CppScheduleOne.ItemFramework.ItemSlot();
-                    slot.SetSlotOwner(inventory.Cast<Il2CppScheduleOne.ItemFramework.IItemSlotOwner>());
+                    var slot = new ScheduleOne.ItemFramework.ItemSlot();
+                    slot.SetSlotOwner(inventory.Cast<ScheduleOne.ItemFramework.IItemSlotOwner>());
                 }
 
                 inventory.SlotCount = target;
@@ -532,7 +544,7 @@ namespace OverTheCounter.Logic
 
             // Clear stale mugshot from the source prefab so MugshotUtility
             // polling detects our freshly generated sprite, not the clone's.
-            existingNpc.MSGConversation = null;
+            existingNpc.SetMSGConversation(null);
             existingNpc.MugshotSprite = null;
 
             var avatarSettings = ManagerSpawner.ApplyAppearance(existingNpc, seed);
@@ -569,9 +581,9 @@ namespace OverTheCounter.Logic
         }
 
         // Hold references to IL2CPP callbacks to prevent GC collection
-        internal Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _destCallback;
-        internal Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _transferCallback;
-        private Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _fireCallback;
+        internal GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> _destCallback;
+        internal GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> _transferCallback;
+        private GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> _fireCallback;
         // _mugshotCallback removed — mugshot generation now uses direct IconGenerator capture
 
         /// <summary>
@@ -586,11 +598,11 @@ namespace OverTheCounter.Logic
                 TargetLocation = location;
                 ArrivedAtDestination = false;
 
-                _destCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
-                    new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
+                _destCallback = (GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult>)
+                    new Action<ScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
                     {
-                        if (result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
-                            result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
+                        if (result == ScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
+                            result == ScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
                         {
                             ArrivedAtDestination = true;
                             TargetLocation = null;
@@ -627,7 +639,7 @@ namespace OverTheCounter.Logic
         /// (ensures host/client determinism). Otherwise falls back to Avatar.CurrentSettings.
         /// Updates NPC.MugshotSprite, the locker display, phone messaging icon, and map POI.
         /// </summary>
-        public void GenerateMugshot(Il2CppScheduleOne.AvatarFramework.AvatarSettings explicitSettings = null)
+        public void GenerateMugshot(ScheduleOne.AvatarFramework.AvatarSettings explicitSettings = null)
         {
             if (Config.ManagerVerboseLogging.Value)
                 Log($"GenerateMugshot() called (explicitSettings={explicitSettings != null})");
@@ -668,7 +680,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var conv = GameNpc?.MSGConversation;
+                var conv = GameNpc?.GetMSGConversation();
                 if (conv?.entry == null)
                 {
                     if (Config.ManagerVerboseLogging.Value)
@@ -698,7 +710,7 @@ namespace OverTheCounter.Logic
             try
             {
                 if (MapPoI == null || GameNpc?.MugshotSprite == null) return;
-                var iconTransform = ((Il2CppScheduleOne.Map.POI)MapPoI).IconContainer?.Find("Outline/Icon");
+                var iconTransform = ((ScheduleOne.Map.POI)MapPoI).IconContainer?.Find("Outline/Icon");
                 if (iconTransform != null)
                 {
                     var img = iconTransform.GetComponent<Image>();
@@ -833,8 +845,8 @@ namespace OverTheCounter.Logic
                 TargetLocation = null;
                 ArrivedAtDestination = true;
 
-                _fireCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
-                    new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
+                _fireCallback = (GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult>)
+                    new Action<ScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
                     {
                         Log($"fired, reached spawn (result={result}), despawning");
                         Despawn();
@@ -1112,15 +1124,15 @@ namespace OverTheCounter.Logic
 
             try
             {
-                var conv = GameNpc.MSGConversation;
+                var conv = GameNpc.GetMSGConversation();
                 if (conv == null)
                 {
                     LogWarning("MSGConversation is null, cannot send text");
                     return;
                 }
-                var msg = new Il2CppScheduleOne.Messaging.Message(
+                var msg = new ScheduleOne.Messaging.Message(
                     message,
-                    Il2CppScheduleOne.Messaging.Message.ESenderType.Other,
+                    ScheduleOne.Messaging.Message.ESenderType.Other,
                     true,
                     UnityEngine.Random.Range(int.MinValue, int.MaxValue));
                 conv.SendMessage(msg, true, false);
@@ -1157,7 +1169,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var conv = GameNpc?.MSGConversation;
+                var conv = GameNpc?.GetMSGConversation();
                 if (conv == null) return;
 
                 conv.messageHistory?.Clear();
@@ -1554,7 +1566,7 @@ namespace OverTheCounter.Logic
                 // Update business assignment if manager was transferred
                 if (!string.Equals(existing.BusinessPropertyCode, bizCode, StringComparison.OrdinalIgnoreCase))
                 {
-                    foreach (var biz in Il2CppScheduleOne.Property.Business.OwnedBusinesses)
+                    foreach (var biz in ScheduleOne.Property.Business.OwnedBusinesses)
                     {
                         if (biz != null && string.Equals(biz.PropertyCode, bizCode, StringComparison.OrdinalIgnoreCase))
                         {
@@ -1717,7 +1729,7 @@ namespace OverTheCounter.Logic
         {
             if (objectId <= 0) return null;
 
-            var registry = Il2CppScheduleOne.NPCs.NPCManager.NPCRegistry;
+            var registry = ScheduleOne.NPCs.NPCManager.NPCRegistry;
             if (registry == null) return null;
 
             // Skip NPCs already tracked as managers
@@ -1736,7 +1748,7 @@ namespace OverTheCounter.Logic
 
                 try
                 {
-                    var netObj = npc.gameObject.GetComponent<Il2CppFishNet.Object.NetworkObject>();
+                    var netObj = npc.gameObject.GetComponent<FishNet.Object.NetworkObject>();
                     if (netObj != null && netObj.ObjectId == objectId)
                         return npc;
                 }

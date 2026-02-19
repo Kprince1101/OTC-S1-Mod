@@ -1,7 +1,3 @@
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.ItemFramework;
-using Il2CppScheduleOne.NPCs;
-using Il2CppScheduleOne.Property;
 using MelonLoader;
 using OverTheCounter.Logic;
 using OverTheCounter.Utilities;
@@ -10,6 +6,18 @@ using S1API.Saveables;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+
+#if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.Property;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.NPCs;
+using ScheduleOne.Property;
+#endif
 
 namespace OverTheCounter.SaveData
 {
@@ -101,7 +109,7 @@ namespace OverTheCounter.SaveData
             // Wait for game to be fully loaded
             try
             {
-                var lm = Il2CppScheduleOne.Persistence.LoadManager.Instance;
+                var lm = ScheduleOne.Persistence.LoadManager.Instance;
                 if (lm == null || !lm.IsGameLoaded)
                 {
                     if (UnityEngine.Time.time - _respawnStartTime > 30f)
@@ -332,7 +340,7 @@ namespace OverTheCounter.SaveData
                         continue;
                     }
 
-                    var npcInv = mgr.GameNpc.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                    var npcInv = mgr.GameNpc.GetComponent<ScheduleOne.NPCs.NPCInventory>();
                     if (npcInv == null)
                     {
                         Logger.Warning($"SerializeNpcInv: {mgr.Id} NPCInventory component not found");
@@ -498,7 +506,7 @@ namespace OverTheCounter.SaveData
                 if (mgr.GameNpc == null)
                     continue; // NPC not ready yet, retry
 
-                var npcInv = mgr.GameNpc.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                var npcInv = mgr.GameNpc.GetComponent<ScheduleOne.NPCs.NPCInventory>();
                 if (npcInv == null)
                     continue; // NPCInventory component not ready yet, retry
 
@@ -569,12 +577,12 @@ namespace OverTheCounter.SaveData
         /// Returns the slot index used, or -1 if no empty slot was available.
         /// Used for distribution items to preserve per-slot destination tracking.
         /// </summary>
-        private static int RestoreToEmptySlot(Il2CppScheduleOne.NPCs.NPCInventory inventory, string itemId, int quantity, string mgrId)
+        private static int RestoreToEmptySlot(ScheduleOne.NPCs.NPCInventory inventory, string itemId, int quantity, string mgrId)
         {
-            var itemDef = Il2CppScheduleOne.Registry.GetItem(itemId);
+            var itemDef = ScheduleOne.Registry.GetItem(itemId);
             if (itemDef == null) { Logger.Warning($"RestoreToEmptySlot: {mgrId} Registry.GetItem('{itemId}') returned null"); return -1; }
 
-            var storableDef = itemDef.TryCast<Il2CppScheduleOne.ItemFramework.StorableItemDefinition>();
+            var storableDef = itemDef.TryCast<ScheduleOne.ItemFramework.StorableItemDefinition>();
             if (storableDef == null) { Logger.Warning($"RestoreToEmptySlot: {mgrId} item '{itemId}' not StorableItemDefinition"); return -1; }
 
             var instance = storableDef.GetDefaultInstance(quantity);
@@ -599,11 +607,11 @@ namespace OverTheCounter.SaveData
         /// Uses MoneyManager.GetCashInstance instead of Registry (GetCopy loses Balance).
         /// Returns the slot index used, or -1 if no empty slot was available.
         /// </summary>
-        private static int RestoreCashToEmptySlot(Il2CppScheduleOne.NPCs.NPCInventory inventory, float balance, string mgrId)
+        private static int RestoreCashToEmptySlot(ScheduleOne.NPCs.NPCInventory inventory, float balance, string mgrId)
         {
             try
             {
-                var cashInstance = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance
+                var cashInstance = NetworkSingleton<ScheduleOne.Money.MoneyManager>.Instance
                     .GetCashInstance(balance);
                 if (cashInstance == null) { Logger.Warning($"RestoreCashToEmptySlot: {mgrId} GetCashInstance returned null"); return -1; }
 

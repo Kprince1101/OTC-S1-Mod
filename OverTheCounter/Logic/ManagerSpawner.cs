@@ -1,3 +1,13 @@
+﻿using MelonLoader;
+using OverTheCounter.Utilities;
+using UnityEngine;
+using UnityEngine.AI;
+using UnityEngine.Events;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+
+#if IL2CPP
 using Il2CppFishNet.Object;
 using Il2CppFishNet;
 using Il2CppScheduleOne.DevUtilities;
@@ -8,14 +18,18 @@ using Il2CppScheduleOne.Messaging;
 using Il2CppScheduleOne.Interaction;
 using Il2CppScheduleOne.Property;
 using Il2CppScheduleOne.UI;
-using MelonLoader;
-using OverTheCounter.Utilities;
-using UnityEngine;
-using UnityEngine.AI;
-using UnityEngine.Events;
-using System;
-using System.Collections;
-using System.Collections.Generic;
+#else
+using FishNet.Object;
+using FishNet;
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Dialogue;
+using ScheduleOne.NPCs;
+using ScheduleOne.AvatarFramework;
+using ScheduleOne.Messaging;
+using ScheduleOne.Interaction;
+using ScheduleOne.Property;
+using ScheduleOne.UI;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -227,7 +241,7 @@ namespace OverTheCounter.Logic
                 // Clear stale state inherited from the clone source so
                 // InitializeMessaging creates a fresh conversation and the
                 // mugshot callback writes to the correct NPC.
-                npc.MSGConversation = null;
+                npc.SetMSGConversation(null);
                 npc.MugshotSprite = null;
 
                 // Configure identity
@@ -310,7 +324,7 @@ namespace OverTheCounter.Logic
                 {
                     var speedCtrl = npc.Movement?.SpeedController;
                     speedCtrl?.AddSpeedControl(
-                        new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, 0.120f));
+                        new ScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, 0.120f));
                 }
                 catch { }
 
@@ -366,11 +380,11 @@ namespace OverTheCounter.Logic
                 var settings = ScriptableObject.CreateInstance<AvatarSettings>();
 
                 if (settings.FaceLayerSettings == null)
-                    settings.FaceLayerSettings = new Il2CppSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
+                    settings.FaceLayerSettings = new GameSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
                 if (settings.BodyLayerSettings == null)
-                    settings.BodyLayerSettings = new Il2CppSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
+                    settings.BodyLayerSettings = new GameSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
                 if (settings.AccessorySettings == null)
-                    settings.AccessorySettings = new Il2CppSystem.Collections.Generic.List<AvatarSettings.AccessorySetting>();
+                    settings.AccessorySettings = new GameSystem.Collections.Generic.List<AvatarSettings.AccessorySetting>();
 
                 // Gender MUST be the first draw (matches DetermineGender for host/client sync)
                 settings.Gender = UnityEngine.Random.Range(0f, 1f);
@@ -469,7 +483,7 @@ namespace OverTheCounter.Logic
             try
             {
                 var conversation = new MSGConversation(npc, npc.fullName);
-                npc.MSGConversation = conversation;
+                npc.SetMSGConversation(conversation);
                 conversation.SetIsKnown(true);
                 if (Config.ManagerVerboseLogging.Value)
                     Logger.Msg($"Initialized messaging for manager {npc.ID}");
@@ -486,7 +500,7 @@ namespace OverTheCounter.Logic
         public static void EnsureVoiceDatabase(NPC npc)
         {
             if (npc?.VoiceOverEmitter == null) return;
-            if (npc.VoiceOverEmitter.Database != null) return;
+            if (npc.VoiceOverEmitter.GetDatabase() != null) return;
 
             try
             {
@@ -496,9 +510,9 @@ namespace OverTheCounter.Logic
                     if (other.GetInstanceID() == npc.GetInstanceID())
                         continue;
 
-                    if (other.VoiceOverEmitter?.Database != null)
+                    if (other.VoiceOverEmitter?.GetDatabase() != null)
                     {
-                        npc.VoiceOverEmitter.SetDatabase(other.VoiceOverEmitter.Database, false);
+                        npc.VoiceOverEmitter.SetDatabase(other.VoiceOverEmitter.GetDatabase(), false);
                         if (Config.ManagerVerboseLogging.Value)
                             Logger.Msg($"Borrowed voice database for manager {npc.ID}");
                         return;
@@ -569,7 +583,7 @@ namespace OverTheCounter.Logic
                         if (!ManagerInstance.Active.TryGetValue(managerId, out var m)) return;
                         if (m.GameNpc == null) return;
 
-                        var inventory = m.GameNpc.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                        var inventory = m.GameNpc.GetComponent<ScheduleOne.NPCs.NPCInventory>();
                         if (inventory == null)
                         {
                             Logger.Warning($"No inventory component on manager {managerId}");
@@ -589,7 +603,7 @@ namespace OverTheCounter.Logic
                         Logger.Error($"Trade choice error for {managerId}: {ex.Message}");
                     }
                 }));
-                tradeChoice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
+                tradeChoice.SetShouldShowCheck((bool enabled) =>
                     ShouldShowMainChoice(managerId));
 
                 dialogueController.AddDialogueChoice(tradeChoice);
@@ -611,7 +625,7 @@ namespace OverTheCounter.Logic
                     capturedDc.AddGreetingOverride(greeting);
                     MelonCoroutines.Start(ReopenDialogue(capturedDc));
                 }));
-                whyChoice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
+                whyChoice.SetShouldShowCheck((bool enabled) =>
                     ShouldShowMainChoice(managerId));
 
                 dialogueController.AddDialogueChoice(whyChoice);
@@ -659,7 +673,7 @@ namespace OverTheCounter.Logic
                                 else
                                     SaveData.ConfigSyncData.SendQuestAction($"MANAGER_TRANSFER:{capturedMgrId}:{bizCode}");
                             }));
-                            bizChoice.shouldShowCheck = (Func<bool, bool>)((bool e) =>
+                            bizChoice.SetShouldShowCheck((bool e) =>
                                 IsTransferMenuActive(capturedMgrId));
 
                             capturedDc.AddDialogueChoice(bizChoice);
@@ -676,7 +690,7 @@ namespace OverTheCounter.Logic
                             ClearTransferMenu(managerId, capturedDc);
                             MelonCoroutines.Start(ReopenDialogue(capturedDc));
                         }));
-                        cancelChoice.shouldShowCheck = (Func<bool, bool>)((bool e) =>
+                        cancelChoice.SetShouldShowCheck((bool e) =>
                             IsTransferMenuActive(managerId));
 
                         capturedDc.AddDialogueChoice(cancelChoice);
@@ -696,7 +710,7 @@ namespace OverTheCounter.Logic
                         Logger.Error($"Transfer menu setup failed for {managerId}: {ex.Message}");
                     }
                 }));
-                transferChoice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
+                transferChoice.SetShouldShowCheck((bool enabled) =>
                 {
                     if (!ShouldShowMainChoice(managerId)) return false;
                     if (!ManagerInstance.Active.TryGetValue(managerId, out var m)) return false;
@@ -747,7 +761,7 @@ namespace OverTheCounter.Logic
                             else
                                 SaveData.ConfigSyncData.SendQuestAction($"MANAGER_FIRE:{managerId}");
                         }));
-                        yesChoice.shouldShowCheck = (Func<bool, bool>)((bool e) =>
+                        yesChoice.SetShouldShowCheck((bool e) =>
                             IsFireConfirmActive(managerId));
 
                         capturedDc.AddDialogueChoice(yesChoice);
@@ -765,7 +779,7 @@ namespace OverTheCounter.Logic
                             ClearFireConfirm(managerId, capturedDc);
                             MelonCoroutines.Start(ReopenDialogue(capturedDc));
                         }));
-                        nevermindChoice.shouldShowCheck = (Func<bool, bool>)((bool e) =>
+                        nevermindChoice.SetShouldShowCheck((bool e) =>
                             IsFireConfirmActive(managerId));
 
                         capturedDc.AddDialogueChoice(nevermindChoice);
@@ -788,7 +802,7 @@ namespace OverTheCounter.Logic
                         Logger.Error($"Fire confirm setup failed for {managerId}: {ex.Message}");
                     }
                 }));
-                fireChoice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
+                fireChoice.SetShouldShowCheck((bool enabled) =>
                     ShouldShowMainChoice(managerId));
 
                 dialogueController.AddDialogueChoice(fireChoice);
@@ -1036,7 +1050,7 @@ namespace OverTheCounter.Logic
         /// Opens the StorageMenu with the manager's inventory after a frame delay
         /// (allows dialogue UI to close first).
         /// </summary>
-        private static IEnumerator OpenStorageDelayed(ManagerInstance mgr, Il2CppScheduleOne.NPCs.NPCInventory inventory)
+        private static IEnumerator OpenStorageDelayed(ManagerInstance mgr, ScheduleOne.NPCs.NPCInventory inventory)
         {
             yield return null;
             try
@@ -1065,7 +1079,7 @@ namespace OverTheCounter.Logic
                 });
                 storageMenu.onClosed.AddListener(closeAction);
                 storageMenu.Open(
-                    inventory.Cast<Il2CppScheduleOne.ItemFramework.IItemSlotOwner>(),
+                    inventory.Cast<ScheduleOne.ItemFramework.IItemSlotOwner>(),
                     title,
                     "");
             }
@@ -1090,7 +1104,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var existing = npc.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                var existing = npc.GetComponent<ScheduleOne.NPCs.NPCInventory>();
                 if (existing != null)
                 {
                     existing.ClearInventoryEachNight = false;
@@ -1107,7 +1121,7 @@ namespace OverTheCounter.Logic
                 bool wasActive = npc.gameObject.activeSelf;
                 if (wasActive) npc.gameObject.SetActive(false);
 
-                var inventory = npc.gameObject.AddComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                var inventory = npc.gameObject.AddComponent<ScheduleOne.NPCs.NPCInventory>();
                 inventory.SlotCount = 5;
                 inventory.ClearInventoryEachNight = false;
                 inventory.RandomCash = false;
@@ -1155,7 +1169,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                var props = Il2CppScheduleOne.Property.Property.OwnedProperties;
+                var props = ScheduleOne.Property.Property.OwnedProperties;
                 if (props == null) return false;
 
                 for (int p = 0; p < props.Count; p++)

@@ -7,16 +7,24 @@ using S1API.Entities.Appearances.BodyLayerFields;
 using S1API.Entities.Appearances.AccessoryFields;
 using S1API.GameTime;
 using S1API.Money;
-using Il2CppScheduleOne.VoiceOver;
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.ItemFramework;
-using Il2CppScheduleOne.Product;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using UnityEngine;
 using UnityEngine.AI;
 using MelonLoader;
 using System;
+
+#if IL2CPP
+using Il2CppScheduleOne.VoiceOver;
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.Product;
+#else
+using ScheduleOne.VoiceOver;
+using ScheduleOne.DevUtilities;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.Product;
+#endif
 
 namespace OverTheCounter.NPCs
 {
@@ -25,7 +33,7 @@ namespace OverTheCounter.NPCs
         private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:StaticNPC");
         private static readonly EVOLineType[] DismissalSounds = { EVOLineType.Angry, EVOLineType.Annoyed, EVOLineType.No };
 
-        private Il2CppScheduleOne.NPCs.NPC _gameNpc;
+        private ScheduleOne.NPCs.NPC _gameNpc;
         private static CocaineDefinition _cachedCocaineDef;
 
         public static StaticNPC Instance { get; private set; }
@@ -81,7 +89,7 @@ namespace OverTheCounter.NPCs
 
         private bool CanTalkToStatic =>
             (StaticSaveData.Instance?.QuestTriggered ?? false) ||
-            Il2CppScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value;
+            ScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value;
 
         protected override void ConfigurePrefab(NPCPrefabBuilder builder)
         {
@@ -114,7 +122,7 @@ namespace OverTheCounter.NPCs
             base.OnCreated();
             Instance = this;
 
-            _gameNpc = gameObject.GetComponent<Il2CppScheduleOne.NPCs.NPC>();
+            _gameNpc = gameObject.GetComponent<ScheduleOne.NPCs.NPC>();
 
             try
             {
@@ -195,15 +203,15 @@ namespace OverTheCounter.NPCs
             try
             {
                 if (_gameNpc == null || _gameNpc.VoiceOverEmitter == null) return;
-                if (_gameNpc.VoiceOverEmitter.Database != null) return;
+                if (_gameNpc.VoiceOverEmitter.GetDatabase() != null) return;
 
-                var allNpcs = UnityEngine.Object.FindObjectsOfType<Il2CppScheduleOne.NPCs.NPC>();
+                var allNpcs = UnityEngine.Object.FindObjectsOfType<ScheduleOne.NPCs.NPC>();
                 foreach (var npc in allNpcs)
                 {
                     if (npc.GetInstanceID() == _gameNpc.GetInstanceID()) continue;
-                    if (npc.VoiceOverEmitter != null && npc.VoiceOverEmitter.Database != null)
+                    if (npc.VoiceOverEmitter != null && npc.VoiceOverEmitter.GetDatabase() != null)
                     {
-                        _gameNpc.VoiceOverEmitter.SetDatabase(npc.VoiceOverEmitter.Database, false);
+                        _gameNpc.VoiceOverEmitter.SetDatabase(npc.VoiceOverEmitter.GetDatabase(), false);
                         return;
                     }
                 }
@@ -666,7 +674,7 @@ namespace OverTheCounter.NPCs
 
                 if (_cachedCocaineDef == null)
                 {
-                    var pm = UnityEngine.Object.FindObjectOfType<Il2CppScheduleOne.Product.ProductManager>();
+                    var pm = UnityEngine.Object.FindObjectOfType<ScheduleOne.Product.ProductManager>();
                     if (pm?.AllProducts != null)
                     {
                         for (int i = 0; i < pm.AllProducts.Count; i++)
@@ -688,10 +696,10 @@ namespace OverTheCounter.NPCs
                 }
 
                 var productItem = new ProductItemInstance(
-                    (Il2CppScheduleOne.ItemFramework.ItemDefinition)(object)_cachedCocaineDef,
+                    (ScheduleOne.ItemFramework.ItemDefinition)(object)_cachedCocaineDef,
                     1,
                     EQuality.Standard,
-                    (Il2CppScheduleOne.Product.Packaging.PackagingDefinition)null
+                    (ScheduleOne.Product.Packaging.PackagingDefinition)null
                 );
 
                 _gameNpc.Behaviour.ConsumeProduct(productItem);
@@ -721,7 +729,7 @@ namespace OverTheCounter.NPCs
 
         // ── Inventory helpers ──────────────────────────────────────────
 
-        private bool IsPackagedWeed(Il2CppScheduleOne.ItemFramework.ItemSlot slot, out int packagingQuantity)
+        private bool IsPackagedWeed(ScheduleOne.ItemFramework.ItemSlot slot, out int packagingQuantity)
         {
             packagingQuantity = 0;
             if (slot == null || slot.ItemInstance == null || slot.Quantity <= 0)
@@ -747,7 +755,7 @@ namespace OverTheCounter.NPCs
             }
         }
 
-        private bool IsPackagedMeth(Il2CppScheduleOne.ItemFramework.ItemSlot slot, out int packagingQuantity, EQuality minQuality = EQuality.Trash)
+        private bool IsPackagedMeth(ScheduleOne.ItemFramework.ItemSlot slot, out int packagingQuantity, EQuality minQuality = EQuality.Trash)
         {
             packagingQuantity = 0;
             if (slot == null || slot.ItemInstance == null || slot.Quantity <= 0)
@@ -779,7 +787,7 @@ namespace OverTheCounter.NPCs
             int totalGrams = 0;
             try
             {
-                var playerInv = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerInventory>.Instance;
+                var playerInv = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerInventory>.Instance;
                 if (playerInv?.hotbarSlots == null) return 0;
 
                 for (int i = 0; i < playerInv.hotbarSlots.Count; i++)
@@ -801,7 +809,7 @@ namespace OverTheCounter.NPCs
             int totalGrams = 0;
             try
             {
-                var playerInv = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerInventory>.Instance;
+                var playerInv = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerInventory>.Instance;
                 if (playerInv?.hotbarSlots == null) return 0;
 
                 for (int i = 0; i < playerInv.hotbarSlots.Count; i++)
@@ -823,7 +831,7 @@ namespace OverTheCounter.NPCs
             int remaining = grams;
             try
             {
-                var playerInv = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerInventory>.Instance;
+                var playerInv = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerInventory>.Instance;
                 if (playerInv?.hotbarSlots == null) return false;
 
                 for (int i = 0; i < playerInv.hotbarSlots.Count && remaining > 0; i++)
@@ -862,7 +870,7 @@ namespace OverTheCounter.NPCs
             int remaining = grams;
             try
             {
-                var playerInv = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerInventory>.Instance;
+                var playerInv = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerInventory>.Instance;
                 if (playerInv?.hotbarSlots == null) return false;
 
                 for (int i = 0; i < playerInv.hotbarSlots.Count && remaining > 0; i++)

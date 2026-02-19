@@ -1,8 +1,3 @@
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.ItemFramework;
-using Il2CppScheduleOne.PlayerScripts;
-using Il2CppScheduleOne.Storage;
-using Il2CppScheduleOne.UI;
 using MelonLoader;
 using OverTheCounter.Logic;
 using S1API.UI;
@@ -10,6 +5,20 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+
+#if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.PlayerScripts;
+using Il2CppScheduleOne.Storage;
+using Il2CppScheduleOne.UI;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.PlayerScripts;
+using ScheduleOne.Storage;
+using ScheduleOne.UI;
+#endif
 
 namespace OverTheCounter.UI
 {
@@ -28,7 +37,7 @@ namespace OverTheCounter.UI
         private static Text _collapseText;
         private static RectTransform _panelRect;
         private static GameObject _bodyContainer;
-        private static Il2CppSystem.Action _refreshAction;
+        private static GameSystem.Action _refreshAction;
         private static StorageEntity _subscribedStorageEntity;
 
         private const float ExpandedHeight = 440f;
@@ -66,7 +75,7 @@ namespace OverTheCounter.UI
 
         private static void SubscribeToChanges()
         {
-            _refreshAction = (Il2CppSystem.Action)new Action(OnInventoryChanged);
+            _refreshAction = (GameSystem.Action)new Action(OnInventoryChanged);
 
             // Subscribe to storage entity content changes
             try
@@ -553,7 +562,7 @@ namespace OverTheCounter.UI
         /// Tries to place items into the player's hotbar, stacking first, then filling empty slots.
         /// Works in packaged item counts (not product units).
         /// </summary>
-        private static int TryPlaceInHotbar(Il2CppSystem.Collections.Generic.List<HotbarSlot> hotbar, ItemInstance sourceItem, int amount)
+        private static int TryPlaceInHotbar(GameSystem.Collections.Generic.List<HotbarSlot> hotbar, ItemInstance sourceItem, int amount)
         {
             int placed = 0;
 

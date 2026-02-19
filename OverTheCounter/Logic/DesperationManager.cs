@@ -1,9 +1,4 @@
-using Il2CppScheduleOne.Economy;
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.ItemFramework;
-using Il2CppScheduleOne.Product;
-using Il2CppScheduleOne.Quests;
-using MelonLoader;
+﻿using MelonLoader;
 using S1API.GameTime;
 using S1API.Items;
 using S1API.Products;
@@ -13,6 +8,20 @@ using System.Linq;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using UnityEngine;
+
+#if IL2CPP
+using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.Product;
+using Il2CppScheduleOne.Quests;
+#else
+using ScheduleOne.Economy;
+using ScheduleOne.DevUtilities;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.Product;
+using ScheduleOne.Quests;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -154,7 +163,7 @@ namespace OverTheCounter.Logic
                 if (customer.CurrentContract != null)
                     continue;
 
-                if (customer.OfferedContractInfo != null)
+                if (customer.GetOfferedContractInfo() != null)
                     continue;
 
                 if (_activeEvents.ContainsKey(customerId))
@@ -216,8 +225,8 @@ namespace OverTheCounter.Logic
             try
             {
                 // Reset timing fields to allow contract generation
-                customer.TimeSinceLastDealCompleted = 9999;
-                customer.TimeSinceLastDealOffered = 9999;
+                customer.SetTimeSinceLastDealCompleted(9999);
+                customer.SetTimeSinceLastDealOffered(9999);
 
                 // Priority: DebugProductId → actively listed → customer preference
                 string productId = DebugProductId;
@@ -253,7 +262,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var listedProducts = Il2CppScheduleOne.Product.ProductManager.ListedProducts;
+                var listedProducts = ScheduleOne.Product.ProductManager.ListedProducts;
                 if (listedProducts == null || listedProducts.Count == 0)
                 {
                     _logger.Warning("[DesperationManager] GetActivelyListedProduct: no listed products found");
@@ -306,15 +315,14 @@ namespace OverTheCounter.Logic
                 calcMethod.Invoke(customer, args);
 
                 // args[0] should now contain List<StringIntPair> mostPurchasedProducts
-                // Use dynamic to avoid namespace issues
-                dynamic mostPurchased = args[0];
+                object mostPurchased = args[0];
 
                 if (mostPurchased == null)
                 {
                     return null;
                 }
 
-                int count = (int)mostPurchased.Count;
+                int count = (int)mostPurchased.GetType().GetProperty("Count").GetValue(mostPurchased);
                 if (count == 0)
                 {
                     return null;
@@ -322,8 +330,9 @@ namespace OverTheCounter.Logic
 
                 // Return the most purchased product ID
                 // StringIntPair has .String and .Int properties
-                dynamic topItem = mostPurchased[0];
-                string topProduct = (string)topItem.String;
+                var indexer = mostPurchased.GetType().GetProperty("Item");
+                object topItem = indexer.GetValue(mostPurchased, new object[] { 0 });
+                string topProduct = (string)topItem.GetType().GetProperty("String").GetValue(topItem);
                 return topProduct;
             }
             catch (Exception ex)
@@ -419,7 +428,7 @@ namespace OverTheCounter.Logic
             try
             {
                 // Get the Map singleton
-                var mapType = Type.GetType("Il2CppScheduleOne.Map.Map, Assembly-CSharp");
+                var mapType = Type.GetType("ScheduleOne.Map.Map, Assembly-CSharp");
                 if (mapType == null)
                 {
                     _logger.Warning("[DesperationManager] Could not find Map type");
@@ -427,7 +436,7 @@ namespace OverTheCounter.Logic
                 }
 
                 // Get Singleton<Map>.Instance
-                var singletonType = typeof(Il2CppScheduleOne.DevUtilities.Singleton<>).MakeGenericType(mapType);
+                var singletonType = typeof(ScheduleOne.DevUtilities.Singleton<>).MakeGenericType(mapType);
                 var instanceProp = singletonType.GetProperty("Instance", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
                 var mapInstance = instanceProp?.GetValue(null);
 
@@ -460,14 +469,14 @@ namespace OverTheCounter.Logic
                     return null;
                 }
 
-                dynamic deliveryLocation = getLocationMethod.Invoke(regionData, null);
+                object deliveryLocation = getLocationMethod.Invoke(regionData, null);
                 if (deliveryLocation == null)
                 {
                     _logger.Warning($"[DesperationManager] No delivery locations in {customer.NPC.Region}");
                     return null;
                 }
 
-                string guid = deliveryLocation.GUID.ToString();
+                string guid = deliveryLocation.GetType().GetProperty("GUID").GetValue(deliveryLocation).ToString();
                 return guid;
             }
             catch (Exception ex)
@@ -572,7 +581,7 @@ namespace OverTheCounter.Logic
         /// Game NPCs (customers) aren't in S1API.Entities.NPC.All, so we
         /// call the IL2CPP SendTextMessage method instead.
         /// </summary>
-        private void SendNPCTextMessage(Il2CppScheduleOne.NPCs.NPC ilNpc, string message)
+        private void SendNPCTextMessage(ScheduleOne.NPCs.NPC ilNpc, string message)
         {
             if (ilNpc == null) return;
 
@@ -645,8 +654,8 @@ namespace OverTheCounter.Logic
             // Clear the pending contract offer and response buttons so player can't accept after timeout
             try
             {
-                customer.OfferedContractInfo = null;
-                customer.NPC.MSGConversation?.ClearResponses(true);
+                customer.SetOfferedContractInfo(null);
+                customer.NPC.GetMSGConversation()?.ClearResponses(true);
             }
             catch (Exception ex)
             {
@@ -906,7 +915,7 @@ namespace OverTheCounter.Logic
                 try
                 {
                     evt.Customer.NPC.Movement.SpeedController.AddSpeedControl(
-                        new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("desperation", 10, 0.9f));
+                        new ScheduleOne.NPCs.NPCSpeedController.SpeedControl("desperation", 10, 0.9f));
                 }
                 catch (Exception ex)
                 {

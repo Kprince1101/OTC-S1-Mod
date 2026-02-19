@@ -15,14 +15,14 @@ namespace OverTheCounter.Patches
     {
         public static MethodBase TargetMethod()
         {
-            var type = AccessTools.TypeByName("Il2CppScheduleOne.UI.StorageMenu");
+            var type = AccessTools.TypeByName("ScheduleOne.UI.StorageMenu");
             if (type == null)
             {
                 Melon<Core>.Logger.Warning("[StorageMenuOpenPatch] Could not find StorageMenu type.");
                 return null;
             }
 
-            var storageEntityType = AccessTools.TypeByName("Il2CppScheduleOne.Storage.StorageEntity");
+            var storageEntityType = AccessTools.TypeByName("ScheduleOne.Storage.StorageEntity");
             if (storageEntityType == null)
             {
                 Melon<Core>.Logger.Warning("[StorageMenuOpenPatch] Could not find StorageEntity type.");
@@ -58,7 +58,7 @@ namespace OverTheCounter.Patches
     {
         public static MethodBase TargetMethod()
         {
-            var type = AccessTools.TypeByName("Il2CppScheduleOne.UI.StorageMenu");
+            var type = AccessTools.TypeByName("ScheduleOne.UI.StorageMenu");
             if (type == null)
             {
                 Melon<Core>.Logger.Warning("[StorageMenuClosePatch] Could not find StorageMenu type.");

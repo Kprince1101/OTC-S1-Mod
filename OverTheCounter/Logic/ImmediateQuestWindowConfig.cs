@@ -1,5 +1,9 @@
+#if IL2CPP
 using Il2CppInterop.Runtime.Injection;
 using Il2CppScheduleOne.Quests;
+#else
+using ScheduleOne.Quests;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -15,15 +19,19 @@ namespace OverTheCounter.Logic
         /// </summary>
         public static void Register()
         {
+#if IL2CPP
             ClassInjector.RegisterTypeInIl2Cpp<ImmediateQuestWindowConfig>();
+#endif
         }
 
         public ImmediateQuestWindowConfig() : base()
         {
         }
 
+#if IL2CPP
         public ImmediateQuestWindowConfig(System.IntPtr ptr) : base(ptr)
         {
         }
+#endif
     }
 }

@@ -1,14 +1,22 @@
-using HarmonyLib;
-using Il2CppInterop.Runtime.InteropTypes.Arrays;
-using Il2CppScheduleOne.Dialogue;
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.Money;
-using Il2CppScheduleOne.Property;
+﻿using HarmonyLib;
 using MelonLoader;
 using OverTheCounter.Logic;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using System;
+
+#if IL2CPP
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using Il2CppScheduleOne.Dialogue;
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Money;
+using Il2CppScheduleOne.Property;
+#else
+using ScheduleOne.Dialogue;
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Money;
+using ScheduleOne.Property;
+#endif
 
 namespace OverTheCounter.Patches
 {
@@ -37,7 +45,7 @@ namespace OverTheCounter.Patches
         public static void ModifyChoiceList_Postfix(
             DialogueController_Fixer __instance,
             string dialogueLabel,
-            Il2CppSystem.Collections.Generic.List<DialogueChoiceData> existingChoices)
+            GameSystem.Collections.Generic.List<DialogueChoiceData> existingChoices)
         {
             try
             {
@@ -145,8 +153,12 @@ namespace OverTheCounter.Patches
                     var responseNode = new DialogueNodeData();
                     responseNode.DialogueText = "Talk to Bella downtown. Tell her I sent you.";
                     responseNode.DialogueNodeLabel = "WAREHOUSE_RESPONSE";
+#if IL2CPP
                     responseNode.choices = new Il2CppReferenceArray<DialogueChoiceData>(0);
-                    __instance.handler?.ShowNode(responseNode);
+#else
+                    responseNode.choices = new DialogueChoiceData[0];
+#endif
+                    __instance.GetHandler()?.ShowNode(responseNode);
 
                     Logger.Msg("Warehouse hours quest triggered from Fixer dialogue");
                     return false;
@@ -192,7 +204,12 @@ namespace OverTheCounter.Patches
 
                     // Null out selectedProperty so vanilla Confirm() won't fire
                     // (it checks selectedProperty != null before calling Confirm())
+#if IL2CPP
                     __instance.selectedProperty = null;
+#else
+                    AccessTools.Field(typeof(ScheduleOne.Dialogue.DialogueController_Fixer), "selectedProperty")
+                        ?.SetValue(__instance, null);
+#endif
 
                     _managerSelected = false;
                     _selectedBusiness = null;
@@ -228,7 +245,7 @@ namespace OverTheCounter.Patches
                     var node = dialogue?.GetDialogueNodeByLabel("SELECT_LOCATION");
                     if (node != null)
                     {
-                        __instance.handler.ShowNode(node);
+                        __instance.GetHandler().ShowNode(node);
                         if (Config.VerboseLogging.Value)
                             Logger.Msg("Navigated to SELECT_LOCATION for manager hiring");
                     }

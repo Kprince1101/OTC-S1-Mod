@@ -1,9 +1,15 @@
 using System.Collections.Generic;
 using System.Linq;
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.PlayerScripts;
 using MelonLoader;
 using UnityEngine;
+
+#if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.PlayerScripts;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.PlayerScripts;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -288,7 +294,7 @@ namespace OverTheCounter.Logic
             var positions = new List<Vector3>();
             try
             {
-                var playerList = Il2CppScheduleOne.PlayerScripts.Player.PlayerList;
+                var playerList = ScheduleOne.PlayerScripts.Player.PlayerList;
                 if (playerList != null)
                 {
                     for (int i = 0; i < playerList.Count; i++)

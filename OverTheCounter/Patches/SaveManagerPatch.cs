@@ -1,6 +1,11 @@
 using HarmonyLib;
-using Il2CppScheduleOne.Persistence;
 using OverTheCounter.SaveData;
+
+#if IL2CPP
+using Il2CppScheduleOne.Persistence;
+#else
+using ScheduleOne.Persistence;
+#endif
 
 namespace OverTheCounter.Patches
 {

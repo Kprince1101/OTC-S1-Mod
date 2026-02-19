@@ -1,5 +1,10 @@
 using HarmonyLib;
+
+#if IL2CPP
 using Il2CppScheduleOne.Quests;
+#else
+using ScheduleOne.Quests;
+#endif
 
 namespace OverTheCounter.Patches
 {

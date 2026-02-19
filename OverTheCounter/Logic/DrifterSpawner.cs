@@ -1,3 +1,13 @@
+﻿using MelonLoader;
+using MelonLoader.Utils;
+using S1API.Utils;
+using UnityEngine;
+using UnityEngine.AI;
+using System;
+using System.Collections.Generic;
+using System.IO;
+
+#if IL2CPP
 using Il2CppFishNet.Object;
 using Il2CppFishNet.Managing;
 using Il2CppFishNet;
@@ -6,14 +16,16 @@ using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.AvatarFramework;
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Messaging;
-using MelonLoader;
-using MelonLoader.Utils;
-using S1API.Utils;
-using UnityEngine;
-using UnityEngine.AI;
-using System;
-using System.Collections.Generic;
-using System.IO;
+#else
+using FishNet.Object;
+using FishNet.Managing;
+using FishNet;
+using ScheduleOne.NPCs;
+using ScheduleOne.DevUtilities;
+using ScheduleOne.AvatarFramework;
+using ScheduleOne.Economy;
+using ScheduleOne.Messaging;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -359,11 +371,11 @@ namespace OverTheCounter.Logic
                 // Ensure IL2CPP lists are initialized (ScriptableObject.CreateInstance
                 // doesn't auto-init list fields, and prefab settings may also have nulls)
                 if (settings.FaceLayerSettings == null)
-                    settings.FaceLayerSettings = new Il2CppSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
+                    settings.FaceLayerSettings = new GameSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
                 if (settings.BodyLayerSettings == null)
-                    settings.BodyLayerSettings = new Il2CppSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
+                    settings.BodyLayerSettings = new GameSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
                 if (settings.AccessorySettings == null)
-                    settings.AccessorySettings = new Il2CppSystem.Collections.Generic.List<AvatarSettings.AccessorySetting>();
+                    settings.AccessorySettings = new GameSystem.Collections.Generic.List<AvatarSettings.AccessorySetting>();
 
                 // Gender MUST be the first draw (matches DetermineGender for host/client sync)
                 settings.Gender = UnityEngine.Random.Range(0f, 1f);
@@ -543,7 +555,7 @@ namespace OverTheCounter.Logic
             try
             {
                 // Check if conversation already exists
-                if (npc.MSGConversation != null)
+                if (npc.GetMSGConversation() != null)
                 {
                     if (Config.VerboseLogging.Value)
                         Logger.Msg($"Messaging already initialized for {npc.ID}");
@@ -552,7 +564,7 @@ namespace OverTheCounter.Logic
 
                 // Create a new conversation for this NPC
                 var conversation = new MSGConversation(npc, npc.fullName);
-                npc.MSGConversation = conversation;
+                npc.SetMSGConversation(conversation);
 
                 // Set as known so it shows up in phone
                 conversation.SetIsKnown(true);
@@ -575,7 +587,7 @@ namespace OverTheCounter.Logic
             if (npc?.VoiceOverEmitter == null)
                 return;
 
-            if (npc.VoiceOverEmitter.Database != null)
+            if (npc.VoiceOverEmitter.GetDatabase() != null)
                 return;
 
             try
@@ -586,9 +598,9 @@ namespace OverTheCounter.Logic
                     if (other.GetInstanceID() == npc.GetInstanceID())
                         continue;
 
-                    if (other.VoiceOverEmitter?.Database != null)
+                    if (other.VoiceOverEmitter?.GetDatabase() != null)
                     {
-                        npc.VoiceOverEmitter.SetDatabase(other.VoiceOverEmitter.Database, false);
+                        npc.VoiceOverEmitter.SetDatabase(other.VoiceOverEmitter.GetDatabase(), false);
                         if (Config.VerboseLogging.Value)
                             Logger.Msg($"Borrowed voice database for {npc.ID}");
                         return;
@@ -694,33 +706,33 @@ namespace OverTheCounter.Logic
         }
 
         // Cached CustomerData for drifters - created once and reused
-        private static Il2CppScheduleOne.Economy.CustomerData _drifterCustomerData;
+        private static ScheduleOne.Economy.CustomerData _drifterCustomerData;
 
         /// <summary>
         /// Gets or creates a CustomerData ScriptableObject for drifters.
         /// </summary>
-        private static Il2CppScheduleOne.Economy.CustomerData GetOrCreateDrifterCustomerData()
+        private static ScheduleOne.Economy.CustomerData GetOrCreateDrifterCustomerData()
         {
             if (_drifterCustomerData != null)
                 return _drifterCustomerData;
 
             try
             {
-                _drifterCustomerData = ScriptableObject.CreateInstance<Il2CppScheduleOne.Economy.CustomerData>();
+                _drifterCustomerData = ScriptableObject.CreateInstance<ScheduleOne.Economy.CustomerData>();
 
                 // Set minimal defaults
                 _drifterCustomerData.MinWeeklySpend = 100f;
                 _drifterCustomerData.MaxWeeklySpend = 500f;
                 _drifterCustomerData.MinOrdersPerWeek = 1;
                 _drifterCustomerData.MaxOrdersPerWeek = 1;
-                _drifterCustomerData.Standards = Il2CppScheduleOne.Economy.ECustomerStandard.Moderate;
+                _drifterCustomerData.Standards = ScheduleOne.Economy.ECustomerStandard.Moderate;
                 _drifterCustomerData.CanBeDirectlyApproached = false;
                 _drifterCustomerData.BaseAddiction = 0f;
                 _drifterCustomerData.DependenceMultiplier = 0f;
                 _drifterCustomerData.CallPoliceChance = 0f;
 
                 // Create default affinity data
-                _drifterCustomerData.DefaultAffinityData = new Il2CppScheduleOne.Economy.CustomerAffinityData();
+                _drifterCustomerData.DefaultAffinityData = new ScheduleOne.Economy.CustomerAffinityData();
 
                 if (Config.VerboseLogging.Value)
                     Logger.Msg("Created CustomerData for drifters");
@@ -772,7 +784,7 @@ namespace OverTheCounter.Logic
                 var customer = npc.gameObject.AddComponent<Customer>();
 
                 // Set customerData directly (IL2CPP exposes this as a property)
-                customer.customerData = customerData;
+                customer.SetCustData(customerData);
 
                 if (Config.VerboseLogging.Value)
                     Logger.Msg($"Set CustomerData for drifter {npc.ID}");
@@ -818,7 +830,7 @@ namespace OverTheCounter.Logic
                 npc.gameObject.SetActive(false);
 
                 var customer = npc.gameObject.AddComponent<Customer>();
-                customer.customerData = customerData;
+                customer.SetCustData(customerData);
 
                 npc.gameObject.SetActive(true);
 
@@ -871,7 +883,7 @@ namespace OverTheCounter.Logic
                 // the protected OnMinPass/OnTick methods aren't directly accessible.
                 try
                 {
-                    var tm = NetworkSingleton<Il2CppScheduleOne.GameTime.TimeManager>.Instance;
+                    var tm = NetworkSingleton<ScheduleOne.GameTime.TimeManager>.Instance;
                     if (tm != null)
                     {
                         RemoveActionsForTarget(tm.onMinutePass, customer);
@@ -883,8 +895,8 @@ namespace OverTheCounter.Logic
                 // Zero deal timers as belt-and-suspenders — even though we removed
                 // from the lists, this ensures ShouldTryGenerateDeal returns false
                 // if somehow the handler still fires.
-                customer.TimeSinceLastDealOffered = 0;
-                customer.TimeSinceLastDealCompleted = 0;
+                customer.SetTimeSinceLastDealOffered(0);
+                customer.SetTimeSinceLastDealCompleted(0);
 
                 if (Config.VerboseLogging.Value)
                     Logger.Msg($"Isolated drifter Customer from vanilla deal system: {npc.ID}");
@@ -899,7 +911,11 @@ namespace OverTheCounter.Logic
         /// Removes all Action delegates from an ActionList whose target is the
         /// given object. ActionList exposes its internal List via GetInvocationList().
         /// </summary>
-        private static void RemoveActionsForTarget(Il2Cpp.ActionList actionList, Il2CppSystem.Object target)
+#if IL2CPP
+        private static void RemoveActionsForTarget(Il2Cpp.ActionList actionList, GameSystem.Object target)
+#else
+        private static void RemoveActionsForTarget(ActionList actionList, object target)
+#endif
         {
             if (actionList == null) return;
             try

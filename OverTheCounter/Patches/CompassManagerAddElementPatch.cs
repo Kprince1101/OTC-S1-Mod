@@ -1,6 +1,11 @@
 using HarmonyLib;
-using Il2CppScheduleOne.UI.Compass;
 using UnityEngine;
+
+#if IL2CPP
+using Il2CppScheduleOne.UI.Compass;
+#else
+using ScheduleOne.UI.Compass;
+#endif
 
 namespace OverTheCounter.Patches
 {

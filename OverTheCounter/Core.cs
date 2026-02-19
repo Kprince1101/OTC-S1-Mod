@@ -1,4 +1,3 @@
-using Il2CppInterop.Runtime.Injection;
 using MelonLoader;
 using MelonLoader.Utils;
 using OverTheCounter.Apps;
@@ -14,6 +13,10 @@ using System;
 using System.IO;
 using System.Reflection;
 using UnityEngine;
+
+#if IL2CPP
+using Il2CppInterop.Runtime.Injection;
+#endif
 
 [assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.3.0", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]

@@ -1,12 +1,19 @@
-using Il2CppScheduleOne.Economy;
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.UI.Phone.Messages;
 using MelonLoader;
 using S1API.UI;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+
+#if IL2CPP
+using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.UI.Phone.Messages;
+#else
+using ScheduleOne.Economy;
+using ScheduleOne.DevUtilities;
+using ScheduleOne.UI.Phone.Messages;
+#endif
 
 namespace OverTheCounter.UI
 {
@@ -57,7 +64,7 @@ namespace OverTheCounter.UI
             try
             {
                 // Get Map singleton via reflection
-                var mapType = Type.GetType("Il2CppScheduleOne.Map.Map, Assembly-CSharp");
+                var mapType = Type.GetType("ScheduleOne.Map.Map, Assembly-CSharp");
                 if (mapType == null)
                 {
                     MelonLogger.Warning("[LocationPickerUI] Could not find Map type");
@@ -97,24 +104,26 @@ namespace OverTheCounter.UI
                     return locations;
                 }
 
-                dynamic deliveryLocations = deliveryLocationsProp.GetValue(regionData);
+                object deliveryLocations = deliveryLocationsProp.GetValue(regionData);
                 if (deliveryLocations == null)
                 {
                     MelonLogger.Warning("[LocationPickerUI] RegionDeliveryLocations is null");
                     return locations;
                 }
 
-                int count = deliveryLocations.Length;
+                var arr = (System.Array)deliveryLocations;
+                int count = arr.Length;
                 for (int i = 0; i < count; i++)
                 {
-                    dynamic loc = deliveryLocations[i];
+                    object loc = arr.GetValue(i);
                     if (loc != null)
                     {
+                        var locType = loc.GetType();
                         locations.Add(new LocationInfo
                         {
-                            GUID = loc.GUID.ToString(),
-                            Name = loc.LocationName,
-                            Description = loc.LocationDescription ?? ""
+                            GUID = locType.GetProperty("GUID").GetValue(loc).ToString(),
+                            Name = (string)locType.GetProperty("LocationName").GetValue(loc),
+                            Description = (string)(locType.GetProperty("LocationDescription").GetValue(loc) ?? "")
                         });
                     }
                 }

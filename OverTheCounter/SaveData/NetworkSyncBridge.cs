@@ -1,4 +1,3 @@
-using Il2CppSteamworks;
 using MelonLoader;
 using OverTheCounter.Logic;
 using OverTheCounter.Utilities;
@@ -6,6 +5,12 @@ using SteamNetworkLib;
 using SteamNetworkLib.Sync;
 using System;
 using System.Collections.Generic;
+
+#if IL2CPP
+using Il2CppSteamworks;
+#else
+using Steamworks;
+#endif
 
 namespace OverTheCounter.SaveData
 {
@@ -199,7 +204,11 @@ namespace OverTheCounter.SaveData
             // since Refresh() does NOT fire OnValueChanged callbacks.
             if (_netClient.IsHost && _actionVar != null && _initialSyncDone)
             {
+#if IL2CPP
                 long now = Environment.TickCount64;
+#else
+                long now = (long)Environment.TickCount;
+#endif
                 if (now - _lastActionPollTick >= ACTION_POLL_INTERVAL_MS)
                 {
                     _lastActionPollTick = now;

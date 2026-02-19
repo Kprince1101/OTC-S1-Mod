@@ -1,4 +1,4 @@
-using MelonLoader;
+﻿using MelonLoader;
 using OverTheCounter.Utilities;
 using S1API.Quests;
 using S1API.GameTime;
@@ -33,10 +33,10 @@ namespace OverTheCounter.Logic
         // Flag to track if we've initialized
         private bool _initialized = false;
 
-        private Il2CppScheduleOne.Quests.Quest GetS1Quest()
+        private ScheduleOne.Quests.Quest GetS1Quest()
         {
             var field = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-            return field?.GetValue(this) as Il2CppScheduleOne.Quests.Quest;
+            return field?.GetValue(this) as ScheduleOne.Quests.Quest;
         }
 
         /// <summary>
@@ -59,7 +59,7 @@ namespace OverTheCounter.Logic
                 if (s1Quest == null) return;
 
                 // Call InitializeQuest to register with the game's UI
-                s1Quest.InitializeQuest(Title, Description, System.Array.Empty<Il2CppScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
+                s1Quest.InitializeQuest(Title, Description, System.Array.Empty<ScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
             }
             catch (System.Exception ex)
             {
@@ -299,7 +299,7 @@ namespace OverTheCounter.Logic
             {
                 var s1Quest = GetS1Quest();
                 if (s1Quest == null) return;
-                s1Quest.title = Title;
+                s1Quest.SetTitle(Title);
             }
             catch (System.Exception ex)
             {
@@ -357,8 +357,8 @@ namespace OverTheCounter.Logic
                             var entry = s1Quest.Entries[i];
                             if (entry != null)
                             {
-                                if (entry.entryUI != null && entry.entryUI.gameObject != null)
-                                    UnityEngine.Object.DestroyImmediate(entry.entryUI.gameObject);
+                                if (entry.GetEntryUI() != null && entry.GetEntryUI().gameObject != null)
+                                    UnityEngine.Object.DestroyImmediate(entry.GetEntryUI().gameObject);
                                 if (entry.gameObject != null)
                                     UnityEngine.Object.DestroyImmediate(entry.gameObject);
                             }
@@ -398,8 +398,8 @@ namespace OverTheCounter.Logic
                     var entry = s1Quest.Entries[i];
                     if (entry != null)
                     {
-                        if (entry.entryUI != null && entry.entryUI.gameObject != null)
-                            UnityEngine.Object.DestroyImmediate(entry.entryUI.gameObject);
+                        if (entry.GetEntryUI() != null && entry.GetEntryUI().gameObject != null)
+                            UnityEngine.Object.DestroyImmediate(entry.GetEntryUI().gameObject);
                         if (entry.gameObject != null)
                             UnityEngine.Object.DestroyImmediate(entry.gameObject);
                     }
@@ -478,7 +478,7 @@ namespace OverTheCounter.Logic
                 if (!_showDebugLogged && Config.VerboseLogging.Value)
                 {
                     var cg0 = go.GetComponent<CanvasGroup>();
-                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Show: hudUI exists, active={go.activeSelf}, alpha={cg0?.alpha}, title='{s1Quest.title}', entries={s1Quest.Entries?.Count}");
+                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Show: hudUI exists, active={go.activeSelf}, alpha={cg0?.alpha}, title='{s1Quest.GetTitle()}', entries={s1Quest.Entries?.Count}");
                     _showDebugLogged = true;
                 }
 
@@ -527,7 +527,7 @@ namespace OverTheCounter.Logic
                 }
 
                 int stateBefore = (int)s1Quest.State;
-                string titleBefore = s1Quest.title ?? "(null)";
+                string titleBefore = s1Quest.GetTitle() ?? "(null)";
                 if (Config.VerboseLogging.Value)
                     Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: calling Fail(false) — state={stateBefore}, title='{titleBefore}', GUID='{s1Quest.StaticGUID}'");
 
@@ -542,7 +542,7 @@ namespace OverTheCounter.Logic
                 bool inQuestQuests = false;
                 try
                 {
-                    var gameQuests = Il2CppScheduleOne.Quests.Quest.Quests;
+                    var gameQuests = ScheduleOne.Quests.Quest.Quests;
                     if (gameQuests != null)
                     {
                         for (int i = 0; i < gameQuests.Count; i++)

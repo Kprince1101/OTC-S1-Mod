@@ -33,10 +33,10 @@ namespace OverTheCounter.Quests
         public string DrifterId { get; private set; }
         public static Dictionary<string, DrifterDealQuest> ActiveQuests { get; } = new();
 
-        private Il2CppScheduleOne.Quests.Quest GetS1Quest()
+        private ScheduleOne.Quests.Quest GetS1Quest()
         {
             var field = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-            return field?.GetValue(this) as Il2CppScheduleOne.Quests.Quest;
+            return field?.GetValue(this) as ScheduleOne.Quests.Quest;
         }
 
         private void TriggerInternalInit()
@@ -46,7 +46,7 @@ namespace OverTheCounter.Quests
                 var s1Quest = GetS1Quest();
                 if (s1Quest == null) return;
 
-                s1Quest.InitializeQuest(Title, Description, Array.Empty<Il2CppScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
+                s1Quest.InitializeQuest(Title, Description, Array.Empty<ScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
             }
             catch (Exception ex)
             {

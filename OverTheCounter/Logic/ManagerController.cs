@@ -1,7 +1,3 @@
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.Employees;
-using Il2CppScheduleOne.NPCs;
-using Il2CppScheduleOne.Property;
 using MelonLoader;
 using S1API.GameTime;
 using OverTheCounter.SaveData;
@@ -10,6 +6,18 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+
+#if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Employees;
+using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.Property;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Employees;
+using ScheduleOne.NPCs;
+using ScheduleOne.Property;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -125,7 +133,7 @@ namespace OverTheCounter.Logic
                         string itemId = mgr.Configuration.StockedItemIds[i];
                         if (!string.IsNullOrEmpty(itemId) && !ManagerSupplyBehaviour.HasDaytimeStoreOption(itemId))
                         {
-                            var def = Il2CppScheduleOne.Registry.GetItem(itemId);
+                            var def = ScheduleOne.Registry.GetItem(itemId);
                             if (def != null) nightMarketItems.Add((itemId, def.Name));
                         }
                     }
@@ -223,8 +231,8 @@ namespace OverTheCounter.Logic
             try
             {
                 float signingFee = Config.ManagerSigningFee.Value;
-                Il2CppScheduleOne.Money.MoneyManager moneyManager =
-                    NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance;
+                ScheduleOne.Money.MoneyManager moneyManager =
+                    NetworkSingleton<ScheduleOne.Money.MoneyManager>.Instance;
 
                 if (moneyManager != null && moneyManager.cashBalance >= signingFee)
                 {
@@ -250,7 +258,7 @@ namespace OverTheCounter.Logic
             // Grant the clipboard tool if not already acquired (same as vanilla Employee.RpcLogic___Initialize)
             try
             {
-                var varDb = NetworkSingleton<Il2CppScheduleOne.Variables.VariableDatabase>.Instance;
+                var varDb = NetworkSingleton<ScheduleOne.Variables.VariableDatabase>.Instance;
                 if (varDb != null && !varDb.GetValue<bool>("ClipboardAcquired"))
                     varDb.SetVariableValue("ClipboardAcquired", true.ToString());
             }
@@ -434,7 +442,7 @@ namespace OverTheCounter.Logic
                 instance.ArrivedAtDestination = false;
 
                 // Use _destCallback so EnsureMoving re-issues with the same transfer-aware callback
-                instance._destCallback = (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                instance._destCallback = (GameSystem.Action<NPCMovement.WalkResult>)
                     new Action<NPCMovement.WalkResult>(result =>
                     {
                         _logger.Msg($"Manager {instance.Id} transfer walk callback (result={result})");
@@ -518,7 +526,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var player = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerMovement>.Instance;
+                var player = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerMovement>.Instance;
                 if (player == null) return null;
 
                 var playerPos = player.transform.position;

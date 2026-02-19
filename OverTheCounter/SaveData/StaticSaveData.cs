@@ -185,7 +185,7 @@ namespace OverTheCounter.SaveData
             {
                 try
                 {
-                    if (Il2CppScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value)
+                    if (ScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value)
                     {
                         _questTriggered = true;
                         CreateOrResumeQuest();

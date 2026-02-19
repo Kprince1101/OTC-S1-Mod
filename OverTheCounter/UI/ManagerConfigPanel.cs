@@ -1,14 +1,4 @@
-using Il2CppInterop.Runtime;
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.Employees;
-using Il2CppScheduleOne.EntityFramework;
-using Il2CppScheduleOne.Management;
-using Il2CppScheduleOne.ObjectScripts;
-using Il2CppScheduleOne.Product;
-using Il2CppScheduleOne.Tools;
-using Il2CppScheduleOne.UI.Management;
-using Il2CppTMPro;
-using MelonLoader;
+﻿using MelonLoader;
 using MelonLoader.Utils;
 using OverTheCounter.Logic;
 using OverTheCounter.SaveData;
@@ -23,6 +13,29 @@ using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+
+#if IL2CPP
+using Il2CppInterop.Runtime;
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Employees;
+using Il2CppScheduleOne.EntityFramework;
+using Il2CppScheduleOne.Management;
+using Il2CppScheduleOne.ObjectScripts;
+using Il2CppScheduleOne.Product;
+using Il2CppScheduleOne.Tools;
+using Il2CppScheduleOne.UI.Management;
+using Il2CppTMPro;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Employees;
+using ScheduleOne.EntityFramework;
+using ScheduleOne.Management;
+using ScheduleOne.ObjectScripts;
+using ScheduleOne.Product;
+using ScheduleOne.Tools;
+using ScheduleOne.UI.Management;
+using TMPro;
+#endif
 
 namespace OverTheCounter.UI
 {
@@ -75,7 +88,7 @@ namespace OverTheCounter.UI
         // Pending item selection (between product pick and threshold confirm)
         private static string _pendingItemId;
         private static int _pendingSlotIndex = -1;
-        private static Il2CppScheduleOne.ItemFramework.ItemDefinition _pendingItemDef;
+        private static ScheduleOne.ItemFramework.ItemDefinition _pendingItemDef;
         private static int _pendingStackLimit = 20;
 
         // Threshold screen (shown after product selection)
@@ -88,8 +101,8 @@ namespace OverTheCounter.UI
         private static bool _originalSelfUpdate;
 
         // Hold IL2CPP callback refs to prevent GC
-        private static Il2CppSystem.Action<Il2CppSystem.Collections.Generic.List<BuildableItem>> _selectorCallback;
-        private static Il2CppSystem.Action<ItemSelector.Option> _itemSelectorCallback;
+        private static GameSystem.Action<GameSystem.Collections.Generic.List<BuildableItem>> _selectorCallback;
+        private static GameSystem.Action<ItemSelector.Option> _itemSelectorCallback;
 
         // Cached manager icon sprite
         private static Sprite _managerIcon;
@@ -220,7 +233,7 @@ namespace OverTheCounter.UI
 
             // 1. Find the Packager (Handler) config panel prefab GameObject
             GameObject prefabGO = null;
-            var prefabs = mi.ConfigPanelPrefabs;
+            var prefabs = mi.GetConfigPanelPrefabs();
             if (prefabs != null)
             {
                 for (int i = 0; i < prefabs.Length; i++)
@@ -314,8 +327,8 @@ namespace OverTheCounter.UI
                     {
                         productsFieldUI.FieldLabel.text = "Products";
                         productsFieldUI.FieldLabel.fontSize *= 1.15f;
-                        productsFieldUI.FieldLabel.fontStyle = Il2CppTMPro.FontStyles.Bold;
-                        productsFieldUI.FieldLabel.alignment = Il2CppTMPro.TextAlignmentOptions.Center;
+                        productsFieldUI.FieldLabel.fontStyle = TMPro.FontStyles.Bold;
+                        productsFieldUI.FieldLabel.alignment = TMPro.TextAlignmentOptions.Center;
                         // Stretch label across full width for centering
                         var labelRT = productsFieldUI.FieldLabel.rectTransform;
                         if (labelRT != null)
@@ -546,7 +559,7 @@ namespace OverTheCounter.UI
             }
 
             // Build options list
-            var options = new Il2CppSystem.Collections.Generic.List<ItemSelector.Option>();
+            var options = new GameSystem.Collections.Generic.List<ItemSelector.Option>();
 
             // "None" option first (shows as X icon in the grid)
             options.Add(new ItemSelector.Option("None", null));
@@ -574,7 +587,7 @@ namespace OverTheCounter.UI
             }
 
             int capturedIndex = slotIndex;
-            _itemSelectorCallback = (Il2CppSystem.Action<ItemSelector.Option>)
+            _itemSelectorCallback = (GameSystem.Action<ItemSelector.Option>)
                 new Action<ItemSelector.Option>(opt => OnItemSelected(capturedIndex, opt));
 
             mi.ItemSelectorScreen.Initialize(
@@ -713,15 +726,15 @@ namespace OverTheCounter.UI
                 descRT.sizeDelta = new Vector2(-20f, 40);
 
                 // Clone NumberFieldUI for the slider
-                Il2CppScheduleOne.UI.Management.NumberFieldUI sourceField = null;
-                var prefabs = mi.ConfigPanelPrefabs;
+                ScheduleOne.UI.Management.NumberFieldUI sourceField = null;
+                var prefabs = mi.GetConfigPanelPrefabs();
                 if (prefabs != null)
                 {
                     for (int i = 0; i < prefabs.Length; i++)
                     {
                         var entry = prefabs[i];
                         if (entry?.Panel == null) continue;
-                        sourceField = entry.Panel.GetComponentInChildren<Il2CppScheduleOne.UI.Management.NumberFieldUI>(true);
+                        sourceField = entry.Panel.GetComponentInChildren<ScheduleOne.UI.Management.NumberFieldUI>(true);
                         if (sourceField != null) break;
                     }
                 }
@@ -731,7 +744,7 @@ namespace OverTheCounter.UI
                     var sliderGO = UnityEngine.Object.Instantiate(sourceField.gameObject, _thresholdScreenRoot.transform);
                     sliderGO.name = "ThresholdSlider";
 
-                    var nfUI = sliderGO.GetComponent<Il2CppScheduleOne.UI.Management.NumberFieldUI>();
+                    var nfUI = sliderGO.GetComponent<ScheduleOne.UI.Management.NumberFieldUI>();
                     if (nfUI != null)
                     {
                         // Use the item's actual stack limit as the slider step
@@ -902,10 +915,10 @@ namespace OverTheCounter.UI
                 string itemId = config.StockedItemIds[i];
                 bool hasItem = !string.IsNullOrEmpty(itemId);
 
-                Il2CppScheduleOne.ItemFramework.ItemDefinition itemDef = null;
+                ScheduleOne.ItemFramework.ItemDefinition itemDef = null;
                 if (hasItem)
                 {
-                    try { itemDef = Il2CppScheduleOne.Registry.GetItem(itemId); }
+                    try { itemDef = ScheduleOne.Registry.GetItem(itemId); }
                     catch { }
                 }
 
@@ -967,13 +980,13 @@ namespace OverTheCounter.UI
         /// Returns whitelisted items available for manager stocking.
         /// Filters out items locked behind player rank progression and sorts by category.
         /// </summary>
-        private static List<Il2CppScheduleOne.ItemFramework.ItemDefinition> GetAvailableItems()
+        private static List<ScheduleOne.ItemFramework.ItemDefinition> GetAvailableItems()
         {
-            var result = new List<Il2CppScheduleOne.ItemFramework.ItemDefinition>();
+            var result = new List<ScheduleOne.ItemFramework.ItemDefinition>();
 
             try
             {
-                var registry = Il2CppScheduleOne.Registry.Instance;
+                var registry = ScheduleOne.Registry.Instance;
                 if (registry == null) return result;
 
                 var allItems = registry.GetAllItems();
@@ -986,7 +999,7 @@ namespace OverTheCounter.UI
                     if (!WhitelistedItemIds.Contains(item.ID)) continue;
 
                     // Skip items locked behind player rank progression
-                    var storable = item.TryCast<Il2CppScheduleOne.ItemFramework.StorableItemDefinition>();
+                    var storable = item.TryCast<ScheduleOne.ItemFramework.StorableItemDefinition>();
                     if (storable != null && !storable.IsUnlocked) continue;
 
                     result.Add(item);
@@ -1165,7 +1178,7 @@ namespace OverTheCounter.UI
             }
 
             // Build current selection list
-            var currentList = new Il2CppSystem.Collections.Generic.List<BuildableItem>();
+            var currentList = new GameSystem.Collections.Generic.List<BuildableItem>();
             PlaceableStorageEntity current = GetCurrentSlotEntity(slotType, routeIndex, isSource);
             if (current != null)
             {
@@ -1175,8 +1188,12 @@ namespace OverTheCounter.UI
             }
 
             // Type filter — restrict to PlaceableStorageEntity
-            var typeReqs = new Il2CppSystem.Collections.Generic.List<Il2CppSystem.Type>();
+            var typeReqs = new GameSystem.Collections.Generic.List<GameSystem.Type>();
+#if IL2CPP
             typeReqs.Add(Il2CppType.Of<PlaceableStorageEntity>());
+#else
+            typeReqs.Add(typeof(PlaceableStorageEntity));
+#endif
 
             string instruction;
             switch (slotType)
@@ -1191,8 +1208,8 @@ namespace OverTheCounter.UI
             int capturedRoute = routeIndex;
             bool capturedIsSource = isSource;
 
-            _selectorCallback = (Il2CppSystem.Action<Il2CppSystem.Collections.Generic.List<BuildableItem>>)
-                new Action<Il2CppSystem.Collections.Generic.List<BuildableItem>>((objs) =>
+            _selectorCallback = (GameSystem.Action<GameSystem.Collections.Generic.List<BuildableItem>>)
+                new Action<GameSystem.Collections.Generic.List<BuildableItem>>((objs) =>
                 {
                     try
                     {

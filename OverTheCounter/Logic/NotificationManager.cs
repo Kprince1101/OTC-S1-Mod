@@ -1,12 +1,19 @@
-using Il2CppScheduleOne.Economy;
-using Il2CppScheduleOne.Quests;
-using Il2CppScheduleOne.NPCs;
 using MelonLoader;
 using OverTheCounter.Utilities;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
+
+#if IL2CPP
+using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.Quests;
+using Il2CppScheduleOne.NPCs;
+#else
+using ScheduleOne.Economy;
+using ScheduleOne.Quests;
+using ScheduleOne.NPCs;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -70,7 +77,7 @@ namespace OverTheCounter.Logic
             {
                 try
                 {
-                    var gameQuests = Il2CppScheduleOne.Quests.Quest.Quests;
+                    var gameQuests = ScheduleOne.Quests.Quest.Quests;
                     if (gameQuests == null || gameQuests.Count == 0)
                         return; // game not loaded yet
 
@@ -183,7 +190,7 @@ namespace OverTheCounter.Logic
         /// Excludes desperation contracts (ImmediateQuestWindowConfig).
         /// </summary>
         private Dictionary<(int, int), List<Contract>> GroupContractsByWindow(
-            Il2CppSystem.Collections.Generic.List<Contract> contracts)
+            GameSystem.Collections.Generic.List<Contract> contracts)
         {
             var groups = new Dictionary<(int, int), List<Contract>>();
 

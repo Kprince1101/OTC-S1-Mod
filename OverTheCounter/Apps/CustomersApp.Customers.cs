@@ -1,6 +1,3 @@
-using Il2CppScheduleOne.Economy;
-using Il2CppScheduleOne.NPCs;
-using Il2CppScheduleOne.Map;
 using MelonLoader;
 using S1API.UI;
 using System;
@@ -11,6 +8,16 @@ using UnityEngine.UI;
 using OverTheCounter.Logic;
 using OverTheCounter.Utilities;
 using OverTheCounter.SaveData;
+
+#if IL2CPP
+using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.Map;
+#else
+using ScheduleOne.Economy;
+using ScheduleOne.NPCs;
+using ScheduleOne.Map;
+#endif
 
 namespace OverTheCounter.Apps
 {

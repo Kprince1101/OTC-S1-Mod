@@ -1,11 +1,17 @@
-using Il2CppScheduleOne.AvatarFramework;
-using Il2CppScheduleOne.DevUtilities;
 using MelonLoader;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
+
+#if IL2CPP
+using Il2CppScheduleOne.AvatarFramework;
+using Il2CppScheduleOne.DevUtilities;
+#else
+using ScheduleOne.AvatarFramework;
+using ScheduleOne.DevUtilities;
+#endif
 
 namespace OverTheCounter.Utilities
 {
@@ -33,7 +39,7 @@ namespace OverTheCounter.Utilities
 
         private struct MugshotRequest
         {
-            public Il2CppScheduleOne.NPCs.NPC GameNpc;
+            public ScheduleOne.NPCs.NPC GameNpc;
             public string Label;
             public Action<Sprite> OnComplete;
             public AvatarSettings ExplicitSettings;
@@ -55,7 +61,7 @@ namespace OverTheCounter.Utilities
         /// If <paramref name="explicitSettings"/> is provided, those exact settings are used
         /// for the capture (ensures host/client determinism from the same seed).
         /// </summary>
-        public static void Generate(Il2CppScheduleOne.NPCs.NPC gameNpc, string label, Action<Sprite> onComplete,
+        public static void Generate(ScheduleOne.NPCs.NPC gameNpc, string label, Action<Sprite> onComplete,
             AvatarSettings explicitSettings = null)
         {
             _queue.Enqueue(new MugshotRequest
@@ -214,7 +220,7 @@ namespace OverTheCounter.Utilities
 
                 // Save and swap avatar reference — prevents game code from accessing
                 // the wrong avatar during the capture's yield frames
-                Il2CppScheduleOne.AvatarFramework.Avatar previousAvatar = req.GameNpc.Avatar;
+                ScheduleOne.AvatarFramework.Avatar previousAvatar = req.GameNpc.Avatar;
                 req.GameNpc.Avatar = mugshotRig;
 
                 // === Content-validated capture with retry ===

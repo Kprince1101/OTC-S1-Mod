@@ -1,3 +1,18 @@
+﻿using MelonLoader;
+using S1API.GameTime;
+using S1API.Items;
+using S1API.Products;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using OverTheCounter.Quests;
+using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
+using UnityEngine;
+using UnityEngine.Events;
+
+#if IL2CPP
 using Il2CppScheduleOne.Dialogue;
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.DevUtilities;
@@ -14,19 +29,24 @@ using Il2CppScheduleOne.Quests;
 using Il2CppScheduleOne.UI;
 using Il2CppScheduleOne.UI.Handover;
 using Il2CppScheduleOne.VoiceOver;
-using MelonLoader;
-using S1API.GameTime;
-using S1API.Items;
-using S1API.Products;
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
-using OverTheCounter.Quests;
-using OverTheCounter.SaveData;
-using OverTheCounter.Utilities;
-using UnityEngine;
-using UnityEngine.Events;
+#else
+using ScheduleOne.Dialogue;
+using ScheduleOne.Economy;
+using ScheduleOne.DevUtilities;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.Law;
+using ScheduleOne.Map;
+using ScheduleOne.Messaging;
+using ScheduleOne.Money;
+using ScheduleOne.NPCs;
+using ScheduleOne.PlayerScripts;
+using ScheduleOne.Police;
+using ScheduleOne.Product;
+using ScheduleOne.Quests;
+using ScheduleOne.UI;
+using ScheduleOne.UI.Handover;
+using ScheduleOne.VoiceOver;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -153,7 +173,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var map = Singleton<Il2CppScheduleOne.Map.Map>.Instance;
+                var map = Singleton<ScheduleOne.Map.Map>.Instance;
                 if (map == null) return 1;
                 var regions = map.GetUnlockedRegions();
                 return regions != null ? Math.Max(regions.Count, 1) : 1;
@@ -265,7 +285,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var listedProducts = Il2CppScheduleOne.Product.ProductManager.ListedProducts;
+                var listedProducts = ScheduleOne.Product.ProductManager.ListedProducts;
                 if (listedProducts == null || listedProducts.Count == 0)
                 {
                     _logger.Warning("[DrifterManager] No listed products - cannot generate deal");
@@ -273,12 +293,12 @@ namespace OverTheCounter.Logic
                 }
 
                 // Select product based on type
-                Il2CppScheduleOne.Product.ProductDefinition selectedProduct = null;
+                ScheduleOne.Product.ProductDefinition selectedProduct = null;
 
                 if (evt.Type == DrifterType.Fiend)
                 {
                     // Fiend prefers meth or coke
-                    var preferred = new List<Il2CppScheduleOne.Product.ProductDefinition>();
+                    var preferred = new List<ScheduleOne.Product.ProductDefinition>();
                     for (int i = 0; i < listedProducts.Count; i++)
                     {
                         var p = listedProducts[i];
@@ -327,7 +347,7 @@ namespace OverTheCounter.Logic
                     if (appeal < 0.05f)
                     {
                         // Selected product is overpriced — try all other listed products
-                        Il2CppScheduleOne.Product.ProductDefinition fallback = null;
+                        ScheduleOne.Product.ProductDefinition fallback = null;
                         float bestAppeal = -1f;
                         for (int i = 0; i < listedProducts.Count; i++)
                         {
@@ -569,10 +589,10 @@ namespace OverTheCounter.Logic
                 string message = drifter.GetIntroTextMessage(evt.ProductName, evt.Quantity, evt.Payment, locationHint);
 
                 // Deterministic messageId enables client-side dedup
-                var conversation = drifter.GameNpc?.MSGConversation;
+                var conversation = drifter.GameNpc?.GetMSGConversation();
                 if (conversation != null)
                 {
-                    var msg = new Il2CppScheduleOne.Messaging.Message(message, Il2CppScheduleOne.Messaging.Message.ESenderType.Other, true);
+                    var msg = new ScheduleOne.Messaging.Message(message, ScheduleOne.Messaging.Message.ESenderType.Other, true);
                     msg.messageId = DeterministicHash(evt.DrifterId + "_intro");
                     conversation.SendMessage(msg, true, true); // networked — delivers to all players
                 }
@@ -596,7 +616,7 @@ namespace OverTheCounter.Logic
         /// </summary>
         private void ShowDealResponses(DrifterEvent evt, DrifterInstance drifter)
         {
-            if (drifter?.GameNpc?.MSGConversation == null)
+            if (drifter?.GameNpc?.GetMSGConversation() == null)
             {
                 _logger.Warning($"[DrifterManager] Cannot show responses - MSGConversation is null for {evt.DrifterId}");
                 return;
@@ -604,17 +624,17 @@ namespace OverTheCounter.Logic
 
             try
             {
-                var conversation = drifter.GameNpc.MSGConversation;
-                var responses = new Il2CppSystem.Collections.Generic.List<Response>();
+                var conversation = drifter.GameNpc.GetMSGConversation();
+                var responses = new GameSystem.Collections.Generic.List<Response>();
 
                 // disableDefaultResponseBehaviour=true so the vanilla SendResponse ServerRpc doesn't
                 // propagate the callback to ALL players (which would fire OnAcceptResponse on both sides)
                 string drifterId = evt.DrifterId;
-                var acceptCallback = (Il2CppSystem.Action)new System.Action(() => OnAcceptResponse(drifterId));
+                var acceptCallback = (GameSystem.Action)new System.Action(() => OnAcceptResponse(drifterId));
                 var acceptResponse = new Response("I'm on my way", "accept", acceptCallback, true);
                 responses.Add(acceptResponse);
 
-                var declineCallback = (Il2CppSystem.Action)new System.Action(() => OnDeclineResponse(drifterId));
+                var declineCallback = (GameSystem.Action)new System.Action(() => OnDeclineResponse(drifterId));
                 var declineResponse = new Response("Not interested", "decline", declineCallback, true);
                 responses.Add(declineResponse);
 
@@ -647,12 +667,12 @@ namespace OverTheCounter.Logic
 
             // Manually clear responses + render player message (disableDefaultResponseBehaviour skips vanilla handling)
             var drifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
-            var conversation = drifter?.GameNpc?.MSGConversation;
+            var conversation = drifter?.GameNpc?.GetMSGConversation();
             if (conversation != null)
             {
                 conversation.ClearResponses(false);
-                var playerMsg = new Il2CppScheduleOne.Messaging.Message(
-                    "I'm on my way", Il2CppScheduleOne.Messaging.Message.ESenderType.Player, true);
+                var playerMsg = new ScheduleOne.Messaging.Message(
+                    "I'm on my way", ScheduleOne.Messaging.Message.ESenderType.Player, true);
                 conversation.SendMessage(playerMsg, false, false);
             }
 
@@ -697,12 +717,12 @@ namespace OverTheCounter.Logic
             }
 
             var drifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
-            var conversation = drifter?.GameNpc?.MSGConversation;
+            var conversation = drifter?.GameNpc?.GetMSGConversation();
             if (conversation != null)
             {
                 conversation.ClearResponses(false);
-                var playerMsg = new Il2CppScheduleOne.Messaging.Message(
-                    "Not interested", Il2CppScheduleOne.Messaging.Message.ESenderType.Player, true);
+                var playerMsg = new ScheduleOne.Messaging.Message(
+                    "Not interested", ScheduleOne.Messaging.Message.ESenderType.Player, true);
                 conversation.SendMessage(playerMsg, false, false);
             }
 
@@ -757,7 +777,13 @@ namespace OverTheCounter.Logic
 
                 // Pause only the drifter being pickpocketed
                 var pickpocket = Singleton<PickpocketScreen>.Instance;
+#if IL2CPP
                 if (pickpocket != null && pickpocket.IsOpen && pickpocket.npc == drifter.GameNpc)
+#else
+                if (pickpocket != null && pickpocket.IsOpen &&
+                    HarmonyLib.AccessTools.Field(typeof(PickpocketScreen), "npc")
+                        ?.GetValue(pickpocket) == drifter.GameNpc)
+#endif
                     return true;
             }
             catch { }
@@ -788,33 +814,33 @@ namespace OverTheCounter.Logic
 
         private readonly Dictionary<string, DialogueController.DialogueChoice> _dealChoices = new();
 
-        private static Il2CppScheduleOne.ItemFramework.EQuality GetExpectedQuality(DrifterType type, int seed)
+        private static ScheduleOne.ItemFramework.EQuality GetExpectedQuality(DrifterType type, int seed)
         {
             var rng = new System.Random(seed + 5555);
             return type switch
             {
                 DrifterType.Whale => rng.Next(2) == 0
-                    ? Il2CppScheduleOne.ItemFramework.EQuality.Premium
-                    : Il2CppScheduleOne.ItemFramework.EQuality.Heavenly,
+                    ? ScheduleOne.ItemFramework.EQuality.Premium
+                    : ScheduleOne.ItemFramework.EQuality.Heavenly,
                 DrifterType.Fiend => rng.Next(2) == 0
-                    ? Il2CppScheduleOne.ItemFramework.EQuality.Trash
-                    : Il2CppScheduleOne.ItemFramework.EQuality.Poor,
-                DrifterType.Normal => (Il2CppScheduleOne.ItemFramework.EQuality)(rng.Next(1, 4)),  // Poor(1), Standard(2), Premium(3)
+                    ? ScheduleOne.ItemFramework.EQuality.Trash
+                    : ScheduleOne.ItemFramework.EQuality.Poor,
+                DrifterType.Normal => (ScheduleOne.ItemFramework.EQuality)(rng.Next(1, 4)),  // Poor(1), Standard(2), Premium(3)
                 // Robber/Narc: random Trash-Premium (never Heavenly)
-                _ => (Il2CppScheduleOne.ItemFramework.EQuality)(rng.Next(0, 4)),  // Trash(0)..Premium(3)
+                _ => (ScheduleOne.ItemFramework.EQuality)(rng.Next(0, 4)),  // Trash(0)..Premium(3)
             };
         }
 
         // Inverse of StandardsMethod.GetCorrespondingQuality
-        private static ECustomerStandard QualityToStandard(Il2CppScheduleOne.ItemFramework.EQuality quality)
+        private static ECustomerStandard QualityToStandard(ScheduleOne.ItemFramework.EQuality quality)
         {
             return quality switch
             {
-                Il2CppScheduleOne.ItemFramework.EQuality.Trash    => ECustomerStandard.VeryLow,
-                Il2CppScheduleOne.ItemFramework.EQuality.Poor     => ECustomerStandard.Low,
-                Il2CppScheduleOne.ItemFramework.EQuality.Standard => ECustomerStandard.Moderate,
-                Il2CppScheduleOne.ItemFramework.EQuality.Premium  => ECustomerStandard.High,
-                Il2CppScheduleOne.ItemFramework.EQuality.Heavenly => ECustomerStandard.VeryHigh,
+                ScheduleOne.ItemFramework.EQuality.Trash    => ECustomerStandard.VeryLow,
+                ScheduleOne.ItemFramework.EQuality.Poor     => ECustomerStandard.Low,
+                ScheduleOne.ItemFramework.EQuality.Standard => ECustomerStandard.Moderate,
+                ScheduleOne.ItemFramework.EQuality.Premium  => ECustomerStandard.High,
+                ScheduleOne.ItemFramework.EQuality.Heavenly => ECustomerStandard.VeryHigh,
                 _ => ECustomerStandard.Moderate,
             };
         }
@@ -849,19 +875,19 @@ namespace OverTheCounter.Logic
             try
             {
                 // Create ProductList for the expected products
-                var productList = new Il2CppScheduleOne.Product.ProductList();
-                productList.entries = new Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.Product.ProductList.Entry>();
+                var productList = new ScheduleOne.Product.ProductList();
+                productList.entries = new GameSystem.Collections.Generic.List<ScheduleOne.Product.ProductList.Entry>();
 
                 // Clone shared CustomerData so per-drifter quality standards don't leak
                 var expectedQuality = GetExpectedQuality(evt.Type, evt.Seed);
-                if (customer.customerData != null)
+                if (customer.GetCustData() != null)
                 {
-                    var perDrifterData = ScriptableObject.Instantiate(customer.customerData);
+                    var perDrifterData = ScriptableObject.Instantiate(customer.GetCustData());
                     perDrifterData.Standards = QualityToStandard(expectedQuality);
-                    customer.customerData = perDrifterData;
+                    customer.SetCustData(perDrifterData);
                 }
 
-                var productEntry = new Il2CppScheduleOne.Product.ProductList.Entry(
+                var productEntry = new ScheduleOne.Product.ProductList.Entry(
                     evt.ProductId,
                     expectedQuality,
                     evt.Quantity
@@ -878,15 +904,15 @@ namespace OverTheCounter.Logic
 
                 // Create callback for handover completion
                 var drifterIdCapture = drifterId;
-                Il2CppSystem.Action<HandoverScreen.EHandoverOutcome, Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>, float> callback =
-                    (Il2CppSystem.Action<HandoverScreen.EHandoverOutcome, Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>, float>)
-                    new Action<HandoverScreen.EHandoverOutcome, Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>, float>(
+                GameSystem.Action<HandoverScreen.EHandoverOutcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float> callback =
+                    (GameSystem.Action<HandoverScreen.EHandoverOutcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float>)
+                    new Action<HandoverScreen.EHandoverOutcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float>(
                         (outcome, items, price) => OnDrifterHandoverClosed(drifterIdCapture, outcome, items, price));
 
                 // Success chance is 100% for pre-agreed drifter deals
-                Il2CppSystem.Func<Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>, float, float> successChance =
-                    (Il2CppSystem.Func<Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>, float, float>)
-                    new Func<Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>, float, float>(
+                GameSystem.Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float, float> successChance =
+                    (GameSystem.Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float, float>)
+                    new Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float, float>(
                         (items, askingPrice) => 1.0f);
 
                 // Open HandoverScreen in Contract mode (shows expected products/payment)
@@ -910,12 +936,12 @@ namespace OverTheCounter.Logic
         }
 
         // Cache for drifter contracts
-        private readonly Dictionary<string, Il2CppScheduleOne.Quests.Contract> _drifterContracts = new();
+        private readonly Dictionary<string, ScheduleOne.Quests.Contract> _drifterContracts = new();
 
         /// <summary>
         /// Creates a Contract object for a drifter deal.
         /// </summary>
-        private Il2CppScheduleOne.Quests.Contract CreateDrifterContract(DrifterEvent evt, Customer customer, Il2CppScheduleOne.Product.ProductList productList)
+        private ScheduleOne.Quests.Contract CreateDrifterContract(DrifterEvent evt, Customer customer, ScheduleOne.Product.ProductList productList)
         {
             try
             {
@@ -927,10 +953,10 @@ namespace OverTheCounter.Logic
 
                 // Create a new Contract - it's a NetworkBehaviour so we need to create it as a component
                 var contractGo = new GameObject($"DrifterContract_{evt.DrifterId}");
-                var contract = contractGo.AddComponent<Il2CppScheduleOne.Quests.Contract>();
+                var contract = contractGo.AddComponent<ScheduleOne.Quests.Contract>();
 
                 // Initialize the contract silently (doesn't notify quest system)
-                var timeManager = NetworkSingleton<Il2CppScheduleOne.GameTime.TimeManager>.Instance;
+                var timeManager = NetworkSingleton<ScheduleOne.GameTime.TimeManager>.Instance;
                 var currentTime = timeManager?.GetDateTime() ?? default;
 
                 contract.SilentlyInitializeContract(
@@ -942,7 +968,7 @@ namespace OverTheCounter.Logic
                     evt.Payment, // payment
                     productList, // expected products
                     string.Empty, // delivery location
-                    new Il2CppScheduleOne.Quests.QuestWindowConfig(), // delivery window
+                    new ScheduleOne.Quests.QuestWindowConfig(), // delivery window
                     0, // pickup schedule index
                     currentTime // accept time
                 );
@@ -962,7 +988,7 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Callback when HandoverScreen is closed for a drifter deal.
         /// </summary>
-        private void OnDrifterHandoverClosed(string drifterId, HandoverScreen.EHandoverOutcome outcome, Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance> items, float askingPrice)
+        private void OnDrifterHandoverClosed(string drifterId, HandoverScreen.EHandoverOutcome outcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance> items, float askingPrice)
         {
             _logger.Msg($"[DrifterManager] Handover closed for {drifterId}: outcome={outcome}");
 
@@ -1082,7 +1108,7 @@ namespace OverTheCounter.Logic
             float satisfaction = 1f;
             float qualityDifference = 0f;
             int matchedProductCount = 0;
-            var bonuses = new Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.Quests.Contract.BonusPayment>();
+            var bonuses = new GameSystem.Collections.Generic.List<ScheduleOne.Quests.Contract.BonusPayment>();
 
             if (customer != null && contract != null && items != null)
             {
@@ -1104,36 +1130,36 @@ namespace OverTheCounter.Logic
                 // Replicates vanilla Customer.ProcessHandover bonus logic
                 try
                 {
-                    var curfewMgr = NetworkSingleton<Il2CppScheduleOne.Law.CurfewManager>.Instance;
+                    var curfewMgr = NetworkSingleton<ScheduleOne.Law.CurfewManager>.Instance;
                     if (curfewMgr != null && curfewMgr.IsCurrentlyActive)
                     {
-                        bonuses.Add(new Il2CppScheduleOne.Quests.Contract.BonusPayment("Curfew Bonus", contract.Payment * 0.2f));
+                        bonuses.Add(new ScheduleOne.Quests.Contract.BonusPayment("Curfew Bonus", contract.Payment * 0.2f));
                     }
 
                     int totalQuantity = contract.ProductList.GetTotalQuantity();
                     if (matchedProductCount > totalQuantity && satisfaction >= 0.99f)
                     {
-                        bonuses.Add(new Il2CppScheduleOne.Quests.Contract.BonusPayment(
+                        bonuses.Add(new ScheduleOne.Quests.Contract.BonusPayment(
                             "Generosity Bonus", 10f * (matchedProductCount - totalQuantity)));
                     }
 
                     if (qualityDifference >= 0.2f)
                     {
-                        bonuses.Add(new Il2CppScheduleOne.Quests.Contract.BonusPayment(
+                        bonuses.Add(new ScheduleOne.Quests.Contract.BonusPayment(
                             "Exceeded Quality Bonus", contract.Payment * 0.15f * qualityDifference));
                     }
 
-                    var timeManager = NetworkSingleton<Il2CppScheduleOne.GameTime.TimeManager>.Instance;
+                    var timeManager = NetworkSingleton<ScheduleOne.GameTime.TimeManager>.Instance;
                     if (timeManager != null)
                     {
                         var acceptTime = contract.AcceptTime;
-                        var endTime = new Il2CppScheduleOne.GameTime.GameDateTime(
+                        var endTime = new ScheduleOne.GameTime.GameDateTime(
                             acceptTime.elapsedDays,
-                            Il2CppScheduleOne.GameTime.TimeManager.AddMinutesTo24HourTime(
+                            ScheduleOne.GameTime.TimeManager.AddMinutesTo24HourTime(
                                 contract.DeliveryWindow.WindowStartTime, 60));
                         if (timeManager.IsCurrentDateWithinRange(acceptTime, endTime))
                         {
-                            bonuses.Add(new Il2CppScheduleOne.Quests.Contract.BonusPayment(
+                            bonuses.Add(new ScheduleOne.Quests.Contract.BonusPayment(
                                 "Quick Delivery Bonus", contract.Payment * 0.1f));
                         }
                     }
@@ -1246,7 +1272,7 @@ namespace OverTheCounter.Logic
                 choice.onChoosen.AddListener((UnityAction)(() => OpenDrifterHandover(drifterId)));
 
                 // Only show when this drifter's deal is accepted
-                choice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
+                choice.SetShouldShowCheck((bool enabled) =>
                 {
                     if (!_activeEvents.TryGetValue(drifterId, out var e))
                         return false;
@@ -1531,7 +1557,7 @@ namespace OverTheCounter.Logic
                 var drifterId = evt.DrifterId;
                 choice.onChoosen.AddListener((UnityAction)(() => OnNarcPostStingTalk(drifterId)));
 
-                choice.shouldShowCheck = (Func<bool, bool>)((bool enabled) =>
+                choice.SetShouldShowCheck((bool enabled) =>
                 {
                     if (!_activeEvents.TryGetValue(drifterId, out var e)) return false;
                     return e.Type == DrifterType.Narc && e.State >= DrifterEventState.DealCompleted;
@@ -1715,7 +1741,7 @@ namespace OverTheCounter.Logic
                     drifter.SendTextMessage(expiryMsg);
                     evt.PendingClientMessage = expiryMsg;
                     HasPendingDrifterMessages = true;
-                    drifter.GameNpc?.MSGConversation?.ClearResponses(true);
+                    drifter.GameNpc?.GetMSGConversation()?.ClearResponses(true);
                 }
                 catch { }
             }
@@ -1823,7 +1849,7 @@ namespace OverTheCounter.Logic
                 drifter.DealAccepted = true;
                 drifter.State = DrifterState.DealAccepted;
 
-                try { drifter.GameNpc?.MSGConversation?.ClearResponses(false); } catch { }
+                try { drifter.GameNpc?.GetMSGConversation()?.ClearResponses(false); } catch { }
 
                 // Set up the dialogue choice for completing the deal via HandoverScreen
                 SetupDealDialogueChoice(evt, drifter);
@@ -2136,13 +2162,13 @@ namespace OverTheCounter.Logic
             {
                 try
                 {
-                    var conversation = drifter.GameNpc?.MSGConversation;
+                    var conversation = drifter.GameNpc?.GetMSGConversation();
                     if (conversation != null)
                     {
                         string locationHint = pa.Hotspot.Description;
                         string introMsg = drifter.GetIntroTextMessage(evt.ProductName, evt.Quantity, evt.Payment, locationHint);
 
-                        var msg = new Il2CppScheduleOne.Messaging.Message(introMsg, Il2CppScheduleOne.Messaging.Message.ESenderType.Other, true);
+                        var msg = new ScheduleOne.Messaging.Message(introMsg, ScheduleOne.Messaging.Message.ESenderType.Other, true);
                         msg.messageId = DeterministicHash(pa.DrifterId + "_intro");
                         conversation.SendMessage(msg, true, false); // local only
                     }
@@ -2321,12 +2347,12 @@ namespace OverTheCounter.Logic
                         {
                             try
                             {
-                                var conversation = drifter.GameNpc?.MSGConversation;
+                                var conversation = drifter.GameNpc?.GetMSGConversation();
                                 if (conversation != null)
                                 {
                                     string locationHint = hotspot?.Description ?? "";
                                     string introMsg = drifter.GetIntroTextMessage(evt.ProductName, evt.Quantity, evt.Payment, locationHint);
-                                    var msg = new Il2CppScheduleOne.Messaging.Message(introMsg, Il2CppScheduleOne.Messaging.Message.ESenderType.Other, true);
+                                    var msg = new ScheduleOne.Messaging.Message(introMsg, ScheduleOne.Messaging.Message.ESenderType.Other, true);
                                     msg.messageId = DeterministicHash(drifterId + "_intro");
                                     conversation.SendMessage(msg, true, false);
                                 }
@@ -2341,14 +2367,14 @@ namespace OverTheCounter.Logic
                         // Set up dialogue choice and quest on transition to DealAccepted
                         if (state == DrifterEventState.DealAccepted && prevState != DrifterState.DealAccepted)
                         {
-                            try { drifter.GameNpc?.MSGConversation?.ClearResponses(false); } catch { }
+                            try { drifter.GameNpc?.GetMSGConversation()?.ClearResponses(false); } catch { }
                             SetupDealDialogueChoice(evt, drifter);
                             CreateClientQuest(evt, hotspot);
                         }
 
                         if (state == DrifterEventState.Lingering && prevState == DrifterState.Spawned)
                         {
-                            try { drifter.GameNpc?.MSGConversation?.ClearResponses(false); } catch { }
+                            try { drifter.GameNpc?.GetMSGConversation()?.ClearResponses(false); } catch { }
                         }
 
                         // Clean up quest and dialogue on deal completion
@@ -2428,7 +2454,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var listed = Il2CppScheduleOne.Product.ProductManager.ListedProducts;
+                var listed = ScheduleOne.Product.ProductManager.ListedProducts;
                 if (listed != null)
                 {
                     for (int i = 0; i < listed.Count; i++)

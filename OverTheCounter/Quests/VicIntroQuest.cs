@@ -40,10 +40,10 @@ namespace OverTheCounter.Quests
                 var s1QuestField = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
                 if (s1QuestField == null) return;
 
-                var s1Quest = s1QuestField.GetValue(this) as Il2CppScheduleOne.Quests.Quest;
+                var s1Quest = s1QuestField.GetValue(this) as ScheduleOne.Quests.Quest;
                 if (s1Quest == null) return;
 
-                s1Quest.InitializeQuest(Title, Description, System.Array.Empty<Il2CppScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
+                s1Quest.InitializeQuest(Title, Description, System.Array.Empty<ScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
             }
             catch (System.Exception ex)
             {

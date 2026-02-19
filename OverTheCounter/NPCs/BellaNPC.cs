@@ -1,16 +1,10 @@
-using S1API.Entities;
+﻿using S1API.Entities;
 using S1API.Entities.Dialogue;
 using S1API.Entities.Schedule;
 using S1API.Entities.Appearances.CustomizationFields;
 using S1API.Entities.Appearances.FaceLayerFields;
 using S1API.Entities.Appearances.BodyLayerFields;
 using S1API.Entities.Appearances.AccessoryFields;
-using Il2CppScheduleOne.Economy;
-using Il2CppScheduleOne.VoiceOver;
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.Product;
-using Il2CppScheduleOne.Map;
-using Il2CppScheduleOne.UI.Handover;
 using OverTheCounter.Logic;
 using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
@@ -21,6 +15,22 @@ using MelonLoader;
 using System;
 using System.Collections;
 
+#if IL2CPP
+using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.VoiceOver;
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Product;
+using Il2CppScheduleOne.Map;
+using Il2CppScheduleOne.UI.Handover;
+#else
+using ScheduleOne.Economy;
+using ScheduleOne.VoiceOver;
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Product;
+using ScheduleOne.Map;
+using ScheduleOne.UI.Handover;
+#endif
+
 namespace OverTheCounter.NPCs
 {
     public sealed class BellaNPC : NPC
@@ -30,7 +40,7 @@ namespace OverTheCounter.NPCs
         private static readonly Vector3 SpawnPosition = new Vector3(74.1f, 1.0f, 57.2f);
         private static readonly Quaternion SpawnRotation = Quaternion.Euler(0f, 180f, 0f);
 
-        private Il2CppScheduleOne.NPCs.NPC _gameNpc;
+        private ScheduleOne.NPCs.NPC _gameNpc;
         private Customer _customerComponent;
 
         // Tracks what the current handover expects
@@ -40,7 +50,7 @@ namespace OverTheCounter.NPCs
         public static BellaNPC Instance { get; private set; }
         public bool DialogueReady { get; private set; }
 
-        public Il2CppScheduleOne.NPCs.NPC GameNpc => _gameNpc;
+        public ScheduleOne.NPCs.NPC GameNpc => _gameNpc;
 
         public override bool IsPhysical => true;
 
@@ -96,7 +106,7 @@ namespace OverTheCounter.NPCs
             base.OnCreated();
             Instance = this;
 
-            _gameNpc = gameObject.GetComponent<Il2CppScheduleOne.NPCs.NPC>();
+            _gameNpc = gameObject.GetComponent<ScheduleOne.NPCs.NPC>();
 
             // Add Customer component for HandoverScreen support (same pattern as drifters)
             try
@@ -168,11 +178,11 @@ namespace OverTheCounter.NPCs
             try
             {
                 if (_gameNpc == null || _gameNpc.VoiceOverEmitter == null) return;
-                if (_gameNpc.VoiceOverEmitter.Database != null) return;
+                if (_gameNpc.VoiceOverEmitter.GetDatabase() != null) return;
 
                 // Use a female voice from EmployeeManager's FemaleVoices array
-                var empManager = Il2CppScheduleOne.DevUtilities.NetworkSingleton<
-                    Il2CppScheduleOne.Employees.EmployeeManager>.Instance;
+                var empManager = ScheduleOne.DevUtilities.NetworkSingleton<
+                    ScheduleOne.Employees.EmployeeManager>.Instance;
                 if (empManager?.FemaleVoices != null && empManager.FemaleVoices.Length > 0)
                 {
                     _gameNpc.VoiceOverEmitter.SetDatabase(empManager.FemaleVoices[0], false);
@@ -180,13 +190,13 @@ namespace OverTheCounter.NPCs
                 }
 
                 // Fallback: copy from any NPC that has a voice database
-                var allNpcs = UnityEngine.Object.FindObjectsOfType<Il2CppScheduleOne.NPCs.NPC>();
+                var allNpcs = UnityEngine.Object.FindObjectsOfType<ScheduleOne.NPCs.NPC>();
                 foreach (var npc in allNpcs)
                 {
                     if (npc.GetInstanceID() == _gameNpc.GetInstanceID()) continue;
-                    if (npc.VoiceOverEmitter != null && npc.VoiceOverEmitter.Database != null)
+                    if (npc.VoiceOverEmitter != null && npc.VoiceOverEmitter.GetDatabase() != null)
                     {
-                        _gameNpc.VoiceOverEmitter.SetDatabase(npc.VoiceOverEmitter.Database, false);
+                        _gameNpc.VoiceOverEmitter.SetDatabase(npc.VoiceOverEmitter.GetDatabase(), false);
                         return;
                     }
                 }
@@ -263,7 +273,7 @@ namespace OverTheCounter.NPCs
                 // Use the game's proper EnterBuilding flow:
                 // 1. Set CurrentBuilding + LastEnteredDoor
                 int doorIndex = 0;
-                _gameNpc.CurrentBuilding = nearest;
+                _gameNpc.SetCurrentBuilding(nearest);
                 if (nearest.Doors != null && nearest.Doors.Length > 0)
                     _gameNpc.LastEnteredDoor = nearest.Doors[doorIndex];
 
@@ -503,22 +513,22 @@ namespace OverTheCounter.NPCs
             catch { }
 
             // Create callback (IL2CPP delegate pattern from DrifterManager)
-            Il2CppSystem.Action<HandoverScreen.EHandoverOutcome,
-                Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>,
+            GameSystem.Action<HandoverScreen.EHandoverOutcome,
+                GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
                 float> callback =
-                (Il2CppSystem.Action<HandoverScreen.EHandoverOutcome,
-                    Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>,
+                (GameSystem.Action<HandoverScreen.EHandoverOutcome,
+                    GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
                     float>)
                 new Action<HandoverScreen.EHandoverOutcome,
-                    Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>,
+                    GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
                     float>(OnHandoverClosed);
 
             // Success chance always 100% (we validate ourselves in the callback)
-            Il2CppSystem.Func<Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>,
+            GameSystem.Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
                 float, float> successChance =
-                (Il2CppSystem.Func<Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>,
+                (GameSystem.Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
                     float, float>)
-                new Func<Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance>,
+                new Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
                     float, float>((items, price) => 1.0f);
 
             handoverScreen.Open(null, _customerComponent, HandoverScreen.EMode.Offer, callback, successChance, false);
@@ -530,7 +540,7 @@ namespace OverTheCounter.NPCs
         /// </summary>
         private void OnHandoverClosed(
             HandoverScreen.EHandoverOutcome outcome,
-            Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.ItemFramework.ItemInstance> items,
+            GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance> items,
             float askingPrice)
         {
             if (Config.VerboseLogging.Value)
@@ -579,7 +589,7 @@ namespace OverTheCounter.NPCs
                 // Play the deal completion sound
                 try
                 {
-                    var popup = Singleton<Il2CppScheduleOne.UI.DealCompletionPopup>.Instance;
+                    var popup = Singleton<ScheduleOne.UI.DealCompletionPopup>.Instance;
                     if (popup?.SoundEffect != null)
                         popup.SoundEffect.Play();
                 }
@@ -631,7 +641,7 @@ namespace OverTheCounter.NPCs
         /// Checks if an item is a packaged product of the given drug type
         /// with MarketValue >= threshold.
         /// </summary>
-        private bool IsValidMix(Il2CppScheduleOne.ItemFramework.ItemInstance item, EDrugType drugType, float minBasePrice)
+        private bool IsValidMix(ScheduleOne.ItemFramework.ItemInstance item, EDrugType drugType, float minBasePrice)
         {
             try
             {

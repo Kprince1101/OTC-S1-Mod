@@ -1,4 +1,12 @@
 using HarmonyLib;
+using MelonLoader;
+using OverTheCounter.Logic;
+using OverTheCounter.UI;
+using System;
+using System.Collections;
+using UnityEngine;
+
+#if IL2CPP
 using Il2CppScheduleOne;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Interaction;
@@ -7,12 +15,16 @@ using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Tools;
 using Il2CppScheduleOne.UI.Management;
-using MelonLoader;
-using OverTheCounter.Logic;
-using OverTheCounter.UI;
-using System;
-using System.Collections;
-using UnityEngine;
+#else
+using ScheduleOne;
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Interaction;
+using ScheduleOne.Management;
+using ScheduleOne.NPCs;
+using ScheduleOne.PlayerScripts;
+using ScheduleOne.Tools;
+using ScheduleOne.UI.Management;
+#endif
 
 namespace OverTheCounter.Patches
 {
@@ -38,7 +50,7 @@ namespace OverTheCounter.Patches
             {
                 // Patch ManagementClipboard_Equippable.Update to intercept interact for Manager NPCs
                 var updateTarget = AccessTools.Method(
-                    typeof(Il2CppScheduleOne.Tools.ManagementClipboard_Equippable), "Update");
+                    typeof(ScheduleOne.Tools.ManagementClipboard_Equippable), "Update");
                 if (updateTarget != null)
                 {
                     harmony.Patch(updateTarget,
@@ -54,8 +66,8 @@ namespace OverTheCounter.Patches
 
                 // Patch EmployeeHome.SetAssignedEmployee to clear our manager when another employee takes the locker
                 var setEmployeeTarget = AccessTools.Method(
-                    typeof(Il2CppScheduleOne.Employees.EmployeeHome), "SetAssignedEmployee",
-                    new[] { typeof(Il2CppScheduleOne.Employees.Employee) });
+                    typeof(ScheduleOne.Employees.EmployeeHome), "SetAssignedEmployee",
+                    new[] { typeof(ScheduleOne.Employees.Employee) });
                 if (setEmployeeTarget != null)
                 {
                     harmony.Patch(setEmployeeTarget,
@@ -66,7 +78,7 @@ namespace OverTheCounter.Patches
 
                 // Patch ManagementClipboard_Equippable.Unequip to clear manager outline
                 var unequipTarget = AccessTools.Method(
-                    typeof(Il2CppScheduleOne.Tools.ManagementClipboard_Equippable), "Unequip");
+                    typeof(ScheduleOne.Tools.ManagementClipboard_Equippable), "Unequip");
                 if (unequipTarget != null)
                 {
                     harmony.Patch(unequipTarget,
@@ -77,7 +89,7 @@ namespace OverTheCounter.Patches
 
                 // Patch ManagementClipboard.Close to clean up our panel
                 var closeTarget = AccessTools.Method(
-                    typeof(Il2CppScheduleOne.Tools.ManagementClipboard), "Close",
+                    typeof(ScheduleOne.Tools.ManagementClipboard), "Close",
                     new[] { typeof(bool) });
                 if (closeTarget != null)
                 {
@@ -104,7 +116,7 @@ namespace OverTheCounter.Patches
         /// Manager raycast runs BEFORE the HoveredValidInteractableObject guard because
         /// Manager NPCs inherit an InteractableObject that would otherwise block us.
         /// </summary>
-        private static bool UpdatePrefix(Il2CppScheduleOne.Tools.ManagementClipboard_Equippable __instance)
+        private static bool UpdatePrefix(ScheduleOne.Tools.ManagementClipboard_Equippable __instance)
         {
             try
             {
@@ -144,7 +156,7 @@ namespace OverTheCounter.Patches
                 SuppressNpcInteract(npc);
 
                 // Open vanilla clipboard with empty configurable list (gives us the clipboard UX)
-                var emptyList = new Il2CppSystem.Collections.Generic.List<IConfigurable>();
+                var emptyList = new GameSystem.Collections.Generic.List<IConfigurable>();
                 Singleton<ManagementClipboard>.Instance.Open(emptyList, __instance);
 
                 // Inject our custom panel (EnforceUI in postfix handles persistent label fixes)
@@ -272,8 +284,8 @@ namespace OverTheCounter.Patches
         /// When another employee (vanilla or other mods) is assigned to a locker that
         /// a Manager is using, clears the Manager's locker assignment.
         /// </summary>
-        private static void SetAssignedEmployeePostfix(Il2CppScheduleOne.Employees.EmployeeHome __instance,
-            Il2CppScheduleOne.Employees.Employee employee)
+        private static void SetAssignedEmployeePostfix(ScheduleOne.Employees.EmployeeHome __instance,
+            ScheduleOne.Employees.Employee employee)
         {
             try
             {

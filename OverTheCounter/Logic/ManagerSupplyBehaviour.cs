@@ -1,7 +1,3 @@
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.ItemFramework;
-using Il2CppScheduleOne.NPCs;
-using Il2CppScheduleOne.UI.Shop;
 using MelonLoader;
 using OverTheCounter.Utilities;
 using S1API.GameTime;
@@ -9,6 +5,18 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+
+#if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.UI.Shop;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.NPCs;
+using ScheduleOne.UI.Shop;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -65,9 +73,9 @@ namespace OverTheCounter.Logic
         private const float STUCK_MOVE_THRESHOLD = 0.5f;
 
         // IL2CPP callback references (prevent GC collection)
-        private Il2CppSystem.Action<NPCMovement.WalkResult> _storeWalkCallback;
-        private Il2CppSystem.Action<NPCMovement.WalkResult> _storageWalkCallback;
-        private Il2CppSystem.Action<NPCMovement.WalkResult> _idleWalkCallback;
+        private GameSystem.Action<NPCMovement.WalkResult> _storeWalkCallback;
+        private GameSystem.Action<NPCMovement.WalkResult> _storageWalkCallback;
+        private GameSystem.Action<NPCMovement.WalkResult> _idleWalkCallback;
 
         // Online payment "can't afford" — 24h delay before texting, resets on successful purchase
         private int _cantAffordOnlineDay = -1;       // game day of first failure (-1 = not tracking)
@@ -111,7 +119,7 @@ namespace OverTheCounter.Logic
             public StoreType StoreType;
             public float UnitPrice;
             public ShopListing ShopListing;     // null for online-only Night Market items
-            public Il2CppScheduleOne.UI.Phone.PhoneShopInterface.Listing SupplierListing; // for Night Market phone items
+            public ScheduleOne.UI.Phone.PhoneShopInterface.Listing SupplierListing; // for Night Market phone items
             public Vector3? OverridePosition;   // dynamic supplier NPC position (Night Market)
             public string StoreName;            // display name (e.g. "Oscar's Store")
         }
@@ -131,7 +139,7 @@ namespace OverTheCounter.Logic
             public int Quantity;
             public float UnitPrice;
             public ShopListing ShopListing;
-            public Il2CppScheduleOne.UI.Phone.PhoneShopInterface.Listing SupplierListing;
+            public ScheduleOne.UI.Phone.PhoneShopInterface.Listing SupplierListing;
         }
 
         public ManagerSupplyBehaviour(ManagerInstance manager)
@@ -207,7 +215,7 @@ namespace OverTheCounter.Logic
                 _cantAffordOnlineTextSent = true;
                 try
                 {
-                    float balance = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance?.onlineBalance ?? 0f;
+                    float balance = NetworkSingleton<ScheduleOne.Money.MoneyManager>.Instance?.onlineBalance ?? 0f;
                     _manager.SendTextMessage($"Boss, the bank balance is too low to buy what I need. Can you top it up? Balance: ${balance:F0}.");
                 }
                 catch { _manager.SendTextMessage("Boss, the bank balance is too low to buy what I need. Can you top it up?"); }
@@ -465,8 +473,8 @@ namespace OverTheCounter.Logic
                 // Skip items locked behind player rank progression
                 try
                 {
-                    var itemDef = Il2CppScheduleOne.Registry.GetItem(itemId);
-                    var storable = itemDef?.TryCast<Il2CppScheduleOne.ItemFramework.StorableItemDefinition>();
+                    var itemDef = ScheduleOne.Registry.GetItem(itemId);
+                    var storable = itemDef?.TryCast<ScheduleOne.ItemFramework.StorableItemDefinition>();
                     if (storable != null && !storable.IsUnlocked)
                     {
                         if (Config.ManagerVerboseLogging.Value)
@@ -491,7 +499,7 @@ namespace OverTheCounter.Logic
                     int filteredFreeForItem = remainingFreeSlots;
                     try
                     {
-                        var filterDef = Il2CppScheduleOne.Registry.GetItem(itemId);
+                        var filterDef = ScheduleOne.Registry.GetItem(itemId);
                         var filterStorable = filterDef?.TryCast<StorableItemDefinition>();
                         var testInst = filterStorable?.GetDefaultInstance(1);
                         if (testInst != null)
@@ -721,7 +729,7 @@ namespace OverTheCounter.Logic
             // Check Night Market suppliers (physical shop + online/phone items)
             try
             {
-                var suppliers = UnityEngine.Object.FindObjectsOfType<Il2CppScheduleOne.Economy.Supplier>();
+                var suppliers = UnityEngine.Object.FindObjectsOfType<ScheduleOne.Economy.Supplier>();
                 if (suppliers != null)
                 {
                     foreach (var supplier in suppliers)
@@ -731,7 +739,7 @@ namespace OverTheCounter.Logic
                         bool found = false;
                         float price = 0f;
                         ShopListing shopListing = null;
-                        Il2CppScheduleOne.UI.Phone.PhoneShopInterface.Listing supplierListing = null;
+                        ScheduleOne.UI.Phone.PhoneShopInterface.Listing supplierListing = null;
 
                         // Try supplier's physical ShopInterface first
                         try
@@ -920,7 +928,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                _storeWalkCallback = (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                _storeWalkCallback = (GameSystem.Action<NPCMovement.WalkResult>)
                     new Action<NPCMovement.WalkResult>(result =>
                     {
                         if (result == NPCMovement.WalkResult.Success ||
@@ -1187,7 +1195,7 @@ namespace OverTheCounter.Logic
                 // Gas Mart / Hardware: check online balance NOW
                 try
                 {
-                    var moneyManager = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance;
+                    var moneyManager = NetworkSingleton<ScheduleOne.Money.MoneyManager>.Instance;
                     if (moneyManager == null)
                     {
                         _manager.LogWarning($"MoneyManager not available");
@@ -1297,7 +1305,7 @@ namespace OverTheCounter.Logic
                 }
                 else
                 {
-                    var moneyManager = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance;
+                    var moneyManager = NetworkSingleton<ScheduleOne.Money.MoneyManager>.Instance;
                     if (moneyManager == null) return false;
                     float balance = moneyManager.onlineBalance;
                     foreach (var p in visit.Purchases)
@@ -1402,7 +1410,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                _storageWalkCallback = (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                _storageWalkCallback = (GameSystem.Action<NPCMovement.WalkResult>)
                     new Action<NPCMovement.WalkResult>(result =>
                     {
                         if (result == NPCMovement.WalkResult.Success ||
@@ -1448,7 +1456,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                var transit = storage.TryCast<Il2CppScheduleOne.Management.ITransitEntity>();
+                var transit = storage.TryCast<ScheduleOne.Management.ITransitEntity>();
                 if (transit != null && _manager.GameNpc != null)
                 {
                     // Vanilla pattern: find closest reachable access point via NavMesh pathability check
@@ -1651,7 +1659,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                _idleWalkCallback = (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                _idleWalkCallback = (GameSystem.Action<NPCMovement.WalkResult>)
                     new Action<NPCMovement.WalkResult>(result =>
                     {
                         if (result == NPCMovement.WalkResult.Success ||
@@ -1871,7 +1879,7 @@ namespace OverTheCounter.Logic
                         _lastEnsureMovingLog = UnityEngine.Time.time;
                     }
 
-                    Il2CppSystem.Action<NPCMovement.WalkResult> callback = State switch
+                    GameSystem.Action<NPCMovement.WalkResult> callback = State switch
                     {
                         SupplyState.WalkingToStore => _storeWalkCallback,
                         SupplyState.WalkingToStorage => _storageWalkCallback,
@@ -1983,11 +1991,11 @@ namespace OverTheCounter.Logic
         // NPC Inventory helpers
         // ==================================================================
 
-        private Il2CppScheduleOne.NPCs.NPCInventory GetNpcInventory()
+        private ScheduleOne.NPCs.NPCInventory GetNpcInventory()
         {
             try
             {
-                return _manager.GameNpc?.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                return _manager.GameNpc?.GetComponent<ScheduleOne.NPCs.NPCInventory>();
             }
             catch { return null; }
         }
@@ -2016,13 +2024,13 @@ namespace OverTheCounter.Logic
         /// Adds purchased items to the NPC inventory.
         /// Skips slots containing cash.
         /// </summary>
-        internal static void AddToNpcInventory(Il2CppScheduleOne.NPCs.NPCInventory inventory, string itemId, int quantity, string mgrId)
+        internal static void AddToNpcInventory(ScheduleOne.NPCs.NPCInventory inventory, string itemId, int quantity, string mgrId)
         {
             if (inventory == null) return;
 
             try
             {
-                var itemDef = Il2CppScheduleOne.Registry.GetItem(itemId);
+                var itemDef = ScheduleOne.Registry.GetItem(itemId);
                 if (itemDef == null) { ManagerInstance.Logger.Warning($"Manager {mgrId}: Registry.GetItem('{itemId}') returned null"); return; }
 
                 var storableDef = itemDef.TryCast<StorableItemDefinition>();
@@ -2073,7 +2081,7 @@ namespace OverTheCounter.Logic
             }
         }
 
-        private static int GetNpcInventoryQuantity(Il2CppScheduleOne.NPCs.NPCInventory inventory, string itemId)
+        private static int GetNpcInventoryQuantity(ScheduleOne.NPCs.NPCInventory inventory, string itemId)
         {
             if (inventory?.ItemSlots == null) return 0;
 
@@ -2093,7 +2101,7 @@ namespace OverTheCounter.Logic
             return total;
         }
 
-        private static void ClearNpcInventory(Il2CppScheduleOne.NPCs.NPCInventory inventory)
+        private static void ClearNpcInventory(ScheduleOne.NPCs.NPCInventory inventory)
         {
             if (inventory?.ItemSlots == null) return;
             try
@@ -2107,7 +2115,7 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Counts free (empty, unlocked) NPC inventory slots.
         /// </summary>
-        private static int GetFreeNpcSlots(Il2CppScheduleOne.NPCs.NPCInventory inventory)
+        private static int GetFreeNpcSlots(ScheduleOne.NPCs.NPCInventory inventory)
         {
             if (inventory?.ItemSlots == null) return 0;
             int free = 0;
@@ -2213,7 +2221,7 @@ namespace OverTheCounter.Logic
         /// Deposits cash into a storage entity, filling existing cash slots (up to $1000 each)
         /// before creating new slots for any remainder.
         /// </summary>
-        internal static void DepositCashToStorage(Il2CppScheduleOne.Storage.StorageEntity storage, float amount)
+        internal static void DepositCashToStorage(ScheduleOne.Storage.StorageEntity storage, float amount)
         {
             const float MAX_PER_SLOT = 1000f;
             float remaining = amount;
@@ -2224,7 +2232,7 @@ namespace OverTheCounter.Logic
                 var slot = storage.ItemSlots[i];
                 if (slot?.ItemInstance == null) continue;
 
-                var existingCash = slot.ItemInstance.TryCast<Il2CppScheduleOne.ItemFramework.CashInstance>();
+                var existingCash = slot.ItemInstance.TryCast<ScheduleOne.ItemFramework.CashInstance>();
                 if (existingCash == null) continue;
 
                 float space = MAX_PER_SLOT - existingCash.Balance;
@@ -2242,7 +2250,7 @@ namespace OverTheCounter.Logic
             while (remaining > 0f)
             {
                 float slotAmount = Math.Min(remaining, MAX_PER_SLOT);
-                var newCash = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance
+                var newCash = NetworkSingleton<ScheduleOne.Money.MoneyManager>.Instance
                     .GetCashInstance(slotAmount);
                 bool placed = false;
                 for (int i = 0; i < storage.ItemSlots.Count; i++)
@@ -2287,7 +2295,7 @@ namespace OverTheCounter.Logic
             return maxThreshold;
         }
 
-        private static int GetStorageQuantity(Il2CppScheduleOne.Storage.StorageEntity storage, string itemId)
+        private static int GetStorageQuantity(ScheduleOne.Storage.StorageEntity storage, string itemId)
         {
             if (storage?.ItemSlots == null) return 0;
 
@@ -2380,7 +2388,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var itemDef = Il2CppScheduleOne.Registry.GetItem(itemId);
+                var itemDef = ScheduleOne.Registry.GetItem(itemId);
                 if (itemDef == null) return 20;
 
                 var storableDef = itemDef.TryCast<StorableItemDefinition>();
@@ -2396,7 +2404,7 @@ namespace OverTheCounter.Logic
         /// Returns how many more of an item can fit into EXISTING stacks in storage
         /// (without needing free slots). This is the "stackable" portion of capacity.
         /// </summary>
-        private static int GetStackableCapacity(Il2CppScheduleOne.Storage.StorageEntity storage, string itemId, int stackLimit)
+        private static int GetStackableCapacity(ScheduleOne.Storage.StorageEntity storage, string itemId, int stackLimit)
         {
             if (storage?.ItemSlots == null) return 0;
             int total = 0;
@@ -2474,7 +2482,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                var suppliers = UnityEngine.Object.FindObjectsOfType<Il2CppScheduleOne.Economy.Supplier>();
+                var suppliers = UnityEngine.Object.FindObjectsOfType<ScheduleOne.Economy.Supplier>();
                 if (suppliers != null)
                 {
                     foreach (var supplier in suppliers)
@@ -2516,11 +2524,11 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Checks how many more of an item the supply storage can accept.
         /// </summary>
-        private static int GetStorageCapacityForItem(Il2CppScheduleOne.Storage.StorageEntity storage, string itemId)
+        private static int GetStorageCapacityForItem(ScheduleOne.Storage.StorageEntity storage, string itemId)
         {
             try
             {
-                var itemDef = Il2CppScheduleOne.Registry.GetItem(itemId);
+                var itemDef = ScheduleOne.Registry.GetItem(itemId);
                 if (itemDef == null) return int.MaxValue;
 
                 var storableDef = itemDef.TryCast<StorableItemDefinition>();
@@ -2548,9 +2556,9 @@ namespace OverTheCounter.Logic
         /// </summary>
         private Dictionary<string, int> ComputeStorageReservations(
             ManagerConfiguration config,
-            Il2CppScheduleOne.Storage.StorageEntity storageEntity,
+            ScheduleOne.Storage.StorageEntity storageEntity,
             HashSet<string> nightMarketOnlyItems,
-            Il2CppScheduleOne.NPCs.NPCInventory npcInventory)
+            ScheduleOne.NPCs.NPCInventory npcInventory)
         {
             var result = new Dictionary<string, int>();
             int totalSlots = storageEntity.ItemSlots?.Count ?? 0;
@@ -2660,7 +2668,7 @@ namespace OverTheCounter.Logic
                 // Cap by filter-compatible empty slots for this item type
                 try
                 {
-                    var resDef = Il2CppScheduleOne.Registry.GetItem(itemId);
+                    var resDef = ScheduleOne.Registry.GetItem(itemId);
                     var resStorable = resDef?.TryCast<StorableItemDefinition>();
                     var resTest = resStorable?.GetDefaultInstance(1);
                     if (resTest != null)

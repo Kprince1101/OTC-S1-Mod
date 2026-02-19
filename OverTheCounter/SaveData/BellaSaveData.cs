@@ -1,5 +1,3 @@
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.Map;
 using MelonLoader;
 using OverTheCounter.NPCs;
 using OverTheCounter.Quests;
@@ -8,6 +6,14 @@ using S1API.Saveables;
 using S1API.Quests;
 using OverTheCounter.Utilities;
 using System;
+
+#if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Map;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Map;
+#endif
 
 namespace OverTheCounter.SaveData
 {

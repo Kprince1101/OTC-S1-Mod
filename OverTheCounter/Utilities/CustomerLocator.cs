@@ -1,13 +1,22 @@
-using HarmonyLib;
+﻿using HarmonyLib;
+using MelonLoader;
+using OverTheCounter.Apps;
+using OverTheCounter.Logic;
+using UnityEngine;
+
+#if IL2CPP
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.UI.Phone.Map;
-using MelonLoader;
-using OverTheCounter.Apps;
-using OverTheCounter.Logic;
-using UnityEngine;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Economy;
+using ScheduleOne.Map;
+using ScheduleOne.NPCs;
+using ScheduleOne.UI.Phone.Map;
+#endif
 
 namespace OverTheCounter.Utilities
 {
@@ -28,7 +37,7 @@ namespace OverTheCounter.Utilities
             }
 
             // Instantiate the POI if it doesn't exist yet
-            if (customer.potentialCustomerPoI == null)
+            if (customer.GetPotentialCustomerPoI() == null)
             {
                 var npcManager = NetworkSingleton<NPCManager>.Instance;
 
@@ -43,20 +52,20 @@ namespace OverTheCounter.Utilities
 
                 if (poi != null)
                 {
-                    customer.potentialCustomerPoI = poi;
+                    customer.SetPotentialCustomerPoI(poi);
                 }
             }
 
             // Configure and enable the POI (re-enables if previously disabled)
-            if (customer.potentialCustomerPoI != null)
+            if (customer.GetPotentialCustomerPoI() != null)
             {
-                customer.potentialCustomerPoI.SetMainText(customer.NPC.fullName);
-                customer.potentialCustomerPoI.SetNPC(customer.NPC);
-                customer.potentialCustomerPoI.enabled = true;
+                customer.GetPotentialCustomerPoI().SetMainText(customer.NPC.fullName);
+                customer.GetPotentialCustomerPoI().SetNPC(customer.NPC);
+                customer.GetPotentialCustomerPoI().enabled = true;
             }
 
             // Open the Map App and focus on the marker
-            if (customer.potentialCustomerPoI != null)
+            if (customer.GetPotentialCustomerPoI() != null)
             {
                 LastCustomerShownOnMap = customer;
 
@@ -67,9 +76,9 @@ namespace OverTheCounter.Utilities
                 }
 
                 var mapApp = PlayerSingleton<MapApp>.Instance;
-                if (mapApp != null && customer.potentialCustomerPoI.UI != null)
+                if (mapApp != null && customer.GetPotentialCustomerPoI().UI != null)
                 {
-                    mapApp.FocusPosition(customer.potentialCustomerPoI.UI.anchoredPosition);
+                    mapApp.FocusPosition(customer.GetPotentialCustomerPoI().UI.anchoredPosition);
                     mapApp.SkipFocusPlayer = true;
                     mapApp.SetOpen(true);
                 }
@@ -113,9 +122,9 @@ namespace OverTheCounter.Utilities
                 if (open) return;
 
                 // Cleanup customer POI
-                if (LastCustomerShownOnMap != null && LastCustomerShownOnMap.potentialCustomerPoI != null)
+                if (LastCustomerShownOnMap != null && LastCustomerShownOnMap.GetPotentialCustomerPoI() != null)
                 {
-                    LastCustomerShownOnMap.potentialCustomerPoI.enabled = false;
+                    LastCustomerShownOnMap.GetPotentialCustomerPoI().enabled = false;
                     LastCustomerShownOnMap = null;
                 }
 

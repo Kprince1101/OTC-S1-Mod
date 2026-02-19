@@ -1,6 +1,3 @@
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.ItemFramework;
-using Il2CppScheduleOne.NPCs;
 using MelonLoader;
 using OverTheCounter.Utilities;
 using System;
@@ -8,6 +5,16 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.AI;
+
+#if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.NPCs;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.NPCs;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -93,12 +100,12 @@ namespace OverTheCounter.Logic
         private string _resumeDestGuid;
 
         // IL2CPP callback references (prevent GC collection)
-        private Il2CppSystem.Action<NPCMovement.WalkResult> _sourcePropertyWalkCallback;
-        private Il2CppSystem.Action<NPCMovement.WalkResult> _sourceWalkCallback;
-        private Il2CppSystem.Action<NPCMovement.WalkResult> _destPropertyWalkCallback;
-        private Il2CppSystem.Action<NPCMovement.WalkResult> _destWalkCallback;
-        private Il2CppSystem.Action<NPCMovement.WalkResult> _propertyExitWalkCallback;
-        private Il2CppSystem.Action<NPCMovement.WalkResult> _idleWalkCallback;
+        private GameSystem.Action<NPCMovement.WalkResult> _sourcePropertyWalkCallback;
+        private GameSystem.Action<NPCMovement.WalkResult> _sourceWalkCallback;
+        private GameSystem.Action<NPCMovement.WalkResult> _destPropertyWalkCallback;
+        private GameSystem.Action<NPCMovement.WalkResult> _destWalkCallback;
+        private GameSystem.Action<NPCMovement.WalkResult> _propertyExitWalkCallback;
+        private GameSystem.Action<NPCMovement.WalkResult> _idleWalkCallback;
 
         /// <summary>
         /// Read-only view of the slot→destination mapping. Used by save system.
@@ -395,7 +402,7 @@ namespace OverTheCounter.Logic
 
                 try
                 {
-                    _sourcePropertyWalkCallback = (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                    _sourcePropertyWalkCallback = (GameSystem.Action<NPCMovement.WalkResult>)
                         new Action<NPCMovement.WalkResult>(result =>
                         {
                             if (result == NPCMovement.WalkResult.Success ||
@@ -453,7 +460,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                _sourceWalkCallback = (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                _sourceWalkCallback = (GameSystem.Action<NPCMovement.WalkResult>)
                     new Action<NPCMovement.WalkResult>(result =>
                     {
                         if (result == NPCMovement.WalkResult.Success ||
@@ -582,7 +589,7 @@ namespace OverTheCounter.Logic
                             if (balance <= 0f) continue;
 
                             slot.ChangeQuantity(-slot.Quantity);
-                            var newCash = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance
+                            var newCash = NetworkSingleton<ScheduleOne.Money.MoneyManager>.Instance
                                 .GetCashInstance(balance);
                             npcInventory.ItemSlots[npcSlotIdx].InsertItem(newCash);
                             _slotDestinations[npcSlotIdx] = destGuid;
@@ -679,7 +686,7 @@ namespace OverTheCounter.Logic
 
                 try
                 {
-                    _destPropertyWalkCallback = (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                    _destPropertyWalkCallback = (GameSystem.Action<NPCMovement.WalkResult>)
                         new Action<NPCMovement.WalkResult>(result =>
                         {
                             if (result == NPCMovement.WalkResult.Success ||
@@ -736,7 +743,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                _destWalkCallback = (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                _destWalkCallback = (GameSystem.Action<NPCMovement.WalkResult>)
                     new Action<NPCMovement.WalkResult>(result =>
                     {
                         if (result == NPCMovement.WalkResult.Success ||
@@ -973,7 +980,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                _idleWalkCallback = (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                _idleWalkCallback = (GameSystem.Action<NPCMovement.WalkResult>)
                     new Action<NPCMovement.WalkResult>(result =>
                     {
                         if (result == NPCMovement.WalkResult.Success ||
@@ -1119,7 +1126,7 @@ namespace OverTheCounter.Logic
                         _lastEnsureMovingLog = UnityEngine.Time.time;
                     }
 
-                    Il2CppSystem.Action<NPCMovement.WalkResult> callback = State switch
+                    GameSystem.Action<NPCMovement.WalkResult> callback = State switch
                     {
                         DistributionState.WalkingToSourceProperty => _sourcePropertyWalkCallback,
                         DistributionState.WalkingToSource => _sourceWalkCallback,
@@ -1338,7 +1345,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                _propertyExitWalkCallback = (Il2CppSystem.Action<NPCMovement.WalkResult>)
+                _propertyExitWalkCallback = (GameSystem.Action<NPCMovement.WalkResult>)
                     new Action<NPCMovement.WalkResult>(result =>
                     {
                         if (result == NPCMovement.WalkResult.Success ||
@@ -1391,14 +1398,14 @@ namespace OverTheCounter.Logic
         /// Sets isReachable=true if NavMesh pathfinding found a route, false if falling back.
         /// </summary>
         private Vector3? GetStorageAccessPosition(
-            Il2CppScheduleOne.ObjectScripts.PlaceableStorageEntity storage, out bool isReachable)
+            ScheduleOne.ObjectScripts.PlaceableStorageEntity storage, out bool isReachable)
         {
             isReachable = false;
             if (storage == null) return null;
 
             try
             {
-                var transit = storage.TryCast<Il2CppScheduleOne.Management.ITransitEntity>();
+                var transit = storage.TryCast<ScheduleOne.Management.ITransitEntity>();
                 if (transit != null && _manager.GameNpc != null)
                 {
                     var reachable = NavMeshUtility.GetReachableAccessPoint(transit, _manager.GameNpc);
@@ -1429,13 +1436,13 @@ namespace OverTheCounter.Logic
         /// overlap, enabling the two-phase NavMesh switch for indoor navigation.
         /// </summary>
         private static Vector3? GetPropertyExteriorPoint(
-            Il2CppScheduleOne.ObjectScripts.PlaceableStorageEntity storage)
+            ScheduleOne.ObjectScripts.PlaceableStorageEntity storage)
         {
             if (storage == null) return null;
 
             try
             {
-                var buildable = storage.TryCast<Il2CppScheduleOne.EntityFramework.BuildableItem>();
+                var buildable = storage.TryCast<ScheduleOne.EntityFramework.BuildableItem>();
                 if (buildable == null) return null;
 
                 var property = buildable.ParentProperty;
@@ -1456,7 +1463,7 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Checks if a storage entity has any items (including cash).
         /// </summary>
-        private static bool SourceHasItems(Il2CppScheduleOne.ObjectScripts.PlaceableStorageEntity storage)
+        private static bool SourceHasItems(ScheduleOne.ObjectScripts.PlaceableStorageEntity storage)
         {
             if (storage?.StorageEntity?.ItemSlots == null) return false;
 
@@ -1478,8 +1485,8 @@ namespace OverTheCounter.Logic
         /// Prevents wasted trips where the manager picks up items only to find the destination full.
         /// </summary>
         private static bool DestinationCanAcceptSourceItems(
-            Il2CppScheduleOne.ObjectScripts.PlaceableStorageEntity source,
-            Il2CppScheduleOne.ObjectScripts.PlaceableStorageEntity destination)
+            ScheduleOne.ObjectScripts.PlaceableStorageEntity source,
+            ScheduleOne.ObjectScripts.PlaceableStorageEntity destination)
         {
             if (source?.StorageEntity?.ItemSlots == null) return false;
             if (destination?.StorageEntity == null) return false;
@@ -1505,7 +1512,7 @@ namespace OverTheCounter.Logic
         /// Phase 2: creates new cash in empty filter-compatible slots via direct insert
         /// (bypasses GetCopy which loses the Balance on CashInstance).
         /// </summary>
-        private static float DepositCash(Il2CppScheduleOne.Storage.StorageEntity storage, float amount)
+        private static float DepositCash(ScheduleOne.Storage.StorageEntity storage, float amount)
         {
             const float MAX_PER_SLOT = 1000f;
             float deposited = 0f;
@@ -1535,7 +1542,7 @@ namespace OverTheCounter.Logic
                 float slotAmount = Math.Min(amount - deposited, MAX_PER_SLOT);
                 try
                 {
-                    var newCash = NetworkSingleton<Il2CppScheduleOne.Money.MoneyManager>.Instance
+                    var newCash = NetworkSingleton<ScheduleOne.Money.MoneyManager>.Instance
                         .GetCashInstance(slotAmount);
                     bool placed = false;
                     for (int i = 0; i < storage.ItemSlots.Count; i++)
@@ -1561,11 +1568,11 @@ namespace OverTheCounter.Logic
             return deposited;
         }
 
-        private Il2CppScheduleOne.NPCs.NPCInventory GetNpcInventory()
+        private ScheduleOne.NPCs.NPCInventory GetNpcInventory()
         {
             try
             {
-                return _manager.GameNpc?.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                return _manager.GameNpc?.GetComponent<ScheduleOne.NPCs.NPCInventory>();
             }
             catch { return null; }
         }
@@ -1600,7 +1607,7 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Counts free (empty, unlocked) NPC inventory slots.
         /// </summary>
-        private static int GetFreeNpcSlots(Il2CppScheduleOne.NPCs.NPCInventory inventory)
+        private static int GetFreeNpcSlots(ScheduleOne.NPCs.NPCInventory inventory)
         {
             if (inventory?.ItemSlots == null) return 0;
             int free = 0;
@@ -1621,7 +1628,7 @@ namespace OverTheCounter.Logic
         /// Returns the index of the first empty, unlocked NPC inventory slot, or -1 if full.
         /// Used instead of InsertItem to prevent stacking with leftover items from other routes.
         /// </summary>
-        private static int FindEmptyNpcSlot(Il2CppScheduleOne.NPCs.NPCInventory inventory)
+        private static int FindEmptyNpcSlot(ScheduleOne.NPCs.NPCInventory inventory)
         {
             if (inventory?.ItemSlots == null) return -1;
             try

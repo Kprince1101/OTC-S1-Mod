@@ -1,6 +1,4 @@
 #if DEBUG
-using Il2CppInterop.Runtime.Injection;
-using Il2CppScheduleOne.DevUtilities;
 using S1API.Console;
 using S1API.GameTime;
 using S1API.Items;
@@ -12,6 +10,13 @@ using MelonLoader;
 using System;
 using System.Linq;
 using System.Reflection;
+
+#if IL2CPP
+using Il2CppInterop.Runtime.Injection;
+using Il2CppScheduleOne.DevUtilities;
+#else
+using ScheduleOne.DevUtilities;
+#endif
 
 namespace OverTheCounter
 {
@@ -35,7 +40,9 @@ namespace OverTheCounter
 
         public static void Register()
         {
+#if IL2CPP
             ClassInjector.RegisterTypeInIl2Cpp<DebugHelpers>();
+#endif
         }
 
         public DebugHelpers() : base() { }
@@ -61,7 +68,7 @@ namespace OverTheCounter
                     var discovered = ProductPopulator.GetWeedDefinitions();
                     _cachedWeedDef = (discovered != null && discovered.Count > 0)
                         ? discovered[0]
-                        : FindFromRegistry<Il2CppScheduleOne.Product.WeedDefinition>();
+                        : FindFromRegistry<ScheduleOne.Product.WeedDefinition>();
                 }
 
                 if (_cachedMethDef == null)
@@ -69,7 +76,7 @@ namespace OverTheCounter
                     var discovered = ProductPopulator.GetMethDefinitions();
                     _cachedMethDef = (discovered != null && discovered.Count > 0)
                         ? discovered[0]
-                        : FindFromRegistry<Il2CppScheduleOne.Product.MethDefinition>();
+                        : FindFromRegistry<ScheduleOne.Product.MethDefinition>();
                 }
 
                 if (_cachedCocaineDef == null)
@@ -77,7 +84,7 @@ namespace OverTheCounter
                     var discovered = ProductPopulator.GetCocaineDefinitions();
                     _cachedCocaineDef = (discovered != null && discovered.Count > 0)
                         ? discovered[0]
-                        : FindFromRegistry<Il2CppScheduleOne.Product.CocaineDefinition>();
+                        : FindFromRegistry<ScheduleOne.Product.CocaineDefinition>();
                 }
             }
             catch (Exception ex)
@@ -86,7 +93,7 @@ namespace OverTheCounter
             }
         }
 
-        private static ProductDefinition FindFromRegistry<T>() where T : Il2CppSystem.Object
+        private static ProductDefinition FindFromRegistry<T>() where T : GameSystem.Object
         {
             try
             {
@@ -97,7 +104,7 @@ namespace OverTheCounter
 
                     try
                     {
-                        var il2cppDef = S1ItemDefProperty?.GetValue(item) as Il2CppScheduleOne.ItemFramework.ItemDefinition;
+                        var il2cppDef = S1ItemDefProperty?.GetValue(item) as ScheduleOne.ItemFramework.ItemDefinition;
                         if (il2cppDef?.TryCast<T>() != null)
                             return pd;
                     }
@@ -122,7 +129,7 @@ namespace OverTheCounter
             // Show current player position
             try
             {
-                var p = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerMovement>.Instance;
+                var p = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerMovement>.Instance;
                 if (p != null)
                 {
                     var pos = p.transform.position;
@@ -172,7 +179,7 @@ namespace OverTheCounter
                 SpawnPackagedProduct(_cachedCocaineDef, "baggie", 1, 5, "cocaine baggies");
 
             if (GUILayout.Button("+5 Premium Meth Baggies (1g)"))
-                SpawnPackagedProduct(_cachedMethDef, "baggie", 1, 5, "premium meth baggies", Il2CppScheduleOne.ItemFramework.EQuality.Premium);
+                SpawnPackagedProduct(_cachedMethDef, "baggie", 1, 5, "premium meth baggies", ScheduleOne.ItemFramework.EQuality.Premium);
 
             GUILayout.Space(8);
 
@@ -265,7 +272,7 @@ namespace OverTheCounter
                 {
                     try
                     {
-                        var player = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerMovement>.Instance;
+                        var player = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerMovement>.Instance;
                         if (player != null)
                         {
                             _hsSpawnPos = player.transform.position;
@@ -286,7 +293,7 @@ namespace OverTheCounter
                 {
                     try
                     {
-                        var player = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerMovement>.Instance;
+                        var player = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerMovement>.Instance;
                         if (player != null)
                         {
                             _hsDestPos = player.transform.position;
@@ -419,7 +426,7 @@ namespace OverTheCounter
                 {
                     var speedCtrl = mgr.GameNpc?.Movement?.SpeedController;
                     speedCtrl?.AddSpeedControl(
-                        new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, speed));
+                        new ScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, speed));
                 }
                 catch { }
             }
@@ -427,7 +434,7 @@ namespace OverTheCounter
         }
 
         private static void SpawnPackagedProduct(ProductDefinition productDef, string packagingId, int gramsPerUnit, int count, string label,
-            Il2CppScheduleOne.ItemFramework.EQuality? quality = null)
+            ScheduleOne.ItemFramework.EQuality? quality = null)
         {
             try
             {
@@ -444,7 +451,7 @@ namespace OverTheCounter
                     return;
                 }
 
-                var playerInv = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerInventory>.Instance;
+                var playerInv = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerInventory>.Instance;
                 if (playerInv?.hotbarSlots == null)
                     return;
 
@@ -452,11 +459,11 @@ namespace OverTheCounter
                 if (product == null)
                     return;
 
-                var il2cppItem = S1ItemInstanceField?.GetValue(product) as Il2CppScheduleOne.ItemFramework.ItemInstance;
+                var il2cppItem = S1ItemInstanceField?.GetValue(product) as ScheduleOne.ItemFramework.ItemInstance;
 
                 if (quality.HasValue)
                 {
-                    var qualityItem = il2cppItem?.TryCast<Il2CppScheduleOne.ItemFramework.QualityItemInstance>();
+                    var qualityItem = il2cppItem?.TryCast<ScheduleOne.ItemFramework.QualityItemInstance>();
                     qualityItem?.SetQuality(quality.Value);
                 }
                 if (il2cppItem == null)

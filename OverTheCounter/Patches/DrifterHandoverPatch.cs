@@ -1,12 +1,20 @@
 using HarmonyLib;
-using Il2CppScheduleOne.Economy;
-using Il2CppScheduleOne.ItemFramework;
-using Il2CppScheduleOne.Quests;
-using Il2CppScheduleOne.UI.Handover;
 using MelonLoader;
 using OverTheCounter.Logic;
 using OverTheCounter.Utilities;
 using System;
+
+#if IL2CPP
+using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.Quests;
+using Il2CppScheduleOne.UI.Handover;
+#else
+using ScheduleOne.Economy;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.Quests;
+using ScheduleOne.UI.Handover;
+#endif
 
 namespace OverTheCounter.Patches
 {
@@ -29,7 +37,7 @@ namespace OverTheCounter.Patches
             Customer __instance,
             HandoverScreen.EHandoverOutcome outcome,
             Contract contract,
-            Il2CppSystem.Collections.Generic.List<ItemInstance> items,
+            GameSystem.Collections.Generic.List<ItemInstance> items,
             bool handoverByPlayer,
             bool giveBonuses)
         {
@@ -70,7 +78,7 @@ namespace OverTheCounter.Patches
             Customer __instance,
             HandoverScreen.EHandoverOutcome outcome,
             Contract contract,
-            Il2CppSystem.Collections.Generic.List<ItemInstance> items,
+            GameSystem.Collections.Generic.List<ItemInstance> items,
             bool handoverByPlayer,
             bool giveBonuses)
         {

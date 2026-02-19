@@ -1,13 +1,21 @@
 using HarmonyLib;
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.Doors;
-using Il2CppScheduleOne.NPCs;
-using Il2CppScheduleOne.UI.Handover;
 using MelonLoader;
 using OverTheCounter.NPCs;
 using System;
 using System.Collections;
 using UnityEngine;
+
+#if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Doors;
+using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.UI.Handover;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Doors;
+using ScheduleOne.NPCs;
+using ScheduleOne.UI.Handover;
+#endif
 
 namespace OverTheCounter.Patches
 {

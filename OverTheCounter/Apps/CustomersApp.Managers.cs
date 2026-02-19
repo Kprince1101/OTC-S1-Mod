@@ -115,8 +115,8 @@ namespace OverTheCounter.Apps
         private void CreateManagerCard(Transform parent, ManagerInstance mgr)
         {
             // ── Read actual NPC inventory (what you see in the trade dialog) ──
-            Il2CppScheduleOne.NPCs.NPCInventory npcInventory = null;
-            try { npcInventory = mgr.GameNpc?.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>(); }
+            ScheduleOne.NPCs.NPCInventory npcInventory = null;
+            try { npcInventory = mgr.GameNpc?.GetComponent<ScheduleOne.NPCs.NPCInventory>(); }
             catch { }
 
             int displaySlots = 5;
@@ -242,7 +242,7 @@ namespace OverTheCounter.Apps
                         if (slot?.ItemInstance?.Definition != null)
                         {
                             icon = slot.ItemInstance.Icon;
-                            var cash = slot.ItemInstance.TryCast<Il2CppScheduleOne.ItemFramework.CashInstance>();
+                            var cash = slot.ItemInstance.TryCast<ScheduleOne.ItemFramework.CashInstance>();
                             displayQty = cash != null ? $"${cash.Balance:N0}" : slot.Quantity.ToString();
                         }
                     }

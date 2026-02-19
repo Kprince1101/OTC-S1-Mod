@@ -1,6 +1,12 @@
 using System;
+
+#if IL2CPP
 using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.Storage;
+#else
+using ScheduleOne.ItemFramework;
+using ScheduleOne.Storage;
+#endif
 
 namespace OverTheCounter.Utilities
 {

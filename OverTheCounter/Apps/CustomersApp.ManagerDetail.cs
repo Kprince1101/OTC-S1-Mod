@@ -7,10 +7,18 @@ using UnityEngine.UI;
 using OverTheCounter.Logic;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
+
+#if IL2CPP
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Money;
 using Il2CppScheduleOne.UI.Phone.Map;
 using Il2CppScheduleOne.Map;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Money;
+using ScheduleOne.UI.Phone.Map;
+using ScheduleOne.Map;
+#endif
 
 namespace OverTheCounter.Apps
 {
@@ -244,8 +252,8 @@ namespace OverTheCounter.Apps
             invLabelRect.sizeDelta = new Vector2(0, 22);
 
             // Inventory grid
-            Il2CppScheduleOne.NPCs.NPCInventory npcInventory = null;
-            try { npcInventory = mgr.GameNpc?.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>(); }
+            ScheduleOne.NPCs.NPCInventory npcInventory = null;
+            try { npcInventory = mgr.GameNpc?.GetComponent<ScheduleOne.NPCs.NPCInventory>(); }
             catch { }
 
             int displaySlots = 5;
@@ -284,7 +292,7 @@ namespace OverTheCounter.Apps
                         if (slot?.ItemInstance?.Definition != null)
                         {
                             icon = slot.ItemInstance.Icon;
-                            var cash = slot.ItemInstance.TryCast<Il2CppScheduleOne.ItemFramework.CashInstance>();
+                            var cash = slot.ItemInstance.TryCast<ScheduleOne.ItemFramework.CashInstance>();
                             displayQty = cash != null ? $"${cash.Balance:N0}" : slot.Quantity.ToString();
                         }
                     }
@@ -413,7 +421,7 @@ namespace OverTheCounter.Apps
             // Grab the Outline sprite from the manager's existing map POI (the white circle border)
             try
             {
-                var poiBase = (Il2CppScheduleOne.Map.POI)mgr.MapPoI;
+                var poiBase = (ScheduleOne.Map.POI)mgr.MapPoI;
                 var outlineTransform = poiBase?.IconContainer?.Find("Outline");
                 var outlineImg = outlineTransform?.GetComponent<Image>();
                 if (outlineImg?.sprite != null)
@@ -533,8 +541,8 @@ namespace OverTheCounter.Apps
             // Rebuild inventory slots
             if (_detailInvGrid != null)
             {
-                Il2CppScheduleOne.NPCs.NPCInventory npcInventory = null;
-                try { npcInventory = _detailManager.GameNpc?.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>(); }
+                ScheduleOne.NPCs.NPCInventory npcInventory = null;
+                try { npcInventory = _detailManager.GameNpc?.GetComponent<ScheduleOne.NPCs.NPCInventory>(); }
                 catch { }
 
                 int displaySlots = 5;
@@ -565,7 +573,7 @@ namespace OverTheCounter.Apps
                             if (slot?.ItemInstance?.Definition != null)
                             {
                                 icon = slot.ItemInstance.Icon;
-                                var cash = slot.ItemInstance.TryCast<Il2CppScheduleOne.ItemFramework.CashInstance>();
+                                var cash = slot.ItemInstance.TryCast<ScheduleOne.ItemFramework.CashInstance>();
                                 displayQty = cash != null ? $"${cash.Balance:N0}" : slot.Quantity.ToString();
                             }
                         }

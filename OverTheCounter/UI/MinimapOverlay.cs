@@ -1,3 +1,10 @@
+using MelonLoader;
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+#if IL2CPP
 using Il2CppInterop.Runtime.Injection;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Economy;
@@ -5,11 +12,14 @@ using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.UI;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.UI.Phone.Map;
-using MelonLoader;
-using System;
-using System.Collections.Generic;
-using UnityEngine;
-using UnityEngine.UI;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Economy;
+using ScheduleOne.Map;
+using ScheduleOne.UI;
+using ScheduleOne.PlayerScripts;
+using ScheduleOne.UI.Phone.Map;
+#endif
 
 namespace OverTheCounter.UI
 {
@@ -72,7 +82,9 @@ namespace OverTheCounter.UI
 
         public static void Register()
         {
+#if IL2CPP
             ClassInjector.RegisterTypeInIl2Cpp<MinimapOverlay>();
+#endif
         }
 
         private void Awake()
@@ -141,7 +153,7 @@ namespace OverTheCounter.UI
                 _visible = false;
             }
 
-            if (Input.GetKeyDown(_toggleKey) && !Il2CppScheduleOne.GameInput.IsTyping)
+            if (Input.GetKeyDown(_toggleKey) && !ScheduleOne.GameInput.IsTyping)
                 ToggleMinimap();
 
             if (_visible)

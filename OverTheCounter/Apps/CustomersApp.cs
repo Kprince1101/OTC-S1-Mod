@@ -1,4 +1,3 @@
-using Il2CppScheduleOne.Map;
 using S1API.PhoneApp;
 using S1API.UI;
 using UnityEngine;
@@ -12,6 +11,12 @@ using HarmonyLib;
 using System;
 using OverTheCounter.Logic;
 using OverTheCounter.Utilities;
+
+#if IL2CPP
+using Il2CppScheduleOne.Map;
+#else
+using ScheduleOne.Map;
+#endif
 
 namespace OverTheCounter.Apps
 {

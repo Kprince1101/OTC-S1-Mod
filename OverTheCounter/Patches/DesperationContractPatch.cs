@@ -1,6 +1,4 @@
-using HarmonyLib;
-using Il2CppScheduleOne.Economy;
-using Il2CppScheduleOne.Quests;
+﻿using HarmonyLib;
 using MelonLoader;
 using OverTheCounter.Logic;
 using OverTheCounter.SaveData;
@@ -9,6 +7,14 @@ using OverTheCounter.Utilities;
 using S1API.GameTime;
 using System;
 using UnityEngine;
+
+#if IL2CPP
+using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.Quests;
+#else
+using ScheduleOne.Economy;
+using ScheduleOne.Quests;
+#endif
 
 namespace OverTheCounter.Patches
 {
@@ -71,7 +77,7 @@ namespace OverTheCounter.Patches
                     {
                         // Client can't create contracts — forward to host
                         ConfigSyncData.SendQuestAction($"DESP_ACCEPT:{customerId}:{locationGuid}");
-                        __instance.NPC.MSGConversation?.ClearResponses(true);
+                        __instance.NPC.GetMSGConversation()?.ClearResponses(true);
                     }
                 });
 
@@ -106,21 +112,21 @@ namespace OverTheCounter.Patches
         {
             try
             {
-                if (customer.OfferedContractInfo == null)
+                if (customer.GetOfferedContractInfo() == null)
                 {
                     Melon<Core>.Logger.Error("[AcceptContractClickedPatch] No offered contract to finalize");
                     return;
                 }
 
-                customer.OfferedContractInfo.DeliveryLocationGUID = locationGuid;
+                customer.GetOfferedContractInfo().DeliveryLocationGUID = locationGuid;
 
                 // ContractAccepted overwrites window times with Morning, but
                 // QuestManagerContractAcceptedPatch restores our deadline before
                 // the contract is created and synced to clients.
                 customer.ContractAccepted(EDealWindow.Morning, true, dealer: null);
 
-                if (customer.NPC.MSGConversation != null)
-                    customer.NPC.MSGConversation.ClearResponses(true);
+                if (customer.NPC.GetMSGConversation() != null)
+                    customer.NPC.GetMSGConversation().ClearResponses(true);
 
                 DesperationManager.OnContractAccepted(customer.NPC.ID);
                 SendConfirmationText(customer);
@@ -231,7 +237,7 @@ namespace OverTheCounter.Patches
     {
         public static System.Reflection.MethodBase TargetMethod()
         {
-            var type = AccessTools.TypeByName("Il2CppScheduleOne.Quests.QuestManager");
+            var type = AccessTools.TypeByName("ScheduleOne.Quests.QuestManager");
             return type != null ? AccessTools.Method(type, "ContractAccepted") : null;
         }
 

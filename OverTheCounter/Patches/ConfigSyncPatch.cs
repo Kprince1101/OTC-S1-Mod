@@ -1,10 +1,15 @@
 using HarmonyLib;
-using Il2CppFishNet;
 using MelonLoader;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using System;
 using System.Reflection;
+
+#if IL2CPP
+using Il2CppFishNet;
+#else
+using FishNet;
+#endif
 
 namespace OverTheCounter.Patches
 {

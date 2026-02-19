@@ -1,3 +1,12 @@
+﻿using MelonLoader;
+using OverTheCounter.Utilities;
+using System.Collections;
+using UnityEngine;
+using UnityEngine.Events;
+using System;
+using System.Collections.Generic;
+
+#if IL2CPP
 using Il2CppScheduleOne.AvatarFramework.Equipping;
 using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.NPCs;
@@ -5,13 +14,15 @@ using Il2CppScheduleOne.NPCs.Behaviour;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Product;
 using Il2CppScheduleOne.VoiceOver;
-using MelonLoader;
-using OverTheCounter.Utilities;
-using System.Collections;
-using UnityEngine;
-using UnityEngine.Events;
-using System;
-using System.Collections.Generic;
+#else
+using ScheduleOne.AvatarFramework.Equipping;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.NPCs;
+using ScheduleOne.NPCs.Behaviour;
+using ScheduleOne.PlayerScripts;
+using ScheduleOne.Product;
+using ScheduleOne.VoiceOver;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -51,8 +62,8 @@ namespace OverTheCounter.Logic
         public bool ArrivedAtDestination { get; set; }
 
         // Hold references to IL2CPP callbacks to prevent GC from collecting them before arrival
-        private Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _destCallback;
-        private Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult> _spawnCallback;
+        private GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> _destCallback;
+        private GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> _spawnCallback;
 
         // Stuck detection: if NPC hasn't moved significantly in StuckCheckInterval, warp to destination
         private Vector3? _lastStuckCheckPos;
@@ -178,7 +189,7 @@ namespace OverTheCounter.Logic
             // Clear any stale MSGConversation from PlayerSpawned() — it was created
             // with the prefab's default empty name before Adopt set the real identity.
             // InitializeMessaging will create a fresh one with the correct name.
-            try { existingNpc.MSGConversation = null; } catch { }
+            try { existingNpc.SetMSGConversation(null); } catch { }
 
             // Ensure messaging, voice, and icon are set up
             DrifterSpawner.InitializeMessaging(existingNpc);
@@ -237,7 +248,7 @@ namespace OverTheCounter.Logic
                 // async mugshot was ready.
                 try
                 {
-                    var entry = gameNpc.MSGConversation?.entry;
+                    var entry = gameNpc.GetMSGConversation()?.entry;
                     if (entry != null)
                     {
                         var iconImage = ((UnityEngine.Component)((UnityEngine.Transform)entry)
@@ -282,12 +293,12 @@ namespace OverTheCounter.Logic
 
             try
             {
-                var conversation = GameNpc.MSGConversation;
+                var conversation = GameNpc.GetMSGConversation();
                 if (conversation == null) return;
 
-                var msg = new Il2CppScheduleOne.Messaging.Message(
+                var msg = new ScheduleOne.Messaging.Message(
                     message,
-                    Il2CppScheduleOne.Messaging.Message.ESenderType.Other,
+                    ScheduleOne.Messaging.Message.ESenderType.Other,
                     true);
                 conversation.SendMessage(msg, false, false); // local only, no network
                 if (Config.VerboseLogging.Value)
@@ -341,13 +352,13 @@ namespace OverTheCounter.Logic
             {
                 if (GameNpc?.Movement == null) return;
 
-                _destCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
-                    new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
+                _destCallback = (GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult>)
+                    new Action<ScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
                     {
                         if (Config.VerboseLogging.Value)
                             Logger.Msg($"Drifter {Id} arrived at destination (result={result})");
-                        if (result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
-                            result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
+                        if (result == ScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
+                            result == ScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
                         {
                             ArrivedAtDestination = true;
                             FaceDirection(Hotspot.Rotation);
@@ -497,13 +508,13 @@ namespace OverTheCounter.Logic
                 if (GameNpc?.Movement == null) return;
                 IsWalkingBack = true;
 
-                _spawnCallback = (Il2CppSystem.Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>)
-                    new Action<Il2CppScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
+                _spawnCallback = (GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult>)
+                    new Action<ScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
                     {
                         if (Config.VerboseLogging.Value)
                             Logger.Msg($"Drifter {Id} arrived at spawn (result={result})");
-                        if (result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
-                            result == Il2CppScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
+                        if (result == ScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
+                            result == ScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
                             FaceDirection(Hotspot.SpawnRotation);
                     });
 
@@ -672,7 +683,7 @@ namespace OverTheCounter.Logic
         /// HandoverScreen slots (which get cleared after the callback for
         /// non-robber drifters, invalidating the original references).
         /// </summary>
-        public void StockInventory(Il2CppSystem.Collections.Generic.List<ItemInstance> items)
+        public void StockInventory(GameSystem.Collections.Generic.List<ItemInstance> items)
         {
             try
             {

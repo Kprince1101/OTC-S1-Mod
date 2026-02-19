@@ -1,14 +1,22 @@
 using HarmonyLib;
-using Il2CppScheduleOne.Economy;
-using Il2CppScheduleOne.ItemFramework;
-using Il2CppScheduleOne.Quests;
-using Il2CppScheduleOne.UI.Handover;
 using MelonLoader;
 using OverTheCounter.Logic;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using System;
 using System.Reflection;
+
+#if IL2CPP
+using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.Quests;
+using Il2CppScheduleOne.UI.Handover;
+#else
+using ScheduleOne.Economy;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.Quests;
+using ScheduleOne.UI.Handover;
+#endif
 
 namespace OverTheCounter.Patches
 {
@@ -27,7 +35,7 @@ namespace OverTheCounter.Patches
             Customer __instance,
             HandoverScreen.EHandoverOutcome outcome,
             Contract contract,
-            Il2CppSystem.Collections.Generic.List<ItemInstance> items,
+            GameSystem.Collections.Generic.List<ItemInstance> items,
             bool handoverByPlayer,
             bool giveBonuses)
         {
@@ -118,7 +126,7 @@ namespace OverTheCounter.Patches
         /// </summary>
         public static MethodBase TargetMethod()
         {
-            var type = AccessTools.TypeByName("Il2CppScheduleOne.UI.DealCompletionPopup");
+            var type = AccessTools.TypeByName("ScheduleOne.UI.DealCompletionPopup");
             if (type == null)
             {
                 Melon<Core>.Logger.Warning("[DealCompletionPopupPatch] Could not find DealCompletionPopup type.");
@@ -141,7 +149,7 @@ namespace OverTheCounter.Patches
             float satisfaction,
             float originalRelationshipDelta,
             float basePayment,
-            ref Il2CppSystem.Collections.Generic.List<Contract.BonusPayment> bonuses)
+            ref GameSystem.Collections.Generic.List<Contract.BonusPayment> bonuses)
         {
             var pending = ProcessHandoverPatch.GetPendingBonus();
             if (pending == null)
@@ -159,7 +167,7 @@ namespace OverTheCounter.Patches
 
                 if (bonuses == null)
                 {
-                    bonuses = new Il2CppSystem.Collections.Generic.List<Contract.BonusPayment>();
+                    bonuses = new GameSystem.Collections.Generic.List<Contract.BonusPayment>();
                 }
 
                 bonuses.Add(desperationBonus);

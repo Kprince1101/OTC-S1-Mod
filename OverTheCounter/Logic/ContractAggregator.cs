@@ -1,11 +1,18 @@
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.Product;
-using Il2CppScheduleOne.Quests;
 using MelonLoader;
 using OverTheCounter.Utilities;
 using S1API.GameTime;
 using System;
 using System.Collections.Generic;
+
+#if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Product;
+using Il2CppScheduleOne.Quests;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Product;
+using ScheduleOne.Quests;
+#endif
 
 namespace OverTheCounter.Logic
 {
@@ -36,7 +43,7 @@ namespace OverTheCounter.Logic
         /// Gets the product-unit multiplier for a packaged item.
         /// Jars = 5, Baggies = 1, etc. Falls back to 1 if not a ProductItemInstance.
         /// </summary>
-        public static int GetPackagingMultiplier(Il2CppScheduleOne.ItemFramework.ItemInstance item)
+        public static int GetPackagingMultiplier(ScheduleOne.ItemFramework.ItemInstance item)
         {
             try
             {
@@ -143,7 +150,7 @@ namespace OverTheCounter.Logic
             var inventoryCounts = new Dictionary<string, int>();
             try
             {
-                var playerInv = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerInventory>.Instance;
+                var playerInv = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerInventory>.Instance;
                 if (playerInv != null)
                 {
                     var slots = playerInv.hotbarSlots;
@@ -282,7 +289,7 @@ namespace OverTheCounter.Logic
             var inventoryCounts = new Dictionary<string, int>();
             try
             {
-                var playerInv = PlayerSingleton<Il2CppScheduleOne.PlayerScripts.PlayerInventory>.Instance;
+                var playerInv = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerInventory>.Instance;
                 if (playerInv != null)
                 {
                     var slots = playerInv.hotbarSlots;

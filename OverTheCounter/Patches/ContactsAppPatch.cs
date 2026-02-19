@@ -1,5 +1,10 @@
 using MelonLoader;
+
+#if IL2CPP
 using ContactsAppType = Il2CppScheduleOne.UI.Phone.ContactsApp.ContactsApp;
+#else
+using ContactsAppType = ScheduleOne.UI.Phone.ContactsApp.ContactsApp;
+#endif
 
 namespace OverTheCounter.Patches
 {
@@ -29,6 +34,7 @@ namespace OverTheCounter.Patches
                         return;
                 }
 
+#if IL2CPP
                 var dict = _cachedApp.RegionDict;
                 if (dict != null && dict.Count > 0)
                 {
@@ -45,6 +51,10 @@ namespace OverTheCounter.Patches
                     if (go != null && go.activeSelf)
                         go.SetActive(false);
                 }
+#else
+                // RegionDict and appContainer are private on Mono — skip the fix
+                _fixed = true;
+#endif
             }
             catch
             {
