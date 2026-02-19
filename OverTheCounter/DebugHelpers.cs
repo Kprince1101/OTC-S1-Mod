@@ -49,6 +49,7 @@ namespace OverTheCounter
                 if (_menuVisible)
                     RefreshCachedDefinitions();
             }
+
         }
 
         private static void RefreshCachedDefinitions()
@@ -160,6 +161,9 @@ namespace OverTheCounter
 
             if (GUILayout.Button("+5 Weed Baggies (1g)"))
                 SpawnPackagedProduct(_cachedWeedDef, "baggie", 1, 5, "weed baggies");
+
+            if (GUILayout.Button("+5 Weed Bricks (20g)"))
+                SpawnPackagedProduct(_cachedWeedDef, "brick", 20, 5, "weed bricks");
 
             if (GUILayout.Button("+5 Meth Baggies (1g)"))
                 SpawnPackagedProduct(_cachedMethDef, "baggie", 1, 5, "meth baggies");
@@ -467,7 +471,9 @@ namespace OverTheCounter
 
                     try
                     {
-                        if (!slot.ItemInstance.CanStackWith(il2cppItem)) continue;
+                        // Match by definition ID — CanStackWith rejects freshly created instances
+                        // even when they're the same product (different internal state)
+                        if (slot.ItemInstance.Definition?.ID != il2cppItem.Definition?.ID) continue;
 
                         int stackLimit;
                         try { stackLimit = slot.ItemInstance.StackLimit; }

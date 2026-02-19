@@ -1210,7 +1210,16 @@ namespace OverTheCounter.UI
                                 if (!_currentManager.Configuration.ValidateAssignment(
                                     selected, capturedRoute, capturedIsSource, out string reason))
                                 {
-                                    Logger.Warning($"Validation failed: {reason}");
+                                    // Log GUIDs for diagnosis — helps distinguish "same rack clicked twice"
+                                    // from genuine false-positive equality
+                                    var route = _currentManager.Configuration.Routes[capturedRoute];
+                                    var existingEntity = capturedIsSource ? route.Destination : route.Source;
+                                    string existingGuid = ManagerConfiguration.GetGuid(existingEntity);
+                                    string selectedGuid = ManagerConfiguration.GetGuid(selected);
+                                    Logger.Warning($"Validation failed: {reason} " +
+                                        $"(existing={GetStorageName(existingEntity)} [{existingGuid}], " +
+                                        $"selected={GetStorageName(selected)} [{selectedGuid}], " +
+                                        $"sameRef={ReferenceEquals(existingEntity, selected)})");
                                     selected = null;
                                 }
                             }

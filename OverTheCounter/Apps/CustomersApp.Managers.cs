@@ -235,7 +235,7 @@ namespace OverTheCounter.Apps
                         var slot = npcInventory.ItemSlots[i];
                         if (slot?.ItemInstance?.Definition != null)
                         {
-                            icon = slot.ItemInstance.Definition.Icon;
+                            icon = slot.ItemInstance.Icon;
                             var cash = slot.ItemInstance.TryCast<Il2CppScheduleOne.ItemFramework.CashInstance>();
                             displayQty = cash != null ? $"${cash.Balance:N0}" : slot.Quantity.ToString();
                         }

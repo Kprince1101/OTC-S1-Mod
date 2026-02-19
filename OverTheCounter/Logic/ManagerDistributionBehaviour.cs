@@ -530,6 +530,7 @@ namespace OverTheCounter.Logic
             if (source?.StorageEntity != null && npcInventory != null)
             {
                 int freeSlots = GetFreeNpcSlots(npcInventory);
+                int totalNpcSlots = npcInventory.ItemSlots?.Count ?? 0;
 
                 // Check how many items the destination can actually hold so we don't
                 // pick up more than it can accept (avoids overflow → return → repeat loop)
@@ -545,6 +546,14 @@ namespace OverTheCounter.Logic
                             break;
                         }
                     }
+                }
+
+                if (Config.ManagerVerboseLogging.Value)
+                {
+                    int sourceOccupied = 0;
+                    for (int s = 0; s < source.StorageEntity.ItemSlots.Count; s++)
+                        if (source.StorageEntity.ItemSlots[s]?.ItemInstance != null) sourceOccupied++;
+                    _manager.Log($"[PickUp] npcSlots={totalNpcSlots} free={freeSlots} destCapacity={destCapacity} sourceOccupied={sourceOccupied}");
                 }
 
                 for (int i = 0; i < source.StorageEntity.ItemSlots.Count; i++)
@@ -605,6 +614,9 @@ namespace OverTheCounter.Logic
                         _manager.LogWarning($"pickup slot {i} failed: {ex.Message}");
                     }
                 }
+
+                if (Config.ManagerVerboseLogging.Value)
+                    _manager.Log($"[PickUp] done: picked={totalPickedUp} freeAfter={freeSlots} destCapAfter={destCapacity}");
             }
 
             _manager.Log($"picked up {totalPickedUp} items from route {CurrentRouteDisplay} source | inventory: [{_manager.GetInventorySummary()}]");
