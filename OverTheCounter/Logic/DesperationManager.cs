@@ -428,7 +428,11 @@ namespace OverTheCounter.Logic
             try
             {
                 // Get the Map singleton
+#if IL2CPP
+                var mapType = Type.GetType("Il2CppScheduleOne.Map.Map, Assembly-CSharp");
+#else
                 var mapType = Type.GetType("ScheduleOne.Map.Map, Assembly-CSharp");
+#endif
                 if (mapType == null)
                 {
                     _logger.Warning("[DesperationManager] Could not find Map type");

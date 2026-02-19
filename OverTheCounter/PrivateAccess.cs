@@ -11,6 +11,7 @@ using HarmonyLib;
 #if IL2CPP
 using Il2CppScheduleOne.Dialogue;
 using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.Management;
 using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.Messaging;
@@ -18,12 +19,15 @@ using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Quests;
 using Il2CppScheduleOne.UI;
+using Il2CppScheduleOne.UI.Handover;
 using Il2CppScheduleOne.UI.Phone.ContactsApp;
 using Il2CppScheduleOne.VoiceOver;
 #else
+using System.Collections.Generic;
 using System.Reflection;
 using ScheduleOne.Dialogue;
 using ScheduleOne.Economy;
+using ScheduleOne.ItemFramework;
 using ScheduleOne.Management;
 using ScheduleOne.Map;
 using ScheduleOne.Messaging;
@@ -31,6 +35,7 @@ using ScheduleOne.NPCs;
 using ScheduleOne.PlayerScripts;
 using ScheduleOne.Quests;
 using ScheduleOne.UI;
+using ScheduleOne.UI.Handover;
 using ScheduleOne.UI.Phone.ContactsApp;
 using ScheduleOne.VoiceOver;
 #endif
@@ -57,6 +62,10 @@ namespace OverTheCounter
         private static readonly PropertyInfo _custTimeDealOffered = AccessTools.Property(typeof(Customer), "TimeSinceLastDealOffered");
         private static readonly PropertyInfo _custOfferedContract = AccessTools.Property(typeof(Customer), "OfferedContractInfo");
         private static readonly PropertyInfo _custPoI = AccessTools.Property(typeof(Customer), "potentialCustomerPoI");
+        private static readonly FieldInfo _hsCustomerSlots = AccessTools.Field(typeof(HandoverScreen), "CustomerSlots");
+        private static readonly FieldInfo _hsOriginalItemLocations = AccessTools.Field(typeof(HandoverScreen), "OriginalItemLocations");
+        private static readonly System.Type _hsEItemSource = typeof(HandoverScreen).GetNestedType("EItemSource", BindingFlags.NonPublic);
+        private static readonly object _hsEItemSourcePlayer = _hsEItemSource != null ? System.Enum.Parse(_hsEItemSource, "Player") : null;
 #endif
 
         // --- VOEmitter.Database (private field on Mono, SetDatabase() is public) ---
@@ -233,6 +242,33 @@ namespace OverTheCounter
             choice.shouldShowCheck = func;
 #else
             choice.shouldShowCheck = new DialogueController.DialogueChoice.ShouldShowCheck(func.Invoke);
+#endif
+        }
+
+        // --- HandoverScreen.CustomerSlots (private ItemSlot[]) ---
+        public static ItemSlot[] GetCustomerSlots(this HandoverScreen hs)
+        {
+#if IL2CPP
+            return hs.CustomerSlots;
+#else
+            return (ItemSlot[])_hsCustomerSlots?.GetValue(hs);
+#endif
+        }
+
+        // --- HandoverScreen.OriginalItemLocations: register an item as coming from the player ---
+        // EItemSource is a private nested enum; IL2CPP can reference it directly, Mono uses reflection.
+        public static void TrackItemAsPlayer(this HandoverScreen hs, ItemInstance item)
+        {
+#if IL2CPP
+            hs.OriginalItemLocations[item] = HandoverScreen.EItemSource.Player;
+#else
+            var dict = _hsOriginalItemLocations?.GetValue(hs);
+            if (dict != null && _hsEItemSourcePlayer != null)
+            {
+                // Dictionary<ItemInstance, EItemSource>.Add via reflection
+                var addMethod = dict.GetType().GetMethod("set_Item");
+                addMethod?.Invoke(dict, new object[] { item, _hsEItemSourcePlayer });
+            }
 #endif
         }
     }

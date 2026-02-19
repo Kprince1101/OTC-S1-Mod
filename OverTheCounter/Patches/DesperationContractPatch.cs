@@ -237,7 +237,11 @@ namespace OverTheCounter.Patches
     {
         public static System.Reflection.MethodBase TargetMethod()
         {
+#if IL2CPP
+            var type = AccessTools.TypeByName("Il2CppScheduleOne.Quests.QuestManager");
+#else
             var type = AccessTools.TypeByName("ScheduleOne.Quests.QuestManager");
+#endif
             return type != null ? AccessTools.Method(type, "ContractAccepted") : null;
         }
 

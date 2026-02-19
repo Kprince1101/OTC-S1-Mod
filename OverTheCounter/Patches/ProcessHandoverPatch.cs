@@ -126,7 +126,11 @@ namespace OverTheCounter.Patches
         /// </summary>
         public static MethodBase TargetMethod()
         {
+#if IL2CPP
+            var type = AccessTools.TypeByName("Il2CppScheduleOne.UI.DealCompletionPopup");
+#else
             var type = AccessTools.TypeByName("ScheduleOne.UI.DealCompletionPopup");
+#endif
             if (type == null)
             {
                 Melon<Core>.Logger.Warning("[DealCompletionPopupPatch] Could not find DealCompletionPopup type.");

@@ -8,10 +8,12 @@ using UnityEngine.UI;
 #if IL2CPP
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.UI.Phone.Messages;
 #else
 using ScheduleOne.Economy;
 using ScheduleOne.DevUtilities;
+using ScheduleOne.Map;
 using ScheduleOne.UI.Phone.Messages;
 #endif
 
@@ -55,75 +57,45 @@ namespace OverTheCounter.UI
         }
 
         /// <summary>
-        /// Gets all delivery locations for a customer's region using reflection.
+        /// Gets all delivery locations for a region using direct type access.
         /// </summary>
-        private static List<LocationInfo> GetDeliveryLocationsForRegion(object region)
+        private static List<LocationInfo> GetDeliveryLocationsForRegion(EMapRegion region)
         {
             var locations = new List<LocationInfo>();
 
             try
             {
-                // Get Map singleton via reflection
-                var mapType = Type.GetType("ScheduleOne.Map.Map, Assembly-CSharp");
-                if (mapType == null)
-                {
-                    MelonLogger.Warning("[LocationPickerUI] Could not find Map type");
-                    return locations;
-                }
-
-                var singletonType = typeof(Singleton<>).MakeGenericType(mapType);
-                var instanceProp = singletonType.GetProperty("Instance", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
-                var mapInstance = instanceProp?.GetValue(null);
-
+                var mapInstance = Singleton<Map>.Instance;
                 if (mapInstance == null)
                 {
                     MelonLogger.Warning("[LocationPickerUI] Map instance is null");
                     return locations;
                 }
 
-                // Get region data
-                var getRegionDataMethod = mapInstance.GetType().GetMethod("GetRegionData");
-                if (getRegionDataMethod == null)
-                {
-                    MelonLogger.Warning("[LocationPickerUI] Could not find GetRegionData method");
-                    return locations;
-                }
-
-                var regionData = getRegionDataMethod.Invoke(mapInstance, new object[] { region });
+                var regionData = mapInstance.GetRegionData(region);
                 if (regionData == null)
                 {
                     MelonLogger.Warning($"[LocationPickerUI] No region data for {region}");
                     return locations;
                 }
 
-                // Get delivery locations from the region
-                var deliveryLocationsProp = regionData.GetType().GetProperty("RegionDeliveryLocations");
-                if (deliveryLocationsProp == null)
-                {
-                    MelonLogger.Warning($"[LocationPickerUI] Could not find RegionDeliveryLocations property on {regionData.GetType().Name}");
-                    return locations;
-                }
-
-                object deliveryLocations = deliveryLocationsProp.GetValue(regionData);
+                var deliveryLocations = regionData.RegionDeliveryLocations;
                 if (deliveryLocations == null)
                 {
                     MelonLogger.Warning("[LocationPickerUI] RegionDeliveryLocations is null");
                     return locations;
                 }
 
-                var arr = (System.Array)deliveryLocations;
-                int count = arr.Length;
-                for (int i = 0; i < count; i++)
+                for (int i = 0; i < deliveryLocations.Length; i++)
                 {
-                    object loc = arr.GetValue(i);
+                    var loc = deliveryLocations[i];
                     if (loc != null)
                     {
-                        var locType = loc.GetType();
                         locations.Add(new LocationInfo
                         {
-                            GUID = locType.GetProperty("GUID").GetValue(loc).ToString(),
-                            Name = (string)locType.GetProperty("LocationName").GetValue(loc),
-                            Description = (string)(locType.GetProperty("LocationDescription").GetValue(loc) ?? "")
+                            GUID = loc.GUID.ToString(),
+                            Name = loc.LocationName,
+                            Description = loc.LocationDescription ?? ""
                         });
                     }
                 }
@@ -180,14 +152,14 @@ namespace OverTheCounter.UI
 
             // Use UIFactory's ScrollableVerticalList instead of manual setup
             var listContent = UIFactory.ScrollableVerticalList("LocationList", panelObj.transform, out ScrollRect scrollRect);
-            
+
             // Position the scroll view between title and cancel button
             var scrollRectTransform = scrollRect.GetComponent<RectTransform>();
             scrollRectTransform.anchorMin = new Vector2(0, 0);
             scrollRectTransform.anchorMax = new Vector2(1, 1);
             scrollRectTransform.offsetMin = new Vector2(8, 45); // Leave space for cancel button
             scrollRectTransform.offsetMax = new Vector2(-8, -58); // Leave space for title/subtitle
-            
+
             // Configure the existing VerticalLayoutGroup created by ScrollableVerticalList
             var contentLayout = listContent.GetComponent<VerticalLayoutGroup>();
             if (contentLayout != null)
@@ -211,16 +183,16 @@ namespace OverTheCounter.UI
 
             // Cancel button at bottom using UIFactory
             var (cancelMask, cancelBtn, cancelLabel) = UIFactory.RoundedButtonWithLabel(
-                "CancelBtn", 
-                "Cancel", 
-                panelObj.transform, 
-                new Color(0.5f, 0.2f, 0.2f), 
+                "CancelBtn",
+                "Cancel",
+                panelObj.transform,
+                new Color(0.5f, 0.2f, 0.2f),
                 264, // width (280 - 16 margin)
                 30,  // height
                 12,  // fontSize
                 Color.white
             );
-            
+
             // Position cancel button at bottom
             var cancelRect = cancelMask.GetComponent<RectTransform>();
             cancelRect.anchorMin = new Vector2(0.5f, 0);

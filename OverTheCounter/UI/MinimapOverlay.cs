@@ -1,4 +1,5 @@
 using MelonLoader;
+using S1API.GameTime;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -67,6 +68,11 @@ namespace OverTheCounter.UI
         private static Sprite _circleMaskSprite;
         private RectTransform _playerMarkerRect;
 
+        // Time/day display
+        private GameObject _timeDayObj;
+        private Text _timeText;
+        private Text _dayText;
+
         // Cached config values — rebuild minimap when structural settings change
         private int _cfgSize;
         private bool _cfgCircle;
@@ -74,6 +80,9 @@ namespace OverTheCounter.UI
         private KeyCode _cfgToggleKey;
         private float _cfgIconScale;
         private int _cfgBorderWidth;
+        private bool _cfgShowTime;
+        private bool _cfgShowDay;
+        private bool _cfgUse24Hour;
 
         private static readonly HashSet<string> ValidPositions = new()
         {
@@ -192,6 +201,10 @@ namespace OverTheCounter.UI
             if (Config.MinimapBorderWidth.Value != _cfgBorderWidth)
                 Config.MinimapBorderWidth.RawEntry.Value = _cfgBorderWidth;
 
+            _cfgShowTime = Config.MinimapShowTime.Value;
+            _cfgShowDay = Config.MinimapShowDay.Value;
+            _cfgUse24Hour = Config.MinimapUse24HourClock.Value;
+
             _toggleKey = _cfgToggleKey;
         }
 
@@ -202,7 +215,10 @@ namespace OverTheCounter.UI
                 || (Config.MinimapPosition?.Value ?? "TopRight") != _cfgPosition
                 || (Config.MinimapToggleKey?.Value ?? KeyCode.N) != _cfgToggleKey
                 || Math.Abs(Config.MinimapIconScale.Value - _cfgIconScale) > 0.001f
-                || Config.MinimapBorderWidth.Value != _cfgBorderWidth;
+                || Config.MinimapBorderWidth.Value != _cfgBorderWidth
+                || Config.MinimapShowTime.Value != _cfgShowTime
+                || Config.MinimapShowDay.Value != _cfgShowDay
+                || Config.MinimapUse24HourClock.Value != _cfgUse24Hour;
         }
 
         private void ToggleMinimap()
@@ -210,7 +226,9 @@ namespace OverTheCounter.UI
             _zoom = (_zoom + 1) % 4; // 0→1→2→3→0
             _visible = _zoom > 0;
 
-            // Sync zoom back to config so the settings UI reflects the current level
+            // Sync enabled + zoom back to config so the settings UI reflects current state
+            // and the "react to MinimapEnabled" check in Update doesn't re-enable immediately
+            Config.MinimapEnabled.RawEntry.Value = _visible;
             if (_visible)
                 Config.MinimapDefaultZoom.RawEntry.Value = _zoom;
 
@@ -379,9 +397,109 @@ namespace OverTheCounter.UI
                 _playerMarkerRect.anchoredPosition = Vector2.zero;
             }
 
+            // Time/day label — positioned below minimap for top corners, above for bottom
+            CreateTimeDayLabel(size, margin);
+
             SnapshotConfig();
             _cachedPOIs = null;
             _lastPOIRefresh = 0f;
+        }
+
+        private static readonly string[] ShortDayNames = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
+
+        private void CreateTimeDayLabel(int size, int margin)
+        {
+            bool showTime = Config.MinimapShowTime.Value;
+            bool showDay = Config.MinimapShowDay.Value;
+            if (!showTime && !showDay) return;
+
+            _timeDayObj = new GameObject("MinimapTimeDay");
+            _timeDayObj.transform.SetParent(_canvasObj.transform, false);
+
+            // Dark semi-transparent background
+            var bgImage = _timeDayObj.AddComponent<Image>();
+            bgImage.color = new Color(0.08f, 0.08f, 0.08f, 0.85f);
+            bgImage.raycastTarget = false;
+
+            var bgRect = _timeDayObj.GetComponent<RectTransform>();
+
+            bool isTop = _cfgPosition.StartsWith("Top");
+            bool isRight = _cfgPosition.EndsWith("Right");
+
+            // Anchor to same horizontal edge as minimap
+            float anchorX = isRight ? 1f : 0f;
+            float pivotX = isRight ? 1f : 0f;
+
+            // Vertical: below minimap for top, above for bottom
+            float anchorY = isTop ? 1f : 0f;
+            float pivotY = isTop ? 1f : 0f;
+
+            bgRect.anchorMin = new Vector2(anchorX, anchorY);
+            bgRect.anchorMax = new Vector2(anchorX, anchorY);
+            bgRect.pivot = new Vector2(pivotX, pivotY);
+
+            float labelWidth = size + (_cfgBorderWidth * 2);
+            float labelHeight = 24f;
+            bgRect.sizeDelta = new Vector2(labelWidth, labelHeight);
+
+            // Position: flush with minimap border edges
+            float xSign = isRight ? -1f : 1f;
+            float bw = _cfgBorderWidth;
+            float xPos = xSign * (margin - bw);
+
+            // Vertical offset from screen edge: minimap occupies (margin-bw) to (margin-bw + size+2*bw)
+            // For top: label goes right below border → y = -(margin - bw + size + 2*bw + gap)
+            // For bottom: label goes right above border → y = (margin - bw + size + 2*bw + gap)
+            float minimapTotalHeight = size + (bw * 2);
+            float gap = 2f;
+            float yOffset = (margin - bw) + minimapTotalHeight + gap;
+
+            // BottomRight has a +80 offset for the HUD bar
+            if (_cfgPosition == "BottomRight") yOffset += 80;
+
+            float yPos = isTop ? -yOffset : yOffset;
+            bgRect.anchoredPosition = new Vector2(xPos, yPos);
+
+            // Layout: day on left, time on right (or centered if only one)
+            if (showDay)
+            {
+                var dayObj = new GameObject("DayLabel");
+                dayObj.transform.SetParent(_timeDayObj.transform, false);
+                _dayText = dayObj.AddComponent<Text>();
+                _dayText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                _dayText.fontSize = 14;
+                _dayText.fontStyle = FontStyle.Bold;
+                _dayText.color = new Color(0.55f, 0.85f, 1f); // light blue
+                _dayText.alignment = showTime ? TextAnchor.MiddleLeft : TextAnchor.MiddleCenter;
+                _dayText.raycastTarget = false;
+                _dayText.text = "";
+
+                var dayRect = dayObj.GetComponent<RectTransform>();
+                dayRect.anchorMin = Vector2.zero;
+                dayRect.anchorMax = Vector2.one;
+                dayRect.offsetMin = new Vector2(8, 0);
+                dayRect.offsetMax = new Vector2(-8, 0);
+            }
+
+            if (showTime)
+            {
+                var timeObj = new GameObject("TimeLabel");
+                timeObj.transform.SetParent(_timeDayObj.transform, false);
+                _timeText = timeObj.AddComponent<Text>();
+                _timeText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                _timeText.fontSize = 14;
+                _timeText.fontStyle = FontStyle.Bold;
+                _timeText.color = new Color(1f, 0.9f, 0.4f); // warm gold
+                _timeText.alignment = showDay ? TextAnchor.MiddleRight : TextAnchor.MiddleCenter;
+                _timeText.raycastTarget = false;
+                _timeText.text = "";
+
+                var timeRect = timeObj.GetComponent<RectTransform>();
+                timeRect.anchorMin = Vector2.zero;
+                timeRect.anchorMax = Vector2.one;
+                timeRect.offsetMin = new Vector2(8, 0);
+                timeRect.offsetMax = new Vector2(-8, 0);
+            }
         }
 
         private void DestroyMinimap()
@@ -396,6 +514,9 @@ namespace OverTheCounter.UI
             _markersParent = null;
             _playerMarkerRect = null;
             _borderImage = null;
+            _timeDayObj = null;
+            _timeText = null;
+            _dayText = null;
             _poiClones.Clear();
             _customerClones.Clear();
             _activeCloneIds.Clear();
@@ -646,6 +767,36 @@ namespace OverTheCounter.UI
                 // Live-update border color (no rebuild needed)
                 if (_borderImage != null && Config.MinimapBorderColor != null)
                     _borderImage.color = Config.MinimapBorderColor.Value;
+
+                // Update time/day display
+                if (_timeText != null)
+                {
+                    try
+                    {
+                        if (_cfgUse24Hour)
+                        {
+                            int t = TimeManager.CurrentTime;
+                            _timeText.text = $"{t / 100:D2}:{t % 100:D2}";
+                        }
+                        else
+                        {
+                            _timeText.text = TimeManager.GetFormatted12HourTime();
+                        }
+                    }
+                    catch { _timeText.text = ""; }
+                }
+
+                if (_dayText != null)
+                {
+                    try
+                    {
+                        int dayIdx = (int)TimeManager.CurrentDay;
+                        _dayText.text = (dayIdx >= 0 && dayIdx < ShortDayNames.Length)
+                            ? ShortDayNames[dayIdx]
+                            : TimeManager.CurrentDay.ToString().Substring(0, 3);
+                    }
+                    catch { _dayText.text = ""; }
+                }
 
                 // Keep player marker on top
                 if (_playerMarkerRect != null)

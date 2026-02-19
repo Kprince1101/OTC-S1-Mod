@@ -46,7 +46,9 @@ namespace OverTheCounter
         }
 
         public DebugHelpers() : base() { }
+#if IL2CPP
         public DebugHelpers(IntPtr ptr) : base(ptr) { }
+#endif
 
         private void Update()
         {
@@ -68,7 +70,11 @@ namespace OverTheCounter
                     var discovered = ProductPopulator.GetWeedDefinitions();
                     _cachedWeedDef = (discovered != null && discovered.Count > 0)
                         ? discovered[0]
+#if IL2CPP
                         : FindFromRegistry<ScheduleOne.Product.WeedDefinition>();
+#else
+                        : null;
+#endif
                 }
 
                 if (_cachedMethDef == null)
@@ -76,7 +82,11 @@ namespace OverTheCounter
                     var discovered = ProductPopulator.GetMethDefinitions();
                     _cachedMethDef = (discovered != null && discovered.Count > 0)
                         ? discovered[0]
+#if IL2CPP
                         : FindFromRegistry<ScheduleOne.Product.MethDefinition>();
+#else
+                        : null;
+#endif
                 }
 
                 if (_cachedCocaineDef == null)
@@ -84,7 +94,11 @@ namespace OverTheCounter
                     var discovered = ProductPopulator.GetCocaineDefinitions();
                     _cachedCocaineDef = (discovered != null && discovered.Count > 0)
                         ? discovered[0]
+#if IL2CPP
                         : FindFromRegistry<ScheduleOne.Product.CocaineDefinition>();
+#else
+                        : null;
+#endif
                 }
             }
             catch (Exception ex)
@@ -93,6 +107,7 @@ namespace OverTheCounter
             }
         }
 
+#if IL2CPP
         private static ProductDefinition FindFromRegistry<T>() where T : GameSystem.Object
         {
             try
@@ -117,6 +132,7 @@ namespace OverTheCounter
             }
             return null;
         }
+#endif
 
         private void OnGUI()
         {
@@ -463,7 +479,11 @@ namespace OverTheCounter
 
                 if (quality.HasValue)
                 {
+#if IL2CPP
                     var qualityItem = il2cppItem?.TryCast<ScheduleOne.ItemFramework.QualityItemInstance>();
+#else
+                    var qualityItem = il2cppItem as ScheduleOne.ItemFramework.QualityItemInstance;
+#endif
                     qualityItem?.SetQuality(quality.Value);
                 }
                 if (il2cppItem == null)
@@ -478,9 +498,21 @@ namespace OverTheCounter
 
                     try
                     {
-                        // Match by definition ID — CanStackWith rejects freshly created instances
-                        // even when they're the same product (different internal state)
                         if (slot.ItemInstance.Definition?.ID != il2cppItem.Definition?.ID) continue;
+
+                        // Check packaging matches so baggies don't stack onto jars
+#if IL2CPP
+                        var slotProduct = slot.ItemInstance.TryCast<ScheduleOne.Product.ProductItemInstance>();
+                        var newProduct = il2cppItem.TryCast<ScheduleOne.Product.ProductItemInstance>();
+#else
+                        var slotProduct = slot.ItemInstance as ScheduleOne.Product.ProductItemInstance;
+                        var newProduct = il2cppItem as ScheduleOne.Product.ProductItemInstance;
+#endif
+                        if (slotProduct != null && newProduct != null)
+                        {
+                            if (slotProduct.PackagingID != newProduct.PackagingID) continue;
+                            if (slotProduct.Quality != newProduct.Quality) continue;
+                        }
 
                         int stackLimit;
                         try { stackLimit = slot.ItemInstance.StackLimit; }

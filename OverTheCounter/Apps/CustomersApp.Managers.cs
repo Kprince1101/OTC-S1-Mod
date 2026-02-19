@@ -1,10 +1,24 @@
+using MelonLoader;
+using OverTheCounter.Logic;
+using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using S1API.UI;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
-using OverTheCounter.Logic;
+
+#if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Money;
+using Il2CppScheduleOne.Property;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Money;
+using ScheduleOne.Property;
+#endif
 
 namespace OverTheCounter.Apps
 {
@@ -47,20 +61,99 @@ namespace OverTheCounter.Apps
 
             _managersContentParent = contentRect.transform;
             PopulateManagerList(_managersContentParent);
+            _lastManagerListFingerprint = BuildManagerListFingerprint();
         }
+
+        // Fingerprint of the last-rendered list — skip rebuild when nothing changed
+        private string _lastManagerListFingerprint;
 
         private void RefreshManagersPage()
         {
             if (_managersContentParent == null) return;
+
+            string fingerprint = BuildManagerListFingerprint();
+            if (fingerprint == _lastManagerListFingerprint) return;
+
             ClearChildren(_managersContentParent);
             PopulateManagerList(_managersContentParent);
+            _lastManagerListFingerprint = fingerprint;
+        }
+
+        /// <summary>
+        /// Builds a string fingerprint of the current manager list state.
+        /// Changes when managers are hired/fired, businesses are bought,
+        /// manager status changes, or config toggles.
+        /// </summary>
+        private string BuildManagerListFingerprint()
+        {
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.Append(Config.AlternateHire.Value ? "AH1|" : "AH0|");
+
+                foreach (var m in ManagerInstance.Active.Values)
+                {
+                    if (m.State == ManagerState.Fired) continue;
+                    var (status, _) = GetStatusDisplay(m);
+                    sb.Append(m.Id).Append(':').Append(m.BusinessPropertyCode)
+                      .Append(':').Append(status).Append('|');
+                }
+
+                if (Config.AlternateHire.Value)
+                {
+                    var managedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var m in ManagerInstance.Active.Values)
+                        if (m.State != ManagerState.Fired && !string.IsNullOrEmpty(m.BusinessPropertyCode))
+                            managedCodes.Add(m.BusinessPropertyCode);
+
+                    foreach (var biz in Business.OwnedBusinesses)
+                    {
+                        if (biz == null) continue;
+                        if (managedCodes.Contains(biz.PropertyCode)) continue;
+                        sb.Append("hire:").Append(biz.PropertyCode).Append('|');
+                    }
+                }
+
+                return sb.ToString();
+            }
+            catch { return null; } // null forces rebuild
         }
 
         private void PopulateManagerList(Transform contentParent)
         {
-            if (ManagerInstance.Active.Count == 0)
+            bool alternateHire = Config.AlternateHire.Value;
+
+            // Build sorted entries: active managers + unmanaged businesses (when alternate hire is on)
+            var managedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var managers = ManagerInstance.Active.Values
+                .Where(m => m.State != ManagerState.Fired)
+                .ToList();
+
+            foreach (var m in managers)
             {
-                var emptyText = UIFactory.Text("EmptyMsg", "No managers hired yet.", contentParent, 18, TextAnchor.MiddleCenter);
+                if (!string.IsNullOrEmpty(m.BusinessPropertyCode))
+                    managedCodes.Add(m.BusinessPropertyCode);
+            }
+
+            var unmanagedBusinesses = new List<Business>();
+            if (alternateHire)
+            {
+                try
+                {
+                    foreach (var biz in Business.OwnedBusinesses)
+                    {
+                        if (biz == null) continue;
+                        if (managedCodes.Contains(biz.PropertyCode)) continue;
+                        unmanagedBusinesses.Add(biz);
+                    }
+                }
+                catch { }
+            }
+
+            if (managers.Count == 0 && unmanagedBusinesses.Count == 0)
+            {
+                string msg = alternateHire ? "No properties owned yet." : "No managers hired yet.";
+                var emptyText = UIFactory.Text("EmptyMsg", msg, contentParent, 18, TextAnchor.MiddleCenter);
                 emptyText.color = new Color(0.5f, 0.5f, 0.5f);
                 var emptyLayout = emptyText.gameObject.AddComponent<LayoutElement>();
                 emptyLayout.preferredHeight = 60;
@@ -68,13 +161,130 @@ namespace OverTheCounter.Apps
                 return;
             }
 
-            // Sort by ID for deterministic ordering between host and client
-            // (Dictionary enumeration order depends on insertion order which differs)
-            var sorted = ManagerInstance.Active.Values
-                .Where(m => m.State != ManagerState.Fired)
-                .OrderBy(m => m.Id);
-            foreach (var mgr in sorted)
-                CreateManagerCard(contentParent, mgr);
+            // Interleave by property name for consistent ordering
+            var entries = new List<(string sortKey, ManagerInstance mgr, Business biz)>();
+            foreach (var m in managers)
+                entries.Add((m.AssignedBusiness?.PropertyName ?? m.BusinessPropertyCode ?? m.Id, m, null));
+            foreach (var b in unmanagedBusinesses)
+                entries.Add((b.PropertyName ?? b.PropertyCode, null, b));
+
+            entries.Sort((a, b) => string.Compare(a.sortKey, b.sortKey, StringComparison.OrdinalIgnoreCase));
+
+            foreach (var (_, mgr, biz) in entries)
+            {
+                if (mgr != null)
+                    CreateManagerCard(contentParent, mgr);
+                else
+                    CreateHireCard(contentParent, biz);
+            }
+        }
+
+        private void CreateHireCard(Transform parent, Business business)
+        {
+            float cardHeight = 72f;
+            var cardObj = UIFactory.Panel($"Hire_{business.PropertyCode}", parent, new Color(0.15f, 0.17f, 0.15f));
+            var cardLayout = cardObj.AddComponent<LayoutElement>();
+            cardLayout.preferredHeight = cardHeight;
+            cardLayout.flexibleWidth = 1;
+
+            // Property name
+            string bizName = business.PropertyName ?? business.PropertyCode;
+            var nameText = UIFactory.Text("Name", $"<b>{bizName}</b>", cardObj.transform, 14, TextAnchor.MiddleLeft);
+            nameText.color = Color.white;
+            var nameRect = nameText.gameObject.GetComponent<RectTransform>();
+            nameRect.anchorMin = new Vector2(0, 1);
+            nameRect.anchorMax = new Vector2(0.5f, 1);
+            nameRect.pivot = new Vector2(0, 1);
+            nameRect.anchoredPosition = new Vector2(12, -10);
+            nameRect.sizeDelta = new Vector2(0, 20);
+
+            // "No manager" status
+            var statusText = UIFactory.Text("Status", "No manager", cardObj.transform, 12, TextAnchor.MiddleLeft);
+            statusText.color = new Color(0.5f, 0.5f, 0.5f);
+            var statusRect = statusText.gameObject.GetComponent<RectTransform>();
+            statusRect.anchorMin = new Vector2(0, 1);
+            statusRect.anchorMax = new Vector2(0.5f, 1);
+            statusRect.pivot = new Vector2(0, 1);
+            statusRect.anchoredPosition = new Vector2(12, -32);
+            statusRect.sizeDelta = new Vector2(0, 18);
+
+            // Cost label
+            float signingFee = Config.ManagerSigningFee.Value;
+            var costText = UIFactory.Text("Cost", $"<color=#BBA033>${signingFee:N0}</color>", cardObj.transform, 12, TextAnchor.MiddleLeft);
+            costText.supportRichText = true;
+            costText.color = new Color(0.7f, 0.7f, 0.7f);
+            var costRect = costText.gameObject.GetComponent<RectTransform>();
+            costRect.anchorMin = new Vector2(0, 1);
+            costRect.anchorMax = new Vector2(0.5f, 1);
+            costRect.pivot = new Vector2(0, 1);
+            costRect.anchoredPosition = new Vector2(12, -50);
+            costRect.sizeDelta = new Vector2(0, 18);
+
+            // Hire button
+            string propCode = business.PropertyCode;
+            var (btnMask, btn, btnLabel) = UIFactory.RoundedButtonWithLabel(
+                "HireBtn", "Hire", cardObj.transform,
+                new Color(0.2f, 0.5f, 0.2f), 80, 36, 14, Color.white);
+            var btnRect = btnMask.GetComponent<RectTransform>();
+            btnRect.anchorMin = new Vector2(1, 0.5f);
+            btnRect.anchorMax = new Vector2(1, 0.5f);
+            btnRect.pivot = new Vector2(1, 0.5f);
+            btnRect.anchoredPosition = new Vector2(-12, 0);
+
+            var btnColors = btn.colors;
+            btnColors.normalColor = new Color(0.2f, 0.5f, 0.2f);
+            btnColors.highlightedColor = new Color(0.3f, 0.6f, 0.3f);
+            btnColors.pressedColor = new Color(0.15f, 0.35f, 0.15f);
+            btnColors.selectedColor = new Color(0.2f, 0.5f, 0.2f);
+            btn.colors = btnColors;
+
+            var capturedStatusText = statusText;
+            btn.onClick.AddListener(new Action(() =>
+            {
+                try
+                {
+                    if (ManagerInstance.HasManager(propCode))
+                    {
+                        capturedStatusText.text = "Already has a manager";
+                        capturedStatusText.color = new Color(0.8f, 0.4f, 0.4f);
+                        return;
+                    }
+
+                    float fee = Config.ManagerSigningFee.Value;
+                    var moneyMgr = NetworkSingleton<ScheduleOne.Money.MoneyManager>.Instance;
+                    if (moneyMgr == null || moneyMgr.cashBalance < fee)
+                    {
+                        capturedStatusText.text = $"Need ${fee:N0} cash";
+                        capturedStatusText.color = new Color(0.8f, 0.4f, 0.4f);
+                        return;
+                    }
+
+                    if (NetworkHelper.IsHost)
+                    {
+                        ManagerController.Instance?.HireManager(business);
+                    }
+                    else
+                    {
+                        ConfigSyncData.SendQuestAction($"MANAGER_HIRE:{propCode}");
+                    }
+
+                    // Force rebuild on next refresh
+                    _lastManagerListFingerprint = null;
+                    MelonLoader.MelonCoroutines.Start(DelayedRefresh());
+                }
+                catch (Exception ex)
+                {
+                    Melon<Core>.Logger.Error($"[CustomersApp] Hire error: {ex.Message}");
+                    capturedStatusText.text = "Error!";
+                    capturedStatusText.color = new Color(0.8f, 0.4f, 0.4f);
+                }
+            }));
+        }
+
+        private System.Collections.IEnumerator DelayedRefresh()
+        {
+            yield return new UnityEngine.WaitForSeconds(0.5f);
+            RefreshManagersPage();
         }
 
         // Chevron icon sprite (cached across cards)

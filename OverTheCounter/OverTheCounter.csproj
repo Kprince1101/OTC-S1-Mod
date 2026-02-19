@@ -33,6 +33,11 @@
 		<AssemblyName>OverTheCounter.Mono</AssemblyName>
 	</PropertyGroup>
 
+	<!-- MonoDebug: add DEBUG constant (MSBuild only auto-defines it for configs named exactly "Debug") -->
+	<PropertyGroup Condition="'$(Configuration)' == 'MonoDebug'">
+		<DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
+	</PropertyGroup>
+
 	<!-- Shared references -->
 	<ItemGroup>
 		<None Remove="Resources\CustomersIcon.png" />
@@ -286,6 +291,7 @@
 		<Compile Include="UI\LocationPickerUI.cs" />
 		<Compile Include="Logic\ContractAggregator.cs" />
 		<Compile Include="UI\SmartStashOverlayUI.cs" />
+		<Compile Include="UI\HandoverFillUI.cs" />
 		<Compile Include="Patches\StorageMenuPatch.cs" />
 		<Compile Include="SaveData\VicSaveData.cs" />
 		<Compile Include="SaveData\StaticSaveData.cs" />

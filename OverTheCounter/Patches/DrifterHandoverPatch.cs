@@ -1,6 +1,7 @@
 using HarmonyLib;
 using MelonLoader;
 using OverTheCounter.Logic;
+using OverTheCounter.UI;
 using OverTheCounter.Utilities;
 using System;
 
@@ -105,7 +106,8 @@ namespace OverTheCounter.Patches
     }
 
     /// <summary>
-    /// Patches HandoverScreen.Open to clear stale CustomerSlots before every open.
+    /// Patches HandoverScreen.Open to clear stale CustomerSlots before every open
+    /// and show the Smart Fill overlay in Contract mode.
     /// Close(Finalize) does NOT clear slots, so items from a previous handover
     /// (e.g. a drifter deal) bleed into the next handover (e.g. a desperation deal).
     /// </summary>
@@ -121,6 +123,39 @@ namespace OverTheCounter.Patches
             catch (Exception ex)
             {
                 Melon<Core>.Logger.Warning($"[HandoverScreenOpenPatch] ClearCustomerSlots failed: {ex.Message}");
+            }
+        }
+
+        public static void Postfix(HandoverScreen __instance, HandoverScreen.EMode mode)
+        {
+            try
+            {
+                Melon<Core>.Logger.Msg($"[HandoverScreenOpenPatch] Open fired, mode={mode}");
+                if (mode == HandoverScreen.EMode.Contract)
+                    HandoverFillUI.Show();
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Warning($"[HandoverScreenOpenPatch] Show overlay failed: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Hides the Smart Fill overlay when the HandoverScreen closes.
+    /// </summary>
+    [HarmonyPatch(typeof(HandoverScreen), nameof(HandoverScreen.Close))]
+    public static class HandoverScreenClosePatch
+    {
+        public static void Postfix()
+        {
+            try
+            {
+                HandoverFillUI.Hide();
+            }
+            catch (Exception ex)
+            {
+                Melon<Core>.Logger.Warning($"[HandoverScreenClosePatch] Hide overlay failed: {ex.Message}");
             }
         }
     }

@@ -59,6 +59,7 @@ namespace OverTheCounter
         public static ConfigEntry<float> ManagerDailyWage;
         public static ConfigEntry<float> ManagerSigningFee;
         public static ConfigEntry<bool> ManagerVerboseLogging;
+        public static ConfigEntry<bool> AlternateHire;
 
         // ── Debug ──
         private static MelonPreferences_Category _debug;
@@ -99,6 +100,9 @@ namespace OverTheCounter
         public static MelonPreferences_Entry<string> MinimapPosition;
         public static MelonPreferences_Entry<Color> MinimapBorderColor;
         public static ConfigEntry<int> MinimapBorderWidth;
+        public static ConfigEntry<bool> MinimapShowTime;
+        public static ConfigEntry<bool> MinimapShowDay;
+        public static ConfigEntry<bool> MinimapUse24HourClock;
 
         // ── Minimap POIs ──
         private static MelonPreferences_Category _minimapPoi;
@@ -132,6 +136,9 @@ namespace OverTheCounter
             "MinimapDefaultZoom",
             "MinimapIconScale",
             "MinimapBorderWidth",
+            "MinimapShowTime",
+            "MinimapShowDay",
+            "MinimapUse24HourClock",
             "MinimapShowPotentialCustomers",
             "MinimapShowCustomers",
             "MinimapShowDealers",
@@ -225,6 +232,8 @@ namespace OverTheCounter
                 "One-time fee deducted from player cash when hiring a manager"));
             ManagerVerboseLogging = Register(_managers.CreateEntry("ManagerVerboseLogging", false, "Verbose Logging",
                 "Enable detailed manager logging for troubleshooting (shopping list breakdowns, per-item details)"));
+            AlternateHire = Register(_managers.CreateEntry("AlternateHire", false, "Alternate Hire",
+                "Show hire buttons in the OTC app instead of using Manny's dialogue. Enable if another mod conflicts with Manny."));
 
             // ── Debug ──
             _debug = MelonPreferences.CreateCategory("OverTheCounter_Debug", "Debug");
@@ -290,6 +299,12 @@ namespace OverTheCounter
                 "Minimap border color");
             MinimapBorderWidth = Register(_minimap.CreateEntry("MinimapBorderWidth", 4,
                 "Border Width", "Border thickness in pixels per side (2-10)"));
+            MinimapShowTime = Register(_minimap.CreateEntry("MinimapShowTime", true,
+                "Show Time", "Display the current time near the minimap"));
+            MinimapShowDay = Register(_minimap.CreateEntry("MinimapShowDay", true,
+                "Show Day", "Display the current day near the minimap"));
+            MinimapUse24HourClock = Register(_minimap.CreateEntry("MinimapUse24HourClock", false,
+                "24-Hour Clock", "Use 24-hour time format instead of 12-hour AM/PM"));
 
             // ── Minimap POIs ──
             _minimapPoi = MelonPreferences.CreateCategory("OverTheCounter_MinimapPOI", "Minimap POIs");

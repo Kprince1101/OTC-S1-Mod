@@ -1,6 +1,6 @@
 # OverTheCounter for Schedule I
 
-**OverTheCounter** is a Comprehensive logistics expansion for Schedule I. Features physical Manager automation, 24/7 market access via "Executive Privilege," high-stakes "Desperation" daytime deals, a tiered OTC customer app SaaS scam, and manual cash-laundering via the "Rinse Cycle" questline.
+**OverTheCounter** is a comprehensive logistics expansion for Schedule I, compatible with both **IL2CPP and Mono** branches. Features physical Manager automation, 24/7 market access via "Executive Privilege," high-stakes "Desperation" daytime deals, a tiered OTC customer app SaaS scam, and manual cash-laundering via the "Rinse Cycle" questline.
 
 > **DUAL BUILD:** This mod ships both `OverTheCounter.Il2Cpp.dll` and `OverTheCounter.Mono.dll`.
 > If using a mod manager, [SwapperPlugin](https://thunderstore.io/c/schedule-i/p/the_croods/SwapperPlugin/) (included as a dependency) automatically loads the correct DLL for your game branch.
@@ -22,8 +22,8 @@ A complete, simulation-based automation system built on **S1API** for maximum co
 *No more mental math. No more clicking back and forth.*
 
 * **The Contract Aggregator:** Merges all active orders into a single "Pending Deliveries" list, grouped by time window. See exactly what you need for the next run at a glance.
-* **Live Stash Manifest:** When you open a container, a side panel instantly calculates the total product required for your active contracts versus what you are holding.
-* **Smart Fill Button:** One-click transfer that automatically pulls the exact amount of product needed from the container to your inventory, prioritizing jars over baggies to save space. Toggle "Include All Delivery Windows" to limit fills to only your current window's contracts.
+* **Smart Fill — Storage:** Open any container to see a live manifest of what you need vs. what you have. One click pulls the exact product into your inventory, prioritizing jars over baggies.
+* **Smart Fill — Handover:** During a contract handover, click once to fill the bare minimum (quality-aware, smallest packaging first). Click again to boost until acceptance hits 95%+.
 
 ## 3. Dynamic World Events
 *The city feels alive, and the market is volatile.*
