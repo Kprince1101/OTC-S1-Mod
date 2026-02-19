@@ -147,34 +147,44 @@ namespace OverTheCounter.Utilities
             if (waitFrames > 0 && Config.VerboseLogging.Value)
                 Logger.Msg($"Waited {waitFrames} frames for S1API mugshot processing to finish");
 
-            // === GPU warmup (5 cycles) ===
-            // Toggle the rig active/inactive to force GPU driver and Unity's internal
-            // SkinnedMeshRenderer/Animator/material pipeline to initialize.
-            if (generator.DefaultSettings != null)
+            // Flush the rig to a clean state. After S1API finishes, the rig retains
+            // the last vanilla NPC's bone transforms/mesh, causing misframed captures.
+            // Mid-game (cold rig) needs 5 cycles to prime renderers; post-S1API (warm rig)
+            // needs 1 cycle to flush stale state.
+            int warmupCycles = waitFrames == 0 ? 5 : 1;
+            if (Config.VerboseLogging.Value)
+                Logger.Msg(waitFrames == 0
+                    ? "Mid-game mugshot request — warming up MugshotRig (5 cycles)"
+                    : "Post-S1API flush — resetting MugshotRig (1 cycle)");
+
+            for (int w = 0; w < warmupCycles; w++)
             {
-                int iconLayer = LayerMask.NameToLayer("IconGeneration");
-                const int primeCycles = 5;
+                Transform mugshotParent = mugshotRig.transform.parent;
+                if (mugshotParent != null)
+                    mugshotParent.gameObject.SetActive(true);
+                mugshotRig.gameObject.SetActive(true);
 
-                for (int w = 0; w < primeCycles; w++)
-                {
-                    Transform warmupParent = mugshotRig.transform.parent;
-                    if (warmupParent != null)
-                        warmupParent.gameObject.SetActive(true);
-                    mugshotRig.gameObject.SetActive(true);
+                if (mugshotRig.Animation != null)
+                    mugshotRig.Animation.AllowCulling = false;
 
+                mugshotRig.SetVisible(true);
+                mugshotRig.Impostor?.DisableImpostor();
+
+                if (generator.DefaultSettings != null)
                     mugshotRig.LoadAvatarSettings(generator.DefaultSettings);
-                    SetLayerRecursively(mugshotRig.gameObject, iconLayer);
 
-                    var warmupSMRs = mugshotRig.GetComponentsInChildren<SkinnedMeshRenderer>();
-                    foreach (var smr in warmupSMRs)
-                        smr.updateWhenOffscreen = true;
+                SetLayerRecursively(mugshotRig.gameObject, LayerMask.NameToLayer("IconGeneration"));
 
-                    yield return new WaitForEndOfFrame();
+                yield return null;
+                yield return new WaitForEndOfFrame();
 
-                    mugshotRig.LoadAvatarSettings(generator.DefaultSettings);
-                    mugshotRig.gameObject.SetActive(false);
-                }
+                if (mySession != _sessionId) { _isProcessing = false; yield break; }
+
+                mugshotRig.gameObject.SetActive(false);
             }
+
+            if (Config.VerboseLogging.Value)
+                Logger.Msg("MugshotRig reset complete");
 
             // Process queue
             while (_queue.Count > 0)

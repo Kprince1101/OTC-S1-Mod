@@ -31,7 +31,7 @@ namespace OverTheCounter.Quests
 
         public int Stage => _stage;
 
-        private static readonly Vector3 VicPosition = new Vector3(72.08f, 0.97f, 31.71f);
+        private static readonly Vector3 VicPosition = new Vector3(67.75f, 0.97f, 32.36f);
 
         private void TriggerInternalInit()
         {

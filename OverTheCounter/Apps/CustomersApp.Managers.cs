@@ -109,7 +109,7 @@ namespace OverTheCounter.Apps
         {
             int rows = Math.Max(1, (slotCount + SLOTS_PER_ROW - 1) / SLOTS_PER_ROW);
             if (rows <= 1) return 92f;
-            return 92f + (rows - 1) * 90f;
+            return 92f + (rows - 1) * (SLOT_SIZE + SLOT_GAP);
         }
 
         private void CreateManagerCard(Transform parent, ManagerInstance mgr)
@@ -130,13 +130,13 @@ namespace OverTheCounter.Apps
             cardLayout.preferredHeight = cardHeight;
             cardLayout.flexibleWidth = 1;
 
-            // ── Mugshot with stroke frame ──
+            // ── Mugshot with stroke frame (top-anchored, fixed size) ──
             var mugFrame = UIFactory.Panel("MugFrame", cardObj.transform, new Color(0.45f, 0.50f, 0.52f));
             var mugFrameRect = mugFrame.GetComponent<RectTransform>();
-            mugFrameRect.anchorMin = new Vector2(0, 0.90f);
-            mugFrameRect.anchorMax = new Vector2(0, 0.90f);
-            mugFrameRect.pivot = new Vector2(0, 1f);
-            mugFrameRect.anchoredPosition = new Vector2(8, 0);
+            mugFrameRect.anchorMin = new Vector2(0, 1);
+            mugFrameRect.anchorMax = new Vector2(0, 1);
+            mugFrameRect.pivot = new Vector2(0, 1);
+            mugFrameRect.anchoredPosition = new Vector2(8, -8);
             mugFrameRect.sizeDelta = new Vector2(69, 69);
 
             var mugPanel = UIFactory.Panel("Mugshot", mugFrame.transform, new Color(0.15f, 0.15f, 0.15f));
@@ -174,10 +174,11 @@ namespace OverTheCounter.Apps
             var nameText = UIFactory.Text("Name", $"<b>{firstName} {lastName}</b>", cardObj.transform, 14, TextAnchor.MiddleLeft);
             nameText.color = Color.white;
             var nameRect = nameText.gameObject.GetComponent<RectTransform>();
-            nameRect.anchorMin = new Vector2(0, 0.68f);
-            nameRect.anchorMax = new Vector2(0.25f, 0.90f);
-            nameRect.offsetMin = new Vector2(92, 0);
-            nameRect.offsetMax = Vector2.zero;
+            nameRect.anchorMin = new Vector2(0, 1);
+            nameRect.anchorMax = new Vector2(0.25f, 1);
+            nameRect.pivot = new Vector2(0, 1);
+            nameRect.anchoredPosition = new Vector2(92, -10);
+            nameRect.sizeDelta = new Vector2(0, 20);
 
             // ── Left: Business + Balance ──
             string bizName = mgr.AssignedBusiness?.PropertyName ?? mgr.BusinessPropertyCode ?? "Unassigned";
@@ -191,28 +192,33 @@ namespace OverTheCounter.Apps
             bizText.color = new Color(0.55f, 0.55f, 0.55f);
             bizText.supportRichText = true;
             var bizRect = bizText.gameObject.GetComponent<RectTransform>();
-            bizRect.anchorMin = new Vector2(0, 0.46f);
-            bizRect.anchorMax = new Vector2(0.25f, 0.68f);
-            bizRect.offsetMin = new Vector2(92, 0);
-            bizRect.offsetMax = Vector2.zero;
+            bizRect.anchorMin = new Vector2(0, 1);
+            bizRect.anchorMax = new Vector2(0.25f, 1);
+            bizRect.pivot = new Vector2(0, 1);
+            bizRect.anchoredPosition = new Vector2(92, -32);
+            bizRect.sizeDelta = new Vector2(0, 18);
 
             // ── Left: Status ──
             var (statusStr, statusColor) = GetStatusDisplay(mgr);
             var statusText = UIFactory.Text("Status", statusStr, cardObj.transform, 12, TextAnchor.MiddleLeft);
             statusText.color = statusColor;
             var statusRect = statusText.gameObject.GetComponent<RectTransform>();
-            statusRect.anchorMin = new Vector2(0, 0.24f);
-            statusRect.anchorMax = new Vector2(0.25f, 0.46f);
-            statusRect.offsetMin = new Vector2(92, 0);
-            statusRect.offsetMax = Vector2.zero;
+            statusRect.anchorMin = new Vector2(0, 1);
+            statusRect.anchorMax = new Vector2(0.25f, 1);
+            statusRect.pivot = new Vector2(0, 1);
+            statusRect.anchoredPosition = new Vector2(92, -52);
+            statusRect.sizeDelta = new Vector2(0, 18);
 
             // ── Center: Inventory Slots Grid (actual NPC inventory) ──
             var invPanel = UIFactory.Panel("Inventory", cardObj.transform, Color.clear);
             var invRect = invPanel.GetComponent<RectTransform>();
-            invRect.anchorMin = new Vector2(0.40f, 0.04f);
-            invRect.anchorMax = new Vector2(0.72f, 0.82f);
-            invRect.offsetMin = Vector2.zero;
-            invRect.offsetMax = Vector2.zero;
+            invRect.anchorMin = new Vector2(0.40f, 1);
+            invRect.anchorMax = new Vector2(0.72f, 1);
+            invRect.pivot = new Vector2(0, 1);
+            invRect.anchoredPosition = new Vector2(0, -6);
+            int invRows = Math.Max(1, (displaySlots + SLOTS_PER_ROW - 1) / SLOTS_PER_ROW);
+            float invGridHeight = invRows * SLOT_SIZE + Math.Max(0, invRows - 1) * SLOT_GAP;
+            invRect.sizeDelta = new Vector2(0, invGridHeight);
 
             var grid = invPanel.AddComponent<GridLayoutGroup>();
             grid.cellSize = new Vector2(SLOT_SIZE, SLOT_SIZE);
@@ -282,10 +288,10 @@ namespace OverTheCounter.Apps
                 "DetailBtn", "\u203A", cardObj.transform, // › right angle quote (fallback if icon missing)
                 new Color(0.15f, 0.35f, 0.45f), 65, 65, 8, Color.white);
             var chevRect = chevMask.GetComponent<RectTransform>();
-            chevRect.anchorMin = new Vector2(0.96f, 0.82f);
-            chevRect.anchorMax = new Vector2(0.96f, 0.82f);
-            chevRect.pivot = new Vector2(0.5f, 1f);
-            chevRect.anchoredPosition = Vector2.zero;
+            chevRect.anchorMin = new Vector2(0.96f, 1);
+            chevRect.anchorMax = new Vector2(0.96f, 1);
+            chevRect.pivot = new Vector2(0.5f, 1);
+            chevRect.anchoredPosition = new Vector2(0, -10);
             chevLabel.gameObject.SetActive(false);
             if (_chevronSprite == null) _chevronSprite = LoadIconResource("ChevronIcon");
             if (_chevronSprite != null)

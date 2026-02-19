@@ -3,9 +3,9 @@
 **OverTheCounter** is a Comprehensive logistics expansion for Schedule I. Features physical Manager automation, 24/7 market access via "Executive Privilege," high-stakes "Desperation" daytime deals, a tiered OTC customer app SaaS scam, and manual cash-laundering via the "Rinse Cycle" questline.
 
 > **COMPATIBILITY NOTICE:**
-> This mod is built for the **IL2CPP branch** of the game using **MelonLoader 0.7.0**.
-> It utilizes Harmony patching that is **NOT compatible with the Mono branch**.
-> Do not attempt to use this on Mono builds; it will crash or fail to load.
+> This mod **only works on the IL2CPP branch** of the game with **MelonLoader 0.7.0**.
+> All code and patches target IL2CPP-specific types — it will **crash or fail to load** on Mono.
+> **There is no Mono version.** If you see one listed anywhere, it is incorrect.
 
 # Features
 

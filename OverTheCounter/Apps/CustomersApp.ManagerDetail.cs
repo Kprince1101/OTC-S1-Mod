@@ -100,6 +100,8 @@ namespace OverTheCounter.Apps
                 _detailInvBtnText = null;
                 _detailSpeedFill = null;
                 _detailInvFill = null;
+                _speedErrorText = null;
+                _invErrorText = null;
                 _minimapImageRect = null;
                 _minimapMarkerIcon = null;
                 _minimapDestRect = null;
@@ -704,6 +706,16 @@ namespace OverTheCounter.Apps
             _detailSpeedBtn = speedBtnComp;
             _detailSpeedBtnText = speedBtnLabel;
 
+            // Insufficient funds error (hidden until triggered)
+            _speedErrorText = UIFactory.Text("SpeedError", "Insufficient funds", speedCard.transform, 12, TextAnchor.MiddleCenter);
+            _speedErrorText.color = new Color(0.9f, 0.25f, 0.25f, 0f);
+            var speedErrRect = _speedErrorText.gameObject.GetComponent<RectTransform>();
+            speedErrRect.anchorMin = new Vector2(0, 1);
+            speedErrRect.anchorMax = new Vector2(1, 1);
+            speedErrRect.pivot = new Vector2(0.5f, 1);
+            speedErrRect.anchoredPosition = new Vector2(0, -112);
+            speedErrRect.sizeDelta = new Vector2(0, 16);
+
             string speedFooterStr = speedMaxed ? "" : $"+${ManagerUpgrades.GetNextSpeedDailyFee(mgr.Configuration.SpeedTier):F0} Daily Maintenance";
             _detailSpeedCostLabel = UIFactory.Text("SpeedFooter", speedFooterStr, speedCard.transform, 15, TextAnchor.MiddleCenter);
             _detailSpeedCostLabel.color = new Color(0.5f, 0.5f, 0.5f);
@@ -727,10 +739,25 @@ namespace OverTheCounter.Apps
                             mgrRef.AssignLocker(mgrRef.AssignedLocker);
                             MelonCoroutines.Start(RefreshBankNextFrame(mgrRef));
                         }
+                        else
+                        {
+                            FlashError(_speedErrorText);
+                        }
                     }
                     else
                     {
-                        ConfigSyncData.SendQuestAction($"MANAGER_UPGRADE_SPEED:{mgrRef.Id}");
+                        float cost = ManagerUpgrades.GetNextSpeedBuyIn(mgrRef.Configuration.SpeedTier);
+                        var mm = NetworkSingleton<MoneyManager>.Instance;
+                        if (mm != null && mm.onlineBalance < cost)
+                        {
+                            FlashError(_speedErrorText);
+                        }
+                        else
+                        {
+                            mgrRef.Configuration.SpeedTier++;
+                            RefreshUpgradeLabels(mgrRef);
+                            ConfigSyncData.SendQuestAction($"MANAGER_UPGRADE_SPEED:{mgrRef.Id}");
+                        }
                     }
                 }));
             }
@@ -810,6 +837,16 @@ namespace OverTheCounter.Apps
             _detailInvBtn = invBtnComp;
             _detailInvBtnText = invBtnLabel;
 
+            // Insufficient funds error (hidden until triggered)
+            _invErrorText = UIFactory.Text("InvError", "Insufficient funds", invCard.transform, 12, TextAnchor.MiddleCenter);
+            _invErrorText.color = new Color(0.9f, 0.25f, 0.25f, 0f);
+            var invErrRect = _invErrorText.gameObject.GetComponent<RectTransform>();
+            invErrRect.anchorMin = new Vector2(0, 1);
+            invErrRect.anchorMax = new Vector2(1, 1);
+            invErrRect.pivot = new Vector2(0.5f, 1);
+            invErrRect.anchoredPosition = new Vector2(0, -112);
+            invErrRect.sizeDelta = new Vector2(0, 16);
+
             string invFooterStr = invMaxed ? "" : $"+${ManagerUpgrades.SlotDailyFee:F0} Daily Maintenance";
             _detailInvCostLabel = UIFactory.Text("InvFooter", invFooterStr, invCard.transform, 15, TextAnchor.MiddleCenter);
             _detailInvCostLabel.color = new Color(0.5f, 0.5f, 0.5f);
@@ -833,10 +870,26 @@ namespace OverTheCounter.Apps
                             ShowManagerDetail(mgrRef); // full rebuild for new slot count
                             MelonCoroutines.Start(RefreshBankNextFrame(mgrRef));
                         }
+                        else
+                        {
+                            FlashError(_invErrorText);
+                        }
                     }
                     else
                     {
-                        ConfigSyncData.SendQuestAction($"MANAGER_UPGRADE_INV:{mgrRef.Id}");
+                        float cost = ManagerUpgrades.GetNextSlotBuyIn(mgrRef.Configuration.ExtraInventorySlots);
+                        var mm = NetworkSingleton<MoneyManager>.Instance;
+                        if (mm != null && mm.onlineBalance < cost)
+                        {
+                            FlashError(_invErrorText);
+                        }
+                        else
+                        {
+                            mgrRef.Configuration.ExtraInventorySlots++;
+                            mgrRef.ApplyInventoryCapacity();
+                            ShowManagerDetail(mgrRef);
+                            ConfigSyncData.SendQuestAction($"MANAGER_UPGRADE_INV:{mgrRef.Id}");
+                        }
                     }
                 }));
             }
@@ -911,6 +964,36 @@ namespace OverTheCounter.Apps
             RefreshUpgradeLabels(mgr);
         }
 
+        private void FlashError(Text errorText)
+        {
+            if (errorText == null) return;
+            MelonCoroutines.Start(FlashErrorRoutine(errorText));
+        }
+
+        private IEnumerator FlashErrorRoutine(Text errorText)
+        {
+            Color c = errorText.color;
+            float t = 0f;
+            while (t < 0.15f)
+            {
+                t += Time.deltaTime;
+                errorText.color = new Color(c.r, c.g, c.b, Mathf.Lerp(0f, 1f, t / 0.15f));
+                yield return null;
+            }
+            errorText.color = new Color(c.r, c.g, c.b, 1f);
+
+            yield return new WaitForSeconds(1.2f);
+
+            t = 0f;
+            while (t < 0.5f)
+            {
+                t += Time.deltaTime;
+                errorText.color = new Color(c.r, c.g, c.b, Mathf.Lerp(1f, 0f, t / 0.5f));
+                yield return null;
+            }
+            errorText.color = new Color(c.r, c.g, c.b, 0f);
+        }
+
         private void BuildDebugLogButton(Transform contentArea, ManagerInstance mgr)
         {
             // Log buffer is only populated on the host — hide on clients
@@ -960,6 +1043,8 @@ namespace OverTheCounter.Apps
                 _detailInvBtnText = null;
                 _detailSpeedFill = null;
                 _detailInvFill = null;
+                _speedErrorText = null;
+                _invErrorText = null;
                 _minimapImageRect = null;
                 _minimapMarkerIcon = null;
                 _minimapDestRect = null;

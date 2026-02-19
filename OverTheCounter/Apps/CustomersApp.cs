@@ -94,6 +94,8 @@ namespace OverTheCounter.Apps
         private Text _detailInvBtnText;
         private RectTransform _detailSpeedFill;
         private RectTransform _detailInvFill;
+        private Text _speedErrorText;
+        private Text _invErrorText;
 
         // Manager log page (overlay)
         private GameObject _managerLogPage;
@@ -362,6 +364,8 @@ namespace OverTheCounter.Apps
                 _detailInvBtnText = null;
                 _detailSpeedFill = null;
                 _detailInvFill = null;
+                _speedErrorText = null;
+                _invErrorText = null;
                 _minimapImageRect = null;
                 _minimapMarkerIcon = null;
                 _minimapDestRect = null;

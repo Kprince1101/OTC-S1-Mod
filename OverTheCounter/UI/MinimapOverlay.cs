@@ -129,6 +129,18 @@ namespace OverTheCounter.UI
                 _mapRect.sizeDelta = new Vector2(_displaySize, _displaySize);
             }
 
+            // React to MinimapEnabled being toggled via config/ModsApp
+            if (Config.MinimapEnabled.Value && !_visible)
+            {
+                _zoom = Mathf.Clamp(Config.MinimapDefaultZoom.Value, 1, 3);
+                _visible = true;
+            }
+            else if (!Config.MinimapEnabled.Value && _visible)
+            {
+                DestroyMinimap();
+                _visible = false;
+            }
+
             if (Input.GetKeyDown(_toggleKey) && !Il2CppScheduleOne.GameInput.IsTyping)
                 ToggleMinimap();
 
