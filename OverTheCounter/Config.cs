@@ -177,8 +177,8 @@ namespace OverTheCounter
             // ── Manager System ──
             _managers = MelonPreferences.CreateCategory("OverTheCounter_Managers", "Manager System");
 
-            ManagerDailyWage = Register(_managers.CreateEntry("ManagerDailyWage", 350f, "Daily Wage",
-                "Daily wage deducted from the manager's cash pool"));
+            ManagerDailyWage = Register(_managers.CreateEntry("ManagerDailyWage", 350f, "Base Daily Wage",
+                "Base daily wage before upgrade fees are added"));
             ManagerSigningFee = Register(_managers.CreateEntry("ManagerSigningFee", 3000f, "Signing Fee",
                 "One-time fee deducted from player cash when hiring a manager"));
             ManagerVerboseLogging = Register(_managers.CreateEntry("ManagerVerboseLogging", false, "Verbose Logging",

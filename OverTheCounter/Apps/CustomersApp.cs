@@ -73,11 +73,27 @@ namespace OverTheCounter.Apps
         private float _minimapContentW;
         private float _minimapContentH;
         private Image _minimapMarkerIcon; // mugshot inside map marker circle
+        private RectTransform _minimapDestRect; // red destination marker
+        private Image _minimapBgImage; // container background, blended by pan position
 
         // Manager detail page - refreshable elements
         private GameObject _detailInvGrid;
         private Text _detailStatusText;
         private Text _detailCashText;
+
+        // Upgrade section - refreshable elements
+        private Text _detailBankText;
+        private Text _detailWageText;
+        private Text _detailSpeedLabel;
+        private Text _detailSpeedCostLabel;
+        private Button _detailSpeedBtn;
+        private Text _detailSpeedBtnText;
+        private Text _detailInvUpLabel;
+        private Text _detailInvCostLabel;
+        private Button _detailInvBtn;
+        private Text _detailInvBtnText;
+        private RectTransform _detailSpeedFill;
+        private RectTransform _detailInvFill;
 
         // Manager log page (overlay)
         private GameObject _managerLogPage;
@@ -334,8 +350,22 @@ namespace OverTheCounter.Apps
                 _detailInvGrid = null;
                 _detailStatusText = null;
                 _detailCashText = null;
+                _detailBankText = null;
+                _detailWageText = null;
+                _detailSpeedLabel = null;
+                _detailSpeedCostLabel = null;
+                _detailSpeedBtn = null;
+                _detailSpeedBtnText = null;
+                _detailInvUpLabel = null;
+                _detailInvCostLabel = null;
+                _detailInvBtn = null;
+                _detailInvBtnText = null;
+                _detailSpeedFill = null;
+                _detailInvFill = null;
                 _minimapImageRect = null;
                 _minimapMarkerIcon = null;
+                _minimapDestRect = null;
+                _minimapBgImage = null;
             }
 
             _managersPage.SetActive(tab == AppTab.Managers);

@@ -1,6 +1,8 @@
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Employees;
+using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.Map;
+using Il2CppScheduleOne.Money;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.NPCs.Behaviour;
 using Il2CppScheduleOne.Property;
@@ -215,6 +217,135 @@ namespace OverTheCounter.Logic
             catch { return "unknown"; }
         }
 
+        // ==================================================================
+        // Upgrade system — speed tiers & inventory capacity
+        // ==================================================================
+
+        /// <summary>
+        /// Calculates this manager's daily wage based on upgrade tiers.
+        /// </summary>
+        public float GetDailyWage()
+            => ManagerUpgrades.CalculateDailyWage(Configuration.SpeedTier, Configuration.ExtraInventorySlots);
+
+        /// <summary>
+        /// Applies the current speed tier to the NPC's SpeedController.
+        /// Removes and re-adds the "manager" speed control with the tier's value.
+        /// Safe to call at any time (spawn, adopt, upgrade purchase, load).
+        /// </summary>
+        public void ApplySpeedUpgrade()
+        {
+            try
+            {
+                var speedCtrl = GameNpc?.Movement?.SpeedController;
+                if (speedCtrl == null) return;
+
+                speedCtrl.RemoveSpeedControl("manager");
+                float speedVal = ManagerUpgrades.GetSpeedControlValue(Configuration.SpeedTier);
+                speedCtrl.AddSpeedControl(
+                    new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, speedVal));
+
+                if (Config.ManagerVerboseLogging.Value)
+                    Log($"ApplySpeedUpgrade: tier={Configuration.SpeedTier} speed={speedVal:F3}");
+            }
+            catch (Exception ex)
+            {
+                LogWarning($"ApplySpeedUpgrade failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Ensures the NPC's inventory has enough slots for the current upgrade level.
+        /// Creates new ItemSlot instances if the current count is below the target.
+        /// </summary>
+        public void ApplyInventoryCapacity()
+        {
+            try
+            {
+                var inventory = GameNpc?.GetComponent<Il2CppScheduleOne.NPCs.NPCInventory>();
+                if (inventory == null) return;
+
+                int target = ManagerUpgrades.GetTotalSlots(Configuration.ExtraInventorySlots);
+                int current = inventory.ItemSlots?.Count ?? 0;
+
+                if (current >= target) return;
+
+                for (int i = current; i < target; i++)
+                {
+                    var slot = new Il2CppScheduleOne.ItemFramework.ItemSlot();
+                    slot.SetSlotOwner(inventory.Cast<Il2CppScheduleOne.ItemFramework.IItemSlotOwner>());
+                }
+
+                inventory.SlotCount = target;
+
+                if (Config.ManagerVerboseLogging.Value)
+                    Log($"ApplyInventoryCapacity: {current}→{target} slots");
+            }
+            catch (Exception ex)
+            {
+                LogWarning($"ApplyInventoryCapacity failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Attempts to purchase the next speed tier using the player's bank balance.
+        /// Returns true if the upgrade was purchased successfully.
+        /// Host-only: bank transactions are server-side RPCs.
+        /// </summary>
+        public bool TryPurchaseSpeedUpgrade()
+        {
+            if (ManagerUpgrades.IsSpeedMaxed(Configuration.SpeedTier))
+            {
+                Log("TryPurchaseSpeedUpgrade: already maxed");
+                return false;
+            }
+
+            float cost = ManagerUpgrades.GetNextSpeedBuyIn(Configuration.SpeedTier);
+            var moneyMgr = NetworkSingleton<MoneyManager>.Instance;
+            if (moneyMgr == null || moneyMgr.onlineBalance < cost)
+            {
+                Log($"TryPurchaseSpeedUpgrade: insufficient funds (need ${cost:F0}, have ${moneyMgr?.onlineBalance ?? 0:F0})");
+                return false;
+            }
+
+            moneyMgr.CreateOnlineTransaction("Manager Speed Upgrade", -cost, 1f, "OTC Managers");
+            Configuration.SpeedTier++;
+            ApplySpeedUpgrade();
+            StatePublishNeeded = true;
+
+            Log($"Purchased speed tier {Configuration.SpeedTier} ({ManagerUpgrades.GetSpeedLabel(Configuration.SpeedTier)}) for ${cost:F0}");
+            return true;
+        }
+
+        /// <summary>
+        /// Attempts to purchase the next inventory slot using the player's bank balance.
+        /// Returns true if the upgrade was purchased successfully.
+        /// Host-only: bank transactions are server-side RPCs.
+        /// </summary>
+        public bool TryPurchaseInventoryUpgrade()
+        {
+            if (ManagerUpgrades.IsInventoryMaxed(Configuration.ExtraInventorySlots))
+            {
+                Log("TryPurchaseInventoryUpgrade: already maxed");
+                return false;
+            }
+
+            float cost = ManagerUpgrades.GetNextSlotBuyIn(Configuration.ExtraInventorySlots);
+            var moneyMgr = NetworkSingleton<MoneyManager>.Instance;
+            if (moneyMgr == null || moneyMgr.onlineBalance < cost)
+            {
+                Log($"TryPurchaseInventoryUpgrade: insufficient funds (need ${cost:F0}, have ${moneyMgr?.onlineBalance ?? 0:F0})");
+                return false;
+            }
+
+            moneyMgr.CreateOnlineTransaction("Manager Inventory Upgrade", -cost, 1f, "OTC Managers");
+            Configuration.ExtraInventorySlots++;
+            ApplyInventoryCapacity();
+            StatePublishNeeded = true;
+
+            Log($"Purchased inventory slot {ManagerUpgrades.GetTotalSlots(Configuration.ExtraInventorySlots)} for ${cost:F0}");
+            return true;
+        }
+
         /// <summary>
         /// Disables the vanilla IdleBehaviour during active runs so it doesn't
         /// overwrite our walk destination after dialogue ends.
@@ -369,6 +500,10 @@ namespace OverTheCounter.Logic
             // Always-on map marker (like dealers)
             instance.SetupMapMarker();
 
+            // Apply upgrade tiers (base tier 0 on fresh hire, restored tiers on load)
+            instance.ApplySpeedUpgrade();
+            instance.ApplyInventoryCapacity();
+
             // Walk to destination if we have a registered location
             if (location != null)
             {
@@ -419,14 +554,9 @@ namespace OverTheCounter.Logic
             ManagerSpawner.SetupInventory(existingNpc);
             ManagerSpawner.SetupDialogueChoices(instance);
 
-            // 1.8x default NPC walk speed
-            try
-            {
-                var speedCtrl = existingNpc.Movement?.SpeedController;
-                speedCtrl?.AddSpeedControl(
-                    new Il2CppScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, 0.144f));
-            }
-            catch { }
+            // Apply upgrade tiers (config will be deserialized shortly after by ApplyManagerSlot)
+            instance.ApplySpeedUpgrade();
+            instance.ApplyInventoryCapacity();
 
             // Generate mugshot using the exact settings from ApplyAppearance
             instance.GenerateMugshot(avatarSettings);
@@ -757,7 +887,7 @@ namespace OverTheCounter.Logic
             try
             {
                 // Mirror vanilla SetAssignedEmployee + UpdateStorageText (we can't call them since we're not an Employee)
-                float dailyWage = Config.ManagerDailyWage.Value;
+                float dailyWage = GetDailyWage();
                 string wageStr = $"<color=#54E717>${dailyWage:F0}</color>";
                 string homeType = locker.HomeType ?? "Briefcase";
                 string fullName = GameNpc != null ? $"{GameNpc.FirstName} {GameNpc.LastName}" : "Manager";
@@ -1441,6 +1571,8 @@ namespace OverTheCounter.Logic
                 {
                     existing.Configuration.Deserialize(DecodeConfig(configStr));
                     existing.ReconcileLockerFromConfig();
+                    existing.ApplySpeedUpgrade();
+                    existing.ApplyInventoryCapacity();
                 }
 
                 // Apply host state (bypass setter to avoid setting StatePublishNeeded on client)
@@ -1527,6 +1659,8 @@ namespace OverTheCounter.Logic
                 {
                     instance.Configuration.Deserialize(DecodeConfig(configStr));
                     instance.ReconcileLockerFromConfig();
+                    instance.ApplySpeedUpgrade();
+                    instance.ApplyInventoryCapacity();
                 }
 
                 // Apply host state (bypass setter to avoid setting StatePublishNeeded on client)

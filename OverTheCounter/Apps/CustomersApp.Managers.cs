@@ -109,7 +109,7 @@ namespace OverTheCounter.Apps
         {
             int rows = Math.Max(1, (slotCount + SLOTS_PER_ROW - 1) / SLOTS_PER_ROW);
             if (rows <= 1) return 92f;
-            return 92f + (rows - 1) * (SLOT_SIZE + SLOT_GAP);
+            return 92f + (rows - 1) * 90f;
         }
 
         private void CreateManagerCard(Transform parent, ManagerInstance mgr)

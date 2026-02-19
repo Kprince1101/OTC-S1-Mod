@@ -541,10 +541,10 @@ namespace OverTheCounter.Logic
 
             if (deficits.Count == 0) return new List<ShoppingItem>();
 
-            // Virtual slots for purchases, capped by NPC inventory space
-            const int MAX_VIRTUAL_SLOTS = 5;
+            // Virtual slots for purchases, capped by NPC inventory space (scales with inventory upgrades)
+            int maxVirtualSlots = ManagerUpgrades.GetTotalSlots(_manager.Configuration.ExtraInventorySlots);
             int freeNpcSlots = GetFreeNpcSlots(npcInventory);
-            int availableSlots = Math.Min(MAX_VIRTUAL_SLOTS, freeNpcSlots);
+            int availableSlots = Math.Min(maxVirtualSlots, freeNpcSlots);
             if (availableSlots <= 0) return new List<ShoppingItem>();
 
             // Cache actual stack limits per item (e.g. soil = 10, baggies = 20)
@@ -1817,6 +1817,11 @@ namespace OverTheCounter.Logic
                 }
                 return;
             }
+
+            // Don't redirect to a store while carrying items to deposit — finish the deposit first.
+            // New deficits (e.g. from an inventory upgrade) will be picked up after deposit.
+            if (State == SupplyState.WalkingToStorage && HasItemsInNpcInventory())
+                return;
 
             Vector3 currentPos = _manager.Position ?? Vector3.zero;
             var visit = PlanNextVisit(items, currentPos);
