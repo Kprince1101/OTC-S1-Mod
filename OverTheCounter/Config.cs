@@ -3,6 +3,7 @@ using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using UnityEngine;
 
 namespace OverTheCounter
 {
@@ -85,6 +86,32 @@ namespace OverTheCounter
         public static ConfigEntry<int> DrifterLingerMaxMin;
         public static ConfigEntry<float> DrifterMinDealValue;
 
+        // ── Minimap ──
+        private static MelonPreferences_Category _minimap;
+
+        public static ConfigEntry<bool> MinimapEnabled;
+        public static ConfigEntry<int> MinimapSize;
+        public static ConfigEntry<bool> MinimapRotateWithPlayer;
+        public static ConfigEntry<bool> MinimapCircle;
+        public static ConfigEntry<int> MinimapDefaultZoom;
+        public static ConfigEntry<float> MinimapIconScale;
+        public static MelonPreferences_Entry<KeyCode> MinimapToggleKey;
+        public static MelonPreferences_Entry<string> MinimapPosition;
+        public static MelonPreferences_Entry<Color> MinimapBorderColor;
+        public static ConfigEntry<int> MinimapBorderWidth;
+
+        // ── Minimap POIs ──
+        private static MelonPreferences_Category _minimapPoi;
+
+        public static ConfigEntry<bool> MinimapShowPotentialCustomers;
+        public static ConfigEntry<bool> MinimapShowCustomers;
+        public static ConfigEntry<bool> MinimapShowDealers;
+        public static ConfigEntry<bool> MinimapShowDeadDrops;
+        public static ConfigEntry<bool> MinimapShowContracts;
+        public static ConfigEntry<bool> MinimapShowQuests;
+        public static ConfigEntry<bool> MinimapShowProperties;
+        public static ConfigEntry<bool> MinimapShowManagers;
+
         // All entries for bulk operations
         private static readonly Dictionary<string, ConfigEntry<float>> _floatEntries = new();
         private static readonly Dictionary<string, ConfigEntry<int>> _intEntries = new();
@@ -97,7 +124,22 @@ namespace OverTheCounter
             "ConsolidationEnabled",
             "ConsolidationThreshold",
             "ManagerVerboseLogging",
-            "VerboseLogging"
+            "VerboseLogging",
+            "MinimapEnabled",
+            "MinimapSize",
+            "MinimapRotateWithPlayer",
+            "MinimapCircle",
+            "MinimapDefaultZoom",
+            "MinimapIconScale",
+            "MinimapBorderWidth",
+            "MinimapShowPotentialCustomers",
+            "MinimapShowCustomers",
+            "MinimapShowDealers",
+            "MinimapShowDeadDrops",
+            "MinimapShowContracts",
+            "MinimapShowQuests",
+            "MinimapShowProperties",
+            "MinimapShowManagers"
         };
 
         public static void Initialize()
@@ -206,7 +248,7 @@ namespace OverTheCounter
             DrifterEnabled = Register(_drifters.CreateEntry("Enabled", true, "Enabled",
                 "Enable/disable the drifter system (random street NPCs offering one-time deals)"));
             DrifterSpawnChancePerHour = Register(_drifters.CreateEntry("DrifterSpawnChancePerHour", 0.38f, "Spawn Chance Per Hour",
-                "Base spawn chance per hour at max regions (6). Scaled down by unlocked region count."));
+                "Base spawn chance per hour at max regions. Scaled down by unlocked region count (0.0-1.0)"));
             MaxActiveDrifters = Register(_drifters.CreateEntry("MaxActiveDrifters", 3, "Max Active Drifters",
                 "Maximum number of drifters that can be active at once"));
             DrifterDayStartHour = Register(_drifters.CreateEntry("DrifterDayStartHour", 800, "Day Start Hour",
@@ -223,6 +265,51 @@ namespace OverTheCounter
                 "Maximum minutes a drifter lingers after deal completion/expiry"));
             DrifterMinDealValue = Register(_drifters.CreateEntry("DrifterMinDealValue", 90f, "Min Deal Value ($)",
                 "Soft minimum deal value - drifters ask for more quantity until the deal reaches this threshold"));
+
+            // ── Minimap ──
+            _minimap = MelonPreferences.CreateCategory("OverTheCounter_Minimap", "Minimap");
+
+            MinimapEnabled = Register(_minimap.CreateEntry("MinimapEnabled", false, "Enabled",
+                "Show the minimap overlay"));
+            MinimapSize = Register(_minimap.CreateEntry("MinimapSize", 250, "Size (px)",
+                "Minimap size in pixels"));
+            MinimapRotateWithPlayer = Register(_minimap.CreateEntry("MinimapRotateWithPlayer", false,
+                "Rotate With Player", "Rotate minimap to match player facing direction"));
+            MinimapCircle = Register(_minimap.CreateEntry("MinimapCircle", false, "Circle Shape",
+                "Use circular minimap shape instead of square"));
+            MinimapDefaultZoom = Register(_minimap.CreateEntry("MinimapDefaultZoom", 2,
+                "Default Zoom", "Starting zoom level, 1=closest, 3=farthest (1-3)"));
+            MinimapIconScale = Register(_minimap.CreateEntry("MinimapIconScale", 0.7f, "Icon Scale",
+                "POI icon scale on the minimap"));
+            MinimapToggleKey = _minimap.CreateEntry("MinimapToggleKey", KeyCode.N, "Toggle Key",
+                "Hotkey to cycle minimap zoom");
+            MinimapPosition = _minimap.CreateEntry("MinimapPosition", "TopRight", "Position",
+                "TopLeft, TopRight, BottomLeft, BottomRight");
+            MinimapBorderColor = _minimap.CreateEntry("MinimapBorderColor",
+                new Color(0.2f, 0.2f, 0.2f, 0.9f), "Border Color",
+                "Minimap border color");
+            MinimapBorderWidth = Register(_minimap.CreateEntry("MinimapBorderWidth", 4,
+                "Border Width", "Border thickness in pixels per side (2-10)"));
+
+            // ── Minimap POIs ──
+            _minimapPoi = MelonPreferences.CreateCategory("OverTheCounter_MinimapPOI", "Minimap POIs");
+
+            MinimapShowPotentialCustomers = Register(_minimapPoi.CreateEntry("MinimapShowPotentialCustomers", true,
+                "Show Potential Customers", "Show potential customer icons on the minimap"));
+            MinimapShowCustomers = Register(_minimapPoi.CreateEntry("MinimapShowCustomers", false,
+                "Show Customers", "Show unlocked customer icons on the minimap"));
+            MinimapShowDealers = Register(_minimapPoi.CreateEntry("MinimapShowDealers", true,
+                "Show Dealers", "Show dealer icons on the minimap (potential and active)"));
+            MinimapShowDeadDrops = Register(_minimapPoi.CreateEntry("MinimapShowDeadDrops", true,
+                "Show Dead Drops", "Show dead drop icons on the minimap"));
+            MinimapShowContracts = Register(_minimapPoi.CreateEntry("MinimapShowContracts", true,
+                "Show Contracts", "Show contract delivery icons on the minimap"));
+            MinimapShowQuests = Register(_minimapPoi.CreateEntry("MinimapShowQuests", true,
+                "Show Quests", "Show quest objective icons on the minimap"));
+            MinimapShowProperties = Register(_minimapPoi.CreateEntry("MinimapShowProperties", true,
+                "Show Properties", "Show owned property icons on the minimap"));
+            MinimapShowManagers = Register(_minimapPoi.CreateEntry("MinimapShowManagers", true,
+                "Show Managers", "Show manager icons on the minimap"));
         }
 
         private static ConfigEntry<float> Register(MelonPreferences_Entry<float> entry)
