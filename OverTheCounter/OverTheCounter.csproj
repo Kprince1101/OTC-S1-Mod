@@ -558,6 +558,8 @@
 		<Compile Include="Patches\BellaSummonPatch.cs" />
 		<Compile Include="Patches\QuestInitPatch.cs" />
 		<Compile Include="Patches\NpcTypeDiscoveryPatch.cs" />
+		<Compile Include="UI\MinimapOverlay.cs" />
+
 	</ItemGroup>
 
 	<ItemGroup>

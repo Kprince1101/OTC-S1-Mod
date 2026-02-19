@@ -45,6 +45,11 @@ A complete, simulation-based automation system built on **S1API** for maximum co
 * **Early Game Laundering:**
     * **Meet Vic:** A corrupt associate who offers manual cash laundering once you hit the $10k weekly ATM limit.
     * **Risk vs. Reward:** Pay a 17-20% fee to clean dirty cash early, bridging the gap between street dealing and owning legitimate businesses.
+## 5. Customizable Minimap (UI & Navigation)
+
+* **Opt-In UI:** The minimap is turned **OFF** out of the box. You must enable it first (see the Configuration section below).
+* **Total Control:** Choose between a circular or square map, adjust the size, set your screen anchor, and use a custom zoom cycle hotkey (Default: N).
+* **Icon Filtering:** Keep your screen clean by toggling exactly which POIs show up, from active customers to your newly hired Managers.
 
 ## Multiplayer Support
 Built from the ground up for co-op.
@@ -63,7 +68,7 @@ Built from the ground up for co-op.
 > If installing via Thunderstore mod manager, S1API is installed automatically. SteamNetworkLib is optional (multiplayer only).
 
 ## Configuration
-Settings are stored in MelonLoader's config file and organized into seven categories:
+Settings are stored in MelonLoader's config file and organized into nine categories:
 
 * **Desperation System** — Enable/disable toggle, fiend addiction threshold, trigger chance per hour, max daily events, response/delivery deadlines, bonus multiplier, relationship penalty, cooldown, and active hours.
 * **Vic Laundering** — Tier costs, returns, trust unlock threshold, and intro quest requirements.
@@ -72,6 +77,8 @@ Settings are stored in MelonLoader's config file and organized into seven catego
 * **Manager System** — Daily wage and signing fee.
 * **Executive Privilege (Bella)** — Minimum weed, meth, and cocaine mix value thresholds for the quest.
 * **Drifter System** — Enable/disable toggle, spawn chance per hour, max active drifters, active hours, offer window, delivery deadline, linger duration, and minimum deal value.
+* **Minimap** — Enable/disable toggle (off by default), size, zoom level, toggle key (default: N), screen position, circle/square shape, rotate-with-player, border color/width, and icon scale. Invalid values are automatically corrected.
+* **Minimap POIs** — Per-category toggles for potential customers, unlocked customers (off by default), dealers, dead drops, contracts, quests, properties, and managers.
 
 Every setting includes a full description visible in [ModsApp by k0Mods](https://thunderstore.io/c/schedule-i/p/k0Mods/ModsApp/) (recommended, open-source). Also compatible with [Mod Manager & Phone App](https://www.nexusmods.com/schedule1/mods/397) (descriptions not supported). You can always edit the config file directly if you prefer.
 

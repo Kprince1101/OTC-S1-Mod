@@ -7,6 +7,7 @@ using OverTheCounter.NPCs;
 using OverTheCounter.Patches;
 using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
+using OverTheCounter.UI;
 using OverTheCounter.Utilities;
 using S1API.PhoneApp;
 using System;
@@ -14,7 +15,7 @@ using System.IO;
 using System.Reflection;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.2.2", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.3.0", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 [assembly: MelonOptionalDependencies("SteamNetworkLib")]
 
@@ -41,6 +42,7 @@ namespace OverTheCounter
             LoggerInstance.Msg("OverTheCounter Initialized.");
 
             ImmediateQuestWindowConfig.Register();
+            MinimapOverlay.Register();
 #if DEBUG
             DebugHelpers.Register();
 #endif
@@ -77,6 +79,13 @@ namespace OverTheCounter
             ManagerInstance.CleanupAll();
             ManagerSpawner.ResetCache();
             MugshotUtility.ResetSession();
+
+            if (!GameObject.Find("OTC_MinimapController"))
+            {
+                var go = new GameObject("OTC_MinimapController");
+                go.AddComponent<MinimapOverlay>();
+                GameObject.DontDestroyOnLoad(go);
+            }
 
 #if DEBUG
             if (!GameObject.Find("DebugController"))
