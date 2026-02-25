@@ -2,6 +2,7 @@ using MelonLoader;
 using MelonLoader.Utils;
 using OverTheCounter.Apps;
 using OverTheCounter.Logic;
+using OverTheCounter.Logic.Placement;
 using OverTheCounter.NPCs;
 using OverTheCounter.Patches;
 using OverTheCounter.Quests;
@@ -37,6 +38,14 @@ namespace OverTheCounter
             NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
             ConfigSyncPatch.TryApply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
+            try
+            {
+                BuildingPlacementPatch.Apply(HarmonyInstance);
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Error($"BuildingPlacementPatch.Apply failed: {ex}");
+            }
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
                 LoggerInstance.Warning("SteamNetworkLib not installed — multiplayer sync disabled. " +
@@ -97,7 +106,10 @@ namespace OverTheCounter
                 go.AddComponent<DebugHelpers>();
                 GameObject.DontDestroyOnLoad(go);
             }
+
 #endif
+            // Permanent building cleanup
+            BuildingGridFactory.Cleanup();
         }
 
         public override void OnLateUpdate()
