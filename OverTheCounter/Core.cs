@@ -109,7 +109,17 @@ namespace OverTheCounter
 
 #endif
             // Permanent building cleanup
+            Logic.Placement.WestvilleShack.Cleanup();
             BuildingGridFactory.Cleanup();
+        }
+
+        public override void OnSceneWasInitialized(int buildIndex, string sceneName)
+        {
+            if (sceneName == "Main")
+            {
+                Logic.Placement.WestvilleShack.SpawnBuilding();
+            }
+
         }
 
         public override void OnLateUpdate()
