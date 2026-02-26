@@ -46,6 +46,7 @@ namespace OverTheCounter.SaveData
         private static HostSyncVar<string> _configVar;
         private static HostSyncVar<string> _stateVar;
         private static HostSyncVar<string> _drifterVar;
+        private static HostSyncVar<string> _customerVar;
         private static HostSyncVar<string> _mgrMsgVar;
         private static HostSyncVar<string> _drifterMsgVar;
         private static ClientSyncVar<string> _actionVar;
@@ -90,6 +91,7 @@ namespace OverTheCounter.SaveData
                 _configVar = _netClient.CreateHostSyncVar("cfg", "", _syncOptions);
                 _stateVar = _netClient.CreateHostSyncVar("state", "", _syncOptions);
                 _drifterVar = _netClient.CreateHostSyncVar("drifters", "", _syncOptions);
+                _customerVar = _netClient.CreateHostSyncVar("customers", "", _syncOptions);
                 _mgrMsgVar = _netClient.CreateHostSyncVar("mgrmsg", "", _syncOptions);
                 _drifterMsgVar = _netClient.CreateHostSyncVar("driftermsg", "", _syncOptions);
                 _actionVar = _netClient.CreateClientSyncVar("action", "", _syncOptions);
@@ -106,6 +108,7 @@ namespace OverTheCounter.SaveData
                 _configVar.OnSyncError += (ex) => Logger.Warning($"Config SyncVar error: {ex.Message}");
                 _stateVar.OnSyncError += (ex) => Logger.Warning($"State SyncVar error: {ex.Message}");
                 _drifterVar.OnSyncError += (ex) => Logger.Warning($"Drifter SyncVar error: {ex.Message}");
+                _customerVar.OnSyncError += (ex) => Logger.Warning($"Customer SyncVar error: {ex.Message}");
                 _mgrMsgVar.OnSyncError += (ex) => Logger.Warning($"MgrMsg SyncVar error: {ex.Message}");
                 _drifterMsgVar.OnSyncError += (ex) => Logger.Warning($"DrifterMsg SyncVar error: {ex.Message}");
                 _actionVar.OnSyncError += (ex) => Logger.Warning($"Action SyncVar error: {ex.Message}");
@@ -116,6 +119,7 @@ namespace OverTheCounter.SaveData
                 _configVar.OnValueChanged += OnConfigChanged;
                 _stateVar.OnValueChanged += OnStateChanged;
                 _drifterVar.OnValueChanged += OnDrifterStateChanged;
+                _customerVar.OnValueChanged += OnCustomerStateChanged;
                 _mgrMsgVar.OnValueChanged += OnManagerMessageChanged;
                 _drifterMsgVar.OnValueChanged += OnDrifterMessageChanged;
 
@@ -174,6 +178,10 @@ namespace OverTheCounter.SaveData
                     if (_drifterVar != null)
                         _drifterVar.Value = drifterState;
 
+                    string customerState = ConfigSyncData.GetSerializedCustomerState();
+                    if (_customerVar != null)
+                        _customerVar.Value = customerState;
+
                     // Push per-manager slots
                     ConfigSyncData.WriteInitialManagerSlots();
 
@@ -182,6 +190,7 @@ namespace OverTheCounter.SaveData
                     _configVar?.Refresh();
                     _stateVar?.Refresh();
                     _drifterVar?.Refresh();
+                    _customerVar?.Refresh();
                     for (int i = 0; i < ManagerSlotCount; i++)
                         _mgrSlots[i]?.Refresh();
                     _mgrMsgVar?.Refresh();
@@ -263,6 +272,7 @@ namespace OverTheCounter.SaveData
             _configVar = null;
             _stateVar = null;
             _drifterVar = null;
+            _customerVar = null;
             for (int i = 0; i < ManagerSlotCount; i++)
                 _mgrSlots[i] = null;
             _mgrMsgVar = null;
@@ -293,6 +303,12 @@ namespace OverTheCounter.SaveData
         {
             if (_drifterVar != null)
                 _drifterVar.Value = payload;
+        }
+
+        internal static void PushCustomerState(string payload)
+        {
+            if (_customerVar != null)
+                _customerVar.Value = payload;
         }
 
         internal static void PushManagerSlot(int slot, string payload)
@@ -343,15 +359,17 @@ namespace OverTheCounter.SaveData
         /// Manager slots are pushed separately via WriteInitialManagerSlots().
         /// </summary>
         internal static void PushOnLoaded(string configPayload, string statePayload,
-            string drifterPayload)
+            string drifterPayload, string customerPayload)
         {
             if (_configVar == null) return;
             _configVar.Value = configPayload;
             _stateVar.Value = statePayload;
             if (_drifterVar != null)
                 _drifterVar.Value = drifterPayload;
+            if (_customerVar != null)
+                _customerVar.Value = customerPayload;
             if (Config.VerboseLogging.Value)
-                Logger.Msg("Pushed config, game state, and drifter state to SyncVars.");
+                Logger.Msg("Pushed config, game state, drifter state, and customer state to SyncVars.");
         }
 
         // ==================================================================
@@ -377,6 +395,12 @@ namespace OverTheCounter.SaveData
             if (_netClient?.IsHost == true) return;
             if (string.IsNullOrEmpty(newValue)) return;
             ConfigSyncData.HandleDrifterStateChanged(newValue);
+        }
+
+        private static void OnCustomerStateChanged(string oldValue, string newValue)
+        {
+            if (_netClient?.IsHost == true) return;
+            ConfigSyncData.HandleCustomerStateChanged(newValue ?? "");
         }
 
         private static void OnManagerSlotChanged(int slot, string oldValue, string newValue)

@@ -390,8 +390,8 @@ namespace OverTheCounter.Logic
                 settings.Gender = UnityEngine.Random.Range(0f, 1f);
                 bool isFemale = settings.Gender >= 0.5f;
 
-                // Biometrics — reuse DrifterSpawner skin tones and hair logic
-                var skinTone = DrifterSpawner.SkinTones[UnityEngine.Random.Range(0, DrifterSpawner.SkinTones.Length)];
+                // Biometrics — reuse NpcSpawner skin tones and hair logic
+                var skinTone = NpcSpawner.SkinTones[UnityEngine.Random.Range(0, NpcSpawner.SkinTones.Length)];
                 settings.SkinColor = skinTone;
 
                 var faceColor = new Color(skinTone.r * 0.92f, skinTone.g * 0.88f, skinTone.b * 0.85f);
@@ -412,7 +412,7 @@ namespace OverTheCounter.Logic
                     hairColor = new Color(0.55f, 0.25f, 0.15f);
                 settings.HairColor = hairColor;
 
-                var hairPool = isFemale ? DrifterSpawner.FemaleHairStyles : DrifterSpawner.MaleHairStyles;
+                var hairPool = isFemale ? NpcSpawner.FemaleHairStyles : NpcSpawner.MaleHairStyles;
                 settings.HairPath = hairPool[UnityEngine.Random.Range(0, hairPool.Length)];
 
                 settings.EyeBallTint = Color.white;
@@ -434,7 +434,7 @@ namespace OverTheCounter.Logic
 
                 // Face layer
                 var faceLayer = new AvatarSettings.LayerSetting();
-                faceLayer.layerPath = DrifterSpawner.FaceExpressions[UnityEngine.Random.Range(0, DrifterSpawner.FaceExpressions.Length)];
+                faceLayer.layerPath = NpcSpawner.FaceExpressions[UnityEngine.Random.Range(0, NpcSpawner.FaceExpressions.Length)];
                 faceLayer.layerTint = faceColor;
                 settings.FaceLayerSettings.Add(faceLayer);
 

@@ -279,6 +279,11 @@
 		<Compile Include="Logic\DrifterManager.cs" />
 		<Compile Include="Logic\DrifterType.cs" />
 		<Compile Include="Logic\DrifterHotspots.cs" />
+		<Compile Include="Logic\NpcSpawner.cs" />
+		<Compile Include="Logic\CustomerState.cs" />
+		<Compile Include="Logic\CustomerSpawnPoints.cs" />
+		<Compile Include="Logic\CustomerInstance.cs" />
+		<Compile Include="Logic\CustomerManager.cs" />
 		<Compile Include="Logic\DrifterSpawner.cs" />
 		<Compile Include="Logic\DrifterInstance.cs" />
 		<Compile Include="Logic\ManagerInstance.cs" />
@@ -327,6 +332,7 @@
 		<Compile Include="Patches\BellaSummonPatch.cs" />
 		<Compile Include="Patches\QuestInitPatch.cs" />
 		<Compile Include="Patches\NpcTypeDiscoveryPatch.cs" />
+		<Compile Include="Patches\NpcNavMeshLinkPatch.cs" />
 		<Compile Include="UI\MinimapOverlay.cs" />
 		<Compile Include="Logic\Placement\BuildingGridFactory.cs" />
 		<Compile Include="Logic\Placement\BuildingPlacementPatch.cs" />

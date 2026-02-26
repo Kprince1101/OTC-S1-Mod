@@ -31,6 +31,7 @@ namespace OverTheCounter
         private DesperationManager _desperationManager;
         private DrifterManager _drifterManager;
         private ManagerController _managerManager;
+        private CustomerManager _customerManager;
 
         public override void OnInitializeMelon()
         {
@@ -64,6 +65,7 @@ namespace OverTheCounter
             _desperationManager = new DesperationManager(LoggerInstance);
             _drifterManager = new DrifterManager(LoggerInstance);
             _managerManager = new ManagerController(LoggerInstance);
+            _customerManager = new CustomerManager(LoggerInstance);
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
@@ -82,8 +84,9 @@ namespace OverTheCounter
             Patches.BellaSummonPatch.Reset();
             ContactsAppFix.Reset();
 
-            // Drifters are transient - despawn on scene transitions (save/load)
+            // Drifters + customers are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
+            CustomerInstance.CleanupAll();
             DrifterSpawner.ResetCache();
 
             // Clean up previous scene's managers — respawned from ManagerSaveData after load
@@ -143,6 +146,7 @@ namespace OverTheCounter
 
                 // Retry pending NPC adoptions on client (FishNet timing)
                 _drifterManager?.RetryPendingAdoptions();
+                _customerManager?.RetryPendingAdoptions();
                 ManagerInstance.RetryPendingAdoptions();
 
                 // Immediate wage payment when cash is deposited (host only)
@@ -166,6 +170,9 @@ namespace OverTheCounter
                         ConfigSyncData.Instance?.PublishManagerMessages();
                     if (DrifterManager.HasPendingDrifterMessages)
                         ConfigSyncData.Instance?.PublishDrifterMessages();
+
+                    // Publish customer state changes to clients
+                    _customerManager?.PublishIfNeeded();
 
                     // Publish manager state changes (State/PaidForToday) to per-slot SyncVars
                     if (ManagerInstance.StatePublishNeeded)
@@ -191,6 +198,7 @@ namespace OverTheCounter
             _desperationManager?.Cleanup();
             _drifterManager?.Cleanup();
             _managerManager?.Cleanup();
+            _customerManager?.Cleanup();
         }
 
         /// <summary>

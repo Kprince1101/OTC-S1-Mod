@@ -77,7 +77,8 @@ namespace OverTheCounter.SaveData
             NetworkSyncBridge.PushOnLoaded(
                 Config.SerializeAll(),
                 SerializeGameState(),
-                DrifterManager.Instance?.SerializeDrifterState() ?? "");
+                DrifterManager.Instance?.SerializeDrifterState() ?? "",
+                CustomerManager.Instance?.SerializeCustomerState() ?? "");
             // Manager slots are pushed via WriteInitialManagerSlots() in ProcessMessages,
             // or via PublishManagerState() once managers are restored from save.
         }
@@ -192,6 +193,28 @@ namespace OverTheCounter.SaveData
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void PublishDrifterStateImpl(string payload) => NetworkSyncBridge.PushDrifterState(payload);
+
+        /// <summary>
+        /// Publishes customer state to the dedicated customer SyncVar.
+        /// </summary>
+        public void PublishCustomerState()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                string customerState = CustomerManager.Instance?.SerializeCustomerState() ?? "";
+                if (IsNetworkLibAvailable)
+                    PublishCustomerStateImpl(customerState);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"PublishCustomerState failed: {ex.Message}");
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PublishCustomerStateImpl(string payload) => NetworkSyncBridge.PushCustomerState(payload);
 
         /// <summary>
         /// Publishes each active manager to its own SyncVar slot.
@@ -351,6 +374,12 @@ namespace OverTheCounter.SaveData
             DrifterManager.Instance?.SerializeDrifterState() ?? "";
 
         /// <summary>
+        /// Provides serialized customer state for the bridge's initial sync push.
+        /// </summary>
+        internal static string GetSerializedCustomerState() =>
+            CustomerManager.Instance?.SerializeCustomerState() ?? "";
+
+        /// <summary>
         /// Clears config overrides on the host during initial lobby sync.
         /// </summary>
         internal static void ClearOverridesForHost() => Config.ClearAllOverrides();
@@ -404,6 +433,21 @@ namespace OverTheCounter.SaveData
             catch (Exception ex)
             {
                 Logger.Warning($"HandleDrifterStateChanged failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Client callback: host customer state SyncVar changed.
+        /// </summary>
+        internal static void HandleCustomerStateChanged(string newValue)
+        {
+            try
+            {
+                CustomerManager.Instance?.ApplyHostCustomerState(newValue);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"HandleCustomerStateChanged failed: {ex.Message}");
             }
         }
 

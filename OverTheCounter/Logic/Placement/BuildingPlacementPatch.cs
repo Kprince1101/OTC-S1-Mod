@@ -338,6 +338,8 @@ namespace OverTheCounter.Logic.Placement
                 // Set ParentProperty AFTER SetGridData — ProcessGridData overwrites it to null
                 SetParentPropertyToStub(__instance);
 
+                // Rebuild interior NavMesh so NPCs can navigate around placed furniture
+                WestvilleShack.RebuildNavMesh();
             }
             catch (Exception ex)
             {

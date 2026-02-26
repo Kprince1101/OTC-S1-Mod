@@ -35,6 +35,7 @@ namespace OverTheCounter.Logic.Placement
         private static readonly Vector3 BuildingOrigin = new(-167.4f, -4f, 73.5f);
 
         private static GameObject _building;
+        private static NavMeshRepairer _navMeshRepairer;
         private static bool _initialized;
 
 
@@ -59,16 +60,31 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Destroys the building and resets state for scene reload.</summary>
         public static void Cleanup()
         {
+            _navMeshRepairer?.Remove();
+            _navMeshRepairer = null;
             if (_building != null) GameObject.Destroy(_building);
             _building = null;
             _initialized = false;
+        }
+
+        /// <summary>
+        /// Rebuilds interior NavMesh after furniture is placed or moved.
+        /// </summary>
+        public static void RebuildNavMesh()
+        {
+            _navMeshRepairer?.Rebuild();
         }
 
         private static void ConfigureDoor(GameObject doorGo)
         {
             var doorCtrl = doorGo.GetComponentInChildren<DoorController>(true);
             if (doorCtrl != null)
+            {
                 doorCtrl.PlayerAccess = EDoorAccess.Open;
+                // Force-open the store door so customers can enter
+                try { doorCtrl.SetIsOpen_Server(true, EDoorSide.Exterior, false); }
+                catch { }
+            }
             else
                 Logger.Warning($"Door '{doorGo.name}' has no DoorController");
         }
@@ -149,9 +165,15 @@ namespace OverTheCounter.Logic.Placement
 
             _building = builder.Build();
 
+            // NavMesh repairer — must be created after Build() (needs building root)
+            _navMeshRepairer = builder.CreateNavMeshRepairer();
+
             // Position: room sits on top of foundation
             _building.transform.position = new Vector3(
                 BuildingOrigin.x, BuildingOrigin.y + FoundationHeight, BuildingOrigin.z);
+
+            // Build NavMesh after positioning (uses world position for bake)
+            _navMeshRepairer.Build();
 
             // Placement grid — no interior walls, just exclude exterior wall edges
             BuildingGridFactory.CreateGrid(_building, RoomWidth, RoomDepth, "WestvilleShack_Floor1",
