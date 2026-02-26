@@ -1,5 +1,6 @@
 using HarmonyLib;
 using MelonLoader;
+using OverTheCounter.SaveData;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -193,7 +194,7 @@ namespace OverTheCounter.Logic.Placement
             if (!BuildingGridFactory.OtcGrids.Contains(__instance.OwnerGrid))
                 return true;
 
-            __result = true;
+            __result = StaticSaveData.Instance?.ShackPurchased ?? false;
             return false;
         }
 

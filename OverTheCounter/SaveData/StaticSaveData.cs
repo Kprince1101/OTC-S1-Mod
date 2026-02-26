@@ -1,4 +1,5 @@
 using MelonLoader;
+using OverTheCounter.Logic.Placement;
 using OverTheCounter.NPCs;
 using OverTheCounter.Quests;
 using S1API.GameTime;
@@ -40,6 +41,11 @@ namespace OverTheCounter.SaveData
         [SaveableField("static_early_visit_seen")]
         private bool _earlyVisitSeen;
 
+        // TODO: Temporary scaffolding. Property ownership flags should move to a dedicated
+        // property save class (see tools/saveable_buildings.md) before adding more buildings.
+        [SaveableField("static_shack_purchased")]
+        private bool _shackPurchased;
+
 
         private int _tickCounter;
         private const int TICK_INTERVAL = 300;
@@ -80,6 +86,8 @@ namespace OverTheCounter.SaveData
         public int DayPassCount => _dayPassCount;
         public bool UpgradeAvailable => _upgradeAvailable;
         public bool EarlyVisitSeen => _earlyVisitSeen;
+        // TODO: Move to property save class (see tools/saveable_buildings.md).
+        public bool ShackPurchased => _shackPurchased;
 
         public StaticSaveData()
         {
@@ -259,7 +267,8 @@ namespace OverTheCounter.SaveData
             bool? saasActive = null,
             bool? upgradeAvailable = null,
             int saasNextPaymentDay = -1,
-            int dayPassCount = -1)
+            int dayPassCount = -1,
+            bool? shackPurchased = null)
         {
             bool changed = false;
 
@@ -338,6 +347,13 @@ namespace OverTheCounter.SaveData
                 changed = true;
             }
 
+            if (shackPurchased.HasValue && shackPurchased.Value && !_shackPurchased)
+            {
+                _shackPurchased = true;
+                WestvilleShack.UnlockDoor();
+                changed = true;
+            }
+
             if (changed && StaticNPC.Instance != null && StaticNPC.Instance.DialogueReady)
                 StaticNPC.Instance.RefreshDialogue();
         }
@@ -385,6 +401,18 @@ namespace OverTheCounter.SaveData
         public void OnEarlyVisitSeen()
         {
             _earlyVisitSeen = true;
+        }
+
+        /// <summary>
+        /// Marks the Westville Shack as purchased. Unlocks door, enables customers and placement.
+        /// TODO: Migrate to a property-centric save system when adding more buildings (see tools/saveable_buildings.md).
+        /// </summary>
+        public void PurchaseShack()
+        {
+            if (_shackPurchased) return;
+            _shackPurchased = true;
+            ConfigSyncData.Instance?.PublishGameState();
+            WestvilleShack.UnlockDoor();
         }
 
         /// <summary>
@@ -546,6 +574,14 @@ namespace OverTheCounter.SaveData
                 case "STATIC_CANCEL":
                     _saasActive = false;
                     _upgradeAvailable = false;
+                    break;
+
+                case "STATIC_SHACK_PURCHASED":
+                    if (!_shackPurchased)
+                    {
+                        _shackPurchased = true;
+                        WestvilleShack.UnlockDoor();
+                    }
                     break;
 
                 default:

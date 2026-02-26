@@ -46,6 +46,7 @@ namespace OverTheCounter
         public static ConfigEntry<int> StaticTier2MethGrams;
         public static ConfigEntry<float> StaticTier3BankCost;
         public static ConfigEntry<int> StaticTier3PremiumMethGrams;
+        public static ConfigEntry<float> ShackPurchasePrice;
 
         // ── Contract Notifications ──
         private static MelonPreferences_Category _notifications;
@@ -214,6 +215,8 @@ namespace OverTheCounter
                 "Bank transfer cost for the Enterprise upgrade"));
             StaticTier3PremiumMethGrams = Register(_subscription.CreateEntry("StaticTier3PremiumMethGrams", 10, "Tier 3 Premium Meth Grams",
                 "Grams of premium meth required for Enterprise upgrade"));
+            ShackPurchasePrice = Register(_subscription.CreateEntry("ShackPurchasePrice", 5000f, "Shack Purchase Price",
+                "Bank transfer cost for the Westville Shack property"));
 
             // ── Contract Notifications ──
             _notifications = MelonPreferences.CreateCategory("OverTheCounter_Notifications", "Contract Notifications");

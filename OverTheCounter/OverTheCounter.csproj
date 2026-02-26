@@ -267,6 +267,7 @@
 		<Compile Include="Apps\CustomersApp.ManagerDetail.cs" />
 		<Compile Include="Apps\CustomersApp.ManagerLog.cs" />
 		<Compile Include="Apps\CustomersApp.Customers.cs" />
+		<Compile Include="Apps\CustomersApp.Messages.cs" />
 		<Compile Include="Core.cs" />
 		<Compile Include="DebugHelpers.cs" />
 		<Compile Include="NPCs\VicNPC.cs" />
@@ -352,6 +353,7 @@
 		<EmbeddedResource Include="Resources\ChevronIcon.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\LeafSign.glb"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\ShackSign.glb"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\ShackPhoto.png" Condition="Exists('Resources\ShackPhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 	</ItemGroup>
 
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="!$(Configuration.StartsWith('Mono'))">

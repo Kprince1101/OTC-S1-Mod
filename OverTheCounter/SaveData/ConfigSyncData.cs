@@ -726,6 +726,8 @@ namespace OverTheCounter.SaveData
                 parts.Add($"static_upgrade={BoolToStr(StaticSaveData.Instance.UpgradeAvailable)}");
                 parts.Add($"static_next_payment={StaticSaveData.Instance.SaasNextPaymentDay}");
                 parts.Add($"static_day_pass={StaticSaveData.Instance.DayPassCount}");
+                // TODO: Move to property sync when property save class exists (see tools/saveable_buildings.md).
+                parts.Add($"static_shack={BoolToStr(StaticSaveData.Instance.ShackPurchased)}");
             }
 
             if (VicSaveData.Instance != null)
@@ -762,6 +764,7 @@ namespace OverTheCounter.SaveData
                 bool? upgrade = state.TryGetValue("static_upgrade", out var u) ? StrToBool(u) : (bool?)null;
                 int nextPayment = state.TryGetValue("static_next_payment", out var npStr) && int.TryParse(npStr, out var npVal) ? npVal : -1;
                 int dayPass = state.TryGetValue("static_day_pass", out var dpStr) && int.TryParse(dpStr, out var dpVal) ? dpVal : -1;
+                bool? shack = state.TryGetValue("static_shack", out var sh) ? StrToBool(sh) : (bool?)null;
 
                 StaticSaveData.Instance.ApplyHostState(
                     questTriggered: triggered,
@@ -770,7 +773,8 @@ namespace OverTheCounter.SaveData
                     saasActive: saas,
                     upgradeAvailable: upgrade,
                     saasNextPaymentDay: nextPayment,
-                    dayPassCount: dayPass);
+                    dayPassCount: dayPass,
+                    shackPurchased: shack);
             }
 
             if (VicSaveData.Instance != null)

@@ -100,6 +100,9 @@ namespace OverTheCounter.Logic
 
         private void TrySpawnCustomer()
         {
+            if (!(SaveData.StaticSaveData.Instance?.ShackPurchased ?? false))
+                return;
+
             if (CustomerInstance.Active.Count >= MaxActiveCustomers)
                 return;
 

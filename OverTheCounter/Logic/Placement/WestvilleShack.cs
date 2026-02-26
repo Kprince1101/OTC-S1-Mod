@@ -1,4 +1,5 @@
 using MelonLoader;
+using OverTheCounter.SaveData;
 using S1MAPI.Building;
 using S1MAPI.Building.Config;
 using S1MAPI.Building.Interior;
@@ -36,6 +37,7 @@ namespace OverTheCounter.Logic.Placement
 
         private static GameObject _building;
         private static NavMeshRepairer _navMeshRepairer;
+        private static GameObject _lightsFolder;
         private static bool _initialized;
 
 
@@ -62,6 +64,7 @@ namespace OverTheCounter.Logic.Placement
         {
             _navMeshRepairer?.Remove();
             _navMeshRepairer = null;
+            _lightsFolder = null;
             if (_building != null) GameObject.Destroy(_building);
             _building = null;
             _initialized = false;
@@ -80,13 +83,35 @@ namespace OverTheCounter.Logic.Placement
             var doorCtrl = doorGo.GetComponentInChildren<DoorController>(true);
             if (doorCtrl != null)
             {
-                doorCtrl.PlayerAccess = EDoorAccess.Open;
-                // Force-open the store door so customers can enter
-                try { doorCtrl.SetIsOpen_Server(true, EDoorSide.Exterior, false); }
-                catch { }
+                bool purchased = StaticSaveData.Instance?.ShackPurchased ?? false;
+                if (purchased)
+                {
+                    doorCtrl.PlayerAccess = EDoorAccess.Open;
+                    try { doorCtrl.SetIsOpen_Server(true, EDoorSide.Exterior, false); }
+                    catch { }
+                }
+                else
+                {
+                    doorCtrl.PlayerAccess = EDoorAccess.Locked;
+                }
             }
             else
                 Logger.Warning($"Door '{doorGo.name}' has no DoorController");
+        }
+
+        /// <summary>
+        /// Unlocks and opens the shack door at runtime (called after purchase).
+        /// </summary>
+        public static void UnlockDoor()
+        {
+            if (_building == null) return;
+            var doorCtrl = _building.GetComponentInChildren<DoorController>(true);
+            if (doorCtrl != null)
+            {
+                doorCtrl.PlayerAccess = EDoorAccess.Open;
+                try { doorCtrl.SetIsOpen_Server(true, EDoorSide.Exterior, false); }
+                catch { }
+            }
         }
 
         /// <summary>
@@ -164,6 +189,14 @@ namespace OverTheCounter.Logic.Placement
                 .AddParapetRoof(ParapetPreset.Shallow, parapetMaterial: Materials.Find("concrete light beige"), capMaterial: Materials.Find("concrete light beige"));
 
             _building = builder.Build();
+
+            // Lights off by default — will be toggled by lightswitch later
+            var lightsTransform = _building.transform.Find("Lights");
+            if (lightsTransform != null)
+            {
+                _lightsFolder = lightsTransform.gameObject;
+                _lightsFolder.SetActive(false);
+            }
 
             // NavMesh repairer — must be created after Build() (needs building root)
             _navMeshRepairer = builder.CreateNavMeshRepairer();

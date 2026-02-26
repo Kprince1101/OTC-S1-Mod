@@ -108,6 +108,11 @@ namespace OverTheCounter.Apps
         private Text _logText;
         private ScrollRect _logScrollRect;
 
+        // Messages overlay
+        internal GameObject _messagesOverlay;
+        private GameObject _messageBadge;
+        private bool _messagesRead;
+
         public static CustomersApp Instance { get; private set; }
 
         protected override void OnCreated()
@@ -324,6 +329,35 @@ namespace OverTheCounter.Apps
             custTextRect.offsetMin = Vector2.zero;
             custTextRect.offsetMax = Vector2.zero;
             _customersTabText.color = new Color(0.7f, 0.7f, 0.7f);
+
+            // Message icon (right edge of header)
+            var msgBtn = UIFactory.Panel("MsgIconBtn", headerObj.transform, new Color(0.1f, 0.25f, 0.35f));
+            var msgBtnRect = msgBtn.GetComponent<RectTransform>();
+            msgBtnRect.anchorMin = new Vector2(1, 0.1f);
+            msgBtnRect.anchorMax = new Vector2(1, 0.9f);
+            msgBtnRect.pivot = new Vector2(1, 0.5f);
+            msgBtnRect.sizeDelta = new Vector2(54, 0);
+            msgBtnRect.anchoredPosition = new Vector2(-4, 0);
+            msgBtn.AddComponent<Button>().onClick.AddListener(new Action(OpenMessagesOverlay));
+
+            // Envelope-style label (placeholder)
+            var msgLabel = UIFactory.Text("MsgLabel", "\u2709", msgBtn.transform, 27, TextAnchor.MiddleCenter);
+            var msgLabelRect = msgLabel.gameObject.GetComponent<RectTransform>();
+            msgLabelRect.anchorMin = Vector2.zero;
+            msgLabelRect.anchorMax = Vector2.one;
+            msgLabelRect.offsetMin = Vector2.zero;
+            msgLabelRect.offsetMax = Vector2.zero;
+            msgLabel.color = Color.white;
+
+            // Red notification badge
+            _messageBadge = UIFactory.Panel("MsgBadge", msgBtn.transform, new Color(0.9f, 0.15f, 0.15f));
+            var badgeRect = _messageBadge.GetComponent<RectTransform>();
+            badgeRect.anchorMin = new Vector2(1, 1);
+            badgeRect.anchorMax = new Vector2(1, 1);
+            badgeRect.pivot = new Vector2(1, 1);
+            badgeRect.sizeDelta = new Vector2(8, 8);
+            badgeRect.anchoredPosition = new Vector2(-2, -2);
+            _messageBadge.SetActive(false);
         }
 
         // ==================================================================
@@ -333,6 +367,9 @@ namespace OverTheCounter.Apps
         private void SwitchTab(AppTab tab)
         {
             _activeTab = tab;
+
+            // Close messages overlay if open
+            CloseMessagesOverlay();
 
             // Close log page if open
             if (_managerLogPage != null)
@@ -435,6 +472,9 @@ namespace OverTheCounter.Apps
         internal void RefreshApp()
         {
             UpdateLayout();
+            RefreshMessagesBadge();
+            if (_messagesOverlay != null)
+                return;
             if (_managerLogPage != null)
             {
                 RefreshLogContent();
@@ -464,6 +504,9 @@ namespace OverTheCounter.Apps
             while (true)
             {
                 yield return new WaitForSeconds(MANAGER_REFRESH_INTERVAL);
+                RefreshMessagesBadge();
+                if (_messagesOverlay != null)
+                    continue;
                 if (_managerLogPage != null)
                     RefreshLogContent();
                 else if (_managerDetailPage != null)
