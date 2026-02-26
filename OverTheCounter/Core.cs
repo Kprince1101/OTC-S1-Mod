@@ -74,6 +74,8 @@ namespace OverTheCounter
             // from a previous save never bleeds into the next one.
             // S1API recreates these from the save file after the scene loads.
             StaticSaveData.ResetInstance();
+            StaticThreadSaveData.ResetInstance();
+            PropertySaveData.ResetInstance();
             VicSaveData.ResetInstance();
             BellaSaveData.ResetInstance();
             StaticIntroQuest.ResetInstance();

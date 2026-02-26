@@ -111,7 +111,6 @@ namespace OverTheCounter.Apps
         // Messages overlay
         internal GameObject _messagesOverlay;
         private GameObject _messageBadge;
-        private bool _messagesRead;
 
         public static CustomersApp Instance { get; private set; }
 

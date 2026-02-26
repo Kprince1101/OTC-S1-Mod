@@ -557,13 +557,16 @@ namespace OverTheCounter.SaveData
         {
             switch (action)
             {
-                case "STATIC_ATM_TRIGGERED":
                 case "STATIC_INTRO_COMPLETED":
                 case "STATIC_PURCHASE_INITIAL":
                 case "STATIC_PURCHASE_UPGRADE":
                 case "STATIC_REACTIVATE":
                 case "STATIC_CANCEL":
                     StaticSaveData.Instance?.HandleRemoteAction(action);
+                    break;
+
+                case "PURCHASE_WESTVILLE_SHACK":
+                    PropertySaveData.Instance?.PurchaseProperty(PropertySaveData.ShackId);
                     break;
 
                 case "VIC_QUEST_ACCEPTED":
@@ -726,8 +729,12 @@ namespace OverTheCounter.SaveData
                 parts.Add($"static_upgrade={BoolToStr(StaticSaveData.Instance.UpgradeAvailable)}");
                 parts.Add($"static_next_payment={StaticSaveData.Instance.SaasNextPaymentDay}");
                 parts.Add($"static_day_pass={StaticSaveData.Instance.DayPassCount}");
-                // TODO: Move to property sync when property save class exists (see tools/saveable_buildings.md).
-                parts.Add($"static_shack={BoolToStr(StaticSaveData.Instance.ShackPurchased)}");
+            }
+
+            if (PropertySaveData.Instance != null)
+            {
+                parts.Add($"prop_shack_listed={BoolToStr(PropertySaveData.Instance.GetProperty(PropertySaveData.ShackId) != null)}");
+                parts.Add($"prop_shack={BoolToStr(PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.ShackId))}");
             }
 
             if (VicSaveData.Instance != null)
@@ -764,7 +771,6 @@ namespace OverTheCounter.SaveData
                 bool? upgrade = state.TryGetValue("static_upgrade", out var u) ? StrToBool(u) : (bool?)null;
                 int nextPayment = state.TryGetValue("static_next_payment", out var npStr) && int.TryParse(npStr, out var npVal) ? npVal : -1;
                 int dayPass = state.TryGetValue("static_day_pass", out var dpStr) && int.TryParse(dpStr, out var dpVal) ? dpVal : -1;
-                bool? shack = state.TryGetValue("static_shack", out var sh) ? StrToBool(sh) : (bool?)null;
 
                 StaticSaveData.Instance.ApplyHostState(
                     questTriggered: triggered,
@@ -773,8 +779,28 @@ namespace OverTheCounter.SaveData
                     saasActive: saas,
                     upgradeAvailable: upgrade,
                     saasNextPaymentDay: nextPayment,
-                    dayPassCount: dayPass,
-                    shackPurchased: shack);
+                    dayPassCount: dayPass);
+            }
+
+            {
+                bool shackListed = state.TryGetValue("prop_shack_listed", out var pl) && StrToBool(pl);
+                bool shackOwned = state.TryGetValue("prop_shack", out var ps) && StrToBool(ps);
+
+                if (shackOwned)
+                    PropertySaveData.Instance?.ApplyHostPropertyState(PropertySaveData.ShackId, true);
+
+                bool introCompleted = state.TryGetValue("static_intro", out var si) && StrToBool(si);
+                int crmTier = state.TryGetValue("static_tier", out var st) && int.TryParse(st, out var stVal) ? stVal : 0;
+                bool saasActive = state.TryGetValue("static_saas", out var ss) && StrToBool(ss);
+                bool upgradeAvail = state.TryGetValue("static_upgrade", out var su) && StrToBool(su);
+
+                StaticThreadSaveData.Instance?.ReconstructClientThread(
+                    introCompleted: introCompleted,
+                    crmTier: crmTier,
+                    saasActive: saasActive,
+                    upgradeAvailable: upgradeAvail,
+                    shackListed: shackListed,
+                    shackOwned: shackOwned);
             }
 
             if (VicSaveData.Instance != null)

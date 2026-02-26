@@ -303,6 +303,8 @@
 		<Compile Include="Patches\StorageMenuPatch.cs" />
 		<Compile Include="SaveData\VicSaveData.cs" />
 		<Compile Include="SaveData\StaticSaveData.cs" />
+		<Compile Include="SaveData\PropertySaveData.cs" />
+		<Compile Include="SaveData\StaticThreadSaveData.cs" />
 		<Compile Include="NPCs\StaticNPC.cs" />
 		<Compile Include="Quests\VicIntroQuest.cs" />
 		<Compile Include="Quests\StaticIntroQuest.cs" />

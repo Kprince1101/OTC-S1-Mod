@@ -83,7 +83,7 @@ namespace OverTheCounter.Logic.Placement
             var doorCtrl = doorGo.GetComponentInChildren<DoorController>(true);
             if (doorCtrl != null)
             {
-                bool purchased = StaticSaveData.Instance?.ShackPurchased ?? false;
+                bool purchased = PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) ?? false;
                 if (purchased)
                 {
                     doorCtrl.PlayerAccess = EDoorAccess.Open;

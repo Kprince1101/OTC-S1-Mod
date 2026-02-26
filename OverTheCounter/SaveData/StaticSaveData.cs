@@ -1,5 +1,4 @@
 using MelonLoader;
-using OverTheCounter.Logic.Placement;
 using OverTheCounter.NPCs;
 using OverTheCounter.Quests;
 using S1API.GameTime;
@@ -10,6 +9,14 @@ using S1API.Quests;
 using System;
 using OverTheCounter.Utilities;
 using System.Linq;
+
+#if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.UI;
+#else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.UI;
+#endif
 
 namespace OverTheCounter.SaveData
 {
@@ -40,12 +47,6 @@ namespace OverTheCounter.SaveData
 
         [SaveableField("static_early_visit_seen")]
         private bool _earlyVisitSeen;
-
-        // TODO: Temporary scaffolding. Property ownership flags should move to a dedicated
-        // property save class (see tools/saveable_buildings.md) before adding more buildings.
-        [SaveableField("static_shack_purchased")]
-        private bool _shackPurchased;
-
 
         private int _tickCounter;
         private const int TICK_INTERVAL = 300;
@@ -86,8 +87,6 @@ namespace OverTheCounter.SaveData
         public int DayPassCount => _dayPassCount;
         public bool UpgradeAvailable => _upgradeAvailable;
         public bool EarlyVisitSeen => _earlyVisitSeen;
-        // TODO: Move to property save class (see tools/saveable_buildings.md).
-        public bool ShackPurchased => _shackPurchased;
 
         public StaticSaveData()
         {
@@ -96,6 +95,7 @@ namespace OverTheCounter.SaveData
             if (!_dayPassSubscribed)
             {
                 TimeManager.OnDayPass += () => Instance?.OnDayPass();
+                TimeManager.OnTick += () => Instance?.OnTimeTick();
                 _dayPassSubscribed = true;
             }
         }
@@ -108,7 +108,12 @@ namespace OverTheCounter.SaveData
             {
                 _questCreated = true;
                 if (NetworkHelper.IsHost)
+                {
                     _needsStatePublish = true;
+                    // Re-send intro text on load if player hasn't visited Static yet
+                    if (!_introCompleted)
+                        _needsIntroText = true;
+                }
             }
 
             _dialogueStale = true;
@@ -188,34 +193,6 @@ namespace OverTheCounter.SaveData
                 catch (Exception) { }
             }
 
-            // Check ATM trigger (either peer can hit the deposit threshold)
-            if (!_questTriggered)
-            {
-                try
-                {
-                    if (ScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value)
-                    {
-                        _questTriggered = true;
-                        CreateOrResumeQuest();
-
-                        if (NetworkHelper.IsHost)
-                        {
-                            TrySendIntroText();
-                            ConfigSyncData.Instance?.PublishGameState();
-                        }
-                        else
-                        {
-                            ConfigSyncData.SendQuestAction("STATIC_ATM_TRIGGERED");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning($"ATM check failed: {ex.Message}");
-                }
-                return;
-            }
-
             // Keep dialogue fresh once triggered
             try
             {
@@ -267,8 +244,7 @@ namespace OverTheCounter.SaveData
             bool? saasActive = null,
             bool? upgradeAvailable = null,
             int saasNextPaymentDay = -1,
-            int dayPassCount = -1,
-            bool? shackPurchased = null)
+            int dayPassCount = -1)
         {
             bool changed = false;
 
@@ -347,13 +323,6 @@ namespace OverTheCounter.SaveData
                 changed = true;
             }
 
-            if (shackPurchased.HasValue && shackPurchased.Value && !_shackPurchased)
-            {
-                _shackPurchased = true;
-                WestvilleShack.UnlockDoor();
-                changed = true;
-            }
-
             if (changed && StaticNPC.Instance != null && StaticNPC.Instance.DialogueReady)
                 StaticNPC.Instance.RefreshDialogue();
         }
@@ -382,7 +351,7 @@ namespace OverTheCounter.SaveData
                 var staticNpc = S1API.Entities.NPC.All?.FirstOrDefault(n => n.ID == "static_casino_fixer");
                 if (staticNpc != null)
                 {
-                    staticNpc.SendTextMessage("[0x4E72] d1g1t4l f00tpr1nt fl4gg3d. unencrypt3d ch4nn3l. vuln: CR1T1C4L.\n\nc4s1n0. t0p fl00r. 4ft3r 4. c0m3 4l0n3.\n\n\u2014 ST4T1C");
+                    staticNpc.SendTextMessage("y0ur comm channels are unencrypted. that's a liability.\n\ncome to the cas1no, top floor, after 4. we'll talk there. future comms go through the 0TC app.\n\n\u2014 ST4T1C");
                     _needsIntroText = false;
                 }
                 else
@@ -404,18 +373,6 @@ namespace OverTheCounter.SaveData
         }
 
         /// <summary>
-        /// Marks the Westville Shack as purchased. Unlocks door, enables customers and placement.
-        /// TODO: Migrate to a property-centric save system when adding more buildings (see tools/saveable_buildings.md).
-        /// </summary>
-        public void PurchaseShack()
-        {
-            if (_shackPurchased) return;
-            _shackPurchased = true;
-            ConfigSyncData.Instance?.PublishGameState();
-            WestvilleShack.UnlockDoor();
-        }
-
-        /// <summary>
         /// Called when player accepts intro dialogue ("Deal.").
         /// Marks intro complete, completes quest objective, and sends the first purchase offer via text.
         /// </summary>
@@ -433,7 +390,18 @@ namespace OverTheCounter.SaveData
                 Logger.Error($"OnIntroCompleted quest completion failed: {ex.Message}");
             }
 
-            SendStaticText($"[0x7A3F] s0ftw4r3 p4ck4g3 r34dy. c0st: ${Config.StaticTier1BankCost.Value:N0} + {Config.StaticTier1WeedGrams.Value}g w33d.\n\nbr1ng t0 c4s1n0.\n\n\u2014 ST4T1C_SYS");
+            StaticThreadSaveData.Instance?.AddEmbed(new OtcPropertyMessage
+            {
+                Id = "software_offer",
+                EmbedTitle = "Software Package",
+                EmbedDescription = "Encrypted comms and customer management tools.",
+                EmbedItems = new System.Collections.Generic.List<string>
+                {
+                    $"${Config.StaticTier1BankCost.Value:N0}",
+                    $"{Config.StaticTier1WeedGrams.Value}g Weed"
+                },
+                EmbedLocation = "Casino"
+            });
             _dialogueStale = true;
             ConfigSyncData.Instance?.PublishGameState();
         }
@@ -458,6 +426,7 @@ namespace OverTheCounter.SaveData
                 Logger.Error($"PurchaseInitial quest completion failed: {ex.Message}");
             }
 
+            StaticThreadSaveData.Instance?.SetEmbedStatus("software_offer", "PURCHASED");
             _dialogueStale = true;
             ConfigSyncData.Instance?.PublishGameState();
         }
@@ -486,6 +455,7 @@ namespace OverTheCounter.SaveData
                 Logger.Error($"PurchaseUpgrade quest completion failed: {ex.Message}");
             }
 
+            StaticThreadSaveData.Instance?.SetEmbedStatus("upgrade_offer", "PURCHASED");
             _dialogueStale = true;
             ConfigSyncData.Instance?.PublishGameState();
         }
@@ -528,15 +498,6 @@ namespace OverTheCounter.SaveData
         {
             switch (action)
             {
-                case "STATIC_ATM_TRIGGERED":
-                    if (!_questTriggered)
-                    {
-                        _questTriggered = true;
-                        TrySendIntroText();
-                        CreateOrResumeQuest();
-                    }
-                    break;
-
                 case "STATIC_INTRO_COMPLETED":
                     _introCompleted = true;
                     try { StaticIntroQuest.Instance?.CompleteObj1(); }
@@ -576,20 +537,39 @@ namespace OverTheCounter.SaveData
                     _upgradeAvailable = false;
                     break;
 
-                case "STATIC_SHACK_PURCHASED":
-                    if (!_shackPurchased)
-                    {
-                        _shackPurchased = true;
-                        WestvilleShack.UnlockDoor();
-                    }
-                    break;
-
                 default:
                     Logger.Warning($"StaticSaveData: unknown remote action '{action}'");
                     return;
             }
 
             ConfigSyncData.Instance?.PublishGameState();
+        }
+
+        /// <summary>
+        /// Called every game tick. Triggers intro quest at 1:00 PM
+        /// and lists the shack once the player has $5k in bank.
+        /// </summary>
+        private void OnTimeTick()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            // 1:00 PM intro trigger — Static texts about encrypted comms
+            if (!_questTriggered && TimeManager.CurrentTime >= 1300)
+            {
+                _questTriggered = true;
+                CreateOrResumeQuest();
+                TrySendIntroText();
+                ConfigSyncData.Instance?.PublishGameState();
+            }
+
+            // Property listing appears in OTC app once player has $5k in bank
+            if (_questTriggered
+                && PropertySaveData.Instance != null
+                && PropertySaveData.Instance.GetProperty(PropertySaveData.ShackId) == null
+                && Money.GetOnlineBalance() >= 5000f)
+            {
+                PropertySaveData.Instance.EnsureShackListing();
+            }
         }
 
         /// <summary>
@@ -619,7 +599,7 @@ namespace OverTheCounter.SaveData
                     {
                         Money.CreateOnlineTransaction("OTC Server Rent", -Config.SaasWeeklyCost.Value, 1f, "Static Services");
                         _saasNextPaymentDay += Config.SaasCycleDays.Value;
-                        SendStaticText("[0x52E1] server r3nt cleared. nod3s onl1ne.\n\n\u2014 ST4T1C_SYS");
+                        SendOtcToast("Server rent cleared. All nodes online.");
 
                         if (_crmTier < 3 && !_upgradeAvailable)
                         {
@@ -631,7 +611,8 @@ namespace OverTheCounter.SaveData
                     else
                     {
                         _saasActive = false;
-                        SendStaticText("[0xDEAD] paym3nt fa1led. serv1ce suspended. r3store in p3rson.\n\n\u2014 ST4T1C_SYS");
+                        StaticThreadSaveData.Instance?.AddOrUpdateMessage("sub_failed",
+                            "Payment failed. Service suspended. Come see me to restore it.");
                     }
 
                     ConfigSyncData.Instance?.PublishGameState();
@@ -686,26 +667,24 @@ namespace OverTheCounter.SaveData
 
         private void SendUpgradeOfferText()
         {
-            if (_crmTier == 1)
-            {
-                SendStaticText($"[0x9FA1] pr1v4t3 s3rv3r r34dy. c0st: ${Config.StaticTier2BankCost.Value:N0} + {Config.StaticTier2MethGrams.Value}g m3th.\nfull r3g10n c0v3r4g3. s4m3 sp0t.\n\n\u2014 ST4T1C_SYS");
-            }
-            else if (_crmTier == 2)
-            {
-                SendStaticText($"[0xB2D8] 3nt3rpr1s3 t13r. GPS tr4ck1ng. c0st: ${Config.StaticTier3BankCost.Value:N0} + {Config.StaticTier3PremiumMethGrams.Value}g pr3m1um m3th.\nl4st upgr4d3. c4s1n0.\n\n\u2014 ST4T1C_SYS");
-            }
+            int targetTier = _crmTier + 1;
+            if (targetTier < 2 || targetTier > 3) return;
+
+            StaticThreadSaveData.Instance?.AddOrUpdateEmbed(
+                StaticThreadSaveData.BuildUpgradeEmbed(targetTier));
         }
 
-        private void SendStaticText(string message)
+        private void SendOtcToast(string subtitle)
         {
             try
             {
-                var staticNpc = S1API.Entities.NPC.All?.FirstOrDefault(n => n.ID == "static_casino_fixer");
-                staticNpc?.SendTextMessage(message);
+                Singleton<NotificationsManager>.Instance?.SendNotification(
+                    "OTC App", subtitle,
+                    Apps.CustomersApp.GetAppIcon(), 5f, true);
             }
             catch (Exception ex)
             {
-                Logger.Error($"SendStaticText failed: {ex.Message}");
+                Logger.Error($"SendOtcToast failed: {ex.Message}");
             }
         }
     }

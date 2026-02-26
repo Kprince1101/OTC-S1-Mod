@@ -194,7 +194,7 @@ namespace OverTheCounter.Logic.Placement
             if (!BuildingGridFactory.OtcGrids.Contains(__instance.OwnerGrid))
                 return true;
 
-            __result = StaticSaveData.Instance?.ShackPurchased ?? false;
+            __result = PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) ?? false;
             return false;
         }
 

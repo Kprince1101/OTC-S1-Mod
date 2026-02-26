@@ -88,8 +88,7 @@ namespace OverTheCounter.NPCs
         }
 
         private bool CanTalkToStatic =>
-            (StaticSaveData.Instance?.QuestTriggered ?? false) ||
-            ScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value;
+            StaticSaveData.Instance?.QuestTriggered ?? false;
 
         protected override void ConfigurePrefab(NPCPrefabBuilder builder)
         {
@@ -193,6 +192,18 @@ namespace OverTheCounter.NPCs
                     ConfigSyncData.ApplyPendingGameState();
                 }
                 catch (Exception ex) { Logger.Warning($"StaticSaveData fallback creation failed: {ex.Message}"); }
+            }
+
+            if (StaticThreadSaveData.Instance == null)
+            {
+                try { new StaticThreadSaveData(); }
+                catch (Exception ex) { Logger.Warning($"StaticThreadSaveData fallback creation failed: {ex.Message}"); }
+            }
+
+            if (PropertySaveData.Instance == null)
+            {
+                try { new PropertySaveData(); }
+                catch (Exception ex) { Logger.Warning($"PropertySaveData fallback creation failed: {ex.Message}"); }
             }
 
             StaticSaveData.Instance?.OnStaticSpawned();
