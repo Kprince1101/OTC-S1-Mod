@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using OverTheCounter.Logic.Placement;
+using OverTheCounter.Utilities;
 using S1API.Internal.Abstraction;
 using S1API.Saveables;
+using UnityEngine;
 
 namespace OverTheCounter.SaveData
 {
@@ -43,7 +45,20 @@ namespace OverTheCounter.SaveData
     }
 
     /// <summary>
-    /// Saves OTC property ownership state.
+    /// Persisted record of an item placed on an OTC building grid.
+    /// </summary>
+    [Serializable]
+    public class OtcPlacedItem
+    {
+        public string BuildingId;
+        public string PrefabId;
+        public float CoordX;
+        public float CoordZ;
+        public int Rotation;
+    }
+
+    /// <summary>
+    /// Saves OTC property ownership state and placed item positions.
     /// The messaging thread lives in <see cref="StaticThreadSaveData"/>.
     /// </summary>
     public class PropertySaveData : Saveable
@@ -52,6 +67,9 @@ namespace OverTheCounter.SaveData
 
         [SaveableField("otc_properties")]
         private List<OtcPropertyRecord> _properties = new();
+
+        [SaveableField("otc_placed_items")]
+        private List<OtcPlacedItem> _placedItems = new();
 
         /// <summary>Singleton instance, set during construction or load.</summary>
         public static PropertySaveData Instance { get; private set; }
@@ -147,6 +165,17 @@ namespace OverTheCounter.SaveData
             ConfigSyncData.Instance?.PublishGameState();
         }
 
+        /// <summary>Restores placed items from save data for a building. Host-only.</summary>
+        internal void RestorePlacedItems(string buildingId)
+        {
+            if (!NetworkHelper.IsHost) return;
+            var grid = WestvilleShack.ShackGrid;
+            if (grid == null) return;
+
+            var items = GetPlacedItems(buildingId);
+            // TODO: restore grid items when grid placement is enabled
+        }
+
         // ==================================================================
         // Multiplayer sync
         // ==================================================================
@@ -161,6 +190,44 @@ namespace OverTheCounter.SaveData
 
             if (propertyId == ShackId)
                 WestvilleShack.UnlockDoor();
+        }
+
+        // ==================================================================
+        // Placed items
+        // ==================================================================
+
+        /// <summary>Returns all placed items for a building.</summary>
+        public List<OtcPlacedItem> GetPlacedItems(string buildingId) =>
+            _placedItems.Where(i => i.BuildingId == buildingId).ToList();
+
+        /// <summary>Adds or updates a placed item record for a building.</summary>
+        public void SavePlacedItem(string buildingId, string prefabId, float coordX, float coordZ, int rotation)
+        {
+            var existing = _placedItems.FirstOrDefault(
+                i => i.BuildingId == buildingId && i.PrefabId == prefabId);
+            if (existing != null)
+            {
+                existing.CoordX = coordX;
+                existing.CoordZ = coordZ;
+                existing.Rotation = rotation;
+            }
+            else
+            {
+                _placedItems.Add(new OtcPlacedItem
+                {
+                    BuildingId = buildingId,
+                    PrefabId = prefabId,
+                    CoordX = coordX,
+                    CoordZ = coordZ,
+                    Rotation = rotation
+                });
+            }
+        }
+
+        /// <summary>Removes a placed item record (e.g. when picked up).</summary>
+        public void RemovePlacedItem(string buildingId, string prefabId)
+        {
+            _placedItems.RemoveAll(i => i.BuildingId == buildingId && i.PrefabId == prefabId);
         }
     }
 }

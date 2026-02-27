@@ -340,6 +340,7 @@
 		<Compile Include="Logic\Placement\BuildingGridFactory.cs" />
 		<Compile Include="Logic\Placement\BuildingPlacementPatch.cs" />
 		<Compile Include="Logic\Placement\BuildingSignage.cs" />
+		<Compile Include="Logic\Placement\CheckoutCounter.cs" />
 		<Compile Include="Logic\Placement\WestvilleShack.cs" />
 	</ItemGroup>
 

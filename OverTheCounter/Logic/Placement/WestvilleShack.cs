@@ -7,14 +7,17 @@ using S1MAPI.Building.Structural;
 using S1MAPI.Gltf;
 using S1MAPI.S1;
 using S1MAPI.Utils;
+using S1API.Misc;
 using System;
 using System.Reflection;
 using UnityEngine;
 
 #if IL2CPP
 using Il2CppScheduleOne.Doors;
+using Grid = Il2CppScheduleOne.Tiles.Grid;
 #else
 using ScheduleOne.Doors;
+using Grid = ScheduleOne.Tiles.Grid;
 #endif
 
 namespace OverTheCounter.Logic.Placement
@@ -38,7 +41,11 @@ namespace OverTheCounter.Logic.Placement
         private static GameObject _building;
         private static NavMeshRepairer _navMeshRepairer;
         private static GameObject _lightsFolder;
+        private static ModularSwitch _lightSwitch;
         private static bool _initialized;
+
+        /// <summary>The placement grid inside the shack. Set after build.</summary>
+        internal static Grid ShackGrid { get; private set; }
 
 
         /// <summary>
@@ -65,9 +72,22 @@ namespace OverTheCounter.Logic.Placement
             _navMeshRepairer?.Remove();
             _navMeshRepairer = null;
             _lightsFolder = null;
+            _lightSwitch = null;
+            ShackGrid = null;
             if (_building != null) GameObject.Destroy(_building);
             _building = null;
             _initialized = false;
+        }
+
+        /// <summary>
+        /// Enables or disables Light components under the lights folder.
+        /// Keeps the GameObjects active so light fixtures remain visible.
+        /// </summary>
+        private static void SetLightsEnabled(bool enabled)
+        {
+            if (_lightsFolder == null) return;
+            foreach (var light in _lightsFolder.GetComponentsInChildren<Light>(true))
+                light.enabled = enabled;
         }
 
         /// <summary>
@@ -78,22 +98,16 @@ namespace OverTheCounter.Logic.Placement
             _navMeshRepairer?.Rebuild();
         }
 
+        /// <summary>
+        /// Sets door access based on property ownership. Called by BuildingBuilder.AddPrefab callback.
+        /// </summary>
         private static void ConfigureDoor(GameObject doorGo)
         {
             var doorCtrl = doorGo.GetComponentInChildren<DoorController>(true);
             if (doorCtrl != null)
             {
                 bool purchased = PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) ?? false;
-                if (purchased)
-                {
-                    doorCtrl.PlayerAccess = EDoorAccess.Open;
-                    try { doorCtrl.SetIsOpen_Server(true, EDoorSide.Exterior, false); }
-                    catch { }
-                }
-                else
-                {
-                    doorCtrl.PlayerAccess = EDoorAccess.Locked;
-                }
+                doorCtrl.PlayerAccess = purchased ? EDoorAccess.Open : EDoorAccess.Locked;
             }
             else
                 Logger.Warning($"Door '{doorGo.name}' has no DoorController");
@@ -107,11 +121,7 @@ namespace OverTheCounter.Logic.Placement
             if (_building == null) return;
             var doorCtrl = _building.GetComponentInChildren<DoorController>(true);
             if (doorCtrl != null)
-            {
                 doorCtrl.PlayerAccess = EDoorAccess.Open;
-                try { doorCtrl.SetIsOpen_Server(true, EDoorSide.Exterior, false); }
-                catch { }
-            }
         }
 
         /// <summary>
@@ -190,12 +200,12 @@ namespace OverTheCounter.Logic.Placement
 
             _building = builder.Build();
 
-            // Lights off by default — will be toggled by lightswitch later
+            // Cache lights folder — start with Light components off (fixtures visible, no glow)
             var lightsTransform = _building.transform.Find("Lights");
             if (lightsTransform != null)
             {
                 _lightsFolder = lightsTransform.gameObject;
-                _lightsFolder.SetActive(false);
+                SetLightsEnabled(false);
             }
 
             // NavMesh repairer — must be created after Build() (needs building root)
@@ -209,12 +219,34 @@ namespace OverTheCounter.Logic.Placement
             _navMeshRepairer.Build();
 
             // Placement grid — no interior walls, just exclude exterior wall edges
-            BuildingGridFactory.CreateGrid(_building, RoomWidth, RoomDepth, "WestvilleShack_Floor1",
+            ShackGrid = BuildingGridFactory.CreateGrid(_building, RoomWidth, RoomDepth, "WestvilleShack_Floor1",
                 tileFilter: (x, z) =>
                 {
                     if (x == 0 || z == 0) return false;
                     return true;
                 });
+
+            // Light switch on east wall interior, north of door
+            try
+            {
+                var switchGo = Prefabs.ModularSwitch.InstantiateNetworked();
+                if (switchGo != null)
+                {
+                    switchGo.transform.SetParent(_building.transform);
+                    // North of door frame, clear of trim (door center z=1.3, frame ends ~z=2.0)
+                    switchGo.transform.localPosition = new Vector3(RoomWidth - 0.1f, 1.2f, RoomDepth / 2f - 0.3f);
+                    switchGo.transform.localRotation = Quaternion.Euler(0f, 270f, 0f);
+                    _lightSwitch = new ModularSwitch(switchGo);
+                    _lightSwitch.SetInteractionMessages("Turn Off Lights", "Turn On Lights");
+                    _lightSwitch.OnToggled += isOn => SetLightsEnabled(isOn);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Light switch setup failed: {ex.Message}");
+            }
+
+            // Checkout counter is spawned later via LoadManager.onLoadComplete (needs FishNet ready)
 
             // "CANNABIS" sign on east wall exterior — 3D model
             try

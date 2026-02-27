@@ -136,6 +136,39 @@ namespace OverTheCounter.Logic.Placement
                 else
                     Logger.Warning("GridItem type not found — placement patches skipped");
 
+                // Patch BuildManager.CreateGridItem — apply desk visual when counter is placed
+                var buildManagerType = AccessTools.TypeByName("ScheduleOne.Building.BuildManager")
+                    ?? AccessTools.TypeByName("Il2CppScheduleOne.Building.BuildManager");
+                if (buildManagerType != null)
+                {
+                    var createGridItem = AccessTools.Method(buildManagerType, "CreateGridItem");
+                    if (createGridItem != null)
+                    {
+                        harmony.Patch(createGridItem,
+                            postfix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(CreateGridItemPostfix)));
+                    }
+                    else
+                        Logger.Warning("BuildManager.CreateGridItem not found — counter visual won't persist on re-placement");
+                }
+
+                // Patch BuildStart_Grid.CreateGhostModel — swap ghost visual from plastic table to desk
+                var buildStartGridType = AccessTools.TypeByName("ScheduleOne.Building.BuildStart_Grid")
+                    ?? AccessTools.TypeByName("Il2CppScheduleOne.Building.BuildStart_Grid");
+                if (buildStartGridType != null)
+                {
+                    var createGhostModel = buildStartGridType.GetMethod("CreateGhostModel",
+                        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                    if (createGhostModel != null)
+                    {
+                        harmony.Patch(createGhostModel,
+                            postfix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(CreateGhostModelPostfix)));
+                    }
+                    else
+                        Logger.Warning("BuildStart_Grid.CreateGhostModel not found — ghost will show plastic table");
+                }
+                else
+                    Logger.Warning("BuildStart_Grid type not found");
+
                 // --- BuildUpdate_Grid patches ---
                 var buildUpdateGridType = AccessTools.TypeByName("ScheduleOne.Building.BuildUpdate_Grid")
                     ?? AccessTools.TypeByName("Il2CppScheduleOne.Building.BuildUpdate_Grid");
@@ -339,6 +372,9 @@ namespace OverTheCounter.Logic.Placement
                 // Set ParentProperty AFTER SetGridData — ProcessGridData overwrites it to null
                 SetParentPropertyToStub(__instance);
 
+                // Record placement in PropertySaveData for persistence
+                RecordPlacement(instance, originCoordinate, rotation);
+
                 // Rebuild interior NavMesh so NPCs can navigate around placed furniture
                 WestvilleShack.RebuildNavMesh();
             }
@@ -349,6 +385,41 @@ namespace OverTheCounter.Logic.Placement
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Extracts the item ID from an ItemInstance and saves its grid position
+        /// to PropertySaveData so the item can be restored on load.
+        /// </summary>
+        private static void RecordPlacement(object itemInstance, Vector2 coord, int rotation)
+        {
+            try
+            {
+                if (PropertySaveData.Instance == null) return;
+
+#if IL2CPP
+                if (itemInstance is Il2CppScheduleOne.ItemFramework.ItemInstance ii)
+                {
+                    PropertySaveData.Instance.SavePlacedItem(
+                        PropertySaveData.ShackId, ii.ID.ToLower(), coord.x, coord.y, rotation);
+                }
+#else
+                var idProp = itemInstance?.GetType().GetProperty("ID");
+                if (idProp != null)
+                {
+                    var id = idProp.GetValue(itemInstance) as string;
+                    if (!string.IsNullOrEmpty(id))
+                    {
+                        PropertySaveData.Instance.SavePlacedItem(
+                            PropertySaveData.ShackId, id.ToLower(), coord.x, coord.y, rotation);
+                    }
+                }
+#endif
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"RecordPlacement failed: {ex.Message}");
+            }
         }
 
         // =====================================================================
@@ -396,6 +467,103 @@ namespace OverTheCounter.Logic.Placement
             }
 #endif
             return true;
+        }
+
+        // =====================================================================
+        //  CreateGhostModel postfix — swap ghost visual from plastic table to desk
+        // =====================================================================
+
+        /// <summary>
+        /// After the ghost model is created for placement preview, check if it's
+        /// our checkout counter and swap the plastic table mesh with the desk.
+        /// The game applies its own ghost material (white transparent), so we just
+        /// need to swap the mesh shape — materials are handled automatically.
+        /// </summary>
+        private static void CreateGhostModelPostfix(object __result, object itemDefinition)
+        {
+            if (__result == null || itemDefinition == null) return;
+
+            try
+            {
+                var idField = itemDefinition.GetType().GetField("ID");
+                var defId = idField?.GetValue(itemDefinition) as string;
+                if (defId != "otc_checkout_counter") return;
+
+                var goProp = __result.GetType().GetProperty("gameObject");
+                var ghostGo = goProp?.GetValue(__result) as GameObject;
+                if (ghostGo == null) return;
+
+                CheckoutCounter.ApplyGhostVisual(ghostGo);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"CreateGhostModelPostfix: {ex.Message}");
+            }
+        }
+
+        // =====================================================================
+        //  CreateGridItem postfix — apply desk visual for checkout counter
+        // =====================================================================
+
+        /// <summary>
+        /// After any GridItem is created via BuildManager.CreateGridItem, check if it's
+        /// our checkout counter and apply the desk visual. This handles both initial
+        /// spawn and player re-placement after pickup.
+        /// </summary>
+        private static void CreateGridItemPostfix(object __result, object item)
+        {
+            if (__result == null) return;
+
+            try
+            {
+                string itemId = null;
+#if IL2CPP
+                if (item is Il2CppScheduleOne.ItemFramework.ItemInstance ii)
+                    itemId = ii.Definition?.ID;
+#else
+                var idProp = item?.GetType().GetProperty("ID");
+                itemId = idProp?.GetValue(item) as string;
+                if (string.IsNullOrEmpty(itemId))
+                {
+                    var defProp = item?.GetType().GetProperty("Definition");
+                    var def = defProp?.GetValue(item);
+                    if (def != null)
+                    {
+                        var defIdProp = def.GetType().GetProperty("ID");
+                        itemId = defIdProp?.GetValue(def) as string;
+                    }
+                }
+#endif
+
+                if (itemId == "otc_checkout_counter")
+                {
+                    var goProp = __result.GetType().GetProperty("gameObject");
+                    var go = goProp?.GetValue(__result) as GameObject;
+                    if (go != null)
+                        MelonCoroutines.Start(ApplyVisualDeferred(go));
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"CreateGridItemPostfix: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Wait for the GridItem to finish initialization, then swap visual.
+        /// Disables renderers twice — once immediately, once after a delay to catch
+        /// any renderers the game re-enables during async initialization.
+        /// </summary>
+        private static System.Collections.IEnumerator ApplyVisualDeferred(GameObject go)
+        {
+            yield return null; // Wait one frame for init
+            if (go == null) yield break;
+            CheckoutCounter.ApplyDeskVisual(go);
+
+            // Second pass: re-disable any renderers the game may have re-enabled
+            yield return new WaitForSeconds(0.5f);
+            if (go == null) yield break;
+            CheckoutCounter.DisableOriginalRenderers(go);
         }
 
     }

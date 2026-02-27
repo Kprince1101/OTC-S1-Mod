@@ -114,17 +114,80 @@ namespace OverTheCounter
 
 #endif
             // Permanent building cleanup
+            Logic.Placement.CheckoutCounter.Cleanup();
             Logic.Placement.WestvilleShack.Cleanup();
             BuildingGridFactory.Cleanup();
+            _loadHooked = false;
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)
         {
             if (sceneName == "Main")
             {
+                Logic.Placement.CheckoutCounter.Register();
                 Logic.Placement.WestvilleShack.SpawnBuilding();
-            }
 
+                // Defer grid item spawning until after FishNet is ready
+                // (CreateGridItem calls networkObject.Spawn which requires network initialized)
+                HookLoadComplete();
+            }
+        }
+
+        private static bool _loadHooked;
+
+        /// <summary>
+        /// Subscribes to LoadManager.onLoadComplete so we can spawn grid items
+        /// after FishNet networking is initialized. Safe to call multiple times.
+        /// </summary>
+        private static void HookLoadComplete()
+        {
+            if (_loadHooked) return;
+            try
+            {
+#if IL2CPP
+                var lm = Il2CppScheduleOne.DevUtilities.Singleton<Il2CppScheduleOne.Persistence.LoadManager>.Instance;
+                if (lm != null)
+                {
+                    lm.onLoadComplete.AddListener((UnityEngine.Events.UnityAction)OnGameLoaded);
+                    _loadHooked = true;
+                }
+                else
+                    MelonLoader.MelonLogger.Warning("[OTC] LoadManager.Instance is null — cannot hook onLoadComplete");
+#else
+                var lm = ScheduleOne.Persistence.LoadManager.Instance;
+                if (lm != null)
+                {
+                    lm.onLoadComplete.AddListener(OnGameLoaded);
+                    _loadHooked = true;
+                }
+                else
+                    MelonLoader.MelonLogger.Warning("[OTC] LoadManager.Instance is null — cannot hook onLoadComplete");
+#endif
+            }
+            catch (Exception ex)
+            {
+                MelonLoader.MelonLogger.Error($"[OTC] Failed to hook LoadManager.onLoadComplete: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Called when the game save finishes loading. Spawns the checkout counter
+        /// on the shack grid now that FishNet networking is ready.
+        /// </summary>
+        private static void OnGameLoaded()
+        {
+            try
+            {
+                var grid = Logic.Placement.WestvilleShack.ShackGrid;
+                if (grid != null)
+                    Logic.Placement.CheckoutCounter.SpawnOnGrid(grid);
+                else
+                    MelonLoader.MelonLogger.Warning("[OTC] ShackGrid is null — cannot spawn counter");
+            }
+            catch (Exception ex)
+            {
+                MelonLoader.MelonLogger.Error($"[OTC] OnGameLoaded counter spawn failed: {ex.Message}");
+            }
         }
 
         public override void OnLateUpdate()
