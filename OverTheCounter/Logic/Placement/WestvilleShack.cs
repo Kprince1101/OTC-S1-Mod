@@ -7,6 +7,7 @@ using S1MAPI.Building.Structural;
 using S1MAPI.Gltf;
 using S1MAPI.S1;
 using S1MAPI.Utils;
+using S1API.GameTime;
 using S1API.Misc;
 using System;
 using System.Reflection;
@@ -42,7 +43,14 @@ namespace OverTheCounter.Logic.Placement
         private static NavMeshRepairer _navMeshRepairer;
         private static GameObject _lightsFolder;
         private static ModularSwitch _lightSwitch;
+        private static ModularSwitch _openCloseSwitch;
         private static bool _initialized;
+
+        /// <summary>Whether the store is currently open for customers. Toggled by the open/close switch.</summary>
+        public static bool IsStoreOpen { get; private set; }
+
+        /// <summary>Whether the interior lights are currently on.</summary>
+        public static bool AreLightsOn { get; private set; }
 
         /// <summary>The placement grid inside the shack. Set after build.</summary>
         internal static Grid ShackGrid { get; private set; }
@@ -73,6 +81,9 @@ namespace OverTheCounter.Logic.Placement
             _navMeshRepairer = null;
             _lightsFolder = null;
             _lightSwitch = null;
+            _openCloseSwitch = null;
+            IsStoreOpen = false;
+            AreLightsOn = false;
             ShackGrid = null;
             if (_building != null) GameObject.Destroy(_building);
             _building = null;
@@ -85,6 +96,7 @@ namespace OverTheCounter.Logic.Placement
         /// </summary>
         private static void SetLightsEnabled(bool enabled)
         {
+            AreLightsOn = enabled;
             if (_lightsFolder == null) return;
             foreach (var light in _lightsFolder.GetComponentsInChildren<Light>(true))
                 light.enabled = enabled;
@@ -108,6 +120,18 @@ namespace OverTheCounter.Logic.Placement
             {
                 bool purchased = PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) ?? false;
                 doorCtrl.PlayerAccess = purchased ? EDoorAccess.Open : EDoorAccess.Locked;
+                // Let NPCs open the door naturally when they approach
+                try
+                {
+#if IL2CPP
+                    doorCtrl.OpenableByNPCs = true;
+#else
+                    var field = doorCtrl.GetType().GetField("OpenableByNPCs",
+                        BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
+                    if (field != null) field.SetValue(doorCtrl, true);
+#endif
+                }
+                catch { }
             }
             else
                 Logger.Warning($"Door '{doorGo.name}' has no DoorController");
@@ -121,7 +145,60 @@ namespace OverTheCounter.Logic.Placement
             if (_building == null) return;
             var doorCtrl = _building.GetComponentInChildren<DoorController>(true);
             if (doorCtrl != null)
+            {
                 doorCtrl.PlayerAccess = EDoorAccess.Open;
+                try
+                {
+#if IL2CPP
+                    doorCtrl.OpenableByNPCs = true;
+#else
+                    var field = doorCtrl.GetType().GetField("OpenableByNPCs",
+                        BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
+                    if (field != null) field.SetValue(doorCtrl, true);
+#endif
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>
+        /// Restores switch states from save data after load.
+        /// </summary>
+        public static void ApplySavedState(bool lightsOn, bool storeOpen)
+        {
+            if (_lightSwitch != null)
+            {
+                if (lightsOn) _lightSwitch.SwitchOn();
+                else _lightSwitch.SwitchOff();
+            }
+            else
+                SetLightsEnabled(lightsOn);
+
+            if (_openCloseSwitch != null)
+            {
+                if (storeOpen) _openCloseSwitch.SwitchOn();
+                else _openCloseSwitch.SwitchOff();
+            }
+            else
+                IsStoreOpen = storeOpen;
+        }
+
+        /// <summary>
+        /// Updates the open/close switch interaction messages based on current state and time of day.
+        /// After closing time (8pm), shows a note that the store closes at 8:00.
+        /// </summary>
+        public static void UpdateOpenCloseSwitchMessages()
+        {
+            if (_openCloseSwitch == null) return;
+
+            // Always show operating hours so the player knows the schedule
+            const string hours = " (8AM - 8PM)";
+
+            // messageWhenOn = shown when switch is ON (store is open) → action is to close
+            // messageWhenOff = shown when switch is OFF (store is closed) → action is to open
+            _openCloseSwitch.SetInteractionMessages(
+                $"Close Store{hours}",
+                $"Open Store{hours}");
         }
 
         /// <summary>
@@ -209,7 +286,17 @@ namespace OverTheCounter.Logic.Placement
             }
 
             // NavMesh repairer — must be created after Build() (needs building root)
-            _navMeshRepairer = builder.CreateNavMeshRepairer();
+            // Use employee agent type so the indoor NavMesh is visible to employee-type agents
+            int navAgentType = 0;
+            if (ManagerSpawner.TryGetEmployeeNavMeshSettings(out int empAgentType, out int empAreaMask))
+            {
+                navAgentType = empAgentType;
+            }
+            else
+            {
+                Logger.Warning("No employee NavMesh settings found — using default agentTypeID=0");
+            }
+            _navMeshRepairer = builder.CreateNavMeshRepairer(navAgentType);
 
             // Position: room sits on top of foundation
             _building.transform.position = new Vector3(
@@ -234,7 +321,7 @@ namespace OverTheCounter.Logic.Placement
                 {
                     switchGo.transform.SetParent(_building.transform);
                     // North of door frame, clear of trim (door center z=1.3, frame ends ~z=2.0)
-                    switchGo.transform.localPosition = new Vector3(RoomWidth - 0.1f, 1.2f, RoomDepth / 2f - 0.3f);
+                    switchGo.transform.localPosition = new Vector3(RoomWidth - 0.1f, 1.2f, 2.10f);
                     switchGo.transform.localRotation = Quaternion.Euler(0f, 270f, 0f);
                     _lightSwitch = new ModularSwitch(switchGo);
                     _lightSwitch.SetInteractionMessages("Turn Off Lights", "Turn On Lights");
@@ -244,6 +331,29 @@ namespace OverTheCounter.Logic.Placement
             catch (Exception ex)
             {
                 Logger.Error($"Light switch setup failed: {ex.Message}");
+            }
+
+            // Open/Close switch on east wall interior, next to light switch
+            try
+            {
+                var openSwitchGo = Prefabs.ModularSwitch.InstantiateNetworked();
+                if (openSwitchGo != null)
+                {
+                    openSwitchGo.transform.SetParent(_building.transform);
+                    openSwitchGo.transform.localPosition = new Vector3(RoomWidth - 0.1f, 1.2f, 2.35f);
+                    openSwitchGo.transform.localRotation = Quaternion.Euler(0f, 270f, 0f);
+                    _openCloseSwitch = new ModularSwitch(openSwitchGo);
+                    _openCloseSwitch.OnToggled += isOn =>
+                    {
+                        IsStoreOpen = isOn;
+                        UpdateOpenCloseSwitchMessages();
+                    };
+                    UpdateOpenCloseSwitchMessages();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Open/Close switch setup failed: {ex.Message}");
             }
 
             // Checkout counter is spawned later via LoadManager.onLoadComplete (needs FishNet ready)

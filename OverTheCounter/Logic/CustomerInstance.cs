@@ -2,6 +2,7 @@ using MelonLoader;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
 
 #if IL2CPP
 using Il2CppScheduleOne.NPCs;
@@ -56,6 +57,7 @@ namespace OverTheCounter.Logic
 
         // Browse tracking
         private List<Vector3> _browsePositions;
+        private List<Vector3> _browseShelfPositions; // original shelf centers (for facing)
         private int _browseTargetIndex;
         private float _browsePauseEndTime;
         private Vector3? _currentWalkTarget;
@@ -65,18 +67,37 @@ namespace OverTheCounter.Logic
         // Look-around tracking (when no storage found)
         public float LookAroundEndTime { get; set; }
 
+        /// <summary>Time.time when the customer arrived at the checkout counter.</summary>
+        public float CheckoutArrivalTime { get; set; }
+
+        /// <summary>Whether the payment animation has been triggered.</summary>
+        public bool CheckoutPaymentPlayed { get; set; }
+
+        /// <summary>Seconds the customer waits at the counter before payment animation.</summary>
+        public const float CheckoutDuration = 3f;
+
+        /// <summary>Seconds after payment animation before the customer leaves.</summary>
+        public const float CheckoutPaymentDelay = 1f;
+
         // =====================================================================
         //  Movement (GC-pinned callbacks)
         // =====================================================================
 
         private GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> _walkCallback;
 
-        // Stuck detection
+        // Stuck detection — escalates avoidance priority before warping
         private Vector3? _lastStuckCheckPos;
         private float _lastStuckCheckTime;
-        private int _stuckCount;
-        private const float StuckCheckInterval = 8f;
-        private const float StuckThreshold = 1.5f;
+        private float _stuckStartTime;
+        private int _stuckEscalation; // 0=normal, 1=priority30, 2=priority10
+        private const float StuckCheckInterval = 2f;
+        private const float StuckMovementThreshold = 0.5f;
+        private const float StuckWarpTime = 8f;
+
+        // NavMesh switching (civilian ↔ employee)
+        private int _savedAgentTypeID;
+        private int _savedAreaMask;
+        private bool _usingEmployeeNavMesh;
 
         // =====================================================================
         //  Constructor + Factory
@@ -157,8 +178,6 @@ namespace OverTheCounter.Logic
             };
 
             Active[id] = instance;
-            if (Config.VerboseLogging.Value)
-                Logger.Msg($"Adopted customer {id} (state={state})");
             return instance;
         }
 
@@ -173,15 +192,6 @@ namespace OverTheCounter.Logic
         {
             if (!IsValid) return;
 
-            // Ensure off-mesh link traversal stays enabled (game may reset it after spawn)
-            try
-            {
-                var agent = GameNpc.gameObject.GetComponent<UnityEngine.AI.NavMeshAgent>();
-                if (agent != null && !agent.autoTraverseOffMeshLink)
-                    agent.autoTraverseOffMeshLink = true;
-            }
-            catch { }
-
             ArrivedAtDestination = false;
             _currentWalkTarget = target;
 
@@ -195,9 +205,7 @@ namespace OverTheCounter.Logic
 
             GameNpc.Movement.SetDestination(target, _walkCallback, 2f, 1f);
 
-            _lastStuckCheckTime = Time.time;
-            _lastStuckCheckPos = null;
-            _stuckCount = 0;
+            ResetStuckState();
         }
 
         /// <summary>
@@ -219,12 +227,17 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Checks if the NPC is stuck and warps to the target after repeated failures.
+        /// Checks if the NPC is stuck and escalates: priority 30 → priority 10 → warp.
+        /// Reverts avoidance priority once movement resumes.
         /// </summary>
         public void CheckStuck()
         {
             if (!IsValid || _currentWalkTarget == null) return;
-            if (ArrivedAtDestination) return;
+            if (ArrivedAtDestination)
+            {
+                ResetStuckState();
+                return;
+            }
             if (Time.time - _lastStuckCheckTime < StuckCheckInterval) return;
 
             _lastStuckCheckTime = Time.time;
@@ -232,24 +245,72 @@ namespace OverTheCounter.Logic
 
             if (_lastStuckCheckPos.HasValue)
             {
-                float dist = Vector3.Distance(pos, _lastStuckCheckPos.Value);
-                if (dist < StuckThreshold)
+                float moved = Vector3.Distance(pos, _lastStuckCheckPos.Value);
+                if (moved > StuckMovementThreshold)
                 {
-                    _stuckCount++;
-                    if (_stuckCount >= 2)
-                    {
-                        WarpTo(_currentWalkTarget.Value);
-                        ArrivedAtDestination = true;
-                        _stuckCount = 0;
-                    }
-                }
-                else
-                {
-                    _stuckCount = 0;
+                    // Moving again — revert any escalation
+                    ResetStuckState();
+                    _lastStuckCheckPos = pos;
+                    _lastStuckCheckTime = Time.time;
+                    return;
                 }
             }
 
             _lastStuckCheckPos = pos;
+
+            // First detection — start the clock
+            if (_stuckStartTime == 0f)
+            {
+                _stuckStartTime = Time.time;
+                return;
+            }
+
+            float stuckDuration = Time.time - _stuckStartTime;
+
+            if (stuckDuration >= StuckWarpTime)
+            {
+                WarpTo(_currentWalkTarget.Value);
+                ArrivedAtDestination = true;
+                ResetStuckState();
+            }
+            else if (_stuckEscalation == 0)
+            {
+                SetAvoidancePriority(30);
+                _stuckEscalation = 1;
+                ReissueMovement();
+            }
+            else if (_stuckEscalation == 1 && stuckDuration >= 4f)
+            {
+                SetAvoidancePriority(10);
+                _stuckEscalation = 2;
+                ReissueMovement();
+            }
+        }
+
+        /// <summary>
+        /// Re-sends SetDestination to the current walk target without resetting stuck state.
+        /// Used after avoidance priority changes so the NavMeshAgent re-plans its path
+        /// with the new priority and starts pushing through.
+        /// </summary>
+        private void ReissueMovement()
+        {
+            if (!IsValid || _currentWalkTarget == null) return;
+            GameNpc.Movement.SetDestination(_currentWalkTarget.Value, _walkCallback, 2f, 1f);
+        }
+
+        /// <summary>
+        /// Resets stuck tracking and reverts avoidance priority to default.
+        /// </summary>
+        private void ResetStuckState()
+        {
+            if (_stuckEscalation > 0)
+            {
+                SetAvoidancePriority(50);
+                _stuckEscalation = 0;
+            }
+            _stuckStartTime = 0f;
+            _lastStuckCheckPos = null;
+            _lastStuckCheckTime = Time.time;
         }
 
         /// <summary>
@@ -271,16 +332,135 @@ namespace OverTheCounter.Logic
             catch { }
         }
 
+        /// <summary>
+        /// Rotates the NPC to face the given world position (Y-axis only).
+        /// </summary>
+        private void FacePosition(Vector3 target)
+        {
+            if (!IsValid) return;
+            var dir = target - GameNpc.transform.position;
+            dir.y = 0f;
+            if (dir.sqrMagnitude > 0.001f)
+                GameNpc.transform.rotation = Quaternion.LookRotation(dir);
+        }
+
+        /// <summary>
+        /// Faces a world position and plays the GrabItem animation (same as manager interact).
+        /// </summary>
+        public void FaceAndAnimate(Vector3 target)
+        {
+            if (!IsValid) return;
+            var dir = target - GameNpc.transform.position;
+            dir.y = 0f;
+            if (dir.sqrMagnitude > 0.001f)
+                GameNpc.Movement?.FaceDirection(dir, 0.3f);
+            GameNpc.SetAnimationTrigger_Networked(null, "GrabItem");
+        }
+
+        // =====================================================================
+        //  NavMesh switching (civilian ↔ employee)
+        // =====================================================================
+
+        /// <summary>
+        /// Switches the NPC's NavMeshAgent to employee settings for indoor navigation.
+        /// Must be called near the building entrance where both surfaces overlap.
+        /// </summary>
+        public bool SwitchToEmployeeNavMesh()
+        {
+            if (_usingEmployeeNavMesh) return true;
+
+            if (!ManagerSpawner.TryGetEmployeeNavMeshSettings(out int empAgentType, out int empAreaMask))
+            {
+                Logger.Warning($"{Id}: no employee NavMesh settings available");
+                return false;
+            }
+
+            try
+            {
+                var agent = GameNpc?.Movement?.Agent;
+                if (agent == null) return false;
+
+                _savedAgentTypeID = agent.agentTypeID;
+                _savedAreaMask = agent.areaMask;
+
+                agent.agentTypeID = empAgentType;
+                agent.areaMask = empAreaMask;
+
+                // Don't Warp here — caller warps to the target position on the
+                // runtime Employee NavMesh (baked and runtime are separate instances).
+
+                _usingEmployeeNavMesh = true;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"{Id}: SwitchToEmployeeNavMesh failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Restores the NPC's NavMeshAgent to civilian settings for outdoor navigation.
+        /// </summary>
+        public void RestoreCivilianNavMesh()
+        {
+            if (!_usingEmployeeNavMesh) return;
+
+            try
+            {
+                var agent = GameNpc?.Movement?.Agent;
+                if (agent == null) return;
+
+                agent.agentTypeID = _savedAgentTypeID;
+                agent.areaMask = _savedAreaMask;
+
+                GameNpc.Movement.Warp(GameNpc.transform.position);
+
+                _usingEmployeeNavMesh = false;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"{Id}: RestoreCivilianNavMesh failed: {ex.Message}");
+                _usingEmployeeNavMesh = false;
+            }
+        }
+
+        /// <summary>
+        /// Sets the NPC's avoidance priority. Lower values = higher importance
+        /// (pushes other agents aside). Default civilian NPCs are ~50.
+        /// </summary>
+        public void SetAvoidancePriority(int priority)
+        {
+            try
+            {
+                var agent = GameNpc?.Movement?.Agent;
+                if (agent != null)
+                    agent.avoidancePriority = priority;
+            }
+            catch { }
+        }
+
         // =====================================================================
         //  Browsing
         // =====================================================================
 
         /// <summary>
-        /// Initializes the browse phase with a list of positions to visit.
+        /// Initializes the browse phase with stand positions (in front of shelves)
+        /// and shelf centers (for facing). Each stand position gets a random XZ offset
+        /// so multiple customers don't compete for the exact same spot.
         /// </summary>
-        public void StartBrowsing(List<Vector3> positions)
+        private const float BrowseRadius = 0.8f;
+
+        public void StartBrowsing(List<Vector3> standPositions, List<Vector3> shelfCenters)
         {
-            _browsePositions = positions;
+            _browseShelfPositions = new List<Vector3>(shelfCenters);
+            _browsePositions = new List<Vector3>(standPositions.Count);
+            for (int i = 0; i < standPositions.Count; i++)
+            {
+                var offset = UnityEngine.Random.insideUnitCircle * BrowseRadius;
+                _browsePositions.Add(standPositions[i] + new Vector3(offset.x, 0f, offset.y));
+            }
+
             _browseTargetIndex = 0;
             _browsePauseEndTime = 0f;
             ArrivedAtDestination = false;
@@ -315,9 +495,11 @@ namespace OverTheCounter.Logic
                 return false;
             }
 
-            // Arrived at current target — start pause
+            // Arrived at current target — face the shelf and start pause
             if (ArrivedAtDestination)
             {
+                if (_browseShelfPositions != null && _browseTargetIndex < _browseShelfPositions.Count)
+                    FacePosition(_browseShelfPositions[_browseTargetIndex]);
                 _browsePauseEndTime = Time.time + BrowsePauseDuration;
                 return false;
             }
@@ -335,6 +517,8 @@ namespace OverTheCounter.Logic
         public void Despawn()
         {
             Active.Remove(Id);
+
+            RestoreCivilianNavMesh();
 
             if (GameNpc != null)
             {

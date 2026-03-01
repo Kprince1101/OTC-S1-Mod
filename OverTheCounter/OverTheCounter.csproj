@@ -335,7 +335,6 @@
 		<Compile Include="Patches\BellaSummonPatch.cs" />
 		<Compile Include="Patches\QuestInitPatch.cs" />
 		<Compile Include="Patches\NpcTypeDiscoveryPatch.cs" />
-		<Compile Include="Patches\NpcNavMeshLinkPatch.cs" />
 		<Compile Include="UI\MinimapOverlay.cs" />
 		<Compile Include="Logic\Placement\BuildingGridFactory.cs" />
 		<Compile Include="Logic\Placement\BuildingPlacementPatch.cs" />

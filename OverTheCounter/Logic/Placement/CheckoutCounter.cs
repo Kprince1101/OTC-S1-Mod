@@ -47,6 +47,23 @@ namespace OverTheCounter.Logic.Placement
         private static BuildableItemDefinition _counterDef;
         private static GameObject _counterInstance;
 
+        /// <summary>World position of the checkout counter, or null if not placed.</summary>
+        public static Vector3? CounterPosition =>
+            _counterInstance != null ? _counterInstance.transform.position : null;
+
+        /// <summary>
+        /// Position where a customer should stand to face the counter.
+        /// Offset slightly in front so the NPC doesn't clip into the desk.
+        /// </summary>
+        public static Vector3? CustomerStandPosition
+        {
+            get
+            {
+                if (_counterInstance == null) return null;
+                return _counterInstance.transform.position - _counterInstance.transform.forward * 1.0f;
+            }
+        }
+
         /// <summary>
         /// Registers the custom checkout counter definition by cloning plastictable.
         /// Must be called after the game Registry is available (OnSceneWasInitialized).
@@ -303,6 +320,107 @@ namespace OverTheCounter.Logic.Placement
             {
                 Logger.Warning("Ornate desk mesh not found — counter shows plastic table visual");
             }
+        }
+
+        /// <summary>
+        /// Spawns a vanilla game item (e.g. displaycabinet) on an OTC grid from save data.
+        /// Creates a native ItemInstance from the game Registry and places it via BuildManager.
+        /// </summary>
+        public static void SpawnVanillaGridItem(Grid grid, string itemId, Vector2 coord, int rotation)
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                var nativeInstance = CreateVanillaInstance(itemId);
+                if (nativeInstance == null)
+                {
+                    Logger.Warning($"Could not create instance for '{itemId}' — skipping restore");
+                    return;
+                }
+
+                var bm = Singleton<BuildManager>.Instance;
+                if (bm == null)
+                {
+                    Logger.Error("BuildManager not available for vanilla item restore");
+                    return;
+                }
+
+                bm.CreateGridItem(nativeInstance, grid, coord, rotation);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"SpawnVanillaGridItem failed for '{itemId}': {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Creates a native ItemInstance from the game Registry by item ID.
+        /// </summary>
+        private static NativeItemInstance CreateVanillaInstance(string itemId)
+        {
+#if IL2CPP
+            var def = Registry.GetItem(itemId);
+            if (def == null)
+            {
+                Logger.Warning($"Registry.GetItem('{itemId}') returned null");
+                return null;
+            }
+            var storableDef = def.TryCast<NativeStorableItemDef>();
+            if (storableDef == null)
+            {
+                Logger.Warning($"'{itemId}' is not a StorableItemDefinition");
+                return null;
+            }
+            return storableDef.GetDefaultInstance(1);
+#else
+            // Use reflection to avoid Registry.GetItem overload ambiguity on Mono
+            var registryType = typeof(NativeItemInstance).Assembly.GetType("ScheduleOne.Registry");
+            if (registryType == null)
+            {
+                Logger.Error("Registry type not found");
+                return null;
+            }
+            // Filter to non-generic overload to avoid AmbiguousMatchException
+            MethodInfo getItem = null;
+            foreach (var m in registryType.GetMethods(BindingFlags.Public | BindingFlags.Static))
+            {
+                if (m.Name != "GetItem" || m.IsGenericMethod) continue;
+                var ps = m.GetParameters();
+                if (ps.Length == 1 && ps[0].ParameterType == typeof(string))
+                {
+                    getItem = m;
+                    break;
+                }
+            }
+            if (getItem == null)
+            {
+                Logger.Error("Registry.GetItem(string) not found");
+                return null;
+            }
+            var def = getItem.Invoke(null, new object[] { itemId });
+            if (def == null)
+            {
+                Logger.Warning($"Registry.GetItem('{itemId}') returned null");
+                return null;
+            }
+            var getDefaultInstance = def.GetType().GetMethod("GetDefaultInstance", new[] { typeof(int) });
+            if (getDefaultInstance == null)
+            {
+                Logger.Warning($"GetDefaultInstance not found on {def.GetType().Name}");
+                return null;
+            }
+            return getDefaultInstance.Invoke(def, new object[] { 1 }) as NativeItemInstance;
+#endif
+        }
+
+        /// <summary>
+        /// Updates the tracked counter instance. Called from CreateGridItemPostfix
+        /// when the player re-places the counter after picking it up.
+        /// </summary>
+        public static void SetInstance(GameObject go)
+        {
+            _counterInstance = go;
         }
 
         /// <summary>Clears counter reference for scene cleanup.</summary>

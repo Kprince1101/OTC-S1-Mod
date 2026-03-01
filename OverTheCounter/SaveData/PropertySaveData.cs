@@ -1,11 +1,28 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using MelonLoader;
 using OverTheCounter.Logic.Placement;
 using OverTheCounter.Utilities;
 using S1API.Internal.Abstraction;
 using S1API.Saveables;
+using System.Reflection;
 using UnityEngine;
+
+#if IL2CPP
+using Il2CppScheduleOne.ObjectScripts;
+using Il2CppScheduleOne.Storage;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.Persistence;
+using Il2CppScheduleOne.Persistence.Datas;
+using Il2CppScheduleOne.EntityFramework;
+#else
+using ScheduleOne.ObjectScripts;
+using ScheduleOne.Storage;
+using ScheduleOne.ItemFramework;
+using ScheduleOne.Persistence;
+using ScheduleOne.Persistence.Datas;
+#endif
 
 namespace OverTheCounter.SaveData
 {
@@ -46,6 +63,7 @@ namespace OverTheCounter.SaveData
 
     /// <summary>
     /// Persisted record of an item placed on an OTC building grid.
+    /// Slots stores per-slot JSON from the game's native ItemData serialization.
     /// </summary>
     [Serializable]
     public class OtcPlacedItem
@@ -55,6 +73,17 @@ namespace OverTheCounter.SaveData
         public float CoordX;
         public float CoordZ;
         public int Rotation;
+        public string[] Slots;
+    }
+
+    /// <summary>
+    /// Persisted toggle states for the shack (lights, store open/close).
+    /// </summary>
+    [Serializable]
+    public class OtcShackState
+    {
+        public bool LightsOn;
+        public bool StoreOpen;
     }
 
     /// <summary>
@@ -70,6 +99,12 @@ namespace OverTheCounter.SaveData
 
         [SaveableField("otc_placed_items")]
         private List<OtcPlacedItem> _placedItems = new();
+
+        [SaveableField("otc_shack_initialized")]
+        private bool _shackInitialized;
+
+        [SaveableField("otc_shack_state")]
+        private OtcShackState _shackState = new();
 
         /// <summary>Singleton instance, set during construction or load.</summary>
         public static PropertySaveData Instance { get; private set; }
@@ -87,7 +122,17 @@ namespace OverTheCounter.SaveData
             ConfigSyncData.ApplyPendingGameState();
 
             if (IsPropertyOwned(ShackId))
+            {
                 WestvilleShack.UnlockDoor();
+                WestvilleShack.ApplySavedState(_shackState.LightsOn, _shackState.StoreOpen);
+            }
+        }
+
+        /// <summary>Captures current shack toggle states before save serialization.</summary>
+        public void CaptureShackState()
+        {
+            _shackState.LightsOn = WestvilleShack.AreLightsOn;
+            _shackState.StoreOpen = WestvilleShack.IsStoreOpen;
         }
 
         // ==================================================================
@@ -173,7 +218,86 @@ namespace OverTheCounter.SaveData
             if (grid == null) return;
 
             var items = GetPlacedItems(buildingId);
-            // TODO: restore grid items when grid placement is enabled
+            if (!_shackInitialized)
+            {
+                _shackInitialized = true;
+                if (items.Count == 0)
+                {
+                    // Genuine first load after purchase — spawn default counter
+                    CheckoutCounter.SpawnOnGrid(grid);
+                    return;
+                }
+                // Has saved items from before flag existed — fall through to restore
+            }
+            if (items.Count == 0)
+                return;
+
+            // Track items with saved slots for deferred restoration
+            var itemsWithSlots = new List<OtcPlacedItem>();
+
+            foreach (var item in items)
+            {
+                try
+                {
+                    var coord = new Vector2(item.CoordX, item.CoordZ);
+                    if (item.PrefabId == "otc_checkout_counter")
+                        CheckoutCounter.SpawnOnGrid(grid, coord, item.Rotation);
+                    else
+                        CheckoutCounter.SpawnVanillaGridItem(grid, item.PrefabId, coord, item.Rotation);
+
+                    if (item.Slots != null && item.Slots.Length > 0)
+                        itemsWithSlots.Add(item);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"Failed to restore '{item.PrefabId}': {ex.Message}");
+                }
+            }
+
+            // Defer slot restoration so grid items have time to initialize
+            if (itemsWithSlots.Count > 0)
+                MelonCoroutines.Start(RestoreSlotContentsDeferred(itemsWithSlots));
+        }
+
+        private System.Collections.IEnumerator RestoreSlotContentsDeferred(List<OtcPlacedItem> items)
+        {
+            // Wait for grid items to be fully spawned and initialized
+            yield return new WaitForSeconds(3f);
+
+            foreach (var item in items)
+            {
+                try
+                {
+                    // Find the runtime storage entity by its stored origin coordinate
+                    foreach (var kvp in BuildingGridFactory.GridContainers)
+                    {
+                        var root = kvp.Value;
+                        if (root == null) continue;
+
+                        var storages = root.GetComponentsInChildren<PlaceableStorageEntity>(true);
+                        if (storages == null) continue;
+
+                        for (int i = 0; i < storages.Length; i++)
+                        {
+                            var storage = storages[i];
+                            if (storage == null) continue;
+
+                            var coord = GetOriginCoordinate(storage);
+                            if (coord == null) continue;
+
+                            int cx = (int)coord.Value.x;
+                            int cz = (int)coord.Value.y;
+
+                            if (cx == (int)item.CoordX && cz == (int)item.CoordZ)
+                                RestoreEntitySlots(storage, item.Slots);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"RestoreSlotContentsDeferred failed for {item.PrefabId}: {ex.Message}");
+                }
+            }
         }
 
         // ==================================================================
@@ -200,15 +324,14 @@ namespace OverTheCounter.SaveData
         public List<OtcPlacedItem> GetPlacedItems(string buildingId) =>
             _placedItems.Where(i => i.BuildingId == buildingId).ToList();
 
-        /// <summary>Adds or updates a placed item record for a building.</summary>
+        /// <summary>Adds or updates a placed item record for a building. Keyed by grid coordinate.</summary>
         public void SavePlacedItem(string buildingId, string prefabId, float coordX, float coordZ, int rotation)
         {
             var existing = _placedItems.FirstOrDefault(
-                i => i.BuildingId == buildingId && i.PrefabId == prefabId);
+                i => i.BuildingId == buildingId && i.CoordX == coordX && i.CoordZ == coordZ);
             if (existing != null)
             {
-                existing.CoordX = coordX;
-                existing.CoordZ = coordZ;
+                existing.PrefabId = prefabId;
                 existing.Rotation = rotation;
             }
             else
@@ -224,10 +347,211 @@ namespace OverTheCounter.SaveData
             }
         }
 
-        /// <summary>Removes a placed item record (e.g. when picked up).</summary>
-        public void RemovePlacedItem(string buildingId, string prefabId)
+        /// <summary>Removes a placed item record at the given grid coordinate.</summary>
+        public void RemovePlacedItem(string buildingId, float coordX, float coordZ)
         {
-            _placedItems.RemoveAll(i => i.BuildingId == buildingId && i.PrefabId == prefabId);
+            _placedItems.RemoveAll(i => i.BuildingId == buildingId && i.CoordX == coordX && i.CoordZ == coordZ);
+        }
+
+        // ==================================================================
+        // Storage contents persistence (mirrors game's ItemSet pattern)
+        // ==================================================================
+
+        private static readonly MelonLogger.Instance Logger = new("OTC:PropertySave");
+
+        /// <summary>
+        /// Rebuilds <see cref="_placedItems"/> from the live grid state, then snapshots
+        /// storage slot contents. Eliminates stale records from moved/removed items.
+        /// Call before save serialization.
+        /// </summary>
+        public void SnapshotStorageContents()
+        {
+            try
+            {
+                // Rebuild placed items from what's actually on the grid right now
+                _placedItems.Clear();
+
+                foreach (var kvp in BuildingGridFactory.GridContainers)
+                {
+                    var root = kvp.Value;
+                    if (root == null) continue;
+
+                    var gridItems = GetAllGridItems(root);
+                    if (gridItems == null) continue;
+
+                    foreach (var item in gridItems)
+                    {
+                        if (item == null) continue;
+
+                        var coord = GetOriginCoordinate(item);
+                        if (coord == null) continue;
+
+                        int rotation = GetRotation(item);
+                        string itemId = GetItemId(item);
+                        if (string.IsNullOrEmpty(itemId)) continue;
+
+                        var placed = new OtcPlacedItem
+                        {
+                            BuildingId = ShackId,
+                            PrefabId = itemId.ToLower(),
+                            CoordX = coord.Value.x,
+                            CoordZ = coord.Value.y,
+                            Rotation = rotation
+                        };
+
+                        // Snapshot slots if it's a storage entity
+                        if (item is PlaceableStorageEntity storage)
+                            placed.Slots = SnapshotEntitySlots(storage);
+
+                        _placedItems.Add(placed);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"SnapshotStorageContents failed: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Finds all GridItem components under a building root transform.
+        /// </summary>
+        private static Component[] GetAllGridItems(Transform root)
+        {
+#if IL2CPP
+            return root.GetComponentsInChildren<GridItem>(true);
+#else
+            var gridItemType = Type.GetType("ScheduleOne.EntityFramework.GridItem, Assembly-CSharp");
+            if (gridItemType == null) return null;
+            return root.GetComponentsInChildren(gridItemType, true);
+#endif
+        }
+
+        /// <summary>
+        /// Reads _originCoordinate from a GridItem (or subclass).
+        /// </summary>
+        private static Vector2? GetOriginCoordinate(Component entity)
+        {
+#if IL2CPP
+            if (entity is GridItem gi)
+                return gi._originCoordinate;
+#else
+            var t = entity.GetType();
+            while (t != null)
+            {
+                var field = t.GetField("_originCoordinate",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+                if (field != null)
+                    return (Vector2)field.GetValue(entity);
+                t = t.BaseType;
+            }
+#endif
+            return null;
+        }
+
+        /// <summary>
+        /// Reads _rotation from a GridItem (or subclass).
+        /// </summary>
+        private static int GetRotation(Component entity)
+        {
+#if IL2CPP
+            if (entity is GridItem gi)
+                return gi._rotation;
+#else
+            var t = entity.GetType();
+            while (t != null)
+            {
+                var field = t.GetField("_rotation",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+                if (field != null)
+                    return (int)field.GetValue(entity);
+                t = t.BaseType;
+            }
+#endif
+            return 0;
+        }
+
+        /// <summary>
+        /// Reads the item definition ID from a GridItem's ItemInstance.
+        /// </summary>
+        private static string GetItemId(Component entity)
+        {
+#if IL2CPP
+            if (entity is GridItem gi)
+                return gi.ItemInstance?.ID;
+#else
+            // Walk up to BuildableItem which has the ItemInstance property
+            var t = entity.GetType();
+            while (t != null)
+            {
+                var prop = t.GetProperty("ItemInstance",
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (prop != null)
+                {
+                    var instance = prop.GetValue(entity);
+                    if (instance == null) return null;
+                    var idProp = instance.GetType().GetProperty("ID");
+                    return idProp?.GetValue(instance) as string;
+                }
+                t = t.BaseType;
+            }
+#endif
+            return null;
+        }
+
+        /// <summary>
+        /// Serializes storage slots using the game's native ItemData format.
+        /// Mirrors ItemSet constructor: slot.ItemInstance.GetItemData().GetJson(false)
+        /// </summary>
+        private string[] SnapshotEntitySlots(PlaceableStorageEntity storage)
+        {
+            var entity = storage.StorageEntity;
+            if (entity?.ItemSlots == null || entity.ItemSlots.Count == 0) return null;
+
+            var emptyJson = new ItemData(string.Empty, 0).GetJson(false);
+            var items = new string[entity.ItemSlots.Count];
+            bool hasAny = false;
+
+            for (int i = 0; i < entity.ItemSlots.Count; i++)
+            {
+                var slot = entity.ItemSlots[i];
+                if (slot?.ItemInstance != null)
+                {
+                    items[i] = slot.ItemInstance.GetItemData().GetJson(false);
+                    hasAny = true;
+                }
+                else
+                {
+                    items[i] = emptyJson;
+                }
+            }
+
+            return hasAny ? items : null;
+        }
+
+        /// <summary>
+        /// Restores saved slot contents into a runtime storage entity.
+        /// Uses the game's native ItemDeserializer.LoadItem() — same as PlaceableStorageEntityLoader.
+        /// </summary>
+        private static void RestoreEntitySlots(PlaceableStorageEntity storage, string[] savedSlots)
+        {
+            var entity = storage?.StorageEntity;
+            if (entity?.ItemSlots == null || savedSlots == null || savedSlots.Length == 0) return;
+
+            for (int i = 0; i < savedSlots.Length && i < entity.ItemSlots.Count; i++)
+            {
+                if (string.IsNullOrEmpty(savedSlots[i])) continue;
+
+                try
+                {
+                    var instance = ItemDeserializer.LoadItem(savedSlots[i]);
+                    entity.ItemSlots[i].SetStoredItem(instance, false);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"RestoreEntitySlots slot {i} failed: {ex.Message}");
+                }
+            }
         }
     }
 }

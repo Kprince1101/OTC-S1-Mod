@@ -1,7 +1,9 @@
 using MelonLoader;
+using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1API.GameTime;
+using S1API.Money;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -29,8 +31,9 @@ namespace OverTheCounter.Logic
         private int _customerIdCounter;
         private bool _statePublishNeeded;
 
-        // Dev-phase constants (move to Config later)
+        // Customer lifecycle constants
         private const int MaxActiveCustomers = 5;
+        private const int MaxCustomersInBuilding = 3;
         private const int SpawnStartHour = 8;
         private const int SpawnEndHour = 20;
         private const float DespawnDistance = 30f;
@@ -77,6 +80,10 @@ namespace OverTheCounter.Logic
                     TrySpawnCustomer();
                 }
 
+                // Update switch messages when hour boundaries change (8am/8pm)
+                if (currentMinute == 0 && (currentHour == 8 || currentHour == 20))
+                    WestvilleShack.UpdateOpenCloseSwitchMessages();
+
                 ProcessCustomerLifecycles();
             }
             catch (Exception ex)
@@ -103,7 +110,16 @@ namespace OverTheCounter.Logic
             if (!(SaveData.PropertySaveData.Instance?.IsPropertyOwned(SaveData.PropertySaveData.ShackId) ?? false))
                 return;
 
+            if (!WestvilleShack.IsStoreOpen)
+                return;
+
+            if (!CustomerSpawnPoints.HasPackagedProduct())
+                return;
+
             if (CustomerInstance.Active.Count >= MaxActiveCustomers)
+                return;
+
+            if (CountCustomersInBuilding() >= MaxCustomersInBuilding - 1)
                 return;
 
             try
@@ -124,7 +140,7 @@ namespace OverTheCounter.Logic
                 if (customer == null) return;
 
                 customer.State = CustomerState.WalkingToStore;
-                customer.WalkTo(CustomerSpawnPoints.EntrancePosition);
+                customer.WalkTo(CustomerSpawnPoints.StairApproachPosition);
 
                 _statePublishNeeded = true;
             }
@@ -157,10 +173,16 @@ namespace OverTheCounter.Logic
                     case CustomerState.WalkingToStore:
                         if (customer.ArrivedAtDestination)
                         {
-                            // Arrived at stair base — now walk through NavMeshLink into interior
                             customer.ArrivedAtDestination = false;
                             customer.State = CustomerState.EnteringStore;
-                            customer.WalkTo(CustomerSpawnPoints.DoorInteriorPosition);
+                            if (!customer.SwitchToEmployeeNavMesh())
+                                Logger.Warning($"{customer.Id} failed to switch to employee NavMesh");
+                            // Warp to ramp base (runtime Employee mesh), then walk up
+                            // through door to room center. Target must be >2m inside the
+                            // wall (X=-161.4) so the 2m walk tolerance doesn't trigger
+                            // before the NPC enters the building.
+                            customer.WarpTo(CustomerSpawnPoints.RampBottomPosition);
+                            customer.WalkTo(CustomerSpawnPoints.RoomCenterPosition);
                         }
                         break;
 
@@ -168,15 +190,14 @@ namespace OverTheCounter.Logic
                         if (customer.ArrivedAtDestination)
                         {
                             customer.ArrivedAtDestination = false;
-                            var browsePositions = CustomerSpawnPoints.GetInteriorBrowsePositions();
+                            var browsePositions = CustomerSpawnPoints.GetInteriorBrowsePositions(out var shelfCenters);
                             if (browsePositions.Count > 0)
                             {
-                                customer.StartBrowsing(browsePositions);
+                                customer.StartBrowsing(browsePositions, shelfCenters);
                                 customer.State = CustomerState.Browsing;
                             }
                             else
                             {
-                                // No storage — walk to room center and look around
                                 customer.State = CustomerState.LookingAround;
                                 customer.WalkTo(CustomerSpawnPoints.RoomCenterPosition);
                             }
@@ -186,24 +207,24 @@ namespace OverTheCounter.Logic
                     case CustomerState.LookingAround:
                         if (customer.ArrivedAtDestination && customer.LookAroundEndTime == 0f)
                         {
-                            // Just arrived at room center — start looking around
                             customer.LookAroundEndTime = Time.time + 8f;
                         }
                         if (customer.LookAroundEndTime > 0f && Time.time >= customer.LookAroundEndTime)
                         {
-                            // Done looking — check for storage again
                             customer.LookAroundEndTime = 0f;
                             customer.ArrivedAtDestination = false;
-                            var retryPositions = CustomerSpawnPoints.GetInteriorBrowsePositions();
+                            var retryPositions = CustomerSpawnPoints.GetInteriorBrowsePositions(out var retryShelfCenters);
                             if (retryPositions.Count > 0)
                             {
-                                customer.StartBrowsing(retryPositions);
+                                customer.StartBrowsing(retryPositions, retryShelfCenters);
                                 customer.State = CustomerState.Browsing;
                             }
                             else
                             {
-                                customer.State = CustomerState.LeavingStore;
-                                customer.WalkTo(customer.SpawnPoint.Position);
+                                // No storage — exit the store
+                                customer.State = CustomerState.ExitingStore;
+                                customer.SetAvoidancePriority(10);
+                                customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
                             }
                         }
                         break;
@@ -211,8 +232,67 @@ namespace OverTheCounter.Logic
                     case CustomerState.Browsing:
                         if (customer.TickBrowsing())
                         {
-                            customer.State = CustomerState.LeavingStore;
                             customer.ArrivedAtDestination = false;
+                            var counterPos = CheckoutCounter.CustomerStandPosition;
+                            if (counterPos.HasValue)
+                            {
+                                customer.State = CustomerState.CheckingOut;
+                                customer.WalkTo(counterPos.Value);
+                            }
+                            else
+                            {
+                                // No counter — exit the store
+                                customer.State = CustomerState.ExitingStore;
+                                customer.SetAvoidancePriority(10);
+                                customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                            }
+                        }
+                        break;
+
+                    case CustomerState.CheckingOut:
+                        if (customer.ArrivedAtDestination)
+                        {
+                            if (customer.CheckoutArrivalTime == 0f)
+                            {
+                                // First animation — arriving at counter
+                                customer.CheckoutArrivalTime = Time.time;
+                                var counterPos1 = CheckoutCounter.CounterPosition;
+                                if (counterPos1.HasValue)
+                                    customer.FaceAndAnimate(counterPos1.Value);
+                            }
+                            else if (!customer.CheckoutPaymentPlayed &&
+                                     Time.time >= customer.CheckoutArrivalTime + CustomerInstance.CheckoutDuration)
+                            {
+                                // Second animation — payment
+                                customer.CheckoutPaymentPlayed = true;
+                                customer.CheckoutArrivalTime = Time.time;
+                                var counterPos2 = CheckoutCounter.CounterPosition;
+                                if (counterPos2.HasValue)
+                                    customer.FaceAndAnimate(counterPos2.Value);
+                            }
+                            else if (customer.CheckoutPaymentPlayed &&
+                                     Time.time >= customer.CheckoutArrivalTime + CustomerInstance.CheckoutPaymentDelay)
+                            {
+                                ProcessCustomerPayment(customer);
+                                customer.CheckoutArrivalTime = 0f;
+                                customer.CheckoutPaymentPlayed = false;
+                                customer.ArrivedAtDestination = false;
+                                customer.State = CustomerState.ExitingStore;
+                                customer.SetAvoidancePriority(10);
+                                customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                            }
+                        }
+                        break;
+
+                    case CustomerState.ExitingStore:
+                        if (customer.ArrivedAtDestination)
+                        {
+                            customer.ArrivedAtDestination = false;
+                            customer.State = CustomerState.LeavingStore;
+                            // Warp to ground in front of stairs, then restore civilian mesh
+                            customer.WarpTo(CustomerSpawnPoints.StairApproachPosition);
+                            customer.RestoreCivilianNavMesh();
+                            customer.SetAvoidancePriority(50);
                             customer.WalkTo(customer.SpawnPoint.Position);
                         }
                         break;
@@ -231,11 +311,7 @@ namespace OverTheCounter.Logic
                 }
 
                 if (customer.State != prevState)
-                {
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"[State] {customer.Id}: {prevState} → {customer.State} pos={customer.Position}");
                     _statePublishNeeded = true;
-                }
             }
 
             if (toRemove.Count > 0)
@@ -246,6 +322,38 @@ namespace OverTheCounter.Logic
                     if (CustomerInstance.Active.TryGetValue(id, out var c))
                         c.Despawn();
                 }
+            }
+        }
+
+        /// <summary>
+        /// Counts customers currently inside the building (EnteringStore through ExitingStore).
+        /// </summary>
+        private static int CountCustomersInBuilding()
+        {
+            int count = 0;
+            foreach (var c in CustomerInstance.Active.Values)
+            {
+                if (c.State >= CustomerState.EnteringStore && c.State <= CustomerState.ExitingStore)
+                    count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Processes payment for a customer who has finished checkout.
+        /// Adds funds to the player's bank account via an online transaction.
+        /// </summary>
+        private void ProcessCustomerPayment(CustomerInstance customer)
+        {
+            try
+            {
+                // TODO: Calculate price based on what the customer browsed
+                float saleAmount = 50f;
+                Money.CreateOnlineTransaction("OTC Dispensary Sale", saleAmount, 1f, "OTC Dispensary");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"ProcessCustomerPayment failed for {customer.Id}: {ex.Message}");
             }
         }
 

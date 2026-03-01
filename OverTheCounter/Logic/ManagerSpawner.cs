@@ -1167,35 +1167,48 @@ namespace OverTheCounter.Logic
             agentTypeID = 0;
             areaMask = -1;
 
+            // First try: discover from any vanilla employee NPC
             try
             {
                 var props = ScheduleOne.Property.Property.OwnedProperties;
-                if (props == null) return false;
-
-                for (int p = 0; p < props.Count; p++)
+                if (props != null)
                 {
-                    var prop = props[p];
-                    if (prop?.Employees == null) continue;
-                    for (int e = 0; e < prop.Employees.Count; e++)
+                    for (int p = 0; p < props.Count; p++)
                     {
-                        var emp = prop.Employees[e];
-                        if (emp?.Movement?.Agent == null) continue;
+                        var prop = props[p];
+                        if (prop?.Employees == null) continue;
+                        for (int e = 0; e < prop.Employees.Count; e++)
+                        {
+                            var emp = prop.Employees[e];
+                            if (emp?.Movement?.Agent == null) continue;
 
-                        var empAgent = emp.Movement.Agent;
-                        _cachedEmployeeAgentTypeID = empAgent.agentTypeID;
-                        _cachedEmployeeAreaMask = empAgent.areaMask;
-                        agentTypeID = empAgent.agentTypeID;
-                        areaMask = empAgent.areaMask;
-                        if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Cached employee NavMesh settings: agentTypeID={agentTypeID}, areaMask={areaMask}");
-                        return true;
+                            var empAgent = emp.Movement.Agent;
+                            _cachedEmployeeAgentTypeID = empAgent.agentTypeID;
+                            _cachedEmployeeAreaMask = empAgent.areaMask;
+                            agentTypeID = empAgent.agentTypeID;
+                            areaMask = empAgent.areaMask;
+                            return true;
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"TryGetEmployeeNavMeshSettings failed: {ex.Message}");
+                Logger.Warning($"TryGetEmployeeNavMeshSettings employee scan failed: {ex.Message}");
             }
+
+            // Fallback: use the known "Employee" agent type (discovered from game NavMesh settings)
+            const int EmployeeAgentTypeID = -1923039037;
+            string verifyName = UnityEngine.AI.NavMesh.GetSettingsNameFromID(EmployeeAgentTypeID);
+            if (!string.IsNullOrEmpty(verifyName))
+            {
+                _cachedEmployeeAgentTypeID = EmployeeAgentTypeID;
+                _cachedEmployeeAreaMask = UnityEngine.AI.NavMesh.AllAreas;
+                agentTypeID = EmployeeAgentTypeID;
+                areaMask = UnityEngine.AI.NavMesh.AllAreas;
+                return true;
+            }
+
             return false;
         }
 

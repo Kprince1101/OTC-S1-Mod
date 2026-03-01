@@ -540,7 +540,10 @@ namespace OverTheCounter.Logic.Placement
                     var goProp = __result.GetType().GetProperty("gameObject");
                     var go = goProp?.GetValue(__result) as GameObject;
                     if (go != null)
+                    {
+                        CheckoutCounter.SetInstance(go);
                         MelonCoroutines.Start(ApplyVisualDeferred(go));
+                    }
                 }
             }
             catch (Exception ex)

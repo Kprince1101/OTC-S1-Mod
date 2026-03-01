@@ -36,6 +36,7 @@ namespace OverTheCounter
         public override void OnInitializeMelon()
         {
             Config.Initialize();
+            SaveManagerPatch.Apply(HarmonyInstance);
             NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
             ConfigSyncPatch.TryApply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
@@ -148,6 +149,7 @@ namespace OverTheCounter
                 var lm = Il2CppScheduleOne.DevUtilities.Singleton<Il2CppScheduleOne.Persistence.LoadManager>.Instance;
                 if (lm != null)
                 {
+                    lm.onLoadComplete.RemoveListener((UnityEngine.Events.UnityAction)OnGameLoaded);
                     lm.onLoadComplete.AddListener((UnityEngine.Events.UnityAction)OnGameLoaded);
                     _loadHooked = true;
                 }
@@ -157,6 +159,7 @@ namespace OverTheCounter
                 var lm = ScheduleOne.Persistence.LoadManager.Instance;
                 if (lm != null)
                 {
+                    lm.onLoadComplete.RemoveListener(OnGameLoaded);
                     lm.onLoadComplete.AddListener(OnGameLoaded);
                     _loadHooked = true;
                 }
@@ -171,22 +174,28 @@ namespace OverTheCounter
         }
 
         /// <summary>
-        /// Called when the game save finishes loading. Spawns the checkout counter
-        /// on the shack grid now that FishNet networking is ready.
+        /// Called when the game save finishes loading. Restores placed grid items
+        /// (checkout counter, storage, etc.) now that FishNet networking is ready.
         /// </summary>
         private static void OnGameLoaded()
         {
             try
             {
                 var grid = Logic.Placement.WestvilleShack.ShackGrid;
-                if (grid != null)
-                    Logic.Placement.CheckoutCounter.SpawnOnGrid(grid);
+                if (grid == null)
+                {
+                    MelonLoader.MelonLogger.Warning("[OTC] ShackGrid is null — cannot restore items");
+                    return;
+                }
+
+                if (PropertySaveData.Instance != null)
+                    PropertySaveData.Instance.RestorePlacedItems(PropertySaveData.ShackId);
                 else
-                    MelonLoader.MelonLogger.Warning("[OTC] ShackGrid is null — cannot spawn counter");
+                    Logic.Placement.CheckoutCounter.SpawnOnGrid(grid);
             }
             catch (Exception ex)
             {
-                MelonLoader.MelonLogger.Error($"[OTC] OnGameLoaded counter spawn failed: {ex.Message}");
+                MelonLoader.MelonLogger.Error($"[OTC] OnGameLoaded restore failed: {ex.Message}");
             }
         }
 
