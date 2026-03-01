@@ -256,6 +256,11 @@ namespace OverTheCounter
                     }
                 }
 
+                // Interactive checkout process (camera, clicks, payment)
+                CheckoutProcess.Instance?.Tick();
+                if (NetworkHelper.IsHost)
+                    CheckoutProcess.TryStartCheckout();
+
                 // Update drifter quest timers on client (OnTimeTick is host-only)
                 _drifterManager?.ClientQuestTick();
             }

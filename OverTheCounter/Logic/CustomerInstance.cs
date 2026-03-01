@@ -1,13 +1,26 @@
 using MelonLoader;
+using OverTheCounter.Logic.Placement;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
 #if IL2CPP
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.Storage;
+using Il2CppScheduleOne.VoiceOver;
+using ProductItemInstance = Il2CppScheduleOne.Product.ProductItemInstance;
+using ProductDefinition = Il2CppScheduleOne.Product.ProductDefinition;
 #else
+using ScheduleOne.DevUtilities;
+using ScheduleOne.Employees;
 using ScheduleOne.NPCs;
+using ScheduleOne.Storage;
+using ScheduleOne.VoiceOver;
+using ProductItemInstance = ScheduleOne.Product.ProductItemInstance;
+using ProductDefinition = ScheduleOne.Product.ProductDefinition;
 #endif
 
 namespace OverTheCounter.Logic
@@ -64,20 +77,36 @@ namespace OverTheCounter.Logic
 
         private const float BrowsePauseDuration = 5f;
 
+        // Voice line tracking (30% of customers vocalize once while browsing)
+        private bool _willVocalizeWhileBrowsing;
+        private bool _hasVocalized;
+
         // Look-around tracking (when no storage found)
         public float LookAroundEndTime { get; set; }
 
         /// <summary>Time.time when the customer arrived at the checkout counter.</summary>
         public float CheckoutArrivalTime { get; set; }
 
-        /// <summary>Whether the payment animation has been triggered.</summary>
-        public bool CheckoutPaymentPlayed { get; set; }
+        /// <summary>Game hour (0-23) when the customer joined the checkout queue.</summary>
+        public int CheckoutStartHour { get; set; }
 
-        /// <summary>Seconds the customer waits at the counter before payment animation.</summary>
-        public const float CheckoutDuration = 3f;
+        // =====================================================================
+        //  Product selection (picked during browsing)
+        // =====================================================================
 
-        /// <summary>Seconds after payment animation before the customer leaves.</summary>
-        public const float CheckoutPaymentDelay = 1f;
+        /// <summary>A product the customer selected from a display cabinet while browsing.</summary>
+        public struct SelectedProduct
+        {
+            public string ProductId;
+            public string PackagingId;
+            public string ProductName;
+            public float Price;
+        }
+
+        /// <summary>Products the customer selected while browsing display cabinets.</summary>
+        public List<SelectedProduct> SelectedProducts { get; } = new();
+
+        private const int MaxSelectedProducts = 3;
 
         // =====================================================================
         //  Movement (GC-pinned callbacks)
@@ -110,6 +139,7 @@ namespace OverTheCounter.Logic
             SpawnPoint = spawnPoint;
             GameNpc = npc;
             State = CustomerState.WalkingToStore;
+            _willVocalizeWhileBrowsing = (seed % 10) < 3; // ~30% chance
         }
 
         /// <summary>
@@ -133,6 +163,7 @@ namespace OverTheCounter.Logic
                 }
 
                 NpcSpawner.GenerateRandomAppearance(npc, seed);
+                SetVoiceDatabase(npc, seed);
 
                 var instance = new CustomerInstance(id, seed, spawnPoint, npc);
 
@@ -170,6 +201,7 @@ namespace OverTheCounter.Logic
             existingNpc.LastName = lastName;
 
             NpcSpawner.GenerateRandomAppearance(existingNpc, seed);
+            SetVoiceDatabase(existingNpc, seed);
 
             var instance = new CustomerInstance(id, seed, spawnPoint, existingNpc)
             {
@@ -501,10 +533,148 @@ namespace OverTheCounter.Logic
                 if (_browseShelfPositions != null && _browseTargetIndex < _browseShelfPositions.Count)
                     FacePosition(_browseShelfPositions[_browseTargetIndex]);
                 _browsePauseEndTime = Time.time + BrowsePauseDuration;
+
+                // Pick a product from this shelf
+                PickProductFromShelf();
+
+                // Occasional "hmm" while looking at products (30% of customers, once per visit)
+                if (_willVocalizeWhileBrowsing && !_hasVocalized)
+                {
+                    _hasVocalized = true;
+                    try { GameNpc?.VoiceOverEmitter?.Play(EVOLineType.Think); }
+                    catch { }
+                }
+
                 return false;
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Scans the display cabinet nearest to the current browse shelf position
+        /// and picks one random packaged product to add to SelectedProducts.
+        /// </summary>
+        private void PickProductFromShelf()
+        {
+            if (SelectedProducts.Count >= MaxSelectedProducts) return;
+            if (_browseShelfPositions == null || _browseTargetIndex >= _browseShelfPositions.Count) return;
+
+            var shelfPos = _browseShelfPositions[_browseTargetIndex];
+
+            try
+            {
+                // Find the closest display cabinet storage entity to this shelf position
+                StorageEntity closestStorage = null;
+                float closestDist = float.MaxValue;
+
+                foreach (var kvp in BuildingGridFactory.GridContainers)
+                {
+                    var root = kvp.Value;
+                    if (root == null) continue;
+
+                    var storages = root.GetComponentsInChildren<StorageEntity>(true);
+                    if (storages == null) continue;
+
+                    for (int i = 0; i < storages.Length; i++)
+                    {
+                        var storage = storages[i];
+                        if (storage?.transform == null) continue;
+
+                        float dist = Vector3.Distance(storage.transform.position, shelfPos);
+                        if (dist < closestDist)
+                        {
+                            closestDist = dist;
+                            closestStorage = storage;
+                        }
+                    }
+                }
+
+                if (closestStorage?.ItemSlots == null) return;
+
+                // Collect all packaged products in this storage
+                var candidates = new List<SelectedProduct>();
+                for (int j = 0; j < closestStorage.ItemSlots.Count; j++)
+                {
+                    var slot = closestStorage.ItemSlots[j];
+                    if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
+
+#if IL2CPP
+                    var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                    var productItem = slot.ItemInstance as ProductItemInstance;
+#endif
+                    if (productItem == null || productItem.AppliedPackaging == null) continue;
+
+                    string productId = null;
+                    string productName = "Product";
+                    float price = 0f;
+
+                    try
+                    {
+#if IL2CPP
+                        var prodDef = productItem.Definition?.TryCast<ProductDefinition>();
+#else
+                        var prodDef = productItem.Definition as ProductDefinition;
+#endif
+                        if (prodDef != null)
+                        {
+                            productId = prodDef.ID;
+                            productName = prodDef.name ?? "Product";
+                            price = prodDef.Price > 0 ? prodDef.Price : prodDef.MarketValue;
+                        }
+                    }
+                    catch { }
+
+                    candidates.Add(new SelectedProduct
+                    {
+                        ProductId = productId,
+                        PackagingId = productItem.AppliedPackaging?.ID,
+                        ProductName = productName,
+                        Price = price
+                    });
+                }
+
+                if (candidates.Count == 0) return;
+
+                // Pick one random product from this shelf
+                var picked = candidates[UnityEngine.Random.Range(0, candidates.Count)];
+                SelectedProducts.Add(picked);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"PickProductFromShelf failed for {Id}: {ex.Message}");
+            }
+        }
+
+        // =====================================================================
+        //  Voice setup
+        // =====================================================================
+
+        private static void SetVoiceDatabase(NPC npc, int seed)
+        {
+            try
+            {
+                var emitter = npc.VoiceOverEmitter;
+                if (emitter == null) return;
+
+                var empMgr = NetworkSingleton<EmployeeManager>.Instance;
+                if (empMgr == null) return;
+
+                bool isMale = NpcSpawner.DetermineGender(seed) < 0.5f;
+                var voiceDb = empMgr.GetVoice(isMale, Math.Abs(seed % 100));
+                emitter.SetDatabase(voiceDb, true);
+
+                // Vary pitch slightly based on seed (same approach as Employee.cs)
+                float basePitch = isMale ? 0.8f : 1.3f;
+                float variation = 0.2f;
+                float offset = -variation / 2f + Mathf.Clamp01((seed % 10) / 10f) * variation;
+                emitter.PitchMultiplier = basePitch + offset;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"SetVoiceDatabase failed: {ex.Message}");
+            }
         }
 
         // =====================================================================

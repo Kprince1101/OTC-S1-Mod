@@ -3,7 +3,6 @@ using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1API.GameTime;
-using S1API.Money;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -37,6 +36,10 @@ namespace OverTheCounter.Logic
         private const int SpawnStartHour = 8;
         private const int SpawnEndHour = 20;
         private const float DespawnDistance = 30f;
+
+        // Checkout queue (ordered customer IDs waiting at counter)
+        private readonly List<string> _checkoutQueue = new();
+        private const float QueueSpacing = 1.0f;
 
         // Client-side adoption
         private readonly Dictionary<string, PendingAdoption> _pendingAdoptions = new();
@@ -95,6 +98,8 @@ namespace OverTheCounter.Logic
         private void OnDayPass()
         {
             _lastSpawnSlot = -1;
+            _checkoutQueue.Clear();
+            ComputerScreen.HideCheckoutInfo();
 
             foreach (var customer in CustomerInstance.Active.Values.ToList())
             {
@@ -237,7 +242,10 @@ namespace OverTheCounter.Logic
                             if (counterPos.HasValue)
                             {
                                 customer.State = CustomerState.CheckingOut;
-                                customer.WalkTo(counterPos.Value);
+                                customer.CheckoutStartHour = TimeManager.CurrentTime / 100;
+                                _checkoutQueue.Add(customer.Id);
+                                int queueIdx = _checkoutQueue.Count - 1;
+                                customer.WalkTo(GetQueuePosition(queueIdx));
                             }
                             else
                             {
@@ -250,36 +258,31 @@ namespace OverTheCounter.Logic
                         break;
 
                     case CustomerState.CheckingOut:
-                        if (customer.ArrivedAtDestination)
+                        // 4-hour timeout — customer gives up waiting
+                        int currentHour = TimeManager.CurrentTime / 100;
+                        if (customer.CheckoutStartHour > 0 && currentHour >= customer.CheckoutStartHour + 4)
                         {
-                            if (customer.CheckoutArrivalTime == 0f)
+                            bool beingCheckedOut = CheckoutProcess.Instance != null &&
+                                                   CheckoutProcess.Instance.CustomerId == customer.Id;
+                            if (!beingCheckedOut)
                             {
-                                // First animation — arriving at counter
+                                customer.State = CustomerState.ExitingStore;
+                                customer.SetAvoidancePriority(10);
+                                customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                                break;
+                            }
+                        }
+
+                        // Only the front-of-queue customer is eligible for checkout
+                        if (_checkoutQueue.Count > 0 && _checkoutQueue[0] == customer.Id)
+                        {
+                            if (customer.ArrivedAtDestination && customer.CheckoutArrivalTime == 0f)
+                            {
                                 customer.CheckoutArrivalTime = Time.time;
                                 var counterPos1 = CheckoutCounter.CounterPosition;
                                 if (counterPos1.HasValue)
                                     customer.FaceAndAnimate(counterPos1.Value);
-                            }
-                            else if (!customer.CheckoutPaymentPlayed &&
-                                     Time.time >= customer.CheckoutArrivalTime + CustomerInstance.CheckoutDuration)
-                            {
-                                // Second animation — payment
-                                customer.CheckoutPaymentPlayed = true;
-                                customer.CheckoutArrivalTime = Time.time;
-                                var counterPos2 = CheckoutCounter.CounterPosition;
-                                if (counterPos2.HasValue)
-                                    customer.FaceAndAnimate(counterPos2.Value);
-                            }
-                            else if (customer.CheckoutPaymentPlayed &&
-                                     Time.time >= customer.CheckoutArrivalTime + CustomerInstance.CheckoutPaymentDelay)
-                            {
-                                ProcessCustomerPayment(customer);
-                                customer.CheckoutArrivalTime = 0f;
-                                customer.CheckoutPaymentPlayed = false;
-                                customer.ArrivedAtDestination = false;
-                                customer.State = CustomerState.ExitingStore;
-                                customer.SetAvoidancePriority(10);
-                                customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                                ComputerScreen.ShowCheckoutInfo(customer.SelectedProducts);
                             }
                         }
                         break;
@@ -314,6 +317,16 @@ namespace OverTheCounter.Logic
                     _statePublishNeeded = true;
             }
 
+            // Clean up stale queue entries (customers that left CheckingOut or became invalid)
+            int queueBefore = _checkoutQueue.Count;
+            _checkoutQueue.RemoveAll(id =>
+            {
+                if (!CustomerInstance.Active.TryGetValue(id, out var c)) return true;
+                return c.State != CustomerState.CheckingOut;
+            });
+            if (_checkoutQueue.Count != queueBefore)
+                AdvanceQueue();
+
             if (toRemove.Count > 0)
             {
                 _statePublishNeeded = true;
@@ -340,21 +353,43 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Processes payment for a customer who has finished checkout.
-        /// Adds funds to the player's bank account via an online transaction.
+        /// Returns the world position for a given queue index (0 = front, at counter).
+        /// Each subsequent customer stands further from the counter.
         /// </summary>
-        private void ProcessCustomerPayment(CustomerInstance customer)
+        private static Vector3 GetQueuePosition(int queueIndex)
         {
-            try
+            var counterPos = CheckoutCounter.CounterPosition.Value;
+            var counterForward = CheckoutCounter.CounterTransform.forward;
+            return counterPos - counterForward * (1.0f + queueIndex * QueueSpacing);
+        }
+
+        /// <summary>
+        /// Re-walks all queued customers to their updated positions after the front changes.
+        /// </summary>
+        private void AdvanceQueue()
+        {
+            for (int i = 0; i < _checkoutQueue.Count; i++)
             {
-                // TODO: Calculate price based on what the customer browsed
-                float saleAmount = 50f;
-                Money.CreateOnlineTransaction("OTC Dispensary Sale", saleAmount, 1f, "OTC Dispensary");
+                if (!CustomerInstance.Active.TryGetValue(_checkoutQueue[i], out var c)) continue;
+                c.ArrivedAtDestination = false;
+                c.CheckoutArrivalTime = 0f;
+                c.WalkTo(GetQueuePosition(i));
             }
-            catch (Exception ex)
-            {
-                Logger.Warning($"ProcessCustomerPayment failed for {customer.Id}: {ex.Message}");
-            }
+
+            if (_checkoutQueue.Count == 0)
+                ComputerScreen.HideCheckoutInfo();
+        }
+
+        /// <summary>
+        /// Called by CheckoutProcess when a checkout finishes (complete or abort).
+        /// Removes the customer from the queue and advances remaining customers.
+        /// </summary>
+        public void OnCheckoutComplete(string customerId)
+        {
+            _checkoutQueue.Remove(customerId);
+            ComputerScreen.HideCheckoutInfo();
+            AdvanceQueue();
+            _statePublishNeeded = true;
         }
 
         // =====================================================================
@@ -564,6 +599,7 @@ namespace OverTheCounter.Logic
             TimeManager.OnTick -= OnTimeTick;
             TimeManager.OnDayPass -= OnDayPass;
 
+            _checkoutQueue.Clear();
             _pendingAdoptions.Clear();
             CustomerInstance.CleanupAll();
             Instance = null;

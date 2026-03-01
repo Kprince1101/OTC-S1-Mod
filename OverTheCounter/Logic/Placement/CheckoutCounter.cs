@@ -46,10 +46,22 @@ namespace OverTheCounter.Logic.Placement
 
         private static BuildableItemDefinition _counterDef;
         private static GameObject _counterInstance;
+        private static InteractableObject _checkoutInteractable;
 
         /// <summary>World position of the checkout counter, or null if not placed.</summary>
         public static Vector3? CounterPosition =>
             _counterInstance != null ? _counterInstance.transform.position : null;
+
+        /// <summary>The counter's Transform, or null if not placed.</summary>
+        public static Transform CounterTransform =>
+            _counterInstance != null ? _counterInstance.transform : null;
+
+        /// <summary>World position of the counter surface (top of desk).
+        /// Desk mesh is at 270° X rotation; desk-local Z=0.55 maps to world Y offset.</summary>
+        public static Vector3? SurfacePosition =>
+            _counterInstance != null
+                ? _counterInstance.transform.position + Vector3.up * 0.6f
+                : null;
 
         /// <summary>
         /// Position where a customer should stand to face the counter.
@@ -224,6 +236,31 @@ namespace OverTheCounter.Logic.Placement
                 intObj.enabled = false;
         }
 
+        /// <summary>The counter's InteractableObject, used to gate F-key checkout to line-of-sight.</summary>
+        public static InteractableObject CounterInteractable => _checkoutInteractable;
+
+        /// <summary>
+        /// Saves a reference to the counter's InteractableObject and sets the default message.
+        /// Vanilla storage listeners are left intact so E opens storage normally.
+        /// </summary>
+        private static void CaptureInteractable(GameObject go)
+        {
+            _checkoutInteractable = go.GetComponentInChildren<InteractableObject>(true);
+            if (_checkoutInteractable != null)
+                _checkoutInteractable.SetMessage("Storage");
+        }
+
+        /// <summary>
+        /// Shows or hides checkout info on the computer screen.
+        /// Counter interaction message stays "Storage" always — the [F] prompt
+        /// is displayed on the computer screen instead of the InteractionCanvas.
+        /// </summary>
+        public static void SetCheckoutAvailable(bool available)
+        {
+            if (!available)
+                ComputerScreen.HideCheckoutInfo();
+        }
+
         /// <summary>
         /// Disables original plastic table mesh renderers, preserving system objects and OTC_ children.
         /// </summary>
@@ -280,7 +317,7 @@ namespace OverTheCounter.Logic.Placement
         public static void ApplyDeskVisual(GameObject go)
         {
             DisableOriginalRenderers(go);
-            DisableStorageInteraction(go);
+            CaptureInteractable(go);
 
             // Add ornate desk (freestanding, visible from all sides)
             var ornateDesk = Meshes.Custom("ornate desk");
@@ -290,10 +327,15 @@ namespace OverTheCounter.Logic.Placement
 
             if (desk != null)
             {
-                // Computer on desk surface — desk has 270 X rotation so local Z = world up
+                // Computer (all-in-one with built-in monitor) on desk surface
+                // Desk has 270 X rotation so local Z = world up
                 var computer = Meshes.Computer.Instantiate("OTC_Computer",
                     new Vector3(0.63f, 0.22f, 0.55f),
                     Quaternion.Euler(0f, 0f, 75f), desk.transform);
+
+                // WorldSpace display on the computer's built-in screen
+                if (computer != null)
+                    ComputerScreen.Create(computer);
 
                 // Keyboard base (game-scale mesh, scaled to match Keys overlay)
                 var kbBase = Meshes.Keyboard.Instantiate("OTC_KeyboardBase",
@@ -427,6 +469,8 @@ namespace OverTheCounter.Logic.Placement
         public static void Cleanup()
         {
             _counterInstance = null;
+            _checkoutInteractable = null;
+            ComputerScreen.Cleanup();
             // Don't clear _counterDef — it persists across scene loads
         }
     }

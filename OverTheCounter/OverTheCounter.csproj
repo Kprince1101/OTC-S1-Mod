@@ -285,6 +285,7 @@
 		<Compile Include="Logic\CustomerSpawnPoints.cs" />
 		<Compile Include="Logic\CustomerInstance.cs" />
 		<Compile Include="Logic\CustomerManager.cs" />
+		<Compile Include="Logic\CheckoutProcess.cs" />
 		<Compile Include="Logic\DrifterSpawner.cs" />
 		<Compile Include="Logic\DrifterInstance.cs" />
 		<Compile Include="Logic\ManagerInstance.cs" />
@@ -340,6 +341,7 @@
 		<Compile Include="Logic\Placement\BuildingPlacementPatch.cs" />
 		<Compile Include="Logic\Placement\BuildingSignage.cs" />
 		<Compile Include="Logic\Placement\CheckoutCounter.cs" />
+		<Compile Include="Logic\Placement\ComputerScreen.cs" />
 		<Compile Include="Logic\Placement\WestvilleShack.cs" />
 	</ItemGroup>
 
