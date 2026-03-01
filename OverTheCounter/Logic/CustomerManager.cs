@@ -130,9 +130,10 @@ namespace OverTheCounter.Logic
             try
             {
                 int day = TimeManager.ElapsedDays;
+                int time = TimeManager.CurrentTime;
 
-                string id = $"customer_{day}_{_customerIdCounter++}";
-                int seed = id.GetHashCode();
+                string id = $"customer_{day}_{time}_{_customerIdCounter++}";
+                int seed = id.GetHashCode() ^ UnityEngine.Random.Range(int.MinValue, int.MaxValue);
 
                 var spawnPoint = CustomerSpawnPoints.GetRandomSpawnPoint();
                 if (spawnPoint == null)
@@ -238,6 +239,20 @@ namespace OverTheCounter.Logic
                         if (customer.TickBrowsing())
                         {
                             customer.ArrivedAtDestination = false;
+
+                            // All shelves visited — decide what to buy based on what was observed
+                            customer.DecidePurchases();
+
+                            // Customer found nothing they liked — leave without buying
+                            if (customer.SelectedProducts.Count == 0)
+                            {
+                                customer.ShowDisappointed();
+                                customer.State = CustomerState.ExitingStore;
+                                customer.SetAvoidancePriority(10);
+                                customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                                break;
+                            }
+
                             var counterPos = CheckoutCounter.CustomerStandPosition;
                             if (counterPos.HasValue)
                             {

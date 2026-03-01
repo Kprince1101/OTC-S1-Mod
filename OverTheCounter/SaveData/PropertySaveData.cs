@@ -87,6 +87,20 @@ namespace OverTheCounter.SaveData
     }
 
     /// <summary>
+    /// Record of a single product sale at the OTC checkout counter.
+    /// </summary>
+    [Serializable]
+    public class OtcSaleRecord
+    {
+        public string ProductId;
+        public string ProductName;
+        public int Quantity;
+        public float PricePerUnit;
+        public int QualityLevel;
+        public int GameDay;
+    }
+
+    /// <summary>
     /// Saves OTC property ownership state and placed item positions.
     /// The messaging thread lives in <see cref="StaticThreadSaveData"/>.
     /// </summary>
@@ -105,6 +119,9 @@ namespace OverTheCounter.SaveData
 
         [SaveableField("otc_shack_state")]
         private OtcShackState _shackState = new();
+
+        [SaveableField("otc_sales_log")]
+        private List<OtcSaleRecord> _salesLog = new();
 
         /// <summary>Singleton instance, set during construction or load.</summary>
         public static PropertySaveData Instance { get; private set; }
@@ -134,6 +151,27 @@ namespace OverTheCounter.SaveData
             _shackState.LightsOn = WestvilleShack.AreLightsOn;
             _shackState.StoreOpen = WestvilleShack.IsStoreOpen;
         }
+
+        // ==================================================================
+        // Sales analytics
+        // ==================================================================
+
+        /// <summary>Records a product sale for analytics.</summary>
+        public void RecordSale(string productId, string productName, int quantity, float pricePerUnit, int qualityLevel, int gameDay)
+        {
+            _salesLog.Add(new OtcSaleRecord
+            {
+                ProductId = productId,
+                ProductName = productName,
+                Quantity = quantity,
+                PricePerUnit = pricePerUnit,
+                QualityLevel = qualityLevel,
+                GameDay = gameDay
+            });
+        }
+
+        /// <summary>Returns all recorded sales.</summary>
+        public List<OtcSaleRecord> GetSalesLog() => _salesLog;
 
         // ==================================================================
         // Property record access

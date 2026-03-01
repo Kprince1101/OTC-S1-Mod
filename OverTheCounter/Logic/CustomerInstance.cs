@@ -7,6 +7,7 @@ using UnityEngine.AI;
 
 #if IL2CPP
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Effects;
 using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Storage;
@@ -15,6 +16,7 @@ using ProductItemInstance = Il2CppScheduleOne.Product.ProductItemInstance;
 using ProductDefinition = Il2CppScheduleOne.Product.ProductDefinition;
 #else
 using ScheduleOne.DevUtilities;
+using ScheduleOne.Effects;
 using ScheduleOne.Employees;
 using ScheduleOne.NPCs;
 using ScheduleOne.Storage;
@@ -36,12 +38,76 @@ namespace OverTheCounter.Logic
         public static readonly Dictionary<string, CustomerInstance> Active = new();
 
         // =====================================================================
+        //  Preferences
+        // =====================================================================
+
+        public struct CustomerPreferences
+        {
+            public float QualityExpectation;    // 0.0 (Trash) to 0.75 (Premium)
+            public string[] PreferredEffectIds; // 3 effect ID strings (lowercased ScriptableObject names)
+            public float MaxBudgetPerItem;      // max $ they'll spend on a single product
+            public float WeedAffinity;          // -1 to 1, drug type affinity
+        }
+
+        // Effect IDs loaded dynamically from game resources (same as vanilla's RandomizeFavouriteEffects)
+        private static string[] _allEffectIds;
+
+        /// <summary>
+        /// Loads all effect IDs from game resources (Properties/Tier1..5), matching
+        /// vanilla's CustomerData.RandomizeFavouriteEffects approach.
+        /// </summary>
+        private static string[] GetAllEffectIds()
+        {
+            if (_allEffectIds != null) return _allEffectIds;
+
+            try
+            {
+                var effects = new List<string>();
+                for (int tier = 1; tier <= 5; tier++)
+                {
+                    var loaded = Resources.LoadAll<Effect>($"Properties/Tier{tier}");
+                    if (loaded == null) continue;
+                    for (int i = 0; i < loaded.Length; i++)
+                    {
+                        if (loaded[i] != null)
+                            effects.Add(loaded[i].name.ToLower());
+                    }
+                }
+
+                if (effects.Count > 0)
+                {
+                    _allEffectIds = effects.ToArray();
+                    return _allEffectIds;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Failed to load effect IDs from resources: {ex.Message}");
+            }
+
+            // Fallback — should never be needed, but just in case resources aren't ready
+            Logger.Warning("[PREF] Using hardcoded effect ID fallback");
+            _allEffectIds = new[]
+            {
+                "antigravity", "athletic", "balding", "brighteyed", "calming",
+                "caloriedense", "cyclopean", "disorienting", "electrifying", "energizing",
+                "euphoric", "explosive", "focused", "foggy", "gingeritis",
+                "glowie", "jennerising", "laxative", "lethal", "longfaced",
+                "munchies", "paranoia", "refreshing", "schizophrenic", "sedating",
+                "seizure", "shrinking", "slippery", "smelly", "sneaky",
+                "spicy", "thoughtprovoking", "toxic", "tropicthunder", "zombifying"
+            };
+            return _allEffectIds;
+        }
+
+        // =====================================================================
         //  Identity
         // =====================================================================
 
         public string Id { get; }
         public int SpawnSeed { get; }
         public CustomerSpawnPoints.SpawnPoint SpawnPoint { get; }
+        public CustomerPreferences Preferences { get; private set; }
 
         // =====================================================================
         //  Game reference
@@ -101,12 +167,26 @@ namespace OverTheCounter.Logic
             public string PackagingId;
             public string ProductName;
             public float Price;
+            public int QualityLevel; // 0=Trash, 1=Poor, 2=Standard, 3=Premium, 4=Heavenly
+            public int Quantity;     // how many units to buy
         }
 
-        /// <summary>Products the customer selected while browsing display cabinets.</summary>
+        /// <summary>Products the customer decided to buy after browsing all shelves.</summary>
         public List<SelectedProduct> SelectedProducts { get; } = new();
 
-        private const int MaxSelectedProducts = 3;
+        /// <summary>A product observed on a display shelf during browsing.</summary>
+        private struct ObservedProduct
+        {
+            public string ProductId;
+            public string PackagingId;
+            public string ProductName;
+            public float Price;
+            public float MarketValue;
+            public int QualityLevel;
+            public int AvailableQuantity;
+            public List<string> EffectIds;
+        }
+        private readonly List<ObservedProduct> _seenProducts = new();
 
         // =====================================================================
         //  Movement (GC-pinned callbacks)
@@ -139,6 +219,7 @@ namespace OverTheCounter.Logic
             SpawnPoint = spawnPoint;
             GameNpc = npc;
             State = CustomerState.WalkingToStore;
+            Preferences = GeneratePreferences(seed);
             _willVocalizeWhileBrowsing = (seed % 10) < 3; // ~30% chance
         }
 
@@ -211,6 +292,50 @@ namespace OverTheCounter.Logic
 
             Active[id] = instance;
             return instance;
+        }
+
+        /// <summary>
+        /// Generates deterministic customer preferences from the spawn seed.
+        /// Quality skewed low (shack clientele), effects picked from all 35, budget $15-$60.
+        /// </summary>
+        private static CustomerPreferences GeneratePreferences(int seed)
+        {
+            var rng = new System.Random(seed);
+
+            // Quality expectation — low-end shack distribution
+            double qualBucket = rng.NextDouble();
+            float qualityExpectation;
+            if (qualBucket < 0.30)
+                qualityExpectation = (float)(rng.NextDouble() * 0.12);         // VeryLow (Trash)
+            else if (qualBucket < 0.65)
+                qualityExpectation = 0.13f + (float)(rng.NextDouble() * 0.17); // Low (Poor)
+            else if (qualBucket < 0.90)
+                qualityExpectation = 0.31f + (float)(rng.NextDouble() * 0.24); // Moderate (Standard)
+            else
+                qualityExpectation = 0.56f + (float)(rng.NextDouble() * 0.19); // High (Premium)
+
+            // Pick 3 random effects from all 35 (Fisher-Yates partial shuffle)
+            var allEffects = GetAllEffectIds();
+            var pool = new string[allEffects.Length];
+            Array.Copy(allEffects, pool, allEffects.Length);
+            for (int i = 0; i < 3; i++)
+            {
+                int j = i + rng.Next(pool.Length - i);
+                var tmp = pool[i];
+                pool[i] = pool[j];
+                pool[j] = tmp;
+            }
+
+            // Budget: $40-$100 (OG Kush base is ~$38/g before markup)
+            float budget = 40f + (float)(rng.NextDouble() * 60.0);
+
+            return new CustomerPreferences
+            {
+                QualityExpectation = qualityExpectation,
+                PreferredEffectIds = new[] { pool[0], pool[1], pool[2] },
+                MaxBudgetPerItem = budget,
+                WeedAffinity = 0.8f
+            };
         }
 
         // =====================================================================
@@ -493,6 +618,8 @@ namespace OverTheCounter.Logic
                 _browsePositions.Add(standPositions[i] + new Vector3(offset.x, 0f, offset.y));
             }
 
+            _seenProducts.Clear();
+            SelectedProducts.Clear();
             _browseTargetIndex = 0;
             _browsePauseEndTime = 0f;
             ArrivedAtDestination = false;
@@ -534,8 +661,8 @@ namespace OverTheCounter.Logic
                     FacePosition(_browseShelfPositions[_browseTargetIndex]);
                 _browsePauseEndTime = Time.time + BrowsePauseDuration;
 
-                // Pick a product from this shelf
-                PickProductFromShelf();
+                // Memorize products on this shelf (decisions come after all shelves visited)
+                ObserveShelf();
 
                 // Occasional "hmm" while looking at products (30% of customers, once per visit)
                 if (_willVocalizeWhileBrowsing && !_hasVocalized)
@@ -553,11 +680,10 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Scans the display cabinet nearest to the current browse shelf position
-        /// and picks one random packaged product to add to SelectedProducts.
+        /// and memorizes all products. No scoring — just observing.
         /// </summary>
-        private void PickProductFromShelf()
+        private void ObserveShelf()
         {
-            if (SelectedProducts.Count >= MaxSelectedProducts) return;
             if (_browseShelfPositions == null || _browseTargetIndex >= _browseShelfPositions.Count) return;
 
             var shelfPos = _browseShelfPositions[_browseTargetIndex];
@@ -592,8 +718,6 @@ namespace OverTheCounter.Logic
 
                 if (closestStorage?.ItemSlots == null) return;
 
-                // Collect all packaged products in this storage
-                var candidates = new List<SelectedProduct>();
                 for (int j = 0; j < closestStorage.ItemSlots.Count; j++)
                 {
                     var slot = closestStorage.ItemSlots[j];
@@ -606,10 +730,6 @@ namespace OverTheCounter.Logic
 #endif
                     if (productItem == null || productItem.AppliedPackaging == null) continue;
 
-                    string productId = null;
-                    string productName = "Product";
-                    float price = 0f;
-
                     try
                     {
 #if IL2CPP
@@ -617,34 +737,206 @@ namespace OverTheCounter.Logic
 #else
                         var prodDef = productItem.Definition as ProductDefinition;
 #endif
-                        if (prodDef != null)
+                        if (prodDef == null) continue;
+
+                        var effectIds = new List<string>();
+                        if (prodDef.Properties != null)
                         {
-                            productId = prodDef.ID;
-                            productName = prodDef.name ?? "Product";
-                            price = prodDef.Price > 0 ? prodDef.Price : prodDef.MarketValue;
+                            for (int ei = 0; ei < prodDef.Properties.Count; ei++)
+                            {
+                                var e = prodDef.Properties[ei];
+                                if (e != null) effectIds.Add(e.name.ToLower());
+                            }
                         }
+
+                        _seenProducts.Add(new ObservedProduct
+                        {
+                            ProductId = prodDef.ID,
+                            PackagingId = productItem.AppliedPackaging?.ID,
+                            ProductName = prodDef.name ?? "Product",
+                            Price = prodDef.Price > 0 ? prodDef.Price : prodDef.MarketValue,
+                            MarketValue = prodDef.MarketValue,
+                            QualityLevel = (int)productItem.Quality,
+                            AvailableQuantity = slot.Quantity,
+                            EffectIds = effectIds
+                        });
                     }
                     catch { }
-
-                    candidates.Add(new SelectedProduct
-                    {
-                        ProductId = productId,
-                        PackagingId = productItem.AppliedPackaging?.ID,
-                        ProductName = productName,
-                        Price = price
-                    });
                 }
-
-                if (candidates.Count == 0) return;
-
-                // Pick one random product from this shelf
-                var picked = candidates[UnityEngine.Random.Range(0, candidates.Count)];
-                SelectedProducts.Add(picked);
             }
             catch (Exception ex)
             {
-                Logger.Warning($"PickProductFromShelf failed for {Id}: {ex.Message}");
+                Logger.Warning($"ObserveShelf failed for {Id}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// After browsing all shelves, scores all observed products using vanilla's
+        /// GetProductEnjoyment formula and selects what to buy via weighted random.
+        /// </summary>
+        public void DecidePurchases()
+        {
+            if (_seenProducts.Count == 0)
+            {
+                Logger.Msg($"[PREF] {Id} saw no products while browsing");
+                return;
+            }
+
+            // 1. Deduplicate by ProductId — keep best quality, sum available quantity
+            var unique = new Dictionary<string, ObservedProduct>();
+            foreach (var obs in _seenProducts)
+            {
+                if (unique.TryGetValue(obs.ProductId, out var existing))
+                {
+                    var updated = obs.QualityLevel > existing.QualityLevel ? obs : existing;
+                    updated.AvailableQuantity = existing.AvailableQuantity + obs.AvailableQuantity;
+                    unique[obs.ProductId] = updated;
+                }
+                else
+                {
+                    unique[obs.ProductId] = obs;
+                }
+            }
+
+            // 2. Score each unique product using vanilla GetProductEnjoyment formula
+            var scored = new List<(ObservedProduct product, float appeal)>();
+            var rng = new System.Random(SpawnSeed + 7919); // deterministic but different from pref gen
+
+            Logger.Msg($"[PREF] {Id} deciding purchases ({unique.Count} unique products) | QualExp={Preferences.QualityExpectation:F2} Effects=[{string.Join(",", Preferences.PreferredEffectIds)}] Budget=${Preferences.MaxBudgetPerItem:F0}");
+
+            foreach (var obs in unique.Values)
+            {
+                // --- Vanilla GetProductEnjoyment ---
+                // Drug affinity * 0.3
+                float drugScore = Preferences.WeedAffinity * 0.3f;
+
+                // Effect match: (matchCount / preferredCount) * 0.4
+                int matchCount = 0;
+                var matchedEffects = new List<string>();
+                foreach (string wanted in Preferences.PreferredEffectIds)
+                {
+                    for (int i = 0; i < obs.EffectIds.Count; i++)
+                    {
+                        if (obs.EffectIds[i] == wanted)
+                        {
+                            matchCount++;
+                            matchedEffects.Add(wanted);
+                            break;
+                        }
+                    }
+                }
+                float effectScore = (float)matchCount / Preferences.PreferredEffectIds.Length * 0.4f;
+
+                // Quality delta (stepped) * 0.3
+                float qualityScalar = obs.QualityLevel * 0.25f;
+                float qualityDelta = qualityScalar - Preferences.QualityExpectation;
+                float qualityStep;
+                if (qualityDelta >= 0.25f) qualityStep = 1.0f;
+                else if (qualityDelta >= 0f) qualityStep = 0.5f;
+                else if (qualityDelta >= -0.25f) qualityStep = -0.5f;
+                else qualityStep = -1.0f;
+                float qualityScore = qualityStep * 0.3f;
+
+                float rawEnjoyment = drugScore + effectScore + qualityScore;
+
+                // Normalize: InverseLerp(-0.6, 1.0, rawScore) → 0–1
+                float enjoyment = Mathf.InverseLerp(-0.6f, 1.0f, rawEnjoyment);
+
+                // --- Vanilla price factor ---
+                // priceRatio = price / marketValue
+                // priceScalar = Lerp(1, -1, priceRatio / 2) → cheap=+1, expensive=-1
+                float marketVal = obs.MarketValue > 0 ? obs.MarketValue : obs.Price;
+                float priceRatio = obs.Price / marketVal;
+                float priceScalar = Mathf.Lerp(1f, -1f, priceRatio / 2f);
+
+                float appeal = enjoyment + priceScalar;
+
+                Logger.Msg($"[PREF]   {obs.ProductName}({obs.ProductId}) Q={obs.QualityLevel} ${obs.Price:F0} mv=${marketVal:F0} fx=[{string.Join(",", obs.EffectIds)}] | drug={drugScore:F2} eff={effectScore:F2}(matched:[{string.Join(",", matchedEffects)}]) qual={qualityScore:F2} => enjoy={enjoyment:F3} price={priceScalar:F2} appeal={appeal:F3}");
+
+                // Budget hard cutoff
+                if (obs.Price > Preferences.MaxBudgetPerItem) continue;
+
+                if (appeal > 0f)
+                    scored.Add((obs, appeal));
+            }
+
+            if (scored.Count == 0)
+            {
+                Logger.Msg($"[PREF]   => NO PRODUCTS APPEALING");
+                return;
+            }
+
+            // 3. Sort by appeal descending
+            scored.Sort((a, b) => b.appeal.CompareTo(a.appeal));
+
+            // 4. Weighted random selection (vanilla: 50% pick top, 50% random from rest)
+            int totalUnitCap = 4;
+            int totalUnits = 0;
+            var remaining = new List<(ObservedProduct product, float appeal)>(scored);
+
+            while (remaining.Count > 0 && totalUnits < totalUnitCap)
+            {
+                int pickIndex;
+                if (remaining.Count == 1 || rng.NextDouble() < 0.5)
+                    pickIndex = 0; // top pick
+                else
+                    pickIndex = 1 + rng.Next(remaining.Count - 1); // random from rest
+
+                var pick = remaining[pickIndex];
+                remaining.RemoveAt(pickIndex);
+
+                // High appeal (> 0.7) → buy 2 if available, else 1
+                int qty = 1;
+                if (pick.appeal > 0.7f && pick.product.AvailableQuantity >= 2)
+                    qty = 2;
+                qty = Math.Min(qty, totalUnitCap - totalUnits);
+
+                Logger.Msg($"[PREF]   => PICKED: {pick.product.ProductName} x{qty} (appeal={pick.appeal:F3})");
+
+                SelectedProducts.Add(new SelectedProduct
+                {
+                    ProductId = pick.product.ProductId,
+                    PackagingId = pick.product.PackagingId,
+                    ProductName = pick.product.ProductName,
+                    Price = pick.product.Price,
+                    QualityLevel = pick.product.QualityLevel,
+                    Quantity = qty
+                });
+
+                totalUnits += qty;
+            }
+
+            Logger.Msg($"[PREF]   => TOTAL: {SelectedProducts.Count} products, {totalUnits} units");
+        }
+
+        // =====================================================================
+        //  Voice lines
+        // =====================================================================
+
+        private static readonly string[] DisappointedLines =
+        {
+            "Nothing for me...",
+            "Not what I'm looking for.",
+            "I'll pass.",
+            "Maybe next time.",
+            "Nah, I'm good."
+        };
+
+        /// <summary>
+        /// Shows a disappointed speech bubble and plays an annoyed voice line
+        /// when the customer leaves without buying anything.
+        /// </summary>
+        public void ShowDisappointed()
+        {
+            if (!IsValid) return;
+            try
+            {
+                var rng = new System.Random(SpawnSeed + 42);
+                string line = DisappointedLines[rng.Next(DisappointedLines.Length)];
+                GameNpc.DialogueHandler?.WorldspaceRend?.ShowText(line, 3f);
+                GameNpc.VoiceOverEmitter?.Play(EVOLineType.Annoyed);
+            }
+            catch { }
         }
 
         // =====================================================================

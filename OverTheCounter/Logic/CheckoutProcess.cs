@@ -82,7 +82,7 @@ namespace OverTheCounter.Logic
         private const float ProductSpawnInterval = 0.3f;
         private const float PostScanDelay = 0.3f;
         private const float CameraReturnWait = 0.6f;
-        private const int MaxProducts = 3;
+        private const int MaxProducts = 4;
         private const float FallbackPriceMin = 20f;
         private const float FallbackPriceMax = 50f;
 
@@ -124,7 +124,7 @@ namespace OverTheCounter.Logic
         {
             if (Instance != null) return;
             if (GameInput.IsTyping) return;
-            if (!Input.GetKeyDown(KeyCode.F)) return;
+            if (!Input.GetKeyDown(KeyCode.R)) return;
 
             // Player must be looking at the checkout counter (line-of-sight via InteractionManager)
             var counterInteractable = CheckoutCounter.CounterInteractable;
@@ -322,7 +322,8 @@ namespace OverTheCounter.Logic
             var surfacePos = CheckoutCounter.SurfacePosition.Value;
 
             // Stagger items on the left side of the desk (away from computer/keyboard)
-            float offset = (index - (_collectedProducts.Count - 1) / 2f) * 0.4f;
+            float spacing = _collectedProducts.Count > 3 ? 0.25f : 0.4f;
+            float offset = (index - (_collectedProducts.Count - 1) / 2f) * spacing;
             var spawnPos = surfacePos - counterTransform.right * 0.3f + counterTransform.right * offset;
 
             GameObject go;
@@ -528,9 +529,9 @@ namespace OverTheCounter.Logic
         // =================================================================
 
         /// <summary>
-        /// Finds the specific products the customer selected during browsing in the
-        /// display cabinets and removes them from storage. Falls back to random collection
-        /// if the customer has no selections.
+        /// Finds the visual prefab and ProductDef for each selected product by looking
+        /// at display cabinets. Display shelves are not modified — the budtender fulfills
+        /// from backstock; shelves are just for browsing.
         /// </summary>
         private static List<CollectedProduct> CollectSelectedProducts(List<SelectedProduct> selections)
         {
@@ -539,8 +540,8 @@ namespace OverTheCounter.Logic
 
             try
             {
-                // Build a flat list of all storage slots with packaged products
-                var slots = new List<(StorageEntity storage, int slotIndex, ProductItemInstance productItem, ProductDefinition prodDef)>();
+                // Build a flat list of display slot products for visual/def lookup
+                var displaySlots = new List<(ProductItemInstance productItem, ProductDefinition prodDef)>();
 
                 foreach (var kvp in BuildingGridFactory.GridContainers)
                 {
@@ -578,28 +579,30 @@ namespace OverTheCounter.Logic
                             }
                             catch { }
 
-                            slots.Add((storage, j, productItem, prodDef));
+                            displaySlots.Add((productItem, prodDef));
                         }
                     }
                 }
 
-                // For each selected product, find a matching slot and collect it
+                // For each selected product, find a matching display slot for visuals
                 foreach (var selection in selections)
                 {
-                    for (int s = 0; s < slots.Count; s++)
+                    int qty = selection.Quantity > 0 ? selection.Quantity : 1;
+                    GameObject visualPrefab = null;
+                    ProductDefinition matchedDef = null;
+                    string matchedPackagingId = null;
+
+                    // Find first matching display product for visual/def
+                    foreach (var (productItem, prodDef) in displaySlots)
                     {
-                        var (storage, slotIndex, productItem, prodDef) = slots[s];
                         string slotProductId = prodDef?.ID;
                         string slotPackagingId = productItem.AppliedPackaging?.ID;
 
                         if (slotProductId != selection.ProductId || slotPackagingId != selection.PackagingId)
                             continue;
 
-                        // Match found — collect it
-                        float price = selection.Price;
-                        if (price <= 0) price = UnityEngine.Random.Range(FallbackPriceMin, FallbackPriceMax);
-
-                        GameObject visualPrefab = null;
+                        matchedDef = prodDef;
+                        matchedPackagingId = slotPackagingId;
                         try
                         {
                             var storedItemComponent = productItem.StoredItem;
@@ -607,35 +610,26 @@ namespace OverTheCounter.Logic
                                 visualPrefab = storedItemComponent.gameObject;
                         }
                         catch { }
+                        break;
+                    }
 
+                    float price = selection.Price;
+                    if (price <= 0) price = UnityEngine.Random.Range(FallbackPriceMin, FallbackPriceMax);
+
+                    // Add one CollectedProduct per unit (for individual scanning)
+                    for (int u = 0; u < qty; u++)
+                    {
                         result.Add(new CollectedProduct
                         {
                             Name = selection.ProductName,
                             Price = price,
-                            PackagingId = slotPackagingId,
+                            PackagingId = matchedPackagingId ?? selection.PackagingId,
                             VisualPrefab = visualPrefab,
-                            ProductDef = prodDef
+                            ProductDef = matchedDef
                         });
-
-                        // Remove from storage
-                        try
-                        {
-                            var slot = storage.ItemSlots[slotIndex];
-                            if (slot.Quantity <= 1)
-                                slot.SetStoredItem(null);
-                            else
-                                slot.SetStoredItem(slot.ItemInstance);
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Warning($"Failed to remove product from slot: {ex.Message}");
-                        }
-
-                        // Remove this slot from candidates so it's not reused
-                        slots.RemoveAt(s);
-                        break;
                     }
                 }
+
             }
             catch (Exception ex)
             {
@@ -759,6 +753,30 @@ namespace OverTheCounter.Logic
         private void CompleteCheckout()
         {
             PlayCustomerVoice(EVOLineType.Thanks);
+
+            // Record sales analytics
+            try
+            {
+                var saveData = SaveData.PropertySaveData.Instance;
+                if (saveData != null)
+                {
+                    int gameDay = S1API.GameTime.TimeManager.ElapsedDays;
+                    foreach (var product in _customer.SelectedProducts)
+                    {
+                        saveData.RecordSale(
+                            product.ProductId,
+                            product.ProductName,
+                            product.Quantity,
+                            product.Price,
+                            product.QualityLevel,
+                            gameDay);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Failed to record sale: {ex.Message}");
+            }
 
             // Signal customer to exit
             _customer.CheckoutArrivalTime = 0f;
