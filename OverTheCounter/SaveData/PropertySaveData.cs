@@ -123,6 +123,9 @@ namespace OverTheCounter.SaveData
         [SaveableField("otc_sales_log")]
         private List<OtcSaleRecord> _salesLog = new();
 
+        [SaveableField("otc_register_balance")]
+        private float _registerBalance;
+
         /// <summary>Singleton instance, set during construction or load.</summary>
         public static PropertySaveData Instance { get; private set; }
 
@@ -143,6 +146,9 @@ namespace OverTheCounter.SaveData
                 WestvilleShack.UnlockDoor();
                 WestvilleShack.ApplySavedState(_shackState.LightsOn, _shackState.StoreOpen);
             }
+
+            // Restore register balance
+            CheckoutCounter.RegisterBalance = _registerBalance;
         }
 
         /// <summary>Captures current shack toggle states before save serialization.</summary>
@@ -150,6 +156,7 @@ namespace OverTheCounter.SaveData
         {
             _shackState.LightsOn = WestvilleShack.AreLightsOn;
             _shackState.StoreOpen = WestvilleShack.IsStoreOpen;
+            _registerBalance = CheckoutCounter.RegisterBalance;
         }
 
         // ==================================================================

@@ -286,6 +286,7 @@
 		<Compile Include="Logic\CustomerInstance.cs" />
 		<Compile Include="Logic\CustomerManager.cs" />
 		<Compile Include="Logic\CheckoutProcess.cs" />
+		<Compile Include="Logic\BudtenderHUD.cs" />
 		<Compile Include="Logic\DrifterSpawner.cs" />
 		<Compile Include="Logic\DrifterInstance.cs" />
 		<Compile Include="Logic\ManagerInstance.cs" />
@@ -357,6 +358,7 @@
 		<EmbeddedResource Include="Resources\ChevronIcon.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\LeafSign.glb"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\ShackSign.glb"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\CashRegister.glb"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\ShackPhoto.png" Condition="Exists('Resources\ShackPhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 	</ItemGroup>
 

@@ -777,10 +777,7 @@ namespace OverTheCounter.Logic
         public void DecidePurchases()
         {
             if (_seenProducts.Count == 0)
-            {
-                Logger.Msg($"[PREF] {Id} saw no products while browsing");
                 return;
-            }
 
             // 1. Deduplicate by ProductId — keep best quality, sum available quantity
             var unique = new Dictionary<string, ObservedProduct>();
@@ -802,8 +799,6 @@ namespace OverTheCounter.Logic
             var scored = new List<(ObservedProduct product, float appeal)>();
             var rng = new System.Random(SpawnSeed + 7919); // deterministic but different from pref gen
 
-            Logger.Msg($"[PREF] {Id} deciding purchases ({unique.Count} unique products) | QualExp={Preferences.QualityExpectation:F2} Effects=[{string.Join(",", Preferences.PreferredEffectIds)}] Budget=${Preferences.MaxBudgetPerItem:F0}");
-
             foreach (var obs in unique.Values)
             {
                 // --- Vanilla GetProductEnjoyment ---
@@ -812,7 +807,6 @@ namespace OverTheCounter.Logic
 
                 // Effect match: (matchCount / preferredCount) * 0.4
                 int matchCount = 0;
-                var matchedEffects = new List<string>();
                 foreach (string wanted in Preferences.PreferredEffectIds)
                 {
                     for (int i = 0; i < obs.EffectIds.Count; i++)
@@ -820,7 +814,6 @@ namespace OverTheCounter.Logic
                         if (obs.EffectIds[i] == wanted)
                         {
                             matchCount++;
-                            matchedEffects.Add(wanted);
                             break;
                         }
                     }
@@ -851,8 +844,6 @@ namespace OverTheCounter.Logic
 
                 float appeal = enjoyment + priceScalar;
 
-                Logger.Msg($"[PREF]   {obs.ProductName}({obs.ProductId}) Q={obs.QualityLevel} ${obs.Price:F0} mv=${marketVal:F0} fx=[{string.Join(",", obs.EffectIds)}] | drug={drugScore:F2} eff={effectScore:F2}(matched:[{string.Join(",", matchedEffects)}]) qual={qualityScore:F2} => enjoy={enjoyment:F3} price={priceScalar:F2} appeal={appeal:F3}");
-
                 // Budget hard cutoff
                 if (obs.Price > Preferences.MaxBudgetPerItem) continue;
 
@@ -861,16 +852,13 @@ namespace OverTheCounter.Logic
             }
 
             if (scored.Count == 0)
-            {
-                Logger.Msg($"[PREF]   => NO PRODUCTS APPEALING");
                 return;
-            }
 
             // 3. Sort by appeal descending
             scored.Sort((a, b) => b.appeal.CompareTo(a.appeal));
 
             // 4. Weighted random selection (vanilla: 50% pick top, 50% random from rest)
-            int totalUnitCap = 4;
+            int totalUnitCap = 6;
             int totalUnits = 0;
             var remaining = new List<(ObservedProduct product, float appeal)>(scored);
 
@@ -891,8 +879,6 @@ namespace OverTheCounter.Logic
                     qty = 2;
                 qty = Math.Min(qty, totalUnitCap - totalUnits);
 
-                Logger.Msg($"[PREF]   => PICKED: {pick.product.ProductName} x{qty} (appeal={pick.appeal:F3})");
-
                 SelectedProducts.Add(new SelectedProduct
                 {
                     ProductId = pick.product.ProductId,
@@ -905,8 +891,6 @@ namespace OverTheCounter.Logic
 
                 totalUnits += qty;
             }
-
-            Logger.Msg($"[PREF]   => TOTAL: {SelectedProducts.Count} products, {totalUnits} units");
         }
 
         // =====================================================================

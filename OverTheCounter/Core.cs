@@ -33,6 +33,7 @@ namespace OverTheCounter
         private ManagerController _managerManager;
         private CustomerManager _customerManager;
 
+
         public override void OnInitializeMelon()
         {
             Config.Initialize();
@@ -261,8 +262,20 @@ namespace OverTheCounter
                 if (NetworkHelper.IsHost)
                     CheckoutProcess.TryStartCheckout();
 
+                // Cash register collection (C key) — only when no checkout active
+                if (NetworkHelper.IsHost && CheckoutProcess.Instance == null)
+                    CheckoutCounter.TryCollectRegister();
+
+                // Right-click product pickup while checkout is paused
+                if (CheckoutProcess.Instance?.IsPaused == true)
+                    CheckoutProcess.TryPickupCounterProduct();
+
+                // Periodic POS display refresh (2-second throttle for availability updates)
+                Logic.Placement.ComputerScreen.Tick();
+
                 // Update drifter quest timers on client (OnTimeTick is host-only)
                 _drifterManager?.ClientQuestTick();
+
             }
             catch (Exception ex)
             {
@@ -306,7 +319,6 @@ namespace OverTheCounter
 
             if (!File.Exists(targetPath))
             {
-                LoggerInstance.Msg($"Extracting {fileName}...");
                 string resourceName = $"OverTheCounter.Resources.{fileName}";
 
                 using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
@@ -317,7 +329,6 @@ namespace OverTheCounter
                         {
                             stream.CopyTo(fileStream);
                         }
-                        LoggerInstance.Msg($"{fileName} extracted successfully.");
                     }
                     else
                     {

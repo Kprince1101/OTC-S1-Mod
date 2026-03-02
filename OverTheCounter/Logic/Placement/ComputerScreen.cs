@@ -6,14 +6,22 @@ using UnityEngine.UI;
 
 #if IL2CPP
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Product;
+using Il2CppScheduleOne.Storage;
 using Il2CppScheduleOne.UI.Items;
 using Il2CppTMPro;
+using ProductItemInstance = Il2CppScheduleOne.Product.ProductItemInstance;
+using ProductDefinition = Il2CppScheduleOne.Product.ProductDefinition;
 #else
 using ScheduleOne.DevUtilities;
+using ScheduleOne.PlayerScripts;
 using ScheduleOne.Product;
+using ScheduleOne.Storage;
 using ScheduleOne.UI.Items;
 using TMPro;
+using ProductItemInstance = ScheduleOne.Product.ProductItemInstance;
+using ProductDefinition = ScheduleOne.Product.ProductDefinition;
 #endif
 
 namespace OverTheCounter.Logic.Placement
@@ -21,6 +29,7 @@ namespace OverTheCounter.Logic.Placement
     /// <summary>
     /// WorldSpace Canvas on the checkout computer monitor.
     /// POS-style display: header row, columnar product grid, total, and blinking [R] Checkout prompt.
+    /// Supports periodic refresh with 2-second throttle for live availability updates.
     /// </summary>
     public static class ComputerScreen
     {
@@ -30,6 +39,7 @@ namespace OverTheCounter.Logic.Placement
         private static GameObject _checkoutPanel;
         private static TextMeshProUGUI _promptText;
         private static TextMeshProUGUI _totalValueText;
+        private static TextMeshProUGUI _totalQtyText;
 
         private const int MaxProductRows = 3;
         private static readonly List<ProductRow> _productRows = new();
@@ -47,12 +57,24 @@ namespace OverTheCounter.Logic.Placement
 
         private static Sprite _starSprite;
 
-        // Scrolling + blink state
+        // Display state
         private static List<CustomerInstance.SelectedProduct> _allProducts;
+        private static List<CustomerInstance.SelectedProduct> _sortedProducts;
+        private static HashSet<string> _fulfilledKeys = new();
+        private static HashSet<string> _missingKeys = new();
+        private static HashSet<string> _placedKeys = new();
         private static int _scrollOffset;
         private static object _scrollCoroutine;
         private static object _blinkCoroutine;
         private static float _orderTotal;
+        private static float _placedTotal;
+        private static int _totalQty;
+        private static bool _isBudtending;
+
+        // Periodic refresh
+        private static float _lastRefreshTime;
+        private static bool _forceRefresh;
+        private const float RefreshInterval = 2f;
 
         // Layout: row content area is (PanelWidth - 10) wide, centered in panel
         private const float PanelWidth = 190f;
@@ -75,8 +97,11 @@ namespace OverTheCounter.Logic.Placement
         private static readonly Color HeaderLabelColor = new(0.4f, 0.55f, 0.4f);
         private static readonly Color RowBgNormal = new(0.03f, 0.06f, 0.03f, 0.5f);
         private static readonly Color RowBgHighlight = new(0.06f, 0.15f, 0.06f, 0.8f);
+        private static readonly Color RowBgMissing = new(0.12f, 0.03f, 0.03f, 0.5f);
         private static readonly Color TextColor = new(0.8f, 0.9f, 0.8f);
+        private static readonly Color TextMissing = new(0.9f, 0.3f, 0.3f);
         private static readonly Color PriceColor = new(0.5f, 0.9f, 0.5f);
+        private static readonly Color PriceMissing = new(0.6f, 0.25f, 0.25f);
         private static readonly Color TotalValueColor = new(0.4f, 1f, 0.4f);
         private static readonly Color SepColor = new(0.15f, 0.3f, 0.15f, 0.6f);
         private static readonly Color PromptBright = new(1f, 0.95f, 0.3f, 1f);
@@ -174,11 +199,16 @@ namespace OverTheCounter.Logic.Placement
                 // Separator above total
                 CreateSeparator("Sep2", _checkoutPanel.transform, -22f);
 
-                // Total row
+                // Total row — label + qty + price
                 var totalLabel = CreateText("TotalLabel", _checkoutPanel.transform,
                     Vector2.zero, new Vector2(80f, 16f),
                     "TOTAL", 10, TextAlignmentOptions.Left, Color.white);
                 AnchorLeftAt(totalLabel.GetComponent<RectTransform>(), rowLeft + NameX, -32f);
+
+                _totalQtyText = CreateText("TotalQty", _checkoutPanel.transform,
+                    Vector2.zero, new Vector2(QtyWidth, 16f),
+                    "", 10, TextAlignmentOptions.Center, TextColor);
+                AnchorLeftAt(_totalQtyText.GetComponent<RectTransform>(), rowLeft + QtyX, -32f);
 
                 _totalValueText = CreateText("TotalValue", _checkoutPanel.transform,
                     Vector2.zero, new Vector2(PriceWidth, 16f),
@@ -199,9 +229,14 @@ namespace OverTheCounter.Logic.Placement
             }
         }
 
+        // =================================================================
+        //  Public API
+        // =================================================================
+
         /// <summary>
-        /// Shows the checkout panel with POS-style product grid and blinking [R] prompt.
-        /// Scrolls slowly when more than 3 products.
+        /// Shows the checkout panel with product list and availability status.
+        /// Called when a customer arrives at checkout (pre-R press).
+        /// Starts periodic refresh for live availability updates.
         /// </summary>
         public static void ShowCheckoutInfo(List<CustomerInstance.SelectedProduct> products)
         {
@@ -209,48 +244,317 @@ namespace OverTheCounter.Logic.Placement
 
             StopAnimations();
             _allProducts = new List<CustomerInstance.SelectedProduct>(products);
+            _isBudtending = false;
+            _placedKeys = new HashSet<string>();
+            _placedTotal = 0f;
             _scrollOffset = 0;
 
-            // Compute order total
-            _orderTotal = 0f;
-            for (int i = 0; i < _allProducts.Count; i++)
-                _orderTotal += _allProducts[i].Price * _allProducts[i].Quantity;
+            // Initial availability scan
+            SearchAvailability();
+            SortAndDisplay();
 
-            if (_totalValueText != null)
-                _totalValueText.text = $"${_orderTotal:F2}";
-
-            UpdateVisibleRows();
             _checkoutPanel.SetActive(true);
-
-            // Start scrolling if more products than visible rows
-            if (_allProducts.Count > MaxProductRows)
-                _scrollCoroutine = MelonCoroutines.Start(ScrollCoroutine());
+            _lastRefreshTime = Time.time;
 
             // Start blinking the checkout prompt
+            if (_promptText != null)
+                _promptText.text = "[R] Checkout";
             _blinkCoroutine = MelonCoroutines.Start(BlinkPromptCoroutine());
         }
 
-        /// <summary>Updates the 3 visible product rows from _allProducts at _scrollOffset.</summary>
-        private static void UpdateVisibleRows()
+        /// <summary>
+        /// Shows budtending status on the POS during active checkout.
+        /// Placed items get highlighted, missing items shown in red.
+        /// </summary>
+        public static void ShowBudtendingStatus(
+            List<CustomerInstance.SelectedProduct> products,
+            HashSet<string> missingKeys,
+            HashSet<string> placedKeys,
+            float placedTotal)
         {
+            if (_checkoutPanel == null) return;
+
+            StopAnimations();
+            _allProducts = new List<CustomerInstance.SelectedProduct>(products);
+            _isBudtending = true;
+            _missingKeys = missingKeys ?? new HashSet<string>();
+            _placedKeys = placedKeys ?? new HashSet<string>();
+            _fulfilledKeys = new HashSet<string>(_placedKeys);
+            _placedTotal = placedTotal;
+            _scrollOffset = 0;
+
+            SortAndDisplay();
+
+            _checkoutPanel.SetActive(true);
+            _lastRefreshTime = Time.time;
+
+            // Show [R] Back out prompt during active budtending, or [R] Resume when paused
+            bool isPaused = CheckoutProcess.Instance?.IsPaused == true;
+            if (_promptText != null)
+                _promptText.text = isPaused ? "[R] Resume" : "[R] Back out";
+
+            _blinkCoroutine = MelonCoroutines.Start(BlinkPromptCoroutine());
+        }
+
+        /// <summary>
+        /// Hides the checkout panel, returning to store name only.
+        /// </summary>
+        public static void HideCheckoutInfo()
+        {
+            StopAnimations();
+            _allProducts = null;
+            _sortedProducts = null;
+            _isBudtending = false;
+            if (_checkoutPanel != null)
+                _checkoutPanel.SetActive(false);
+        }
+
+        /// <summary>
+        /// Called from Core.OnLateUpdate. Handles periodic POS refresh (2s throttle).
+        /// Only refreshes when checkout panel is visible and in pre-checkout waiting mode.
+        /// </summary>
+        public static void Tick()
+        {
+            if (_checkoutPanel == null || !_checkoutPanel.activeSelf) return;
+            if (_allProducts == null || _allProducts.Count == 0) return;
+
+            // Only auto-refresh in waiting mode (not during active budtending)
+            if (_isBudtending) return;
+
+            bool shouldRefresh = _forceRefresh ||
+                (Time.time - _lastRefreshTime >= RefreshInterval);
+
+            if (!shouldRefresh) return;
+
+            _forceRefresh = false;
+            _lastRefreshTime = Time.time;
+
+            SearchAvailability();
+            SortAndDisplay();
+        }
+
+        /// <summary>
+        /// Forces an immediate POS refresh on the next Tick. Call when player
+        /// inventory or storage changes.
+        /// </summary>
+        public static void ForceRefresh() => _forceRefresh = true;
+
+        // =================================================================
+        //  Availability search (lightweight, for pre-checkout display)
+        // =================================================================
+
+        /// <summary>
+        /// Searches counter storage and player inventory to determine
+        /// which requested products are available. Updates _fulfilledKeys and _missingKeys.
+        /// Only checks immediate sources (counter + hotbar), not display shelves.
+        /// </summary>
+        private static void SearchAvailability()
+        {
+            _fulfilledKeys.Clear();
+            _missingKeys.Clear();
+
             if (_allProducts == null) return;
 
             try
             {
-                int lastIdx = _allProducts.Count - 1;
+                // Get counter storage
+                StorageEntity counterStorage = null;
+                if (CheckoutCounter.CounterTransform != null)
+                    counterStorage = CheckoutCounter.CounterTransform
+                        .GetComponentInChildren<StorageEntity>(true);
 
+                foreach (var product in _allProducts)
+                {
+                    string key = $"{product.ProductId}:{product.PackagingId}";
+                    int needed = product.Quantity > 0 ? product.Quantity : 1;
+                    int found = 0;
+
+                    // Search counter storage
+                    if (counterStorage?.ItemSlots != null)
+                        found += CountMatchingProducts(counterStorage, product.ProductId, product.PackagingId);
+
+                    // Search player inventory (hotbar)
+                    if (found < needed)
+                        found += CountPlayerInventory(product.ProductId, product.PackagingId);
+
+                    if (found >= needed)
+                        _fulfilledKeys.Add(key);
+                    else
+                        _missingKeys.Add(key);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                MelonLogger.Warning($"SearchAvailability failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>Counts how many items in a StorageEntity match the given product+packaging.</summary>
+        private static int CountMatchingProducts(StorageEntity storage, string productId, string packagingId)
+        {
+            if (storage?.ItemSlots == null) return 0;
+            int count = 0;
+
+            for (int j = 0; j < storage.ItemSlots.Count; j++)
+            {
+                var slot = storage.ItemSlots[j];
+                if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
+
+#if IL2CPP
+                var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                var productItem = slot.ItemInstance as ProductItemInstance;
+#endif
+                if (productItem?.AppliedPackaging == null) continue;
+
+                ProductDefinition prodDef = null;
+                try
+                {
+#if IL2CPP
+                    prodDef = productItem.Definition?.TryCast<ProductDefinition>();
+#else
+                    prodDef = productItem.Definition as ProductDefinition;
+#endif
+                }
+                catch { }
+
+                if (prodDef?.ID == productId && productItem.AppliedPackaging?.ID == packagingId)
+                    count += slot.Quantity;
+            }
+            return count;
+        }
+
+        /// <summary>Counts how many items in the player's hotbar match the given product+packaging.</summary>
+        private static int CountPlayerInventory(string productId, string packagingId)
+        {
+            int count = 0;
+            try
+            {
+                var inventory = PlayerSingleton<PlayerInventory>.Instance;
+                if (inventory?.hotbarSlots == null) return 0;
+
+                for (int i = 0; i < inventory.hotbarSlots.Count; i++)
+                {
+                    var slot = inventory.hotbarSlots[i];
+                    if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
+
+#if IL2CPP
+                    var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                    var productItem = slot.ItemInstance as ProductItemInstance;
+#endif
+                    if (productItem?.AppliedPackaging == null) continue;
+
+                    ProductDefinition prodDef = null;
+                    try
+                    {
+#if IL2CPP
+                        prodDef = productItem.Definition?.TryCast<ProductDefinition>();
+#else
+                        prodDef = productItem.Definition as ProductDefinition;
+#endif
+                    }
+                    catch { }
+
+                    if (prodDef?.ID == productId && productItem.AppliedPackaging?.ID == packagingId)
+                        count += slot.Quantity;
+                }
+            }
+            catch { }
+            return count;
+        }
+
+        // =================================================================
+        //  Sort & display
+        // =================================================================
+
+        /// <summary>
+        /// Sorts products (unfulfilled first, fulfilled last) and updates all visible rows.
+        /// </summary>
+        private static void SortAndDisplay()
+        {
+            if (_allProducts == null) return;
+
+            // Build sorted list: unfulfilled first, then fulfilled
+            var unfulfilled = new List<CustomerInstance.SelectedProduct>();
+            var fulfilled = new List<CustomerInstance.SelectedProduct>();
+
+            foreach (var product in _allProducts)
+            {
+                string key = $"{product.ProductId}:{product.PackagingId}";
+                bool isFulfilled = _fulfilledKeys.Contains(key) || _placedKeys.Contains(key);
+                if (isFulfilled)
+                    fulfilled.Add(product);
+                else
+                    unfulfilled.Add(product);
+            }
+
+            _sortedProducts = new List<CustomerInstance.SelectedProduct>();
+            _sortedProducts.AddRange(unfulfilled);
+            _sortedProducts.AddRange(fulfilled);
+
+            // Compute totals
+            _orderTotal = 0f;
+            _totalQty = 0;
+            foreach (var p in _allProducts)
+            {
+                int qty = p.Quantity > 0 ? p.Quantity : 1;
+                _orderTotal += p.Price * qty;
+                _totalQty += qty;
+            }
+
+            // Update total display
+            if (_isBudtending)
+            {
+                if (_totalValueText != null)
+                    _totalValueText.text = $"${_placedTotal:F2}";
+            }
+            else
+            {
+                if (_totalValueText != null)
+                    _totalValueText.text = $"${_orderTotal:F2}";
+            }
+
+            if (_totalQtyText != null)
+                _totalQtyText.text = $"x{_totalQty}";
+
+            // Determine scroll behavior: only scroll if unfulfilled items exceed visible rows
+            StopScroll();
+            _scrollOffset = 0;
+            int unfulfilledCount = unfulfilled.Count;
+            if (unfulfilledCount > MaxProductRows)
+                _scrollCoroutine = MelonCoroutines.Start(ScrollCoroutine(unfulfilledCount));
+
+            UpdateVisibleRows();
+        }
+
+        /// <summary>Updates the 3 visible product rows from _sortedProducts at _scrollOffset.</summary>
+        private static void UpdateVisibleRows()
+        {
+            if (_sortedProducts == null) return;
+
+            try
+            {
                 for (int i = 0; i < MaxProductRows; i++)
                 {
                     int productIdx = _scrollOffset + i;
-                    if (productIdx < _allProducts.Count)
+                    if (productIdx < _sortedProducts.Count)
                     {
-                        var product = _allProducts[productIdx];
+                        var product = _sortedProducts[productIdx];
                         var row = _productRows[i];
                         row.Root.SetActive(true);
 
-                        // Highlight the last item (most recently "scanned")
-                        row.Background.color = productIdx == lastIdx
-                            ? RowBgHighlight : RowBgNormal;
+                        string key = $"{product.ProductId}:{product.PackagingId}";
+                        bool isMissing = _missingKeys.Contains(key);
+                        bool isFulfilled = _fulfilledKeys.Contains(key) || _placedKeys.Contains(key);
+
+                        // Background: fulfilled = highlight, missing = red, normal = default
+                        if (isFulfilled)
+                            row.Background.color = RowBgHighlight;
+                        else if (isMissing)
+                            row.Background.color = RowBgMissing;
+                        else
+                            row.Background.color = RowBgNormal;
 
                         // Quality star colored by ItemQuality.GetColor() values
                         row.Star.color = product.QualityLevel switch
@@ -263,9 +567,16 @@ namespace OverTheCounter.Logic.Placement
                             _ => Color.white
                         };
 
+                        // Text colors: missing items in red
                         row.NameText.text = product.ProductName;
-                        row.QtyText.text = product.Quantity.ToString();
-                        row.PriceText.text = $"${product.Price * product.Quantity:F2}";
+                        row.NameText.color = isMissing ? TextMissing : TextColor;
+
+                        int qty = product.Quantity > 0 ? product.Quantity : 1;
+                        row.QtyText.text = qty.ToString();
+                        row.QtyText.color = isMissing ? TextMissing : TextColor;
+
+                        row.PriceText.text = $"${product.Price * qty:F2}";
+                        row.PriceText.color = isMissing ? PriceMissing : PriceColor;
 
                         // Product icon sprite
                         try
@@ -277,7 +588,7 @@ namespace OverTheCounter.Logic.Placement
                                 if (sprite != null)
                                 {
                                     row.Icon.sprite = sprite;
-                                    row.Icon.color = Color.white;
+                                    row.Icon.color = isMissing ? new Color(1f, 0.5f, 0.5f, 0.5f) : Color.white;
                                 }
                                 else
                                 {
@@ -300,16 +611,22 @@ namespace OverTheCounter.Logic.Placement
             }
         }
 
-        private static IEnumerator ScrollCoroutine()
+        // =================================================================
+        //  Coroutines
+        // =================================================================
+
+        /// <summary>Scrolls only through unfulfilled items (stops before fulfilled section).</summary>
+        private static IEnumerator ScrollCoroutine(int unfulfilledCount)
         {
             while (true)
             {
                 yield return new WaitForSeconds(3f);
-                if (_allProducts == null || _allProducts.Count <= MaxProductRows)
+                if (_sortedProducts == null || unfulfilledCount <= MaxProductRows)
                     yield break;
 
                 _scrollOffset++;
-                if (_scrollOffset > _allProducts.Count - MaxProductRows)
+                // Only scroll far enough to show the last unfulfilled row
+                if (_scrollOffset > unfulfilledCount - MaxProductRows)
                     _scrollOffset = 0;
 
                 UpdateVisibleRows();
@@ -327,29 +644,23 @@ namespace OverTheCounter.Logic.Placement
             }
         }
 
-        private static void StopAnimations()
+        private static void StopScroll()
         {
             if (_scrollCoroutine != null)
             {
                 MelonCoroutines.Stop(_scrollCoroutine);
                 _scrollCoroutine = null;
             }
+        }
+
+        private static void StopAnimations()
+        {
+            StopScroll();
             if (_blinkCoroutine != null)
             {
                 MelonCoroutines.Stop(_blinkCoroutine);
                 _blinkCoroutine = null;
             }
-            _allProducts = null;
-        }
-
-        /// <summary>
-        /// Hides the checkout panel, returning to store name only.
-        /// </summary>
-        public static void HideCheckoutInfo()
-        {
-            StopAnimations();
-            if (_checkoutPanel != null)
-                _checkoutPanel.SetActive(false);
         }
 
         /// <summary>
@@ -369,6 +680,12 @@ namespace OverTheCounter.Logic.Placement
             _checkoutPanel = null;
             _promptText = null;
             _totalValueText = null;
+            _totalQtyText = null;
+            _allProducts = null;
+            _sortedProducts = null;
+            _fulfilledKeys = new HashSet<string>();
+            _missingKeys = new HashSet<string>();
+            _placedKeys = new HashSet<string>();
         }
 
         // =====================================================================
@@ -547,5 +864,4 @@ namespace OverTheCounter.Logic.Placement
             return tmp;
         }
     }
-
 }
