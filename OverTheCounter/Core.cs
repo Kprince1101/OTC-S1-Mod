@@ -8,6 +8,7 @@ using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
 using OverTheCounter.UI;
 using OverTheCounter.Utilities;
+using S1API.GameTime;
 using S1API.PhoneApp;
 using System;
 using System.IO;
@@ -38,6 +39,7 @@ namespace OverTheCounter
             ConfigSyncPatch.TryApply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
             ContactsAppFix.Apply(HarmonyInstance);
+            TimeManager.OnSleepEnd += OnSleepEnd;
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
                 LoggerInstance.Warning("SteamNetworkLib not installed — multiplayer sync disabled. " +
@@ -160,8 +162,22 @@ namespace OverTheCounter
             }
         }
 
+        /// <summary>
+        /// After sleep, the schedule system's warpIfSkipped fires before this callback,
+        /// so Static has been warped to position but lost facing. WarpToSpawn() re-applies
+        /// both. Bella's schedule was removed so she can't be warped outside, but
+        /// ReInjectIntoBuilding() re-disables her schedule as a safety net.
+        /// </summary>
+        private static void OnSleepEnd(int minutesSkipped)
+        {
+            if (!NetworkHelper.IsHost) return;
+            StaticNPC.Instance?.WarpToSpawn();
+            BellaNPC.Instance?.ReInjectIntoBuilding();
+        }
+
         public override void OnDeinitializeMelon()
         {
+            TimeManager.OnSleepEnd -= OnSleepEnd;
             ConfigSyncData.Cleanup();
             _notificationManager?.Cleanup();
             _desperationManager?.Cleanup();

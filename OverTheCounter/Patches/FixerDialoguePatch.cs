@@ -75,7 +75,6 @@ namespace OverTheCounter.Patches
                 // Show "Warehouse hours?" on ENTRY greeting only (not the intro or employee type node)
                 // Hide once quest is started (stage >= 1) — player already knows about Bella
                 if (dialogueLabel == "ENTRY" && !isEmployeeTypeNode && !isIntroNode &&
-                    ManagerInstance.Active.Count > 0 &&
                     (BellaSaveData.Instance == null || BellaSaveData.Instance.Stage == 0))
                 {
                     var warehouseChoice = new DialogueChoiceData();
@@ -115,7 +114,8 @@ namespace OverTheCounter.Patches
                         noChoice.ChoiceText = "No eligible businesses";
                         noChoice.ChoiceLabel = "NO_BUSINESSES";
                         existingChoices.Add(noChoice);
-                        Logger.Msg("No eligible businesses for manager hiring");
+                        if (Config.VerboseLogging.Value)
+                            Logger.Msg("No eligible businesses for manager hiring");
                     }
                 }
             }
@@ -160,7 +160,8 @@ namespace OverTheCounter.Patches
 #endif
                     __instance.GetHandler()?.ShowNode(responseNode);
 
-                    Logger.Msg("Warehouse hours quest triggered from Fixer dialogue");
+                    if (Config.VerboseLogging.Value)
+                        Logger.Msg("Warehouse hours quest triggered from Fixer dialogue");
                     return false;
                 }
 
@@ -188,12 +189,14 @@ namespace OverTheCounter.Patches
                     {
                         if (NetworkHelper.IsHost)
                         {
-                            Logger.Msg($"Hiring manager at {_selectedBusiness.PropertyCode} via Fixer dialogue (host)");
+                            if (Config.VerboseLogging.Value)
+                                Logger.Msg($"Hiring manager at {_selectedBusiness.PropertyCode} via Fixer dialogue (host)");
                             ManagerController.Instance?.HireManager(_selectedBusiness);
                         }
                         else
                         {
-                            Logger.Msg($"Requesting manager hire at {_selectedBusiness.PropertyCode} via Fixer dialogue (client)");
+                            if (Config.VerboseLogging.Value)
+                                Logger.Msg($"Requesting manager hire at {_selectedBusiness.PropertyCode} via Fixer dialogue (client)");
                             ConfigSyncData.SendQuestAction($"MANAGER_HIRE:{_selectedBusiness.PropertyCode}");
                         }
                     }

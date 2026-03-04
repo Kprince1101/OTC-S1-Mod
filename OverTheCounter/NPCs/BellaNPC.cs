@@ -94,11 +94,8 @@ namespace OverTheCounter.NPCs
                     av.WithBodyLayer(Shirts.VNeck, new Color(0.2f, 0.15f, 0.3f)); // dark purple hoodie-like
                     av.WithBodyLayer(Pants.CargoPants, new Color(0.25f, 0.25f, 0.28f)); // dark casual pants
                     av.WithAccessoryLayer(Feet.Sneakers, new Color(0.9f, 0.9f, 0.92f));
-                })
-                .WithSchedule(plan =>
-                {
-                    plan.WalkTo(SpawnPosition, 10, true, 1f, true);
                 });
+            // No schedule — InjectIntoBuilding() handles placement.
         }
 
         protected override void OnCreated()
