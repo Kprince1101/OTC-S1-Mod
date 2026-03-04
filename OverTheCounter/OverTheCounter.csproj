@@ -265,6 +265,9 @@
 		<Compile Include="Apps\CustomersApp.ManagerDetail.cs" />
 		<Compile Include="Apps\CustomersApp.ManagerLog.cs" />
 		<Compile Include="Apps\CustomersApp.Customers.cs" />
+		<Compile Include="Apps\CustomersApp.Employees.cs" />
+		<Compile Include="Apps\CustomersApp.EmployeeDetail.cs" />
+		<Compile Include="Apps\CustomersApp.CustomerDetail.cs" />
 		<Compile Include="Core.cs" />
 		<Compile Include="DebugHelpers.cs" />
 		<Compile Include="NPCs\VicNPC.cs" />

@@ -10,11 +10,13 @@ using OverTheCounter.Utilities;
 
 #if IL2CPP
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.Money;
 using Il2CppScheduleOne.UI.Phone.Map;
 using Il2CppScheduleOne.Map;
 #else
 using ScheduleOne.DevUtilities;
+using ScheduleOne.Employees;
 using ScheduleOne.Money;
 using ScheduleOne.UI.Phone.Map;
 using ScheduleOne.Map;
@@ -471,14 +473,24 @@ namespace OverTheCounter.Apps
 
         private void UpdateMinimapPosition()
         {
-            if (_minimapImageRect == null || _detailManager?.GameNpc == null) return;
+            if (_minimapImageRect == null) return;
+
+            Vector3? worldPosNullable = null;
+            if (_detailEmployee != null)
+                worldPosNullable = _detailEmployee.transform.position;
+            else if (_selectedCustomer?.NPC != null)
+                worldPosNullable = _selectedCustomer.NPC.transform.position;
+            else if (_detailManager?.GameNpc != null)
+                worldPosNullable = _detailManager.GameNpc.transform.position;
+
+            if (worldPosNullable == null) return;
 
             try
             {
                 var mapUtil = Singleton<MapPositionUtility>.Instance;
                 if (mapUtil == null) return;
 
-                Vector3 worldPos = _detailManager.GameNpc.transform.position;
+                Vector3 worldPos = worldPosNullable.Value;
                 Vector2 mapPos = mapUtil.GetMapPosition(worldPos);
 
                 float scaleX = _minimapDisplaySize / _minimapContentW;
@@ -497,19 +509,26 @@ namespace OverTheCounter.Apps
                         : new Color(0.20f, 0.259f, 0.298f); // blue  #33424C (left edge showing)
                 }
 
-                // Update destination marker (child of map image, so positioned in map-local coords)
+                // Update destination marker — employees and customers have no destination marker
                 if (_minimapDestRect != null)
                 {
-                    var movement = _detailManager.GameNpc.Movement;
-                    if (movement != null && movement.HasDestination)
+                    if (_detailEmployee != null || _selectedCustomer != null)
                     {
-                        Vector2 destMapPos = mapUtil.GetMapPosition(movement.CurrentDestination);
-                        _minimapDestRect.anchoredPosition = new Vector2(destMapPos.x * scaleX, destMapPos.y * scaleY);
-                        _minimapDestRect.gameObject.SetActive(true);
+                        _minimapDestRect.gameObject.SetActive(false);
                     }
                     else
                     {
-                        _minimapDestRect.gameObject.SetActive(false);
+                        var movement = _detailManager?.GameNpc?.Movement;
+                        if (movement != null && movement.HasDestination)
+                        {
+                            Vector2 destMapPos = mapUtil.GetMapPosition(movement.CurrentDestination);
+                            _minimapDestRect.anchoredPosition = new Vector2(destMapPos.x * scaleX, destMapPos.y * scaleY);
+                            _minimapDestRect.gameObject.SetActive(true);
+                        }
+                        else
+                        {
+                            _minimapDestRect.gameObject.SetActive(false);
+                        }
                     }
                 }
             }

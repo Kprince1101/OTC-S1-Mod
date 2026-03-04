@@ -202,9 +202,9 @@ namespace OverTheCounter
                 "Number of days between subscription payments"));
             AtmDepositTrigger = Register(_subscription.CreateEntry("AtmDepositTrigger", 5000f, "ATM Deposit Trigger",
                 "Weekly ATM deposit sum that triggers Static's intro quest"));
-            StaticTier1BankCost = Register(_subscription.CreateEntry("StaticTier1BankCost", 3000f, "Tier 1 Bank Cost",
+            StaticTier1BankCost = Register(_subscription.CreateEntry("StaticTier1BankCost", 1500f, "Tier 1 Bank Cost",
                 "Bank transfer cost for the initial software package"));
-            StaticTier1WeedGrams = Register(_subscription.CreateEntry("StaticTier1WeedGrams", 20, "Tier 1 Weed Grams",
+            StaticTier1WeedGrams = Register(_subscription.CreateEntry("StaticTier1WeedGrams", 12, "Tier 1 Weed Grams",
                 "Grams of weed required for the initial package"));
             StaticTier2BankCost = Register(_subscription.CreateEntry("StaticTier2BankCost", 6000f, "Tier 2 Bank Cost",
                 "Bank transfer cost for the Premium upgrade"));

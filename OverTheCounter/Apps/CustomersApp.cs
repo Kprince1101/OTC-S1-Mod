@@ -9,13 +9,22 @@ using System.IO;
 using System.Collections;
 using HarmonyLib;
 using System;
+using System.Collections.Generic;
 using OverTheCounter.Logic;
 using OverTheCounter.Utilities;
 
 #if IL2CPP
+using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.Map;
+using Il2CppScheduleOne.Cartel;
+using Il2CppScheduleOne.DevUtilities;
 #else
+using ScheduleOne.Economy;
+using ScheduleOne.Employees;
 using ScheduleOne.Map;
+using ScheduleOne.Cartel;
+using ScheduleOne.DevUtilities;
 #endif
 
 namespace OverTheCounter.Apps
@@ -36,7 +45,7 @@ namespace OverTheCounter.Apps
         internal const int COLUMNS = 4;
 
         // Tab system
-        private enum AppTab { Managers, Customers }
+        private enum AppTab { Managers, Employees, Customers }
         private AppTab _activeTab = AppTab.Managers;
 
         // Root panel
@@ -46,8 +55,10 @@ namespace OverTheCounter.Apps
         private Text _headerTitle;
         private GameObject _tabContainer;
         private Image _managersTabImage;
+        private Image _employeesTabImage;
         private Image _customersTabImage;
         private Text _managersTabText;
+        private Text _employeesTabText;
         private Text _customersTabText;
 
         // Tab styling
@@ -57,12 +68,28 @@ namespace OverTheCounter.Apps
         private GameObject _managersPage;
         private Transform _managersContentParent;
 
+        // Employees page
+        private GameObject _employeesPage;
+        private Transform _employeesContentParent;
+
+        // Employee detail page (overlay)
+        private GameObject _employeeDetailPage;
+
+        // Tier-0 landing page (shown instead of tabs when no subscription)
+        private GameObject _landingPage;
+
+        // Collapsible expand state (persists across refreshes within a session)
+        internal Dictionary<string, bool> _employeePropertyExpanded = new();
+
+        // Employee filter state (persists across refreshes within a session)
+        internal HashSet<EEmployeeType> _employeeTypeFilter;
+        internal bool _employeeGroupByProperty = true;
+
         // Customers page
         private GameObject _customersPage;
         private Transform _customersContentParent;
 
         // Customers page sub-elements
-        private GameObject _legendObj;
         private GameObject _billingBar;
         private Text _billingText;
         private RectTransform _customersScrollRect;
@@ -70,6 +97,22 @@ namespace OverTheCounter.Apps
         // Manager detail page (overlay)
         private GameObject _managerDetailPage;
         private ManagerInstance _detailManager;
+
+        // Customer selection (inline, within customers page)
+        private Customer _selectedCustomer;
+        private GameObject _selectedCellObj;
+        private GameObject _custDetailPanel;
+        private RectTransform _custSplitAreaRect;
+        private ScrollRect _customersScroll;
+        private float _savedScrollPos;
+
+        // Customer map page (full-screen overlay, tier 3)
+        private GameObject _custMapPage;
+
+        // Customer detail — refreshable elements
+        private RectTransform _custDetailRelFill;
+        private RectTransform _custDetailAddFill;
+        private Text _custDetailWeeklyText;
         private Image _detailMugshotImage; // updated via OnMugshotReady if mugshot arrives late
 
         // Minimap live tracking
@@ -222,6 +265,13 @@ namespace OverTheCounter.Apps
             if (effectiveTier <= 0) return false;
             if (effectiveTier == 1)
                 return region == EMapRegion.Northtown || region == EMapRegion.Westville;
+            // tier 2+: use actual game region unlock state
+            try
+            {
+                var mapData = Singleton<Map>.Instance?.GetRegionData(region);
+                if (mapData != null) return mapData.IsUnlocked;
+            }
+            catch { }
             return true;
         }
 
@@ -244,6 +294,15 @@ namespace OverTheCounter.Apps
             mgrPageRect.offsetMax = new Vector2(0, -HEADER_HEIGHT);
             BuildManagersPage(_managersPage.transform);
 
+            // Employees page
+            _employeesPage = UIFactory.Panel("EmployeesPage", _rootPanel.transform, Color.clear);
+            var empPageRect = _employeesPage.GetComponent<RectTransform>();
+            empPageRect.anchorMin = Vector2.zero;
+            empPageRect.anchorMax = Vector2.one;
+            empPageRect.offsetMin = Vector2.zero;
+            empPageRect.offsetMax = new Vector2(0, -HEADER_HEIGHT);
+            BuildEmployeesPage(_employeesPage.transform);
+
             // Customers page
             _customersPage = UIFactory.Panel("CustomersPage", _rootPanel.transform, Color.clear);
             var custPageRect = _customersPage.GetComponent<RectTransform>();
@@ -253,9 +312,114 @@ namespace OverTheCounter.Apps
             custPageRect.offsetMax = new Vector2(0, -HEADER_HEIGHT);
             BuildCustomersPage(_customersPage.transform);
 
-            UpdateLayout();
+            // Landing page (covers content area at tier 0)
+            _landingPage = UIFactory.Panel("LandingPage", _rootPanel.transform, new Color(0.10f, 0.10f, 0.12f));
+            var landingRect = _landingPage.GetComponent<RectTransform>();
+            landingRect.anchorMin = Vector2.zero;
+            landingRect.anchorMax = Vector2.one;
+            landingRect.offsetMin = Vector2.zero;
+            landingRect.offsetMax = new Vector2(0, -HEADER_HEIGHT);
+            BuildLandingPage(_landingPage.transform);
+
             SwitchTab(_activeTab);
+            UpdateLayout();
             StartPeriodicRefresh();
+        }
+
+        // ==================================================================
+        // Landing page (tier 0 — shown instead of tabs)
+        // ==================================================================
+
+        // Tier accent colors — used across the app wherever tier is referenced
+        internal const string Tier1Color = "#5B9FD4";
+        internal const string Tier2Color = "#2ABFBF";
+        internal const string Tier3Color = "#FFD700";
+
+        private void BuildLandingPage(Transform parent)
+        {
+            // Centre column
+            var col = UIFactory.Panel("LandingCol", parent, Color.clear);
+            var colRect = col.GetComponent<RectTransform>();
+            colRect.anchorMin = new Vector2(0.05f, 0.04f);
+            colRect.anchorMax = new Vector2(0.95f, 0.96f);
+            colRect.offsetMin = Vector2.zero;
+            colRect.offsetMax = Vector2.zero;
+
+            // Title
+            var titleText = UIFactory.Text("LandingTitle", "<b>OverTheCounter</b>", col.transform, 42, TextAnchor.MiddleCenter);
+            var titleRect = titleText.gameObject.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0, 0.86f);
+            titleRect.anchorMax = Vector2.one;
+            titleRect.offsetMin = Vector2.zero;
+            titleRect.offsetMax = Vector2.zero;
+            titleText.color = Color.white;
+
+            // Subtitle
+            var subText = UIFactory.Text("LandingSubtitle",
+                $"<color=#888888>Business Suite  ·  <color={Tier1Color}>Tier 1</color> Required</color>",
+                col.transform, 18, TextAnchor.MiddleCenter);
+            subText.supportRichText = true;
+            var subRect = subText.gameObject.GetComponent<RectTransform>();
+            subRect.anchorMin = new Vector2(0, 0.77f);
+            subRect.anchorMax = new Vector2(1, 0.87f);
+            subRect.offsetMin = Vector2.zero;
+            subRect.offsetMax = Vector2.zero;
+
+            // Divider — full width
+            var div = UIFactory.Panel("Divider", col.transform, new Color(0.25f, 0.55f, 0.65f, 0.4f));
+            var divRect = div.GetComponent<RectTransform>();
+            divRect.anchorMin = new Vector2(0, 0.725f);
+            divRect.anchorMax = new Vector2(1, 0.735f);
+            divRect.offsetMin = Vector2.zero;
+            divRect.offsetMax = Vector2.zero;
+
+            // Feature cards (three across)
+            AddLandingFeatureCard(col.transform, 0, "Customer CRM", "Buyer habits, preferences,\nand purchase history\nin one place.");
+            AddLandingFeatureCard(col.transform, 1, "Manager Oversight", "See your managers\nin real time: where they are\nand what they carry.");
+            AddLandingFeatureCard(col.transform, 2, "Employee Tracking", "Every employee by property,\nstatus, and inventory,\nat a glance.");
+
+            var ctaText = UIFactory.Text("CTAText",
+                $"<color={Tier1Color}>Closed Beta</color>  ·  Access by invite only",
+                col.transform, 17, TextAnchor.MiddleCenter);
+            ctaText.supportRichText = true;
+            var ctaTextRect = ctaText.gameObject.GetComponent<RectTransform>();
+            ctaTextRect.anchorMin = new Vector2(0, 0.02f);
+            ctaTextRect.anchorMax = new Vector2(1, 0.16f);
+            ctaTextRect.offsetMin = Vector2.zero;
+            ctaTextRect.offsetMax = Vector2.zero;
+            ctaText.color = new Color(0.6f, 0.72f, 0.78f);
+        }
+
+        private void AddLandingFeatureCard(Transform parent, int index, string title, string body)
+        {
+            const float gap = 0.02f;
+            const float cardW = (1f - 2f * gap) / 3f;
+            float startX = gap + index * (cardW + gap);
+
+            var card = UIFactory.Panel($"Feature{index}", parent, new Color(0.13f, 0.32f, 0.42f, 0.55f));
+            var cardRect = card.GetComponent<RectTransform>();
+            cardRect.anchorMin = new Vector2(startX, 0.21f);
+            cardRect.anchorMax = new Vector2(startX + cardW, 0.70f);
+            cardRect.offsetMin = Vector2.zero;
+            cardRect.offsetMax = Vector2.zero;
+
+            // Title — top 30%, MiddleCenter so it's not glued to the top edge
+            var titleText = UIFactory.Text("CardTitle", $"<b>{title}</b>", card.transform, 26, TextAnchor.MiddleCenter);
+            var titleRect = titleText.gameObject.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0, 0.68f);
+            titleRect.anchorMax = Vector2.one;
+            titleRect.offsetMin = new Vector2(8, 0);
+            titleRect.offsetMax = new Vector2(-8, -4);
+            titleText.color = new Color(0.4f, 0.85f, 0.9f);
+
+            // Body — bottom 68%, MiddleCenter so text fills the zone
+            var bodyText = UIFactory.Text("CardBody", body, card.transform, 24, TextAnchor.MiddleCenter);
+            var bodyRect = bodyText.gameObject.GetComponent<RectTransform>();
+            bodyRect.anchorMin = Vector2.zero;
+            bodyRect.anchorMax = new Vector2(1, 0.68f);
+            bodyRect.offsetMin = new Vector2(8, 4);
+            bodyRect.offsetMax = new Vector2(-8, 0);
+            bodyText.color = new Color(0.72f, 0.72f, 0.72f);
         }
 
         // ==================================================================
@@ -281,19 +445,19 @@ namespace OverTheCounter.Apps
             titleRect.offsetMax = Vector2.zero;
             _headerTitle = titleObj;
 
-            // Tab container (right portion, hidden when tier < 1)
+            // Tab container (right portion — always visible)
             _tabContainer = UIFactory.Panel("TabContainer", headerObj.transform, Color.clear);
             var tabRect = _tabContainer.GetComponent<RectTransform>();
-            tabRect.anchorMin = new Vector2(0.55f, 0.1f);
-            tabRect.anchorMax = new Vector2(0.95f, 0.9f);
+            tabRect.anchorMin = new Vector2(0.45f, 0.1f);
+            tabRect.anchorMax = new Vector2(0.98f, 0.9f);
             tabRect.offsetMin = Vector2.zero;
             tabRect.offsetMax = Vector2.zero;
 
-            // Managers tab (left half)
+            // Managers tab (left third)
             var mgrTab = UIFactory.Panel("ManagersTab", _tabContainer.transform, ActiveTabBg);
             var mgrTabRect = mgrTab.GetComponent<RectTransform>();
             mgrTabRect.anchorMin = Vector2.zero;
-            mgrTabRect.anchorMax = new Vector2(0.48f, 1);
+            mgrTabRect.anchorMax = new Vector2(0.32f, 1);
             mgrTabRect.offsetMin = Vector2.zero;
             mgrTabRect.offsetMax = Vector2.zero;
             _managersTabImage = mgrTab.GetComponent<Image>();
@@ -307,10 +471,28 @@ namespace OverTheCounter.Apps
             mgrTextRect.offsetMax = Vector2.zero;
             _managersTabText.color = Color.white;
 
-            // Customers tab (right half)
+            // Employees tab (middle third)
+            var empTab = UIFactory.Panel("EmployeesTab", _tabContainer.transform, Color.clear);
+            var empTabRect = empTab.GetComponent<RectTransform>();
+            empTabRect.anchorMin = new Vector2(0.34f, 0);
+            empTabRect.anchorMax = new Vector2(0.66f, 1);
+            empTabRect.offsetMin = Vector2.zero;
+            empTabRect.offsetMax = Vector2.zero;
+            _employeesTabImage = empTab.GetComponent<Image>();
+            empTab.AddComponent<Button>().onClick.AddListener(new Action(() => SwitchTab(AppTab.Employees)));
+
+            _employeesTabText = UIFactory.Text("EmpLabel", "Employees", empTab.transform, 14, TextAnchor.MiddleCenter);
+            var empTextRect = _employeesTabText.gameObject.GetComponent<RectTransform>();
+            empTextRect.anchorMin = Vector2.zero;
+            empTextRect.anchorMax = Vector2.one;
+            empTextRect.offsetMin = Vector2.zero;
+            empTextRect.offsetMax = Vector2.zero;
+            _employeesTabText.color = new Color(0.7f, 0.7f, 0.7f);
+
+            // Customers tab (right third)
             var custTab = UIFactory.Panel("CustomersTab", _tabContainer.transform, Color.clear);
             var custTabRect = custTab.GetComponent<RectTransform>();
-            custTabRect.anchorMin = new Vector2(0.52f, 0);
+            custTabRect.anchorMin = new Vector2(0.68f, 0);
             custTabRect.anchorMax = Vector2.one;
             custTabRect.offsetMin = Vector2.zero;
             custTabRect.offsetMax = Vector2.zero;
@@ -333,6 +515,7 @@ namespace OverTheCounter.Apps
         private void SwitchTab(AppTab tab)
         {
             _activeTab = tab;
+            if (_landingPage != null) _landingPage.SetActive(false);
 
             // Close log page if open
             if (_managerLogPage != null)
@@ -344,7 +527,26 @@ namespace OverTheCounter.Apps
                 _logScrollRect = null;
             }
 
-            // Close detail page if open
+            // Close employee detail page if open
+            if (_employeeDetailPage != null)
+            {
+                StopMinimapTracking();
+                UnityEngine.Object.Destroy(_employeeDetailPage);
+                _employeeDetailPage = null;
+                CleanupEmployeeDetailFields();
+            }
+
+            // Close customer map page if open
+            if (_custMapPage != null)
+            {
+                StopMinimapTracking();
+                UnityEngine.Object.Destroy(_custMapPage);
+                _custMapPage = null;
+                CleanupCustomerDetailFields();
+                if (_customersPage != null) _customersPage.SetActive(true);
+            }
+
+            // Close manager detail page if open
             if (_managerDetailPage != null)
             {
                 if (_detailManager != null)
@@ -378,17 +580,26 @@ namespace OverTheCounter.Apps
             }
 
             _managersPage.SetActive(tab == AppTab.Managers);
+            _employeesPage.SetActive(tab == AppTab.Employees);
             _customersPage.SetActive(tab == AppTab.Customers);
 
             // Tab styling
             if (_managersTabImage != null)
                 _managersTabImage.color = tab == AppTab.Managers ? ActiveTabBg : Color.clear;
+            if (_employeesTabImage != null)
+                _employeesTabImage.color = tab == AppTab.Employees ? ActiveTabBg : Color.clear;
             if (_customersTabImage != null)
                 _customersTabImage.color = tab == AppTab.Customers ? ActiveTabBg : Color.clear;
+
             if (_managersTabText != null)
             {
                 _managersTabText.text = tab == AppTab.Managers ? "<b>Managers</b>" : "Managers";
                 _managersTabText.color = tab == AppTab.Managers ? Color.white : new Color(0.7f, 0.7f, 0.7f);
+            }
+            if (_employeesTabText != null)
+            {
+                _employeesTabText.text = tab == AppTab.Employees ? "<b>Employees</b>" : "Employees";
+                _employeesTabText.color = tab == AppTab.Employees ? Color.white : new Color(0.7f, 0.7f, 0.7f);
             }
             if (_customersTabText != null)
             {
@@ -404,9 +615,9 @@ namespace OverTheCounter.Apps
                     int tier = GetEffectiveTier();
                     _headerTitle.text = tier switch
                     {
-                        1 => "<b>OverTheCounter</b> <color=#999999><size=16>Lite</size></color>",
-                        2 => "<b>OverTheCounter</b> <color=#2ABFBF><size=16>Pro</size></color>",
-                        3 => "<b>OverTheCounter</b> <color=#FFD700><size=16>Enterprise</size></color>",
+                        1 => $"<b>OverTheCounter</b> <color={Tier1Color}><size=16>Lite</size></color>",
+                        2 => $"<b>OverTheCounter</b> <color={Tier2Color}><size=16>Pro</size></color>",
+                        3 => $"<b>OverTheCounter</b> <color={Tier3Color}><size=16>Enterprise</size></color>",
                         _ => "<b>OverTheCounter</b>"
                     };
                 }
@@ -418,23 +629,34 @@ namespace OverTheCounter.Apps
 
             if (tab == AppTab.Managers)
                 RefreshManagersPage();
+            else if (tab == AppTab.Employees)
+                RefreshEmployeesPage();
             else
                 RefreshCustomersPage();
         }
 
         private void UpdateLayout()
         {
-            bool showTabs = GetEffectiveTier() >= 1;
-            if (_tabContainer != null)
-                _tabContainer.SetActive(showTabs);
+            int effectiveTier = GetEffectiveTier();
+            bool hasTier = effectiveTier >= 1;
 
-            if (!showTabs && _activeTab == AppTab.Customers)
-                _activeTab = AppTab.Managers;
+            // At tier 0: show landing page, hide everything else
+            if (_landingPage != null)
+                _landingPage.SetActive(!hasTier);
+            if (_tabContainer != null)
+                _tabContainer.SetActive(hasTier);
+            if (_managersPage != null && !hasTier)
+                _managersPage.SetActive(false);
+            if (_employeesPage != null && !hasTier)
+                _employeesPage.SetActive(false);
+            if (_customersPage != null && !hasTier)
+                _customersPage.SetActive(false);
         }
 
         internal void RefreshApp()
         {
             UpdateLayout();
+            if (GetEffectiveTier() < 1) return;
             if (_managerLogPage != null)
             {
                 RefreshLogContent();
@@ -443,6 +665,11 @@ namespace OverTheCounter.Apps
             if (_managerDetailPage != null)
             {
                 RefreshDetailInventory();
+                return;
+            }
+            if (_employeeDetailPage != null)
+            {
+                RefreshEmployeeDetail();
                 return;
             }
             SwitchTab(_activeTab);
@@ -468,6 +695,12 @@ namespace OverTheCounter.Apps
                     RefreshLogContent();
                 else if (_managerDetailPage != null)
                     RefreshDetailInventory();
+                else if (_employeeDetailPage != null && _employeeDetailPage.activeInHierarchy)
+                    RefreshEmployeeDetail();
+                else if (_customersPage != null && _customersPage.activeInHierarchy && _selectedCustomer != null)
+                    RefreshCustomerDetail();
+                else if (_employeesPage != null && _employeesPage.activeInHierarchy)
+                    RefreshEmployeesPage();
                 else if (_managersPage != null && _managersPage.activeInHierarchy)
                     RefreshManagersPage();
             }
@@ -491,7 +724,7 @@ namespace OverTheCounter.Apps
 
         private IEnumerator MinimapTrackingRoutine()
         {
-            while (_managerDetailPage != null)
+            while (_managerDetailPage != null || _employeeDetailPage != null || _custMapPage != null)
             {
                 UpdateMinimapPosition();
                 yield return null; // every frame
