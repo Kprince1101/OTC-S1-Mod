@@ -315,6 +315,7 @@
 		<Compile Include="Patches\ContactsAppPatch.cs" />
 		<Compile Include="Patches\FixerDialoguePatch.cs" />
 		<Compile Include="Patches\ManagerClipboardPatch.cs" />
+		<Compile Include="Patches\StackSizePatch.cs" />
 		<Compile Include="Patches\SaveManagerPatch.cs" />
 		<Compile Include="Logic\ManagerConfiguration.cs" />
 		<Compile Include="Logic\ManagerUpgrades.cs" />

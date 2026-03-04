@@ -1,4 +1,5 @@
 using MelonLoader;
+using MelonLoader.Preferences;
 using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
@@ -103,6 +104,11 @@ namespace OverTheCounter
         public static ConfigEntry<bool> MinimapShowTime;
         public static ConfigEntry<bool> MinimapShowDay;
         public static ConfigEntry<bool> MinimapUse24HourClock;
+
+        // ── World ──
+        private static MelonPreferences_Category _world;
+
+        public static ConfigEntry<int> StackSizeMultiplier;
 
         // ── Minimap POIs ──
         private static MelonPreferences_Category _minimapPoi;
@@ -325,6 +331,17 @@ namespace OverTheCounter
                 "Show Properties", "Show owned property icons on the minimap"));
             MinimapShowManagers = Register(_minimapPoi.CreateEntry("MinimapShowManagers", true,
                 "Show Managers", "Show manager icons on the minimap"));
+
+            // ── World ──
+            _world = MelonPreferences.CreateCategory("OverTheCounter_World", "World");
+
+            StackSizeMultiplier = Register(_world.CreateEntry("StackSizeMultiplier", 1,
+                "Stack Size Multiplier",
+                "Multiplies the stack limit of all stackable items by this value. " +
+                "1 = vanilla stacks (default). 2 = double stacks. Affects all inventories. " +
+                "Host value is used in multiplayer. Changing mid-save does not retroactively " +
+                "adjust existing item quantities.",
+                validator: new ValueRange<int>(1, 10)));
         }
 
         private static ConfigEntry<float> Register(MelonPreferences_Entry<float> entry)

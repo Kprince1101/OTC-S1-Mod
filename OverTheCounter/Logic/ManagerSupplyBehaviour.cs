@@ -484,7 +484,7 @@ namespace OverTheCounter.Logic
                 }
                 catch { }
 
-                int threshold = config.StockedThresholds[i];
+                int threshold = config.StockedThresholds[i] * Config.StackSizeMultiplier.Value;
                 int inStorage = GetStorageQuantity(storage.StorageEntity, itemId);
                 int inNpc = npcInventory != null ? GetNpcInventoryQuantity(npcInventory, itemId) : 0;
                 int deficit = threshold - inStorage - inNpc;
@@ -2292,7 +2292,7 @@ namespace OverTheCounter.Logic
                         maxThreshold = config.StockedThresholds[i];
                 }
             }
-            return maxThreshold;
+            return maxThreshold * Config.StackSizeMultiplier.Value;
         }
 
         private static int GetStorageQuantity(ScheduleOne.Storage.StorageEntity storage, string itemId)
@@ -2623,7 +2623,7 @@ namespace OverTheCounter.Logic
                 string itemId = config.StockedItemIds[i];
                 if (string.IsNullOrEmpty(itemId) || result.ContainsKey(itemId)) continue;
 
-                int threshold = config.StockedThresholds[i];
+                int threshold = config.StockedThresholds[i] * Config.StackSizeMultiplier.Value;
                 int inStorage = GetStorageQuantity(storageEntity, itemId);
                 int inNpc = npcInventory != null ? GetNpcInventoryQuantity(npcInventory, itemId) : 0;
                 int deficit = threshold - inStorage - inNpc;
@@ -2651,7 +2651,7 @@ namespace OverTheCounter.Logic
                 string itemId = config.StockedItemIds[i];
                 if (string.IsNullOrEmpty(itemId) || result.ContainsKey(itemId)) continue;
 
-                int threshold = config.StockedThresholds[i];
+                int threshold = config.StockedThresholds[i] * Config.StackSizeMultiplier.Value;
                 int stackLimit = GetItemStackLimit(itemId);
                 int inStorage = GetStorageQuantity(storageEntity, itemId);
                 int inNpc = npcInventory != null ? GetNpcInventoryQuantity(npcInventory, itemId) : 0;

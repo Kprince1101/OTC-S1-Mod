@@ -747,11 +747,14 @@ namespace OverTheCounter.UI
                     var nfUI = sliderGO.GetComponent<ScheduleOne.UI.Management.NumberFieldUI>();
                     if (nfUI != null)
                     {
-                        // Use the item's actual stack limit as the slider step
+                        // Use the item's actual stack limit as the slider step.
+                        // _pendingStackLimit stores the base value (for saving).
+                        // effectiveLimit = base × StackSizeMultiplier is used for display only.
                         int stackLimit = 20;
                         try { if (_pendingItemDef != null) stackLimit = _pendingItemDef.StackLimit; } catch { }
                         if (stackLimit <= 0) stackLimit = 20;
                         _pendingStackLimit = stackLimit;
+                        int effectiveLimit = stackLimit * Config.StackSizeMultiplier.Value;
 
                         nfUI.Slider.onValueChanged.RemoveAllListeners();
                         nfUI.FieldLabel.text = "Max Stock";
@@ -760,16 +763,16 @@ namespace OverTheCounter.UI
                         nfUI.Slider.wholeNumbers = true;
                         float sliderVal = Mathf.Clamp(currentThreshold / (float)stackLimit, 1f, 5f);
                         nfUI.Slider.SetValueWithoutNotify(sliderVal);
-                        nfUI.ValueLabel.text = (Mathf.RoundToInt(sliderVal) * stackLimit).ToString();
-                        nfUI.MinValueLabel.text = stackLimit.ToString();
-                        nfUI.MaxValueLabel.text = (stackLimit * 5).ToString();
+                        nfUI.ValueLabel.text = (Mathf.RoundToInt(sliderVal) * effectiveLimit).ToString();
+                        nfUI.MinValueLabel.text = effectiveLimit.ToString();
+                        nfUI.MaxValueLabel.text = (effectiveLimit * 5).ToString();
 
                         _thresholdSlider = nfUI.Slider;
 
-                        int capturedLimit = stackLimit;
+                        int capturedEffective = effectiveLimit;
                         nfUI.Slider.onValueChanged.AddListener(new Action<float>(val =>
                         {
-                            int displayVal = Mathf.RoundToInt(val) * capturedLimit;
+                            int displayVal = Mathf.RoundToInt(val) * capturedEffective;
                             nfUI.ValueLabel.text = displayVal.ToString();
                         }));
                     }
@@ -943,7 +946,7 @@ namespace OverTheCounter.UI
                 if (slot.ThresholdLabel != null)
                 {
                     if (hasItem)
-                        slot.ThresholdLabel.text = $"({config.StockedThresholds[i]})";
+                        slot.ThresholdLabel.text = $"({config.StockedThresholds[i] * Config.StackSizeMultiplier.Value})";
                     else
                         slot.ThresholdLabel.text = "";
                 }
