@@ -425,6 +425,8 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Serializes all active customers for SyncVar transmission.
         /// Format: "id:seed:spawnIdx:state:netObjId;id2:seed2:..."
+        /// CheckingOut customers with products get an extra field:
+        /// "id:seed:spawnIdx:state:netObjId:prodId,pkgId,qty,name,price,quality~prod2~..."
         /// </summary>
         public string SerializeCustomerState()
         {
@@ -435,7 +437,18 @@ namespace OverTheCounter.Logic
             {
                 var c = kvp.Value;
                 int spawnIdx = CustomerSpawnPoints.GetSpawnPointIndex(c.SpawnPoint);
-                parts.Add($"{c.Id}:{c.SpawnSeed}:{spawnIdx}:{(int)c.State}:{c.NetworkObjectId}");
+                string entry = $"{c.Id}:{c.SpawnSeed}:{spawnIdx}:{(int)c.State}:{c.NetworkObjectId}";
+
+                // Include selected products for CheckingOut customers so client can show POS
+                if (c.State == CustomerState.CheckingOut && c.SelectedProducts.Count > 0)
+                {
+                    var prods = new List<string>();
+                    foreach (var p in c.SelectedProducts)
+                        prods.Add($"{p.ProductId},{p.PackagingId},{p.Quantity},{p.ProductName},{p.Price.ToString(System.Globalization.CultureInfo.InvariantCulture)},{p.QualityLevel}");
+                    entry += ":" + string.Join("~", prods);
+                }
+
+                parts.Add(entry);
             }
             return string.Join(";", parts);
         }
@@ -471,10 +484,20 @@ namespace OverTheCounter.Logic
                     var state = (CustomerState)stateInt;
                     hostCustomers.Add(customerId);
 
-                    // Already tracked — update state
+                    // Parse optional product data (6th field for CheckingOut customers)
+                    List<CustomerInstance.SelectedProduct> products = null;
+                    if (parts.Length > 5 && !string.IsNullOrEmpty(parts[5]))
+                        products = ParseSelectedProducts(parts[5]);
+
+                    // Already tracked — update state and products
                     if (CustomerInstance.Active.TryGetValue(customerId, out var existing))
                     {
                         existing.State = state;
+                        if (products != null && products.Count > 0 && existing.SelectedProducts.Count == 0)
+                        {
+                            existing.SelectedProducts.Clear();
+                            existing.SelectedProducts.AddRange(products);
+                        }
                         continue;
                     }
 
@@ -492,7 +515,9 @@ namespace OverTheCounter.Logic
                     var npc = FindNetworkCustomer(netObjId);
                     if (npc != null)
                     {
-                        CustomerInstance.Adopt(customerId, seed, spawnPoint, state, npc);
+                        var adopted = CustomerInstance.Adopt(customerId, seed, spawnPoint, state, npc);
+                        if (adopted != null && products != null)
+                            adopted.SelectedProducts.AddRange(products);
                     }
                     else
                     {
@@ -524,6 +549,66 @@ namespace OverTheCounter.Logic
                 if (!hostCustomers.Contains(id))
                     _pendingAdoptions.Remove(id);
             }
+
+            // Client POS: show checkout info for front-of-queue customer with products
+            UpdateClientPOS();
+        }
+
+        /// <summary>
+        /// On client, shows POS checkout info for the front-of-queue customer if they have products.
+        /// </summary>
+        private void UpdateClientPOS()
+        {
+            if (NetworkHelper.IsHost) return;
+            if (_checkoutQueue.Count == 0)
+            {
+                // Rebuild queue from state: find all CheckingOut customers
+                foreach (var c in CustomerInstance.Active.Values)
+                {
+                    if (c.State == CustomerState.CheckingOut && !_checkoutQueue.Contains(c.Id))
+                        _checkoutQueue.Add(c.Id);
+                }
+            }
+
+            if (_checkoutQueue.Count > 0 &&
+                CustomerInstance.Active.TryGetValue(_checkoutQueue[0], out var front) &&
+                front.State == CustomerState.CheckingOut &&
+                front.SelectedProducts.Count > 0 &&
+                front.CheckoutArrivalTime == 0f) // not yet shown
+            {
+                front.CheckoutArrivalTime = Time.time;
+                ComputerScreen.ShowCheckoutInfo(front.SelectedProducts);
+            }
+        }
+
+        /// <summary>
+        /// Parses "productId,packagingId,qty,name,price,quality~prod2~..." into SelectedProduct list.
+        /// </summary>
+        private static List<CustomerInstance.SelectedProduct> ParseSelectedProducts(string data)
+        {
+            var result = new List<CustomerInstance.SelectedProduct>();
+            var items = data.Split('~');
+            foreach (var item in items)
+            {
+                var fields = item.Split(',');
+                if (fields.Length < 6) continue;
+
+                if (!int.TryParse(fields[2], out int qty)) qty = 1;
+                if (!float.TryParse(fields[4], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float price)) price = 0f;
+                if (!int.TryParse(fields[5], out int quality)) quality = 0;
+
+                result.Add(new CustomerInstance.SelectedProduct
+                {
+                    ProductId = fields[0],
+                    PackagingId = fields[1],
+                    Quantity = qty,
+                    ProductName = fields[3],
+                    Price = price,
+                    QualityLevel = quality
+                });
+            }
+            return result;
         }
 
         /// <summary>

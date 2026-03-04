@@ -157,8 +157,6 @@ namespace OverTheCounter.SaveData
             try
             {
                 string statePayload = SerializeGameState();
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"PublishGameState: payload length={statePayload?.Length ?? 0}");
                 if (IsNetworkLibAvailable)
                     PublishGameStateImpl(statePayload);
             }
@@ -333,6 +331,54 @@ namespace OverTheCounter.SaveData
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void PublishDrifterMessagesImpl(string payload) => NetworkSyncBridge.PushDrifterMessages(payload);
 
+        // Checkout lock sequence counter (prevents SyncVar dedup on repeated lock/unlock)
+        private static int _checkoutSeq;
+
+        /// <summary>
+        /// Publishes checkout lock state and register balance to clients.
+        /// Format: "seq|lockHolder|customerId|registerBal"
+        /// </summary>
+        public void PublishCheckoutState(string lockHolder, string customerId)
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                float registerBal = Logic.Placement.CheckoutCounter.RegisterBalance;
+                string payload = $"{++_checkoutSeq}|{lockHolder}|{customerId}|{registerBal.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+                if (IsNetworkLibAvailable)
+                    PublishCheckoutStateImpl(payload);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"PublishCheckoutState failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>Publishes with empty lock (no checkout active).</summary>
+        public void PublishCheckoutClear()
+        {
+            PublishCheckoutState("", "");
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PublishCheckoutStateImpl(string payload) => NetworkSyncBridge.PushCheckoutState(payload);
+
+        /// <summary>
+        /// Returns the local player's Steam ID as a string, or empty if not available.
+        /// </summary>
+        public static string LocalPlayerId
+        {
+            get
+            {
+                if (!IsNetworkLibAvailable) return "";
+                return GetLocalPlayerIdImpl();
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string GetLocalPlayerIdImpl() => NetworkSyncBridge.GetLocalPlayerId();
+
         /// <summary>
         /// Sends a quest action to the host via ClientSyncVar.
         /// No-ops on the host (host executes state changes directly).
@@ -448,6 +494,38 @@ namespace OverTheCounter.SaveData
             catch (Exception ex)
             {
                 Logger.Warning($"HandleCustomerStateChanged failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Client callback: host checkout SyncVar changed.
+        /// Format: "seq|lockHolder|customerId|registerBal"
+        /// </summary>
+        internal static void HandleCheckoutStateChanged(string newValue)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(newValue))
+                {
+                    Logic.CheckoutProcess.OnLockStateChanged("", "", 0f);
+                    return;
+                }
+
+                var parts = newValue.Split('|');
+                if (parts.Length < 4) return;
+
+                string lockHolder = parts[1];
+                string customerId = parts[2];
+                float registerBal = 0f;
+                if (parts.Length > 3)
+                    float.TryParse(parts[3], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out registerBal);
+
+                Logic.CheckoutProcess.OnLockStateChanged(lockHolder, customerId, registerBal);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"HandleCheckoutStateChanged failed: {ex.Message}");
             }
         }
 
@@ -668,6 +746,47 @@ namespace OverTheCounter.SaveData
                         string playerCode = sep > 0 ? payload.Substring(sep + 1) : "";
                         DrifterManager.Instance?.OnRemoteDealCompleted(drifterId, playerCode);
                     }
+                    else if (action.StartsWith("CHECKOUT_REQUEST:"))
+                    {
+                        string custId = action.Substring("CHECKOUT_REQUEST:".Length);
+                        Logic.CheckoutProcess.HandleCheckoutRequest(custId);
+                    }
+                    else if (action.StartsWith("CHECKOUT_DONE:"))
+                    {
+                        Logic.CheckoutProcess.HandleCheckoutDone(action.Substring("CHECKOUT_DONE:".Length));
+                    }
+                    else if (action == "CHECKOUT_ABORT")
+                    {
+                        Logic.CheckoutProcess.HandleCheckoutAbort();
+                    }
+                    else if (action == "REGISTER_COLLECT")
+                    {
+                        Logic.CheckoutProcess.HandleRegisterCollect();
+                    }
+                    else if (action.StartsWith("SHACK_LIGHTS:"))
+                    {
+                        bool on = action.Substring("SHACK_LIGHTS:".Length) == "1";
+                        Logic.Placement.WestvilleShack.SetLightsFromSync(on);
+                        Instance?.PublishGameState();
+                    }
+                    else if (action.StartsWith("SHACK_STORE:"))
+                    {
+                        bool open = action.Substring("SHACK_STORE:".Length) == "1";
+                        Logic.Placement.WestvilleShack.SetStoreOpen(open);
+                        Instance?.PublishGameState();
+                    }
+                    else if (action.StartsWith("SHACK_DOOR:"))
+                    {
+                        // Format: SHACK_DOOR:<open>:<side>  (open=1/0, side=int EDoorSide)
+                        var doorParts = action.Substring("SHACK_DOOR:".Length).Split(':');
+                        if (doorParts.Length >= 2
+                            && int.TryParse(doorParts[0], out var doorOpen)
+                            && int.TryParse(doorParts[1], out var doorSide))
+                        {
+                            Logic.Placement.WestvilleShack.ApplyRemoteDoorToggle(doorOpen == 1, doorSide);
+                            // DoorSyncPatch.Postfix fires on the host's SetIsOpen call and publishes game state.
+                        }
+                    }
                     else
                     {
                         Logger.Warning($"Unknown quest action: {action}");
@@ -755,6 +874,13 @@ namespace OverTheCounter.SaveData
             if (!string.IsNullOrEmpty(despIds))
                 parts.Add($"desp_ids={despIds}");
 
+            // Shack switch states
+            parts.Add($"shack_lights={BoolToStr(Logic.Placement.WestvilleShack.AreLightsOn)}");
+            parts.Add($"shack_open={BoolToStr(Logic.Placement.WestvilleShack.IsStoreOpen)}");
+            // Shack door state
+            parts.Add($"shack_door_open={BoolToStr(Logic.Placement.WestvilleShack.IsDoorOpen)}");
+            parts.Add($"shack_door_side={Logic.Placement.WestvilleShack.DoorSideValue}");
+
             // Manager data is on per-manager SyncVar slots (_mgrSlots) to avoid lobby data truncation.
 
             return string.Join("|", parts);
@@ -794,13 +920,20 @@ namespace OverTheCounter.SaveData
                 bool saasActive = state.TryGetValue("static_saas", out var ss) && StrToBool(ss);
                 bool upgradeAvail = state.TryGetValue("static_upgrade", out var su) && StrToBool(su);
 
-                StaticThreadSaveData.Instance?.ReconstructClientThread(
-                    introCompleted: introCompleted,
-                    crmTier: crmTier,
-                    saasActive: saasActive,
-                    upgradeAvailable: upgradeAvail,
-                    shackListed: shackListed,
-                    shackOwned: shackOwned);
+                if (StaticThreadSaveData.Instance != null)
+                {
+                    StaticThreadSaveData.Instance.ReconstructClientThread(
+                        introCompleted: introCompleted,
+                        crmTier: crmTier,
+                        saasActive: saasActive,
+                        upgradeAvailable: upgradeAvail,
+                        shackListed: shackListed,
+                        shackOwned: shackOwned);
+                }
+                else
+                {
+                    Logger.Warning("[MsgSync] StaticThreadSaveData.Instance is NULL — cannot reconstruct thread.");
+                }
             }
 
             if (VicSaveData.Instance != null)
@@ -835,6 +968,19 @@ namespace OverTheCounter.SaveData
                 }
             }
             DesperationManager.UpdateClientDesperateIds(despIds);
+
+            // Shack switch states
+            if (state.TryGetValue("shack_lights", out var sl))
+                Logic.Placement.WestvilleShack.SetLightsFromSync(StrToBool(sl));
+            if (state.TryGetValue("shack_open", out var so))
+                Logic.Placement.WestvilleShack.SetStoreOpen(StrToBool(so));
+            // Shack door state
+            if (state.TryGetValue("shack_door_open", out var doorOpen))
+            {
+                bool open = StrToBool(doorOpen);
+                int sideVal = state.TryGetValue("shack_door_side", out var doorSide) && int.TryParse(doorSide, out var si) ? si : 0;
+                Logic.Placement.WestvilleShack.SetDoorFromSync(open, sideVal);
+            }
 
             // Manager data is on per-manager SyncVar slots — handled in HandleManagerSlotChanged.
         }

@@ -138,8 +138,38 @@ namespace OverTheCounter.SaveData
         }
 
         // ==================================================================
-        // Client reconstruction
+        // Reconstruction / reconciliation
         // ==================================================================
+
+        /// <summary>
+        /// Called on the host after all save data is loaded.
+        /// Rebuilds the thread from current state variables, preserving IsSeen flags.
+        /// Fixes old saves where messages were missing or incomplete.
+        /// </summary>
+        public void ReconcileHostThread()
+        {
+            if (StaticSaveData.Instance == null) return;
+
+            // Preserve which messages the host has already read
+            var seenIds = new System.Collections.Generic.HashSet<string>(
+                _messages.Where(m => m.IsSeen).Select(m => m.Id));
+
+            bool shackListed = PropertySaveData.Instance?.GetProperty(PropertySaveData.ShackId) != null;
+            bool shackOwned = PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) ?? false;
+
+            ReconstructClientThread(
+                introCompleted: StaticSaveData.Instance.IntroCompleted,
+                crmTier: StaticSaveData.Instance.CrmTier,
+                saasActive: StaticSaveData.Instance.SaasActive,
+                upgradeAvailable: StaticSaveData.Instance.UpgradeAvailable,
+                shackListed: shackListed,
+                shackOwned: shackOwned);
+
+            // Restore seen state so previously-read messages don't show as unread
+            foreach (var msg in _messages)
+                if (seenIds.Contains(msg.Id))
+                    msg.IsSeen = true;
+        }
 
         /// <summary>
         /// Rebuilds the message thread from host state flags.

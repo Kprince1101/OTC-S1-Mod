@@ -1,6 +1,7 @@
 using HarmonyLib;
 using MelonLoader;
 using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -10,9 +11,12 @@ using UnityEngine;
 using Il2CppScheduleOne.Tiles;
 using Il2CppScheduleOne.EntityFramework;
 using Il2CppScheduleOne.Building;
+using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.Management;
 using S1Property = Il2CppScheduleOne.Property.Property;
 using Grid = Il2CppScheduleOne.Tiles.Grid;
 #else
+using ScheduleOne.Management;
 using ScheduleOne.Tiles;
 using Grid = ScheduleOne.Tiles.Grid;
 #endif
@@ -377,6 +381,36 @@ namespace OverTheCounter.Logic.Placement
 
                 // Rebuild interior NavMesh so NPCs can navigate around placed furniture
                 WestvilleShack.RebuildNavMesh();
+
+                // Apply desk visual for checkout counter on all paths.
+                // CreateGridItemPostfix handles host-initiated placement, but when a CLIENT
+                // places the counter FishNet calls InitializeGridItem directly on the HOST,
+                // bypassing BuildManager.CreateGridItem — so the postfix never fires on the
+                // host for client-placed items. We check for OTC_Desk to avoid double-apply
+                // when BuildManager IS the caller (postfix will also fire in that case).
+#if IL2CPP
+                if (instance is Il2CppScheduleOne.ItemFramework.ItemInstance ii
+                    && ii.ID?.ToLower() == "otc_checkout_counter"
+                    && __instance is BuildableItem bi
+                    && bi.gameObject.transform.Find("OTC_Desk") == null)
+                {
+                    CheckoutCounter.SetInstance(bi.gameObject);
+                    MelonCoroutines.Start(ApplyVisualDeferred(bi.gameObject));
+                }
+#else
+                var clientIdProp = instance?.GetType().GetProperty("ID");
+                var clientId = clientIdProp?.GetValue(instance) as string;
+                if (clientId?.ToLower() == "otc_checkout_counter")
+                {
+                    var goProp = __instance.GetType().GetProperty("gameObject");
+                    var clientGo = goProp?.GetValue(__instance) as GameObject;
+                    if (clientGo != null && clientGo.transform.Find("OTC_Desk") == null)
+                    {
+                        CheckoutCounter.SetInstance(clientGo);
+                        MelonCoroutines.Start(ApplyVisualDeferred(clientGo));
+                    }
+                }
+#endif
             }
             catch (Exception ex)
             {
@@ -485,8 +519,9 @@ namespace OverTheCounter.Logic.Placement
 
             try
             {
-                var idField = itemDefinition.GetType().GetField("ID");
-                var defId = idField?.GetValue(itemDefinition) as string;
+                // IL2CPP types don't expose fields via reflection — use GetProperty instead.
+                var defId = (itemDefinition.GetType().GetProperty("ID")?.GetValue(itemDefinition)
+                    ?? itemDefinition.GetType().GetField("ID")?.GetValue(itemDefinition)) as string;
                 if (defId != "otc_checkout_counter") return;
 
                 var goProp = __result.GetType().GetProperty("gameObject");
@@ -507,8 +542,10 @@ namespace OverTheCounter.Logic.Placement
 
         /// <summary>
         /// After any GridItem is created via BuildManager.CreateGridItem, check if it's
-        /// our checkout counter and apply the desk visual. This handles both initial
-        /// spawn and player re-placement after pickup.
+        /// our checkout counter and apply the desk visual. Also strips ConfigurationReplicator
+        /// from any item placed on an OTC grid — these items have no vanilla Property, so
+        /// Configuration is never initialized on the client, causing NullRef crashes during
+        /// multiplayer loading when the host sends config RPCs.
         /// </summary>
         private static void CreateGridItemPostfix(object __result, object item)
         {
@@ -516,6 +553,35 @@ namespace OverTheCounter.Logic.Placement
 
             try
             {
+                // Get the gameObject from the result GridItem
+                var goProp = __result.GetType().GetProperty("gameObject");
+                var go = goProp?.GetValue(__result) as GameObject;
+
+                // Strip ConfigurationReplicator from OTC grid items.
+                // PlaceableStorageEntity (plastictable, storage racks, etc.) has
+                // [RequireComponent(typeof(ConfigurationReplicator))]. On vanilla grids
+                // the game assigns Configuration via Property.AddConfigurable(). OTC grids
+                // have no vanilla Property, so Configuration stays null on the client.
+                // Nulling Configuration on the host's replicator prevents it from sending RPCs that
+                // the client can't process. The Prefix guard in ConfigReplicatorPatch.cs
+                // serves as a safety net.
+                if (go != null)
+                {
+                    var ownerGridProp = __result.GetType().GetProperty("OwnerGrid");
+                    var ownerGrid = ownerGridProp?.GetValue(__result) as Grid;
+                    if (ownerGrid != null && BuildingGridFactory.OtcGrids.Contains(ownerGrid))
+                    {
+                        var configReplicator = go.GetComponent<ConfigurationReplicator>();
+                        if (configReplicator != null)
+                        {
+                            // Null out Configuration so ReplicateField() bails immediately
+                            // (safer than Destroy — avoids FishNet NetworkBehaviour issues)
+                            configReplicator.Configuration = null;
+                        }
+                    }
+                }
+
+                // Apply checkout counter visual
                 string itemId = null;
 #if IL2CPP
                 if (item is Il2CppScheduleOne.ItemFramework.ItemInstance ii)
@@ -535,15 +601,10 @@ namespace OverTheCounter.Logic.Placement
                 }
 #endif
 
-                if (itemId == "otc_checkout_counter")
+                if (itemId == "otc_checkout_counter" && go != null)
                 {
-                    var goProp = __result.GetType().GetProperty("gameObject");
-                    var go = goProp?.GetValue(__result) as GameObject;
-                    if (go != null)
-                    {
-                        CheckoutCounter.SetInstance(go);
-                        MelonCoroutines.Start(ApplyVisualDeferred(go));
-                    }
+                    CheckoutCounter.SetInstance(go);
+                    MelonCoroutines.Start(ApplyVisualDeferred(go));
                 }
             }
             catch (Exception ex)

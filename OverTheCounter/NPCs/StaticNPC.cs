@@ -186,11 +186,7 @@ namespace OverTheCounter.NPCs
 
             if (StaticSaveData.Instance == null)
             {
-                try
-                {
-                    new StaticSaveData();
-                    ConfigSyncData.ApplyPendingGameState();
-                }
+                try { new StaticSaveData(); }
                 catch (Exception ex) { Logger.Warning($"StaticSaveData fallback creation failed: {ex.Message}"); }
             }
 
@@ -205,6 +201,15 @@ namespace OverTheCounter.NPCs
                 try { new PropertySaveData(); }
                 catch (Exception ex) { Logger.Warning($"PropertySaveData fallback creation failed: {ex.Message}"); }
             }
+
+            // Host: reconcile thread from current state variables.
+            // Fixes old saves with missing/incomplete messages without losing IsSeen state.
+            if (NetworkHelper.IsHost)
+                StaticThreadSaveData.Instance?.ReconcileHostThread();
+
+            // Apply pending state AFTER all save data instances exist,
+            // so ReconstructClientThread can find StaticThreadSaveData.Instance
+            ConfigSyncData.ApplyPendingGameState();
 
             StaticSaveData.Instance?.OnStaticSpawned();
         }

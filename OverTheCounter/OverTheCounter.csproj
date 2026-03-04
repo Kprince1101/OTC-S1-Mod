@@ -319,7 +319,9 @@
 		<Compile Include="Utilities\MugshotUtility.cs" />
 		<Compile Include="SaveData\ConfigSyncData.cs" />
 		<Compile Include="SaveData\NetworkSyncBridge.cs" />
+		<Compile Include="Patches\ConfigReplicatorPatch.cs" />
 		<Compile Include="Patches\ConfigSyncPatch.cs" />
+		<Compile Include="Patches\DoorSyncPatch.cs" />
 		<Compile Include="Patches\ContactsAppPatch.cs" />
 		<Compile Include="Patches\FixerDialoguePatch.cs" />
 		<Compile Include="Patches\ManagerClipboardPatch.cs" />

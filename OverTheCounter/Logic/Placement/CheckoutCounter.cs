@@ -1,4 +1,5 @@
 using MelonLoader;
+using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1API.Items;
 using S1API.Money;
@@ -139,6 +140,7 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>
         /// Updates register interaction prompt and handles collection.
         /// Called from Core.OnLateUpdate when no checkout is active.
+        /// Both host and client — client routes collection through host.
         /// </summary>
         public static void TryCollectRegister()
         {
@@ -157,8 +159,17 @@ namespace OverTheCounter.Logic.Placement
                 // Q key to withdraw
                 if (Input.GetKeyDown(KeyCode.Q) && !GameInput.IsTyping)
                 {
-                    float amount = CollectRegister();
-                    Money.ChangeCashBalance(amount, true, true);
+                    if (NetworkHelper.IsHost)
+                    {
+                        float amount = CollectRegister();
+                        Money.ChangeCashBalance(amount, true, true);
+                        SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
+                    }
+                    else
+                    {
+                        // Client: ask host to collect and give money
+                        SaveData.ConfigSyncData.SendQuestAction("REGISTER_COLLECT");
+                    }
                 }
             }
             else if (_registerBalance > 0f)

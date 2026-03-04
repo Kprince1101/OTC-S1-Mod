@@ -17,6 +17,9 @@ using UnityEngine;
 
 #if IL2CPP
 using Il2CppInterop.Runtime.Injection;
+using Il2CppFishNet.Object;
+#else
+using FishNet.Object;
 #endif
 
 [assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.3.0", "hdlmrell", null)]
@@ -40,6 +43,7 @@ namespace OverTheCounter
             SaveManagerPatch.Apply(HarmonyInstance);
             NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
             ConfigSyncPatch.TryApply(HarmonyInstance);
+            DoorSyncPatch.TryApply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
             try
             {
@@ -49,6 +53,17 @@ namespace OverTheCounter
             {
                 LoggerInstance.Error($"BuildingPlacementPatch.Apply failed: {ex}");
             }
+
+            try
+            {
+                ConfigReplicatorPatch.Apply(HarmonyInstance);
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Error($"ConfigReplicatorPatch.Apply failed: {ex}");
+            }
+
+            ContactsAppFix.Apply(HarmonyInstance);
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
                 LoggerInstance.Warning("SteamNetworkLib not installed — multiplayer sync disabled. " +
@@ -86,7 +101,6 @@ namespace OverTheCounter
             VicIntroQuest.ResetInstance();
             BellaProtocolQuest.ResetInstance();
             Patches.BellaSummonPatch.Reset();
-            ContactsAppFix.Reset();
 
             // Drifters + customers are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
@@ -118,6 +132,7 @@ namespace OverTheCounter
             // Permanent building cleanup
             Logic.Placement.CheckoutCounter.Cleanup();
             Logic.Placement.WestvilleShack.Cleanup();
+            CheckoutProcess.ResetStatic();
             BuildingGridFactory.Cleanup();
             _loadHooked = false;
         }
@@ -182,6 +197,9 @@ namespace OverTheCounter
         {
             try
             {
+                Logic.Placement.WestvilleShack.ClearTerrain();
+                Logic.Placement.WestvilleShack.SpawnNetworkedObjects();
+
                 var grid = Logic.Placement.WestvilleShack.ShackGrid;
                 if (grid == null)
                 {
@@ -216,8 +234,6 @@ namespace OverTheCounter
                 StaticSaveData.Instance?.Tick();
                 BellaSaveData.Instance?.Tick();
                 ManagerSaveData.Instance?.Tick();
-
-                ContactsAppFix.Tick();
 
                 // Retry pending NPC adoptions on client (FishNet timing)
                 _drifterManager?.RetryPendingAdoptions();
@@ -259,11 +275,11 @@ namespace OverTheCounter
 
                 // Interactive checkout process (camera, clicks, payment)
                 CheckoutProcess.Instance?.Tick();
-                if (NetworkHelper.IsHost)
-                    CheckoutProcess.TryStartCheckout();
+                CheckoutProcess.TryStartCheckout(); // Both host and client (internal routing)
+                CheckoutProcess.PollLockGrant();    // Client: check for lock grant from host
 
-                // Cash register collection (C key) — only when no checkout active
-                if (NetworkHelper.IsHost && CheckoutProcess.Instance == null)
+                // Cash register collection — both host and client (client routes through host)
+                if (CheckoutProcess.Instance == null)
                     CheckoutCounter.TryCollectRegister();
 
                 // Right-click product pickup while checkout is paused

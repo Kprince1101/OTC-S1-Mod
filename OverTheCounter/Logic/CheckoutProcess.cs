@@ -152,6 +152,14 @@ namespace OverTheCounter.Logic
         private object _cashFlyCoroutine;
         private object _pickupAnimCoroutine;
 
+        // Client lock request state
+        private static bool _pendingLockRequest;
+        private static string _pendingCustomerId;
+        private static float _lockRequestTime;
+
+        /// <summary>Current checkout lock holder Steam ID (updated from SyncVar on client).</summary>
+        internal static string CurrentLockHolder { get; private set; } = "";
+
         private CheckoutProcess(CustomerInstance customer)
         {
             _customer = customer;
@@ -164,12 +172,13 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Checks if the player pressed R while looking at the checkout counter
         /// with a waiting customer. Handles both fresh start and resume from pause.
-        /// Called from Core.OnLateUpdate (host only).
+        /// Called from Core.OnLateUpdate (both host and client).
         /// </summary>
         public static void TryStartCheckout()
         {
             if (GameInput.IsTyping) return;
             if (!Input.GetKeyDown(KeyCode.R)) return;
+            if (_pendingLockRequest) return; // client waiting for lock grant
 
             // Resume from pause
             if (Instance != null && Instance._state == State.Paused)
@@ -198,7 +207,31 @@ namespace OverTheCounter.Logic
             }
             if (waitingCustomer == null) return;
 
-            var process = new CheckoutProcess(waitingCustomer);
+            if (NetworkHelper.IsHost)
+            {
+                // Host path: start directly, publish lock
+                StartCheckoutDirect(waitingCustomer);
+            }
+            else
+            {
+                // Client path: request lock from host
+                if (!string.IsNullOrEmpty(CurrentLockHolder))
+                    return;
+                _pendingLockRequest = true;
+                _pendingCustomerId = waitingCustomer.Id;
+                _lockRequestTime = Time.time;
+                string myId = SaveData.ConfigSyncData.LocalPlayerId;
+                SaveData.ConfigSyncData.SendQuestAction($"CHECKOUT_REQUEST:{waitingCustomer.Id}:{myId}");
+            }
+        }
+
+        /// <summary>
+        /// Host: creates the checkout instance and publishes the lock.
+        /// Also used when granting a client's lock request.
+        /// </summary>
+        private static void StartCheckoutDirect(CustomerInstance customer)
+        {
+            var process = new CheckoutProcess(customer);
             Instance = process;
 
             process.SearchAndShowAvailable();
@@ -207,6 +240,202 @@ namespace OverTheCounter.Logic
             process._stateTimer = Time.time;
             ComputerScreen.HideCheckoutInfo();
             process.LockPlayerInput();
+
+            // Publish lock with host's Steam ID (or "host" fallback if LocalPlayerId isn't ready).
+            // The non-empty customerId is what signals "in use" to other clients.
+            if (NetworkHelper.IsHost)
+            {
+                string hostId = SaveData.ConfigSyncData.LocalPlayerId;
+                SaveData.ConfigSyncData.Instance?.PublishCheckoutState(
+                    string.IsNullOrEmpty(hostId) ? "host" : hostId, customer.Id);
+            }
+        }
+
+        /// <summary>
+        /// Client: polls for lock grant after sending CHECKOUT_REQUEST.
+        /// Called from Core.OnLateUpdate.
+        /// </summary>
+        public static void PollLockGrant()
+        {
+            if (!_pendingLockRequest) return;
+            if (NetworkHelper.IsHost) { _pendingLockRequest = false; return; }
+
+            // Timeout after 3 seconds
+            if (Time.time - _lockRequestTime > 3f)
+            {
+                Logger.Warning("Checkout lock request timed out");
+                _pendingLockRequest = false;
+                _pendingCustomerId = null;
+                return;
+            }
+
+            // Check if lock was granted to us
+            string myId = SaveData.ConfigSyncData.LocalPlayerId;
+            if (!string.IsNullOrEmpty(CurrentLockHolder) && CurrentLockHolder == myId)
+            {
+                _pendingLockRequest = false;
+
+                // Find the customer
+                if (!string.IsNullOrEmpty(_pendingCustomerId) &&
+                    CustomerInstance.Active.TryGetValue(_pendingCustomerId, out var customer))
+                {
+                    _pendingCustomerId = null;
+                    StartCheckoutDirect(customer);
+                }
+                else
+                {
+                    Logger.Warning($"Lock granted but customer {_pendingCustomerId} not found");
+                    _pendingCustomerId = null;
+                }
+            }
+            else if (!string.IsNullOrEmpty(CurrentLockHolder) && CurrentLockHolder != myId)
+            {
+                // Someone else got the lock
+                _pendingLockRequest = false;
+                _pendingCustomerId = null;
+            }
+        }
+
+        // =================================================================
+        //  Multiplayer sync (lock state + host-side action handlers)
+        // =================================================================
+
+        /// <summary>
+        /// Called on client when the checkout SyncVar changes.
+        /// Updates local lock state and register balance.
+        /// </summary>
+        public static void OnLockStateChanged(string lockHolder, string customerId, float registerBal)
+        {
+            CurrentLockHolder = lockHolder ?? "";
+            CheckoutCounter.RegisterBalance = registerBal;
+
+            // If lock cleared and we had an active checkout that already completed locally, clean up
+            if (string.IsNullOrEmpty(lockHolder) && Instance != null &&
+                Instance._state == State.CameraReturning)
+            {
+                // Host confirmed completion — nothing extra needed, Cleanup already called locally
+            }
+        }
+
+        /// <summary>
+        /// Host: handles CHECKOUT_REQUEST action from client.
+        /// Format: "customerId:steamId"
+        /// </summary>
+        public static void HandleCheckoutRequest(string payload)
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            // Parse "customerId:steamId"
+            int sep = payload.IndexOf(':');
+            if (sep <= 0) return;
+            string custId = payload.Substring(0, sep);
+            string clientSteamId = payload.Substring(sep + 1);
+
+            // Check if lock is available
+            if (Instance != null)
+                return;
+
+            // Validate customer exists and is CheckingOut
+            if (!CustomerInstance.Active.TryGetValue(custId, out var customer) ||
+                customer.State != CustomerState.CheckingOut)
+            {
+                Logger.Warning($"Checkout request for invalid customer {custId}");
+                return;
+            }
+
+            // Grant lock to client by publishing their Steam ID as lock holder
+            SaveData.ConfigSyncData.Instance?.PublishCheckoutState(clientSteamId, custId);
+            if (Config.VerboseLogging.Value)
+                Logger.Msg($"Checkout lock granted to {clientSteamId} for customer {custId}");
+        }
+
+        /// <summary>
+        /// Host: handles CHECKOUT_DONE action from client.
+        /// Format: "customerId:totalPrice:prodId,name,price,quality~prod2,..."
+        /// </summary>
+        public static void HandleCheckoutDone(string payload)
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                var parts = payload.Split(new[] { ':' }, 3);
+                if (parts.Length < 2) return;
+
+                string custId = parts[0];
+                if (!float.TryParse(parts[1], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float totalPrice))
+                    return;
+
+                // Deposit to register
+                CheckoutCounter.DepositToRegister(totalPrice);
+
+                // Record sales if product data provided
+                if (parts.Length > 2 && !string.IsNullOrEmpty(parts[2]))
+                {
+                    var saveData = SaveData.PropertySaveData.Instance;
+                    if (saveData != null)
+                    {
+                        int gameDay = S1API.GameTime.TimeManager.ElapsedDays;
+                        var items = parts[2].Split('~');
+                        foreach (var item in items)
+                        {
+                            var fields = item.Split(',');
+                            if (fields.Length < 4) continue;
+                            float.TryParse(fields[2], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out float price);
+                            int.TryParse(fields[3], out int quality);
+                            saveData.RecordSale(fields[0], fields[1], 1, price, quality, gameDay);
+                        }
+                    }
+                }
+
+                // Signal customer to exit
+                if (CustomerInstance.Active.TryGetValue(custId, out var customer))
+                {
+                    customer.CheckoutArrivalTime = 0f;
+                    customer.ArrivedAtDestination = false;
+                    customer.State = CustomerState.ExitingStore;
+                    customer.SetAvoidancePriority(10);
+                    customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                    CustomerManager.Instance?.OnCheckoutComplete(custId);
+                }
+
+                // Clear lock
+                SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"HandleCheckoutDone failed: {ex.Message}");
+                SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
+            }
+        }
+
+        /// <summary>
+        /// Host: handles CHECKOUT_ABORT action from client.
+        /// </summary>
+        public static void HandleCheckoutAbort()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            // Clear the lock. The client that aborted handles its own customer state locally.
+            SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
+        }
+
+        /// <summary>
+        /// Host: handles REGISTER_COLLECT action from client.
+        /// </summary>
+        public static void HandleRegisterCollect()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            float amount = CheckoutCounter.CollectRegister();
+            if (amount > 0f)
+            {
+                // Give money to host (shared business — all money goes to same pool)
+                S1API.Money.Money.ChangeCashBalance(amount, true, true);
+                SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
+            }
         }
 
         /// <summary>
@@ -1313,10 +1542,7 @@ namespace OverTheCounter.Logic
 
         private void CompleteCheckout()
         {
-            // Voice line depends on fulfillment:
-            // - 0 products placed → Angry (turned away empty-handed)
-            // - Partial order → Annoyed
-            // - Full order → Thanks
+            // Voice line depends on fulfillment (local audio — plays on whoever did the checkout)
             if (_counterProducts.Count == 0)
                 PlayCustomerVoice(EVOLineType.Angry);
             else if (_missingProductKeys.Count > 0)
@@ -1326,38 +1552,57 @@ namespace OverTheCounter.Logic
 
             // Products already consumed at sprite-click time (OnSpriteClicked)
 
-            // Record sales analytics — only for products actually placed
-            try
+            if (NetworkHelper.IsHost)
             {
-                var saveData = SaveData.PropertySaveData.Instance;
-                if (saveData != null)
+                // Host path: record sales, signal customer, clear lock directly
+                try
                 {
-                    int gameDay = S1API.GameTime.TimeManager.ElapsedDays;
-                    foreach (var product in _counterProducts)
+                    var saveData = SaveData.PropertySaveData.Instance;
+                    if (saveData != null)
                     {
-                        saveData.RecordSale(
-                            product.ProductId,
-                            product.ProductName,
-                            1,
-                            product.Price,
-                            product.QualityLevel,
-                            gameDay);
+                        int gameDay = S1API.GameTime.TimeManager.ElapsedDays;
+                        foreach (var product in _counterProducts)
+                        {
+                            saveData.RecordSale(
+                                product.ProductId,
+                                product.ProductName,
+                                1,
+                                product.Price,
+                                product.QualityLevel,
+                                gameDay);
+                        }
                     }
                 }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"Failed to record sale: {ex.Message}");
+                }
+
+                // Signal customer to exit
+                _customer.CheckoutArrivalTime = 0f;
+                _customer.ArrivedAtDestination = false;
+                _customer.State = CustomerState.ExitingStore;
+                _customer.SetAvoidancePriority(10);
+                _customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+
+                CustomerManager.Instance?.OnCheckoutComplete(_customer.Id);
+                SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
             }
-            catch (Exception ex)
+            else
             {
-                Logger.Warning($"Failed to record sale: {ex.Message}");
+                // Client path: send completion to host with sale data
+                var saleParts = new List<string>();
+                foreach (var product in _counterProducts)
+                {
+                    saleParts.Add($"{product.ProductId},{product.ProductName}," +
+                        $"{product.Price.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
+                        $"{product.QualityLevel}");
+                }
+                string saleData = string.Join("~", saleParts);
+                string totalStr = _totalPlacedPrice.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                SaveData.ConfigSyncData.SendQuestAction($"CHECKOUT_DONE:{_customer.Id}:{totalStr}:{saleData}");
             }
 
-            // Signal customer to exit
-            _customer.CheckoutArrivalTime = 0f;
-            _customer.ArrivedAtDestination = false;
-            _customer.State = CustomerState.ExitingStore;
-            _customer.SetAvoidancePriority(10);
-            _customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
-
-            CustomerManager.Instance?.OnCheckoutComplete(_customer.Id);
             Cleanup();
         }
 
@@ -1375,16 +1620,25 @@ namespace OverTheCounter.Logic
                     Logger.Warning($"Abort: no storage for '{product.ProductName}' — item lost");
             }
 
-            if (_customer.IsValid)
+            if (NetworkHelper.IsHost)
             {
-                _customer.CheckoutArrivalTime = 0f;
-                _customer.ArrivedAtDestination = false;
-                _customer.State = CustomerState.ExitingStore;
-                _customer.SetAvoidancePriority(10);
-                _customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                if (_customer.IsValid)
+                {
+                    _customer.CheckoutArrivalTime = 0f;
+                    _customer.ArrivedAtDestination = false;
+                    _customer.State = CustomerState.ExitingStore;
+                    _customer.SetAvoidancePriority(10);
+                    _customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                }
+
+                CustomerManager.Instance?.OnCheckoutComplete(_customer.Id);
+                SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
+            }
+            else
+            {
+                SaveData.ConfigSyncData.SendQuestAction("CHECKOUT_ABORT");
             }
 
-            CustomerManager.Instance?.OnCheckoutComplete(_customer.Id);
             Cleanup();
         }
 
@@ -1417,6 +1671,19 @@ namespace OverTheCounter.Logic
 
             BudtenderHUD.Hide();
             Instance = null;
+            _pendingLockRequest = false;
+            _pendingCustomerId = null;
+        }
+
+        /// <summary>
+        /// Resets all static checkout state. Called on scene transitions.
+        /// </summary>
+        public static void ResetStatic()
+        {
+            Instance = null;
+            CurrentLockHolder = "";
+            _pendingLockRequest = false;
+            _pendingCustomerId = null;
         }
     }
 }

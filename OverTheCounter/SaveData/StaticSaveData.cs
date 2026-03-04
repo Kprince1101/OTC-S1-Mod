@@ -569,6 +569,7 @@ namespace OverTheCounter.SaveData
                 && Money.GetOnlineBalance() >= 5000f)
             {
                 PropertySaveData.Instance.EnsureShackListing();
+                ConfigSyncData.Instance?.PublishGameState();
             }
         }
 
