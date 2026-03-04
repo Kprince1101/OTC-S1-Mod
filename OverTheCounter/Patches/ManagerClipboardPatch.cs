@@ -323,7 +323,7 @@ namespace OverTheCounter.Patches
                 playerCamera.transform.position,
                 playerCamera.transform.forward,
                 maxDistance,
-                LayerMask.GetMask("NPC", "Default"),
+                LayerMask.GetMask("NPC", "Default") | (1 << 31), // layer 31 = NPCInteract360's relocated capsule colliders
                 QueryTriggerInteraction.Ignore);
 
             if (hits == null || hits.Length == 0) return null;
