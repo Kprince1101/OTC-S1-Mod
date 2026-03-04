@@ -37,6 +37,7 @@ namespace OverTheCounter
             NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
             ConfigSyncPatch.TryApply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
+            ContactsAppFix.Apply(HarmonyInstance);
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
                 LoggerInstance.Warning("SteamNetworkLib not installed — multiplayer sync disabled. " +
@@ -71,7 +72,6 @@ namespace OverTheCounter
             VicIntroQuest.ResetInstance();
             BellaProtocolQuest.ResetInstance();
             Patches.BellaSummonPatch.Reset();
-            ContactsAppFix.Reset();
 
             // Drifters are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
@@ -116,8 +116,6 @@ namespace OverTheCounter
                 StaticSaveData.Instance?.Tick();
                 BellaSaveData.Instance?.Tick();
                 ManagerSaveData.Instance?.Tick();
-
-                ContactsAppFix.Tick();
 
                 // Retry pending NPC adoptions on client (FishNet timing)
                 _drifterManager?.RetryPendingAdoptions();
