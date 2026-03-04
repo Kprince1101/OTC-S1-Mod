@@ -38,9 +38,12 @@ A complete, simulation-based automation system built on **S1API** for maximum co
 ## 4. Progression & Economy
 *You have to earn your tools.*
 
-* **"OverTheCounter" (OTC) App:** The customer list is no longer free.
-    * **SaaS Model:** Purchase software tiers ($3k - $12k) to unlock features like Region Sorting, Addiction Indicators, and GPS Customer Tracking.
-    * **Subscription:** Failure to pay the $1,000/week server rent disables the app.
+* **"OverTheCounter" (OTC) App:** A dedicated phone app for managing your operations, automation network, and customer intel — locked behind a paygate until Static sells you access.
+    * **Customers Tab:** Your full customer roster presented as a mugshot grid. Click any card to open a detail panel showing relationship health, addiction level, preferred effects, connections, and weekly purchase history. Regions unlock progressively as you expand territory and reduce cartel influence. Desperate customers are flagged with an urgent alert.
+    * **Employees Tab:** Monitor your workforce — view current status, daily wage, locker balance, and carried inventory for each employee. Filter by type (Chemist, Botanist, Handler, Cleaner) or group by property. Click any employee to open a detail view with minimap tracking. If [HireMe](https://thunderstore.io/c/schedule-i/p/UnicornsCanMod/HireMe/) ([Nexus](https://www.nexusmods.com/schedule1/mods/1099)) is installed, a **Hire / Transfer** button appears for managing your roster.
+    * **Managers Tab:** Full visibility into your Manager NPC network. View active supply and distribution routes, read daily activity logs, and track each manager's real-time position on the minimap.
+    * **SaaS Model:** Purchase software tiers ($1.5k – $12k) to expand customer region access and unlock progressive features like GPS customer tracking.
+    * **Subscription:** Failure to pay the $1,000/week server fee disables the app until renewed with Static at the Casino.
 * **Early Game Laundering:**
     * **Meet Vic:** A corrupt associate who offers manual cash laundering once you hit the $10k weekly ATM limit.
     * **Risk vs. Reward:** Pay a 17-20% fee to clean dirty cash early, bridging the gap between street dealing and owning legitimate businesses.
@@ -92,6 +95,15 @@ Settings are stored in MelonLoader's config file and organized into nine categor
 Every setting includes a full description visible in [ModsApp by k0Mods](https://thunderstore.io/c/schedule-i/p/k0Mods/ModsApp/) (recommended, open-source). Also compatible with [Mod Manager & Phone App](https://www.nexusmods.com/schedule1/mods/397) (descriptions not supported). You can always edit the config file directly if you prefer.
 
 In multiplayer, the host's settings are automatically synced to all clients (except local-only preferences like consolidation settings).
+
+## Mod Compatibility
+
+### HireMe — *built-in soft integration*
+[Thunderstore](https://thunderstore.io/c/schedule-i/p/UnicornsCanMod/HireMe/) | [Nexus](https://www.nexusmods.com/schedule1/mods/1099)
+
+Provides a dedicated UI for hiring and transferring employees through Manny's network — hire multiple at once, assign them across properties, transfer between locations, and fire with one click.
+
+When HireMe is installed alongside OverTheCounter, a **Hire / Transfer** button appears in the OTC app's Employees tab for quick access. No configuration needed — the integration is detected automatically at runtime.
 
 ## License
 **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)**

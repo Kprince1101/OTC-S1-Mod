@@ -157,6 +157,9 @@ namespace OverTheCounter.Apps
             spacer.transform.SetParent(parent, false);
             spacer.AddComponent<LayoutElement>().flexibleWidth = 1;
 
+            // HireMe integration button (only shown when mod is installed)
+            AddHireMeButton(parent);
+
             // Separator
             var sep = UIFactory.Panel("Sep", parent, new Color(0.35f, 0.35f, 0.35f));
             sep.AddComponent<LayoutElement>().preferredWidth = 1;
