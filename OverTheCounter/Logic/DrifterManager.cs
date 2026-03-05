@@ -781,8 +781,8 @@ namespace OverTheCounter.Logic
                 if (pickpocket != null && pickpocket.IsOpen && pickpocket.npc == drifter.GameNpc)
 #else
                 if (pickpocket != null && pickpocket.IsOpen &&
-                    HarmonyLib.AccessTools.Field(typeof(PickpocketScreen), "npc")
-                        ?.GetValue(pickpocket) == drifter.GameNpc)
+                    (UnityEngine.Object)HarmonyLib.AccessTools.Field(typeof(PickpocketScreen), "npc")
+                        ?.GetValue(pickpocket) == (UnityEngine.Object)drifter.GameNpc)
 #endif
                     return true;
             }
