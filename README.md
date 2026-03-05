@@ -52,6 +52,7 @@ A complete, simulation-based automation system built on **S1API** for maximum co
 * **Opt-In UI:** The minimap is turned **OFF** out of the box. You must enable it first (see the Configuration section below).
 * **Total Control:** Choose between a circular or square map, adjust the size, set your screen anchor, and use a custom zoom cycle hotkey (Default: N).
 * **Icon Filtering:** Keep your screen clean by toggling exactly which POIs show up, from active customers to your newly hired Managers.
+* **Rank & XP Bar (opt-in):** An optional panel below the minimap shows your current rank and tier (e.g. *Hoodlum IV*) with a live XP progress bar and numeric readout. Every time you earn XP a **+X XP** label floats up from the bar and fades out. On tier advancement the label also shows **+1 Level** in a distinct royal color. Enable via the *Show Rank/XP* config option (off by default).
 
 ## Multiplayer Support
 Built from the ground up for co-op.
@@ -93,7 +94,7 @@ Settings are stored in MelonLoader's config file and organized into nine categor
 * **Manager System** — Daily wage and signing fee.
 * **Executive Privilege (Bella)** — Minimum weed, meth, and cocaine mix value thresholds for the quest.
 * **Drifter System** — Enable/disable toggle, spawn chance per hour, max active drifters, active hours, offer window, delivery deadline, linger duration, and minimum deal value.
-* **Minimap** — Enable/disable toggle (off by default), size, zoom level, toggle key (default: N), screen position, circle/square shape, rotate-with-player, border color/width, and icon scale. Invalid values are automatically corrected.
+* **Minimap** — Enable/disable toggle (off by default), size, zoom level, toggle key (default: N), screen position, circle/square shape, rotate-with-player, border color/width, icon scale, and Show Rank/XP bar (off by default). Invalid values are automatically corrected.
 * **Minimap POIs** — Per-category toggles for potential customers, unlocked customers (off by default), dealers, dead drops, contracts, quests, properties, and managers.
 
 Every setting includes a full description visible in [ModsApp by k0Mods](https://thunderstore.io/c/schedule-i/p/k0Mods/ModsApp/) (recommended, open-source). Also compatible with [Mod Manager & Phone App](https://www.nexusmods.com/schedule1/mods/397) (descriptions not supported). You can always edit the config file directly if you prefer.

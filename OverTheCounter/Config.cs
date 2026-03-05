@@ -104,6 +104,7 @@ namespace OverTheCounter
         public static ConfigEntry<bool> MinimapShowTime;
         public static ConfigEntry<bool> MinimapShowDay;
         public static ConfigEntry<bool> MinimapUse24HourClock;
+        public static ConfigEntry<bool> MinimapShowRank;
 
         // ── World ──
         private static MelonPreferences_Category _world;
@@ -152,7 +153,8 @@ namespace OverTheCounter
             "MinimapShowContracts",
             "MinimapShowQuests",
             "MinimapShowProperties",
-            "MinimapShowManagers"
+            "MinimapShowManagers",
+            "MinimapShowRank"
         };
 
         public static void Initialize()
@@ -311,6 +313,8 @@ namespace OverTheCounter
                 "Show Day", "Display the current day near the minimap"));
             MinimapUse24HourClock = Register(_minimap.CreateEntry("MinimapUse24HourClock", false,
                 "24-Hour Clock", "Use 24-hour time format instead of 12-hour AM/PM"));
+            MinimapShowRank = Register(_minimap.CreateEntry("MinimapShowRank", false,
+                "Show Rank/XP", "Display rank name and XP progress bar near the minimap"));
 
             // ── Minimap POIs ──
             _minimapPoi = MelonPreferences.CreateCategory("OverTheCounter_MinimapPOI", "Minimap POIs");
