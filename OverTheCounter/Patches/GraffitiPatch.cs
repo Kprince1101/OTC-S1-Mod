@@ -36,7 +36,8 @@ namespace OverTheCounter.Patches
                 var close = AccessTools.Method(typeof(SpraySurfaceInteractionType), "Close");
                 if (close != null)
                     harmony.Patch(close,
-                        prefix: new HarmonyMethod(typeof(GraffitiPatch), nameof(Close_Prefix)));
+                        prefix: new HarmonyMethod(typeof(GraffitiPatch), nameof(Close_Prefix)),
+                        postfix: new HarmonyMethod(typeof(GraffitiPatch), nameof(Close_Postfix)));
 
                 var removeItem = AccessTools.Method(typeof(PlayerInventoryType), "RemoveAmountOfItem",
                     new Type[] { typeof(string), typeof(uint) });
@@ -70,6 +71,8 @@ namespace OverTheCounter.Patches
             if (Config.GraffitiReEdit.Value)
                 _skipSprayRemoval = true;
         }
+
+        private static void Close_Postfix() => _skipSprayRemoval = false;
 
         /// <summary>
         /// Skip spray can removal when the flag is set.
