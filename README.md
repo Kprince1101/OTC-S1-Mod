@@ -3,7 +3,7 @@
 **OverTheCounter** is a comprehensive logistics expansion for Schedule I, compatible with both **IL2CPP and Mono** branches. Features physical Manager automation, 24/7 market access via "Executive Privilege," high-stakes "Desperation" daytime deals, a tiered OTC customer app SaaS scam, and manual cash-laundering via the "Rinse Cycle" questline.
 
 > **DUAL BUILD:** This mod ships both `OverTheCounter.Il2Cpp.dll` and `OverTheCounter.Mono.dll`.
-> If using a mod manager, [SwapperPlugin](https://thunderstore.io/c/schedule-i/p/the_croods/SwapperPlugin/) (included as a dependency) automatically loads the correct DLL for your game branch.
+> The bundled **OTC Loader** plugin automatically detects your game branch and loads the correct DLL — no setup required.
 > If installing manually, only copy the DLL that matches your game branch — see instructions below.
 
 # Features
@@ -59,10 +59,12 @@ Built from the ground up for co-op.
 
 ## Requirements & Installation
 
+> **IL2CPP vs. Mono:** Schedule I runs on two different Unity backends. Most players are on **IL2CPP** (the Steam default). Mods built for one backend are incompatible with the other and will crash MelonLoader if loaded together. The bundled **OTC Loader** plugin (included in every install method below) automatically detects which version you're running and disables any incompatible mod DLLs across your entire mod list — not just OverTheCounter.
+
 ### Using a mod manager (recommended)
 Install OverTheCounter from Thunderstore using **r2modman**, **Thunderstore Mod Manager**, or **Gale**. When prompted to install dependencies, click **Yes** — the mod manager will download and configure everything for you, including:
 * **S1API** — modding API layer
-* **[SwapperPlugin](https://thunderstore.io/c/schedule-i/p/the_croods/SwapperPlugin/)** — automatically detects your game branch (IL2CPP or Mono) and loads the correct DLL. No manual steps needed.
+* **OTC Loader** *(bundled)* — automatically detects your game branch (IL2CPP or Mono) and disables incompatible DLLs. Replaces the need for SwapperPlugin.
 * **SteamNetworkLib** — multiplayer sync (single-player works fine without it, but there's no harm in having it installed)
 
 Launch the game. That's it.
@@ -73,11 +75,13 @@ If you prefer not to use a mod manager, you'll need to install each dependency y
 1.  Install **MelonLoader v0.7.0**.
 2.  Install **S1API** (ifBars fork) — modding API layer. Make sure to pick the version matching your game branch (IL2CPP or Mono).
 3.  *(Multiplayer only)* Install **SteamNetworkLib** — required for multiplayer sync. Again, pick the version matching your game branch.
-4.  Download the latest OverTheCounter release. It includes two DLLs:
+4.  Download the latest OverTheCounter release. It includes three files:
     * `OverTheCounter.Il2Cpp.dll` — for the **IL2CPP** branch
     * `OverTheCounter.Mono.dll` — for the **Mono** branch
-5.  Copy **only the DLL that matches your game branch** into your `Mods` folder. **Do not install both** — loading the wrong DLL will crash MelonLoader. SwapperPlugin is not needed for manual installs.
-6.  Launch the game.
+    * `OverTheCounter-Loader.dll` — the OTC Loader plugin *(optional, see step 6)*
+5.  Copy **only the DLL that matches your game branch** into your `Mods` folder. **Do not install both** — loading the wrong-branch DLL will crash MelonLoader.
+6.  *(Optional)* Copy `OverTheCounter-Loader.dll` into your `Plugins` folder. This is the **OTC Loader** — it scans your entire `Mods` folder on startup and automatically disables any DLL that doesn't match your game branch, preventing crashes from other mods shipping both IL2CPP and Mono versions. You don't need it if you're manually managing your mod list yourself.
+7.  Launch the game.
 
 ## Configuration
 Settings are stored in MelonLoader's config file and organized into nine categories:
