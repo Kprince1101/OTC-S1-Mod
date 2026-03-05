@@ -111,6 +111,7 @@ namespace OverTheCounter
         private static MelonPreferences_Category _world;
 
         public static ConfigEntry<int> StackSizeMultiplier;
+        public static ConfigEntry<bool> GraffitiReEdit;
 
         // ── Minimap POIs ──
         private static MelonPreferences_Category _minimapPoi;
@@ -347,6 +348,11 @@ namespace OverTheCounter
                 "Host value is used in multiplayer. Changing mid-save does not retroactively " +
                 "adjust existing item quantities.",
                 validator: new ValueRange<int>(1, 10)));
+
+            GraffitiReEdit = Register(_world.CreateEntry("GraffitiReEdit", true,
+                "Graffiti Re-Edit",
+                "Allow re-editing spray paint surfaces without consuming spray cans. " +
+                "Spray can must still be equipped to interact."));
         }
 
         private static ConfigEntry<float> Register(MelonPreferences_Entry<float> entry)

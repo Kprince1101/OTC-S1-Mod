@@ -41,6 +41,7 @@ namespace OverTheCounter
             StackSizePatch.Apply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
             ContactsAppFix.Apply(HarmonyInstance);
+            GraffitiPatch.Apply(HarmonyInstance);
             TimeManager.OnSleepEnd += OnSleepEnd;
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
