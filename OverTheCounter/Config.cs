@@ -1,5 +1,6 @@
 using MelonLoader;
 using MelonLoader.Preferences;
+using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
@@ -441,6 +442,36 @@ namespace OverTheCounter
 
             foreach (var entry in _boolEntries.Values)
                 entry.ClearOverride();
+        }
+
+        /// <summary>
+        /// Subscribes to value-changed events on all syncable (non-local-only) config entries.
+        /// When the host changes any setting (via any mod manager UI or file edit), the new
+        /// config is pushed to clients automatically.
+        /// </summary>
+        public static void SubscribeToChanges()
+        {
+            foreach (var kvp in _floatEntries)
+            {
+                if (_localOnlyKeys.Contains(kvp.Key)) continue;
+                kvp.Value.RawEntry.OnEntryValueChangedUntyped.Subscribe(OnSyncableEntryChanged);
+            }
+            foreach (var kvp in _intEntries)
+            {
+                if (_localOnlyKeys.Contains(kvp.Key)) continue;
+                kvp.Value.RawEntry.OnEntryValueChangedUntyped.Subscribe(OnSyncableEntryChanged);
+            }
+            foreach (var kvp in _boolEntries)
+            {
+                if (_localOnlyKeys.Contains(kvp.Key)) continue;
+                kvp.Value.RawEntry.OnEntryValueChangedUntyped.Subscribe(OnSyncableEntryChanged);
+            }
+        }
+
+        private static void OnSyncableEntryChanged(object oldValue, object newValue)
+        {
+            if (!NetworkHelper.IsHost) return;
+            ConfigSyncData.Instance?.RefreshFromConfig();
         }
     }
 }

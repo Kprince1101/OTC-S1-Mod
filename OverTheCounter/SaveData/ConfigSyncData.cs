@@ -94,7 +94,16 @@ namespace OverTheCounter.SaveData
         public static void EnsureNetworkReady()
         {
             if (!IsNetworkLibAvailable) return;
-            EnsureNetworkReadyImpl();
+            try
+            {
+                EnsureNetworkReadyImpl();
+            }
+            catch (Exception ex) when (ex is TypeLoadException || ex.InnerException is TypeLoadException
+                                       || ex.Message.Contains("type load"))
+            {
+                _networkLibAvailable = false;
+                Logger.Warning("SteamNetworkLib is loaded but incompatible (wrong branch?) — multiplayer sync disabled.");
+            }
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

@@ -7,7 +7,7 @@
 		<RootNamespace>OverTheCounter.Loader</RootNamespace>
 		<Nullable>disable</Nullable>
 		<GenerateAssemblyInfo>False</GenerateAssemblyInfo>
-		<NoWarn>$(NoWarn);1705</NoWarn>
+		<NoWarn>$(NoWarn);1705;MSB3277</NoWarn>
 		<IsPackable>false</IsPackable>
 	</PropertyGroup>
 

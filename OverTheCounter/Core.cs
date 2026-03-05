@@ -35,10 +35,10 @@ namespace OverTheCounter
         public override void OnInitializeMelon()
         {
             Config.Initialize();
+            Config.SubscribeToChanges();
             CustomersApp.ApplyHireMeDefaults();
             NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
             StackSizePatch.Apply(HarmonyInstance);
-            ConfigSyncPatch.TryApply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
             ContactsAppFix.Apply(HarmonyInstance);
             TimeManager.OnSleepEnd += OnSleepEnd;

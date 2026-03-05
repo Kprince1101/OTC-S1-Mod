@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using MelonLoader;
 using MelonLoader.Utils;
 using Mono.Cecil;
@@ -44,6 +45,13 @@ namespace OverTheCounter.Loader
             "SwapperPlugin.dll",
         };
 
+        // MB_OKCANCEL = 0x01, MB_ICONWARNING = 0x30, IDOK = 1
+        private const uint MB_OKCANCEL = 0x00000001;
+        private const uint MB_ICONWARNING = 0x00000030;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
+
         private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC Loader");
         private static LoaderConfig _config = new LoaderConfig();
         private static string _configPath = "";
@@ -54,6 +62,15 @@ namespace OverTheCounter.Loader
         /// </summary>
         public override void OnPreInitialization()
         {
+            // Prevent duplicate execution if both standalone Loader and full OTC package are installed.
+            const string sentinel = "OTC_LOADER_INITIALIZED";
+            if (AppDomain.CurrentDomain.GetData(sentinel) != null)
+            {
+                Logger.Msg("Another OTC Loader instance already ran — skipping this copy.");
+                return;
+            }
+            AppDomain.CurrentDomain.SetData(sentinel, true);
+
             string modsPath = MelonEnvironment.ModsDirectory;
             if (!Directory.Exists(modsPath)) return;
 
@@ -125,6 +142,8 @@ namespace OverTheCounter.Loader
             }
 
             int disabled = 0;
+            string[] firstTimeDisabled = new string[allDlls.Length]; // DLLs disabled for the first time this session
+            int firstTimeCount = 0;
             string[] warnedDirs          = new string[allDlls.Length]; // at most one entry per unique dir
             string[] warnedModNames      = new string[allDlls.Length]; // human-readable name for each
             string[] warnedDisabledLists = new string[allDlls.Length]; // disabled DLL filenames per entry
@@ -138,19 +157,23 @@ namespace OverTheCounter.Loader
                 string filename = Path.GetFileName(dll);
                 string dir = Path.GetDirectoryName(dll);
 
+                bool wasAlreadyDisabled = false;
                 try
                 {
                     File.Move(dll, dll + DisabledExt);
                     disabled++;
                     // Only log the first time — if it was already .off last run, stay silent.
-                    bool wasAlreadyDisabled = false;
                     for (int a = 0; a < alreadyDisabledCount; a++)
                     {
                         if (string.Equals(alreadyDisabled[a], filename, StringComparison.OrdinalIgnoreCase))
                         { wasAlreadyDisabled = true; break; }
                     }
                     if (!wasAlreadyDisabled)
+                    {
                         Logger.Msg("Disabled '" + filename + "' — targets " + wrongBranchName + " but game is " + branchName + ".");
+                        if (firstTimeCount < firstTimeDisabled.Length)
+                            firstTimeDisabled[firstTimeCount++] = filename;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -183,7 +206,24 @@ namespace OverTheCounter.Loader
                         if (sameDir || sameName) { hasCompat = true; break; }
                     }
 
-                    if (!hasCompat)
+                    if (hasCompat)
+                    {
+                        // Only log compat message on first-time disables
+                        if (!wasAlreadyDisabled)
+                        {
+                            string compatName = "";
+                            for (int j = 0; j < allDlls.Length; j++)
+                            {
+                                if (j == i || skip[j]) continue;
+                                if (branches[j] != null && branches[j] != gameBranch) continue;
+                                bool sameDir  = string.Equals(Path.GetDirectoryName(allDlls[j]), dir, StringComparison.OrdinalIgnoreCase);
+                                bool sameName = string.Equals(StripBranchKeyword(Path.GetFileName(allDlls[j])), myBase, StringComparison.OrdinalIgnoreCase);
+                                if (sameDir || sameName) { compatName = Path.GetFileName(allDlls[j]); break; }
+                            }
+                            Logger.Msg("  → Compatible version kept: " + compatName);
+                        }
+                    }
+                    else
                     {
                         string modName = Path.GetFileNameWithoutExtension(filename);
                         string disabledList = "";
@@ -236,6 +276,52 @@ namespace OverTheCounter.Loader
             }
             else
                 Logger.Msg("All DLLs are compatible with " + branchName + ".");
+
+            // ── Pass 4: Prompt restart if DLLs were disabled for the first time ──
+            // .NET's assembly resolver may have already cached the wrong-branch DLLs
+            // before our plugin ran. A restart ensures the renamed files are invisible.
+            if (firstTimeCount > 0)
+                PromptRestart(firstTimeDisabled, firstTimeCount);
+        }
+
+        /// <summary>
+        /// Prompts the user to restart via a native MessageBox when wrong-branch DLLs
+        /// were disabled for the first time. Falls back to a log warning on non-Windows.
+        /// </summary>
+        private static void PromptRestart(string[] disabledFiles, int count)
+        {
+            string modList = "";
+            for (int i = 0; i < count; i++)
+            {
+                if (modList.Length > 0) modList += ", ";
+                modList += Path.GetFileNameWithoutExtension(disabledFiles[i]);
+            }
+
+            Logger.Warning("First-time disable of: " + modList);
+            Logger.Warning("A restart is recommended so the disabled DLLs are fully unloaded.");
+
+            string message = "OTC Loader disabled incompatible mod DLL(s) that may have already been cached by the runtime:\n\n"
+                + modList + "\n\n"
+                + "A restart is recommended to avoid errors.\n\n"
+                + "Click OK to close the game, or Cancel to continue anyway.";
+
+            try
+            {
+                int result = MessageBox(IntPtr.Zero, message, "OTC Loader — Restart Recommended", MB_OKCANCEL | MB_ICONWARNING);
+                if (result == 1) // IDOK
+                    Environment.Exit(0);
+            }
+            catch
+            {
+                // P/Invoke unavailable (Linux native, etc.) — log-only fallback
+                Logger.Warning("╔══════════════════════════════════════════════════════════╗");
+                Logger.Warning("║  RESTART RECOMMENDED                                     ║");
+                Logger.Warning("║                                                          ║");
+                Logger.Warning("║  Incompatible mods were disabled but may have already     ║");
+                Logger.Warning("║  been cached. Please close and restart the game.          ║");
+                Logger.Warning("║  Affected: " + modList);
+                Logger.Warning("╚══════════════════════════════════════════════════════════╝");
+            }
         }
 
         // ── Config ───────────────────────────────────────────────────────────────

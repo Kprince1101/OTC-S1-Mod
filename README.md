@@ -110,6 +110,25 @@ Provides a dedicated UI for hiring and transferring employees through Manny's ne
 
 When HireMe is installed alongside OverTheCounter, a **Hire / Transfer** button appears in the OTC app's Employees tab for quick access. No configuration needed — the integration is detected automatically at runtime.
 
+## OTC Loader (Standalone)
+
+**OTC Loader** is a lightweight MelonLoader plugin that automatically detects your game branch (IL2CPP or Mono) and disables any incompatible mod DLLs before they can crash MelonLoader. It works for **all mods**, not just OverTheCounter.
+
+OTC Loader is already bundled with every OverTheCounter install — you only need the standalone version if you want branch protection **without** OverTheCounter itself.
+
+### For mod authors
+If your mod ships both IL2CPP and Mono DLLs, you can point your users to install OTC Loader instead of writing your own branch detection. Add it as a dependency or recommend it in your install instructions.
+
+### How it works
+1. **Restore pass** — Re-enables any DLLs it previously disabled, so branch switches work automatically.
+2. **Scan pass** — Checks every DLL in your `Mods` folder. DLLs targeting the wrong branch are renamed to `.dll.off`.
+3. **Compatibility check** — If a disabled DLL has no compatible counterpart, a prominent log warning tells the user which mod needs a different version.
+4. **Restart prompt** — On first-time disables, a popup recommends restarting so the runtime fully unloads cached assemblies.
+
+### Installing standalone
+* **Nexus:** Download the OTC Loader package and install via your mod manager or drop `OverTheCounter-Loader.dll` into your `Plugins` folder.
+* **Already have OverTheCounter?** You're covered — the Loader is included. Installing both is safe; the duplicate is detected and skipped automatically.
+
 ## License
 **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)**
 
