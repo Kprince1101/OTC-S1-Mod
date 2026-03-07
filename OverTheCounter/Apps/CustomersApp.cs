@@ -11,6 +11,7 @@ using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using OverTheCounter.Logic;
+using OverTheCounter.UI;
 using OverTheCounter.Utilities;
 
 #if IL2CPP
@@ -19,12 +20,14 @@ using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.Cartel;
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppTMPro;
 #else
 using ScheduleOne.Economy;
 using ScheduleOne.Employees;
 using ScheduleOne.Map;
 using ScheduleOne.Cartel;
 using ScheduleOne.DevUtilities;
+using TMPro;
 #endif
 
 namespace OverTheCounter.Apps
@@ -52,14 +55,14 @@ namespace OverTheCounter.Apps
         private GameObject _rootPanel;
 
         // Header elements
-        private Text _headerTitle;
+        private TextMeshProUGUI _headerTitle;
         private GameObject _tabContainer;
         private Image _managersTabImage;
         private Image _employeesTabImage;
         private Image _customersTabImage;
-        private Text _managersTabText;
-        private Text _employeesTabText;
-        private Text _customersTabText;
+        private TextMeshProUGUI _managersTabText;
+        private TextMeshProUGUI _employeesTabText;
+        private TextMeshProUGUI _customersTabText;
 
         // Tab styling
         private static readonly Color ActiveTabBg = new Color(0f, 0f, 0f, 0.3f);
@@ -91,7 +94,7 @@ namespace OverTheCounter.Apps
 
         // Customers page sub-elements
         private GameObject _billingBar;
-        private Text _billingText;
+        private TextMeshProUGUI _billingText;
         private RectTransform _customersScrollRect;
 
         // Manager detail page (overlay)
@@ -112,7 +115,7 @@ namespace OverTheCounter.Apps
         // Customer detail — refreshable elements
         private RectTransform _custDetailRelFill;
         private RectTransform _custDetailAddFill;
-        private Text _custDetailWeeklyText;
+        private TextMeshProUGUI _custDetailWeeklyText;
         private Image _detailMugshotImage; // updated via OnMugshotReady if mugshot arrives late
 
         // Minimap live tracking
@@ -126,29 +129,29 @@ namespace OverTheCounter.Apps
 
         // Manager detail page - refreshable elements
         private GameObject _detailInvGrid;
-        private Text _detailStatusText;
-        private Text _detailCashText;
+        private TextMeshProUGUI _detailStatusText;
+        private TextMeshProUGUI _detailCashText;
 
         // Upgrade section - refreshable elements
-        private Text _detailBankText;
-        private Text _detailWageText;
-        private Text _detailSpeedLabel;
-        private Text _detailSpeedCostLabel;
+        private TextMeshProUGUI _detailBankText;
+        private TextMeshProUGUI _detailWageText;
+        private TextMeshProUGUI _detailSpeedLabel;
+        private TextMeshProUGUI _detailSpeedCostLabel;
         private Button _detailSpeedBtn;
-        private Text _detailSpeedBtnText;
-        private Text _detailInvUpLabel;
-        private Text _detailInvCostLabel;
+        private TextMeshProUGUI _detailSpeedBtnText;
+        private TextMeshProUGUI _detailInvUpLabel;
+        private TextMeshProUGUI _detailInvCostLabel;
         private Button _detailInvBtn;
-        private Text _detailInvBtnText;
+        private TextMeshProUGUI _detailInvBtnText;
         private RectTransform _detailSpeedFill;
         private RectTransform _detailInvFill;
-        private Text _speedErrorText;
-        private Text _invErrorText;
+        private TextMeshProUGUI _speedErrorText;
+        private TextMeshProUGUI _invErrorText;
 
         // Manager log page (overlay)
         private GameObject _managerLogPage;
         private ManagerInstance _logPageManager;
-        private Text _logText;
+        private TextMeshProUGUI _logText;
         private ScrollRect _logScrollRect;
 
         public static CustomersApp Instance { get; private set; }
@@ -346,7 +349,7 @@ namespace OverTheCounter.Apps
             colRect.offsetMax = Vector2.zero;
 
             // Title
-            var titleText = UIFactory.Text("LandingTitle", "<b>OverTheCounter</b>", col.transform, 42, TextAnchor.MiddleCenter);
+            var titleText = TMPFactory.Text("LandingTitle", "<b>OverTheCounter</b>", col.transform, 42, TextAlignmentOptions.Center);
             var titleRect = titleText.gameObject.GetComponent<RectTransform>();
             titleRect.anchorMin = new Vector2(0, 0.86f);
             titleRect.anchorMax = Vector2.one;
@@ -355,10 +358,10 @@ namespace OverTheCounter.Apps
             titleText.color = Color.white;
 
             // Subtitle
-            var subText = UIFactory.Text("LandingSubtitle",
+            var subText = TMPFactory.Text("LandingSubtitle",
                 $"<color=#888888>Business Suite  ·  <color={Tier1Color}>Tier 1</color> Required</color>",
-                col.transform, 18, TextAnchor.MiddleCenter);
-            subText.supportRichText = true;
+                col.transform, 18, TextAlignmentOptions.Center);
+            subText.richText = true;
             var subRect = subText.gameObject.GetComponent<RectTransform>();
             subRect.anchorMin = new Vector2(0, 0.77f);
             subRect.anchorMax = new Vector2(1, 0.87f);
@@ -378,10 +381,10 @@ namespace OverTheCounter.Apps
             AddLandingFeatureCard(col.transform, 1, "Manager Oversight", "See your managers\nin real time: where they are\nand what they carry.");
             AddLandingFeatureCard(col.transform, 2, "Employee Tracking", "Every employee by property,\nstatus, and inventory,\nat a glance.");
 
-            var ctaText = UIFactory.Text("CTAText",
+            var ctaText = TMPFactory.Text("CTAText",
                 $"<color={Tier1Color}>Closed Beta</color>  ·  Access by invite only",
-                col.transform, 17, TextAnchor.MiddleCenter);
-            ctaText.supportRichText = true;
+                col.transform, 17, TextAlignmentOptions.Center);
+            ctaText.richText = true;
             var ctaTextRect = ctaText.gameObject.GetComponent<RectTransform>();
             ctaTextRect.anchorMin = new Vector2(0, 0.02f);
             ctaTextRect.anchorMax = new Vector2(1, 0.16f);
@@ -404,7 +407,7 @@ namespace OverTheCounter.Apps
             cardRect.offsetMax = Vector2.zero;
 
             // Title — top 30%, MiddleCenter so it's not glued to the top edge
-            var titleText = UIFactory.Text("CardTitle", $"<b>{title}</b>", card.transform, 26, TextAnchor.MiddleCenter);
+            var titleText = TMPFactory.Text("CardTitle", $"<b>{title}</b>", card.transform, 26, TextAlignmentOptions.Center);
             var titleRect = titleText.gameObject.GetComponent<RectTransform>();
             titleRect.anchorMin = new Vector2(0, 0.68f);
             titleRect.anchorMax = Vector2.one;
@@ -413,7 +416,7 @@ namespace OverTheCounter.Apps
             titleText.color = new Color(0.4f, 0.85f, 0.9f);
 
             // Body — bottom 68%, MiddleCenter so text fills the zone
-            var bodyText = UIFactory.Text("CardBody", body, card.transform, 24, TextAnchor.MiddleCenter);
+            var bodyText = TMPFactory.Text("CardBody", body, card.transform, 24, TextAlignmentOptions.Center);
             var bodyRect = bodyText.gameObject.GetComponent<RectTransform>();
             bodyRect.anchorMin = Vector2.zero;
             bodyRect.anchorMax = new Vector2(1, 0.68f);
@@ -437,7 +440,7 @@ namespace OverTheCounter.Apps
             headerRect.sizeDelta = new Vector2(0, HEADER_HEIGHT);
 
             // Title (left)
-            var titleObj = UIFactory.Text("Title", "<b>OverTheCounter</b>", headerObj.transform, 24, TextAnchor.MiddleLeft);
+            var titleObj = TMPFactory.Text("Title", "<b>OverTheCounter</b>", headerObj.transform, 24, TextAlignmentOptions.Left);
             var titleRect = titleObj.gameObject.GetComponent<RectTransform>();
             titleRect.anchorMin = Vector2.zero;
             titleRect.anchorMax = new Vector2(0.45f, 1);
@@ -463,7 +466,7 @@ namespace OverTheCounter.Apps
             _managersTabImage = mgrTab.GetComponent<Image>();
             mgrTab.AddComponent<Button>().onClick.AddListener(new Action(() => SwitchTab(AppTab.Managers)));
 
-            _managersTabText = UIFactory.Text("MgrLabel", "<b>Managers</b>", mgrTab.transform, 14, TextAnchor.MiddleCenter);
+            _managersTabText = TMPFactory.Text("MgrLabel", "<b>Managers</b>", mgrTab.transform, 15, TextAlignmentOptions.Center);
             var mgrTextRect = _managersTabText.gameObject.GetComponent<RectTransform>();
             mgrTextRect.anchorMin = Vector2.zero;
             mgrTextRect.anchorMax = Vector2.one;
@@ -481,7 +484,7 @@ namespace OverTheCounter.Apps
             _employeesTabImage = empTab.GetComponent<Image>();
             empTab.AddComponent<Button>().onClick.AddListener(new Action(() => SwitchTab(AppTab.Employees)));
 
-            _employeesTabText = UIFactory.Text("EmpLabel", "Employees", empTab.transform, 14, TextAnchor.MiddleCenter);
+            _employeesTabText = TMPFactory.Text("EmpLabel", "Employees", empTab.transform, 15, TextAlignmentOptions.Center);
             var empTextRect = _employeesTabText.gameObject.GetComponent<RectTransform>();
             empTextRect.anchorMin = Vector2.zero;
             empTextRect.anchorMax = Vector2.one;
@@ -499,7 +502,7 @@ namespace OverTheCounter.Apps
             _customersTabImage = custTab.GetComponent<Image>();
             custTab.AddComponent<Button>().onClick.AddListener(new Action(() => SwitchTab(AppTab.Customers)));
 
-            _customersTabText = UIFactory.Text("CustLabel", "Customers", custTab.transform, 14, TextAnchor.MiddleCenter);
+            _customersTabText = TMPFactory.Text("CustLabel", "Customers", custTab.transform, 15, TextAlignmentOptions.Center);
             var custTextRect = _customersTabText.gameObject.GetComponent<RectTransform>();
             custTextRect.anchorMin = Vector2.zero;
             custTextRect.anchorMax = Vector2.one;

@@ -1,6 +1,5 @@
 using MelonLoader;
 using OverTheCounter.Logic;
-using S1API.UI;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -12,12 +11,14 @@ using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Product;
 using Il2CppScheduleOne.UI.Handover;
+using Il2CppTMPro;
 #else
 using ScheduleOne.DevUtilities;
 using ScheduleOne.ItemFramework;
 using ScheduleOne.PlayerScripts;
 using ScheduleOne.Product;
 using ScheduleOne.UI.Handover;
+using TMPro;
 #endif
 
 namespace OverTheCounter.UI
@@ -30,7 +31,7 @@ namespace OverTheCounter.UI
     public static class HandoverFillUI
     {
         private static GameObject _overlayRoot;
-        private static Text _statusText;
+        private static TextMeshProUGUI _statusText;
         private static bool _hasFilled;
 
         public static void Show()
@@ -58,33 +59,27 @@ namespace OverTheCounter.UI
 
         private static void BuildUI()
         {
-            _overlayRoot = new GameObject("HandoverFillOverlayRoot");
-            var canvas = _overlayRoot.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 10000;
+            var handover = Singleton<HandoverScreen>.Instance;
+            if (handover == null || handover.DoneButton == null) return;
 
-            var scaler = _overlayRoot.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920, 1080);
-            scaler.matchWidthOrHeight = 0.5f;
+            var doneRect = handover.DoneButton.GetComponent<RectTransform>();
+            if (doneRect == null || doneRect.parent == null) return;
 
-            // Panel to scope raycasts (transparent — no visible background)
-            var panelObj = UIFactory.Panel("HandoverFillPanel", _overlayRoot.transform, new Color(0, 0, 0, 0));
-            var panelCanvas = panelObj.AddComponent<Canvas>();
-            panelCanvas.overrideSorting = true;
-            panelCanvas.sortingOrder = 10001;
-            panelObj.AddComponent<GraphicRaycaster>();
+            // Parent into the game's handover UI as a sibling of the DoneButton.
+            // This keeps Smart Fill aligned with the DONE button at any UI scale.
+            _overlayRoot = new GameObject("OTC_SmartFillPanel");
+            _overlayRoot.transform.SetParent(doneRect.parent, false);
 
-            var panelRect = panelObj.GetComponent<RectTransform>();
-            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
-            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
-            panelRect.pivot = new Vector2(0.5f, 0.5f);
-            panelRect.sizeDelta = new Vector2(160f, 72f);
-            panelRect.anchoredPosition = new Vector2(0f, -210f);
+            var panelRect = _overlayRoot.AddComponent<RectTransform>();
+            panelRect.anchorMin = doneRect.anchorMin;
+            panelRect.anchorMax = doneRect.anchorMax;
+            panelRect.pivot = doneRect.pivot;
+            panelRect.sizeDelta = new Vector2(160f, 40f);
+            panelRect.anchoredPosition = doneRect.anchoredPosition + new Vector2(0, 50);
 
             // Smart Fill button
-            var (btnMask, btn, btnLabel) = UIFactory.RoundedButtonWithLabel(
-                "SmartFillBtn", "Smart Fill", panelObj.transform,
+            var (btnMask, btn, btnLabel) = TMPFactory.RoundedButtonWithLabel(
+                "SmartFillBtn", "Smart Fill", _overlayRoot.transform,
                 new Color(0.2f, 0.5f, 0.2f), 140, 32, 14, Color.white
             );
 
@@ -104,8 +99,8 @@ namespace OverTheCounter.UI
             btn.onClick.AddListener(new Action(OnSmartFillClicked));
 
             // Status text below button (rich text enabled for bold)
-            _statusText = UIFactory.Text("StatusText", "", panelObj.transform, 11, TextAnchor.MiddleCenter);
-            _statusText.supportRichText = true;
+            _statusText = TMPFactory.Text("StatusText", "", _overlayRoot.transform, 15, TextAlignmentOptions.Center);
+            _statusText.richText = true;
             _statusText.color = new Color(0.7f, 0.7f, 0.7f);
             var statusRect = _statusText.gameObject.GetComponent<RectTransform>();
             statusRect.anchorMin = new Vector2(0, 0);

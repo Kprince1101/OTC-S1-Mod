@@ -1,4 +1,5 @@
 using OverTheCounter.Logic;
+using OverTheCounter.UI;
 using S1API.UI;
 using System;
 using System.Collections.Generic;
@@ -10,10 +11,12 @@ using UnityEngine.UI;
 using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Property;
+using Il2CppTMPro;
 #else
 using ScheduleOne.Employees;
 using ScheduleOne.NPCs;
 using ScheduleOne.Property;
+using TMPro;
 #endif
 
 namespace OverTheCounter.Apps
@@ -135,7 +138,7 @@ namespace OverTheCounter.Apps
             hLayout.childAlignment = TextAnchor.MiddleLeft;
 
             // "Include:" label
-            var includeLabel = UIFactory.Text("IncludeLabel", "Include:", parent, 15, TextAnchor.MiddleLeft);
+            var includeLabel = TMPFactory.Text("IncludeLabel", "Include:", parent, 15, TextAlignmentOptions.Left);
             includeLabel.color = new Color(0.55f, 0.55f, 0.55f);
             var includeLabelLayout = includeLabel.gameObject.AddComponent<LayoutElement>();
             includeLabelLayout.preferredWidth = 62;
@@ -165,7 +168,7 @@ namespace OverTheCounter.Apps
             sep.AddComponent<LayoutElement>().preferredWidth = 1;
 
             // "Group by Property" label + checkbox
-            var groupLabel = UIFactory.Text("GroupByLabel", "Group by Property", parent, 15, TextAnchor.MiddleRight);
+            var groupLabel = TMPFactory.Text("GroupByLabel", "Group by Property", parent, 15, TextAlignmentOptions.Right);
             groupLabel.color = new Color(0.55f, 0.55f, 0.55f);
             groupLabel.gameObject.AddComponent<LayoutElement>().preferredWidth = 140;
 
@@ -181,7 +184,7 @@ namespace OverTheCounter.Apps
             btn.AddComponent<LayoutElement>().preferredWidth = 90;
 
             var bgImg = btn.GetComponent<Image>();
-            var lbl = UIFactory.Text("Label", (active ? "\u2713 " : "\u25A1 ") + label, btn.transform, 15, TextAnchor.MiddleCenter);
+            var lbl = TMPFactory.Text("Label", (active ? "\u25CF " : "\u25CB ") + label, btn.transform, 15, TextAlignmentOptions.Center);
             lbl.color = active ? new Color(0.35f, 0.9f, 0.5f) : new Color(0.5f, 0.5f, 0.5f);
             var lblRect = lbl.gameObject.GetComponent<RectTransform>();
             lblRect.anchorMin = Vector2.zero;
@@ -199,7 +202,7 @@ namespace OverTheCounter.Apps
                 else _employeeTypeFilter.Remove(capturedType);
 
                 bgImg.color = nowActive ? new Color(0.10f, 0.25f, 0.15f) : new Color(0.18f, 0.18f, 0.18f);
-                lbl.text = (nowActive ? "\u2713 " : "\u25A1 ") + capturedLabel;
+                lbl.text = (nowActive ? "\u25CF " : "\u25CB ") + capturedLabel;
                 lbl.color = nowActive ? new Color(0.35f, 0.9f, 0.5f) : new Color(0.5f, 0.5f, 0.5f);
                 RebuildEmployeeList();
             }));
@@ -214,7 +217,7 @@ namespace OverTheCounter.Apps
             btn.AddComponent<LayoutElement>().preferredWidth = 30;
 
             var bgImg = btn.GetComponent<Image>();
-            var chk = UIFactory.Text("Check", active ? "\u2713" : "\u25A1", btn.transform, 13, TextAnchor.MiddleCenter);
+            var chk = TMPFactory.Text("Check", active ? "\u25CF" : "\u25CB", btn.transform, 15, TextAlignmentOptions.Center);
             chk.color = active ? new Color(0.35f, 0.9f, 0.5f) : new Color(0.5f, 0.5f, 0.5f);
             var chkRect = chk.gameObject.GetComponent<RectTransform>();
             chkRect.anchorMin = Vector2.zero;
@@ -228,7 +231,7 @@ namespace OverTheCounter.Apps
                 _employeeGroupByProperty = !_employeeGroupByProperty;
                 bool nowActive = _employeeGroupByProperty;
                 bgImg.color = nowActive ? new Color(0.10f, 0.25f, 0.15f) : new Color(0.18f, 0.18f, 0.18f);
-                chk.text = nowActive ? "\u2713" : "\u25A1";
+                chk.text = nowActive ? "\u25CF" : "\u25CB";
                 chk.color = nowActive ? new Color(0.35f, 0.9f, 0.5f) : new Color(0.5f, 0.5f, 0.5f);
                 RebuildEmployeeList();
             }));
@@ -297,7 +300,7 @@ namespace OverTheCounter.Apps
 
             if (allEmployees.Count == 0)
             {
-                var emptyText = UIFactory.Text("EmptyMsg", "No employees match the current filters.", contentParent, 14, TextAnchor.MiddleCenter);
+                var emptyText = TMPFactory.Text("EmptyMsg", "No employees match the current filters.", contentParent, 15, TextAlignmentOptions.Center);
                 emptyText.color = new Color(0.5f, 0.5f, 0.5f);
                 var emptyLayout = emptyText.gameObject.AddComponent<LayoutElement>();
                 emptyLayout.preferredHeight = 60;
@@ -337,11 +340,11 @@ namespace OverTheCounter.Apps
                     propHeaderObj.AddComponent<LayoutElement>().preferredHeight = 32f;
 
                     string propArrow = propExpanded ? "\u25BC " : "\u25BA ";
-                    var propLabel = UIFactory.Text("PropName",
+                    var propLabel = TMPFactory.Text("PropName",
                         $"<b>{propArrow}{propName}</b>  <color=#AAAAAA><size=12>{employees.Count}</size></color>",
-                        propHeaderObj.transform, 14, TextAnchor.MiddleLeft);
+                        propHeaderObj.transform, 15, TextAlignmentOptions.Left);
                     propLabel.color = Color.white;
-                    propLabel.supportRichText = true;
+                    propLabel.richText = true;
                     var propLabelRect = propLabel.gameObject.GetComponent<RectTransform>();
                     propLabelRect.anchorMin = Vector2.zero;
                     propLabelRect.anchorMax = Vector2.one;
@@ -451,7 +454,7 @@ namespace OverTheCounter.Apps
             }
             catch { }
 
-            var nameText = UIFactory.Text("Name", $"<b>{firstName} {lastName}</b>", cardObj.transform, 14, TextAnchor.MiddleLeft);
+            var nameText = TMPFactory.Text("Name", $"<b>{firstName} {lastName}</b>", cardObj.transform, 15, TextAlignmentOptions.Left);
             nameText.color = Color.white;
             var nameRect = nameText.gameObject.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0, 1);
@@ -473,9 +476,9 @@ namespace OverTheCounter.Apps
             }
             catch { }
 
-            var lockerText = UIFactory.Text("LockerLine", lockerLine, cardObj.transform, 12, TextAnchor.MiddleLeft);
+            var lockerText = TMPFactory.Text("LockerLine", lockerLine, cardObj.transform, 15, TextAlignmentOptions.Left);
             lockerText.color = new Color(0.55f, 0.55f, 0.55f);
-            lockerText.supportRichText = true;
+            lockerText.richText = true;
             var lockerRect = lockerText.gameObject.GetComponent<RectTransform>();
             lockerRect.anchorMin = new Vector2(0, 1);
             lockerRect.anchorMax = new Vector2(0.25f, 1);
@@ -485,7 +488,7 @@ namespace OverTheCounter.Apps
 
             // ── Left: Status ──
             var (statusStr, statusColor) = GetEmployeeStatus(emp);
-            var statusText = UIFactory.Text("Status", statusStr, cardObj.transform, 12, TextAnchor.MiddleLeft);
+            var statusText = TMPFactory.Text("Status", statusStr, cardObj.transform, 15, TextAlignmentOptions.Left);
             statusText.color = statusColor;
             var statusRect = statusText.gameObject.GetComponent<RectTransform>();
             statusRect.anchorMin = new Vector2(0, 1);
@@ -548,7 +551,7 @@ namespace OverTheCounter.Apps
 
                     if (displayQty != null)
                     {
-                        var qtyText = UIFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 13, TextAnchor.LowerRight);
+                        var qtyText = TMPFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 15, TextAlignmentOptions.BottomRight);
                         qtyText.color = Color.white;
                         var qtyRect = qtyText.gameObject.GetComponent<RectTransform>();
                         qtyRect.anchorMin = Vector2.zero;
@@ -567,7 +570,7 @@ namespace OverTheCounter.Apps
             var empRef = emp;
             if (_chevronSprite == null) _chevronSprite = LoadIconResource("ChevronIcon");
 
-            var (chevMask, chevBtn, chevLabel) = UIFactory.RoundedButtonWithLabel(
+            var (chevMask, chevBtn, chevLabel) = TMPFactory.RoundedButtonWithLabel(
                 "DetailBtn", "\u203A", cardObj.transform,
                 new Color(0.15f, 0.35f, 0.45f), 65, 65, 8, Color.white);
             var chevRect = chevMask.GetComponent<RectTransform>();

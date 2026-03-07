@@ -3,6 +3,13 @@ using System;
 using UnityEngine;
 using UnityEngine.UI;
 using OverTheCounter.Logic;
+using OverTheCounter.UI;
+
+#if IL2CPP
+using Il2CppTMPro;
+#else
+using TMPro;
+#endif
 
 namespace OverTheCounter.Apps
 {
@@ -36,7 +43,7 @@ namespace OverTheCounter.Apps
             var backBtn = backBar.AddComponent<Button>();
             backBtn.onClick.AddListener(new Action(CloseManagerLog));
 
-            var backText = UIFactory.Text("BackLabel", "\u25C0  Back", backBar.transform, 16, TextAnchor.MiddleLeft); // ◀ left triangle
+            var backText = TMPFactory.Text("BackLabel", "\u25C0  Back", backBar.transform, 16, TextAlignmentOptions.Left); // ◀ left triangle
             backText.color = new Color(0.7f, 0.7f, 0.7f);
             var backTextRect = backText.gameObject.GetComponent<RectTransform>();
             backTextRect.anchorMin = Vector2.zero;
@@ -48,7 +55,7 @@ namespace OverTheCounter.Apps
             string firstName = "Manager";
             try { firstName = mgr.GameNpc?.FirstName ?? "Manager"; } catch { }
 
-            var header = UIFactory.Text("LogHeader", $"<b>Debug Log - {firstName}</b>", _managerLogPage.transform, 16, TextAnchor.MiddleLeft);
+            var header = TMPFactory.Text("LogHeader", $"<b>Debug Log - {firstName}</b>", _managerLogPage.transform, 16, TextAlignmentOptions.Left);
             header.color = new Color(0.7f, 0.7f, 0.7f);
             var headerRect = header.gameObject.GetComponent<RectTransform>();
             headerRect.anchorMin = new Vector2(0, 1);
@@ -102,11 +109,11 @@ namespace OverTheCounter.Apps
             _logScrollRect.content = contentRect;
 
             // Log text
-            _logText = UIFactory.Text("LogText", "", content.transform, 15, TextAnchor.UpperLeft);
+            _logText = TMPFactory.Text("LogText", "", content.transform, 15, TextAlignmentOptions.TopLeft);
             _logText.color = new Color(0.45f, 0.85f, 0.45f);
-            _logText.supportRichText = false;
-            _logText.horizontalOverflow = HorizontalWrapMode.Wrap;
-            _logText.verticalOverflow = VerticalWrapMode.Overflow;
+            _logText.richText = false;
+            TMPFactory.SetWrapping(_logText, true);
+            _logText.overflowMode = TextOverflowModes.Overflow;
             var logTextRect = _logText.gameObject.GetComponent<RectTransform>();
             logTextRect.anchorMin = Vector2.zero;
             logTextRect.anchorMax = new Vector2(1, 1);
@@ -125,12 +132,12 @@ namespace OverTheCounter.Apps
             if (buffer.Count == 0)
             {
                 _logText.text = "No log entries yet.";
-                _logText.fontStyle = FontStyle.Italic;
+                _logText.fontStyle = FontStyles.Italic;
                 _logText.color = new Color(0.5f, 0.5f, 0.5f);
             }
             else
             {
-                _logText.fontStyle = FontStyle.Normal;
+                _logText.fontStyle = FontStyles.Normal;
                 _logText.color = new Color(0.45f, 0.85f, 0.45f);
                 _logText.text = string.Join("\n", buffer);
             }

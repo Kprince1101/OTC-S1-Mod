@@ -6,6 +6,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using OverTheCounter.Logic;
 using OverTheCounter.SaveData;
+using OverTheCounter.UI;
 using OverTheCounter.Utilities;
 
 #if IL2CPP
@@ -14,12 +15,14 @@ using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.Money;
 using Il2CppScheduleOne.UI.Phone.Map;
 using Il2CppScheduleOne.Map;
+using Il2CppTMPro;
 #else
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Employees;
 using ScheduleOne.Money;
 using ScheduleOne.UI.Phone.Map;
 using ScheduleOne.Map;
+using TMPro;
 #endif
 
 namespace OverTheCounter.Apps
@@ -137,7 +140,7 @@ namespace OverTheCounter.Apps
             var backBtn = backBar.AddComponent<Button>();
             backBtn.onClick.AddListener(new Action(CloseManagerDetail));
 
-            var backText = UIFactory.Text("BackLabel", "\u25C0  Back", backBar.transform, 16, TextAnchor.MiddleLeft); // ◀ left triangle
+            var backText = TMPFactory.Text("BackLabel", "\u25C0  Back", backBar.transform, 16, TextAlignmentOptions.Left); // ◀ left triangle
             backText.color = new Color(0.7f, 0.7f, 0.7f);
             var backTextRect = backText.gameObject.GetComponent<RectTransform>();
             backTextRect.anchorMin = Vector2.zero;
@@ -195,7 +198,7 @@ namespace OverTheCounter.Apps
             catch { }
 
             // Name (right of mugshot)
-            var nameText = UIFactory.Text("Name", $"<b>{firstName} {lastName}</b>", contentArea.transform, 20, TextAnchor.MiddleLeft);
+            var nameText = TMPFactory.Text("Name", $"<b>{firstName} {lastName}</b>", contentArea.transform, 20, TextAlignmentOptions.Left);
             nameText.color = Color.white;
             var nameRect = nameText.gameObject.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0, 1);
@@ -206,7 +209,7 @@ namespace OverTheCounter.Apps
 
             // Business
             string bizName = mgr.AssignedBusiness?.PropertyName ?? mgr.BusinessPropertyCode ?? "Unassigned";
-            var bizText = UIFactory.Text("Business", bizName, contentArea.transform, 14, TextAnchor.MiddleLeft);
+            var bizText = TMPFactory.Text("Business", bizName, contentArea.transform, 15, TextAlignmentOptions.Left);
             bizText.color = new Color(0.55f, 0.55f, 0.55f);
             var bizRect = bizText.gameObject.GetComponent<RectTransform>();
             bizRect.anchorMin = new Vector2(0, 1);
@@ -219,9 +222,9 @@ namespace OverTheCounter.Apps
             if (mgr.HasLocker)
             {
                 float cash = mgr.GetLockerCash();
-                var cashText = UIFactory.Text("Balance", $"Locker Balance: <color=#66BF4D>${cash:N0}</color>", contentArea.transform, 14, TextAnchor.MiddleLeft);
+                var cashText = TMPFactory.Text("Balance", $"Locker Balance: <color=#66BF4D>${cash:N0}</color>", contentArea.transform, 15, TextAlignmentOptions.Left);
                 cashText.color = new Color(0.7f, 0.7f, 0.7f);
-                cashText.supportRichText = true;
+                cashText.richText = true;
                 var cashRect = cashText.gameObject.GetComponent<RectTransform>();
                 cashRect.anchorMin = new Vector2(0, 1);
                 cashRect.anchorMax = new Vector2(0.5f, 1);
@@ -233,7 +236,7 @@ namespace OverTheCounter.Apps
 
             // Status
             var (statusStr, statusColor) = GetStatusDisplay(mgr);
-            var statusText = UIFactory.Text("Status", statusStr, contentArea.transform, 14, TextAnchor.MiddleLeft);
+            var statusText = TMPFactory.Text("Status", statusStr, contentArea.transform, 15, TextAlignmentOptions.Left);
             statusText.color = statusColor;
             _detailStatusText = statusText;
             var statusRect = statusText.gameObject.GetComponent<RectTransform>();
@@ -244,7 +247,7 @@ namespace OverTheCounter.Apps
             statusRect.sizeDelta = new Vector2(0, 22);
 
             // ── Inventory section ──
-            var invLabel = UIFactory.Text("InvLabel", "<b>Inventory</b>", contentArea.transform, 14, TextAnchor.MiddleLeft);
+            var invLabel = TMPFactory.Text("InvLabel", "<b>Inventory</b>", contentArea.transform, 15, TextAlignmentOptions.Left);
             invLabel.color = new Color(0.7f, 0.7f, 0.7f);
             var invLabelRect = invLabel.gameObject.GetComponent<RectTransform>();
             invLabelRect.anchorMin = new Vector2(0, 1);
@@ -316,7 +319,7 @@ namespace OverTheCounter.Apps
 
                     if (displayQty != null)
                     {
-                        var qtyText = UIFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 13, TextAnchor.LowerRight);
+                        var qtyText = TMPFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 15, TextAlignmentOptions.BottomRight);
                         qtyText.color = Color.white;
                         var qtyRect = qtyText.gameObject.GetComponent<RectTransform>();
                         qtyRect.anchorMin = Vector2.zero;
@@ -364,7 +367,7 @@ namespace OverTheCounter.Apps
 
             if (mapSprite == null)
             {
-                var noMapText = UIFactory.Text("NoMap", "Map unavailable", mapContainer.transform, 14, TextAnchor.MiddleCenter);
+                var noMapText = TMPFactory.Text("NoMap", "Map unavailable", mapContainer.transform, 15, TextAlignmentOptions.Center);
                 noMapText.color = new Color(0.4f, 0.4f, 0.4f);
                 var noMapRect = noMapText.gameObject.GetComponent<RectTransform>();
                 noMapRect.anchorMin = Vector2.zero;
@@ -614,7 +617,7 @@ namespace OverTheCounter.Apps
 
                         if (displayQty != null)
                         {
-                            var qtyText = UIFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 13, TextAnchor.LowerRight);
+                            var qtyText = TMPFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 15, TextAlignmentOptions.BottomRight);
                             qtyText.color = Color.white;
                             var qtyRect = qtyText.gameObject.GetComponent<RectTransform>();
                             qtyRect.anchorMin = Vector2.zero;
@@ -638,8 +641,8 @@ namespace OverTheCounter.Apps
             try { bankBalance = NetworkSingleton<MoneyManager>.Instance?.onlineBalance ?? 0f; } catch { }
             float dailyWage = mgr.GetDailyWage();
 
-            _detailBankText = UIFactory.Text("BankText", $"Bank Balance: <color=#66BF4D>${bankBalance:N0}</color>", content, 13, TextAnchor.MiddleLeft);
-            _detailBankText.supportRichText = true;
+            _detailBankText = TMPFactory.Text("BankText", $"Bank Balance: <color=#66BF4D>${bankBalance:N0}</color>", content, 15, TextAlignmentOptions.Left);
+            _detailBankText.richText = true;
             _detailBankText.color = new Color(0.6f, 0.6f, 0.6f);
             var bankRect = _detailBankText.gameObject.GetComponent<RectTransform>();
             bankRect.anchorMin = new Vector2(0, 1);
@@ -648,8 +651,8 @@ namespace OverTheCounter.Apps
             bankRect.anchoredPosition = new Vector2(16, topY);
             bankRect.sizeDelta = new Vector2(0, 20);
 
-            _detailWageText = UIFactory.Text("WageText", $"Wage: <color=#F5A623>${dailyWage:F0}/day</color>", content, 13, TextAnchor.MiddleRight);
-            _detailWageText.supportRichText = true;
+            _detailWageText = TMPFactory.Text("WageText", $"Wage: <color=#F5A623>${dailyWage:F0}/day</color>", content, 15, TextAlignmentOptions.Right);
+            _detailWageText.richText = true;
             _detailWageText.color = new Color(0.6f, 0.6f, 0.6f);
             var wageRect = _detailWageText.gameObject.GetComponent<RectTransform>();
             wageRect.anchorMin = new Vector2(0.25f, 1);
@@ -679,8 +682,8 @@ namespace OverTheCounter.Apps
             speedShadow.effectColor = new Color(0, 0, 0, 0.6f);
             speedShadow.effectDistance = new Vector2(3, -3);
 
-            var speedTitle = UIFactory.Text("SpeedTitle", "<b>WALK SPEED</b>", speedCard.transform, 18, TextAnchor.MiddleCenter);
-            speedTitle.supportRichText = true;
+            var speedTitle = TMPFactory.Text("SpeedTitle", "<b>WALK SPEED</b>", speedCard.transform, 18, TextAlignmentOptions.Center);
+            speedTitle.richText = true;
             speedTitle.color = new Color(0.9f, 0.9f, 0.9f);
             var speedTitleRect = speedTitle.gameObject.GetComponent<RectTransform>();
             speedTitleRect.anchorMin = new Vector2(0, 1);
@@ -691,7 +694,7 @@ namespace OverTheCounter.Apps
 
             bool speedMaxed = ManagerUpgrades.IsSpeedMaxed(mgr.Configuration.SpeedTier);
 
-            _detailSpeedLabel = UIFactory.Text("SpeedTier", $"Tier {mgr.Configuration.SpeedTier}/{ManagerUpgrades.MaxSpeedTier}", speedCard.transform, 14, TextAnchor.MiddleLeft);
+            _detailSpeedLabel = TMPFactory.Text("SpeedTier", $"Tier {mgr.Configuration.SpeedTier}/{ManagerUpgrades.MaxSpeedTier}", speedCard.transform, 15, TextAlignmentOptions.Left);
             _detailSpeedLabel.color = new Color(0.6f, 0.6f, 0.6f);
             var speedTierRect = _detailSpeedLabel.gameObject.GetComponent<RectTransform>();
             speedTierRect.anchorMin = new Vector2(0, 1);
@@ -719,7 +722,7 @@ namespace OverTheCounter.Apps
 
             // Speed upgrade button
             string speedBtnStr = speedMaxed ? "MAXED" : $"UPGRADE: ${ManagerUpgrades.GetNextSpeedBuyIn(mgr.Configuration.SpeedTier):N0}";
-            var (speedMask, speedBtnComp, speedBtnLabel) = UIFactory.RoundedButtonWithLabel(
+            var (speedMask, speedBtnComp, speedBtnLabel) = TMPFactory.RoundedButtonWithLabel(
                 "SpeedUpgradeBtn", speedBtnStr, speedCard.transform,
                 speedMaxed ? new Color(0.25f, 0.25f, 0.25f) : new Color(0.20f, 0.45f, 0.20f),
                 130, 30, 4, speedMaxed ? new Color(0.4f, 0.4f, 0.4f) : Color.white);
@@ -728,13 +731,12 @@ namespace OverTheCounter.Apps
             speedBtnRect.anchorMax = new Vector2(0.5f, 1);
             speedBtnRect.pivot = new Vector2(0.5f, 1);
             speedBtnRect.anchoredPosition = new Vector2(0, -134);
-            speedBtnLabel.fontSize = 12;
-            speedBtnLabel.alignment = TextAnchor.MiddleCenter;
+            speedBtnLabel.fontSize = 15;
             _detailSpeedBtn = speedBtnComp;
             _detailSpeedBtnText = speedBtnLabel;
 
             // Insufficient funds error (hidden until triggered)
-            _speedErrorText = UIFactory.Text("SpeedError", "Insufficient funds", speedCard.transform, 12, TextAnchor.MiddleCenter);
+            _speedErrorText = TMPFactory.Text("SpeedError", "Insufficient funds", speedCard.transform, 15, TextAlignmentOptions.Center);
             _speedErrorText.color = new Color(0.9f, 0.25f, 0.25f, 0f);
             var speedErrRect = _speedErrorText.gameObject.GetComponent<RectTransform>();
             speedErrRect.anchorMin = new Vector2(0, 1);
@@ -744,7 +746,7 @@ namespace OverTheCounter.Apps
             speedErrRect.sizeDelta = new Vector2(0, 16);
 
             string speedFooterStr = speedMaxed ? "" : $"+${ManagerUpgrades.GetNextSpeedDailyFee(mgr.Configuration.SpeedTier):F0} Daily Maintenance";
-            _detailSpeedCostLabel = UIFactory.Text("SpeedFooter", speedFooterStr, speedCard.transform, 15, TextAnchor.MiddleCenter);
+            _detailSpeedCostLabel = TMPFactory.Text("SpeedFooter", speedFooterStr, speedCard.transform, 15, TextAlignmentOptions.Center);
             _detailSpeedCostLabel.color = new Color(0.5f, 0.5f, 0.5f);
             var speedFooterRect = _detailSpeedCostLabel.gameObject.GetComponent<RectTransform>();
             speedFooterRect.anchorMin = new Vector2(0, 1);
@@ -807,8 +809,8 @@ namespace OverTheCounter.Apps
             invShadow.effectColor = new Color(0, 0, 0, 0.6f);
             invShadow.effectDistance = new Vector2(3, -3);
 
-            var invTitle = UIFactory.Text("InvTitle", "<b>CARRY CAPACITY</b>", invCard.transform, 18, TextAnchor.MiddleCenter);
-            invTitle.supportRichText = true;
+            var invTitle = TMPFactory.Text("InvTitle", "<b>CARRY CAPACITY</b>", invCard.transform, 18, TextAlignmentOptions.Center);
+            invTitle.richText = true;
             invTitle.color = new Color(0.9f, 0.9f, 0.9f);
             var invTitleRect = invTitle.gameObject.GetComponent<RectTransform>();
             invTitleRect.anchorMin = new Vector2(0, 1);
@@ -821,7 +823,7 @@ namespace OverTheCounter.Apps
             int currentSlots = ManagerUpgrades.GetTotalSlots(mgr.Configuration.ExtraInventorySlots);
             int maxSlots = ManagerUpgrades.GetTotalSlots(ManagerUpgrades.MaxExtraSlots);
 
-            _detailInvUpLabel = UIFactory.Text("InvSlots", $"{currentSlots}/{maxSlots} Slots", invCard.transform, 14, TextAnchor.MiddleLeft);
+            _detailInvUpLabel = TMPFactory.Text("InvSlots", $"{currentSlots}/{maxSlots} Slots", invCard.transform, 15, TextAlignmentOptions.Left);
             _detailInvUpLabel.color = new Color(0.6f, 0.6f, 0.6f);
             var invSlotsRect = _detailInvUpLabel.gameObject.GetComponent<RectTransform>();
             invSlotsRect.anchorMin = new Vector2(0, 1);
@@ -850,7 +852,7 @@ namespace OverTheCounter.Apps
 
             // Inventory upgrade button
             string invBtnStr = invMaxed ? "MAXED" : $"UPGRADE: ${ManagerUpgrades.GetNextSlotBuyIn(mgr.Configuration.ExtraInventorySlots):N0}";
-            var (invMask, invBtnComp, invBtnLabel) = UIFactory.RoundedButtonWithLabel(
+            var (invMask, invBtnComp, invBtnLabel) = TMPFactory.RoundedButtonWithLabel(
                 "InvUpgradeBtn", invBtnStr, invCard.transform,
                 invMaxed ? new Color(0.25f, 0.25f, 0.25f) : new Color(0.20f, 0.45f, 0.20f),
                 130, 30, 4, invMaxed ? new Color(0.4f, 0.4f, 0.4f) : Color.white);
@@ -859,13 +861,12 @@ namespace OverTheCounter.Apps
             invBtnRect.anchorMax = new Vector2(0.5f, 1);
             invBtnRect.pivot = new Vector2(0.5f, 1);
             invBtnRect.anchoredPosition = new Vector2(0, -134);
-            invBtnLabel.fontSize = 12;
-            invBtnLabel.alignment = TextAnchor.MiddleCenter;
+            invBtnLabel.fontSize = 15;
             _detailInvBtn = invBtnComp;
             _detailInvBtnText = invBtnLabel;
 
             // Insufficient funds error (hidden until triggered)
-            _invErrorText = UIFactory.Text("InvError", "Insufficient funds", invCard.transform, 12, TextAnchor.MiddleCenter);
+            _invErrorText = TMPFactory.Text("InvError", "Insufficient funds", invCard.transform, 15, TextAlignmentOptions.Center);
             _invErrorText.color = new Color(0.9f, 0.25f, 0.25f, 0f);
             var invErrRect = _invErrorText.gameObject.GetComponent<RectTransform>();
             invErrRect.anchorMin = new Vector2(0, 1);
@@ -875,7 +876,7 @@ namespace OverTheCounter.Apps
             invErrRect.sizeDelta = new Vector2(0, 16);
 
             string invFooterStr = invMaxed ? "" : $"+${ManagerUpgrades.SlotDailyFee:F0} Daily Maintenance";
-            _detailInvCostLabel = UIFactory.Text("InvFooter", invFooterStr, invCard.transform, 15, TextAnchor.MiddleCenter);
+            _detailInvCostLabel = TMPFactory.Text("InvFooter", invFooterStr, invCard.transform, 15, TextAlignmentOptions.Center);
             _detailInvCostLabel.color = new Color(0.5f, 0.5f, 0.5f);
             var invFooterRect = _detailInvCostLabel.gameObject.GetComponent<RectTransform>();
             invFooterRect.anchorMin = new Vector2(0, 1);
@@ -991,13 +992,13 @@ namespace OverTheCounter.Apps
             RefreshUpgradeLabels(mgr);
         }
 
-        private void FlashError(Text errorText)
+        private void FlashError(TextMeshProUGUI errorText)
         {
             if (errorText == null) return;
             MelonCoroutines.Start(FlashErrorRoutine(errorText));
         }
 
-        private IEnumerator FlashErrorRoutine(Text errorText)
+        private IEnumerator FlashErrorRoutine(TextMeshProUGUI errorText)
         {
             Color c = errorText.color;
             float t = 0f;
@@ -1028,7 +1029,7 @@ namespace OverTheCounter.Apps
 
             var mgrRef = mgr;
 
-            var (mask, btn, label) = UIFactory.RoundedButtonWithLabel(
+            var (mask, btn, label) = TMPFactory.RoundedButtonWithLabel(
                 "DebugLogBtn", "Debug Log", contentArea,
                 new Color(0.25f, 0.25f, 0.25f), 360, 36, 6, new Color(0.7f, 0.7f, 0.7f));
             var btnRect = mask.GetComponent<RectTransform>();
@@ -1037,8 +1038,7 @@ namespace OverTheCounter.Apps
             btnRect.pivot = new Vector2(0, 0);
             btnRect.anchoredPosition = new Vector2(16, 12);
 
-            label.fontSize = 12;
-            label.alignment = TextAnchor.MiddleCenter;
+            label.fontSize = 15;
 
             btn.onClick.AddListener(new Action(() => ShowManagerLog(mgrRef)));
         }

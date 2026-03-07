@@ -715,7 +715,7 @@ namespace OverTheCounter.UI
                 descGO.transform.SetParent(_thresholdScreenRoot.transform, false);
                 var descTMP = descGO.AddComponent<TextMeshProUGUI>();
                 descTMP.text = "How many should the manager\nkeep in stock at the supply drop?";
-                descTMP.fontSize = 14;
+                descTMP.fontSize = 15;
                 descTMP.alignment = TextAlignmentOptions.Center;
                 descTMP.color = new Color(0.25f, 0.25f, 0.25f);
                 var descRT = descGO.GetComponent<RectTransform>();

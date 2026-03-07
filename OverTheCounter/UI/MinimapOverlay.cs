@@ -14,6 +14,8 @@ using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.UI;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.UI.Phone.Map;
+using Il2CppTMPro;
+using GameCanvasScaler = Il2CppScheduleOne.UI.CanvasScaler;
 #else
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Economy;
@@ -21,6 +23,8 @@ using ScheduleOne.Map;
 using ScheduleOne.UI;
 using ScheduleOne.PlayerScripts;
 using ScheduleOne.UI.Phone.Map;
+using TMPro;
+using GameCanvasScaler = ScheduleOne.UI.CanvasScaler;
 #endif
 
 namespace OverTheCounter.UI
@@ -71,14 +75,14 @@ namespace OverTheCounter.UI
 
         // Time/day display
         private GameObject _timeDayObj;
-        private Text _timeText;
-        private Text _dayText;
+        private TextMeshProUGUI _timeText;
+        private TextMeshProUGUI _dayText;
 
         // Rank/XP bar
         private GameObject _rankBarObj;
-        private Text _rankText;
+        private TextMeshProUGUI _rankText;
         private Image _xpBarFill;
-        private Text _xpText;
+        private TextMeshProUGUI _xpText;
         private int _lastKnownXP = -1;
         private int _lastKnownTier = -1;
         private readonly List<XPDropLabel> _xpDrops = new List<XPDropLabel>();
@@ -293,7 +297,11 @@ namespace OverTheCounter.UI
             var canvas = _canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 999;
-            _canvasObj.AddComponent<UnityEngine.UI.CanvasScaler>();
+            var scaler = _canvasObj.AddComponent<UnityEngine.UI.CanvasScaler>();
+            scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 0.5f;
+            _canvasObj.AddComponent<GameCanvasScaler>();
             UnityEngine.Object.DontDestroyOnLoad(_canvasObj);
 
             // Border (slightly larger background behind the container)
@@ -435,7 +443,7 @@ namespace OverTheCounter.UI
 
         private class XPDropLabel
         {
-            public Text Label;
+            public TextMeshProUGUI Label;
             public RectTransform Rect;
             public float Timer;
             public float StartY;
@@ -502,12 +510,11 @@ namespace OverTheCounter.UI
             {
                 var dayObj = new GameObject("DayLabel");
                 dayObj.transform.SetParent(_timeDayObj.transform, false);
-                _dayText = dayObj.AddComponent<Text>();
-                _dayText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-                _dayText.fontSize = 14;
-                _dayText.fontStyle = FontStyle.Bold;
+                _dayText = dayObj.AddComponent<TextMeshProUGUI>();
+                _dayText.fontSize = 15;
+                _dayText.fontStyle = FontStyles.Bold;
                 _dayText.color = new Color(0.55f, 0.85f, 1f); // light blue
-                _dayText.alignment = showTime ? TextAnchor.MiddleLeft : TextAnchor.MiddleCenter;
+                _dayText.alignment = showTime ? TextAlignmentOptions.Left : TextAlignmentOptions.Center;
                 _dayText.raycastTarget = false;
                 _dayText.text = "";
 
@@ -522,12 +529,11 @@ namespace OverTheCounter.UI
             {
                 var timeObj = new GameObject("TimeLabel");
                 timeObj.transform.SetParent(_timeDayObj.transform, false);
-                _timeText = timeObj.AddComponent<Text>();
-                _timeText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-                _timeText.fontSize = 14;
-                _timeText.fontStyle = FontStyle.Bold;
+                _timeText = timeObj.AddComponent<TextMeshProUGUI>();
+                _timeText.fontSize = 15;
+                _timeText.fontStyle = FontStyles.Bold;
                 _timeText.color = new Color(1f, 0.9f, 0.4f); // warm gold
-                _timeText.alignment = showDay ? TextAnchor.MiddleRight : TextAnchor.MiddleCenter;
+                _timeText.alignment = showDay ? TextAlignmentOptions.Right : TextAlignmentOptions.Center;
                 _timeText.raycastTarget = false;
                 _timeText.text = "";
 
@@ -582,12 +588,11 @@ namespace OverTheCounter.UI
             // Rank text (upper ~50% of panel)
             var rankObj = new GameObject("RankLabel");
             rankObj.transform.SetParent(_rankBarObj.transform, false);
-            _rankText = rankObj.AddComponent<Text>();
-            _rankText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            _rankText.fontSize = 13;
-            _rankText.fontStyle = FontStyle.Bold;
+            _rankText = rankObj.AddComponent<TextMeshProUGUI>();
+            _rankText.fontSize = 15;
+            _rankText.fontStyle = FontStyles.Bold;
             _rankText.color = new Color(1f, 0.9f, 0.4f);
-            _rankText.alignment = TextAnchor.MiddleCenter;
+            _rankText.alignment = TextAlignmentOptions.Center;
             _rankText.raycastTarget = false;
             _rankText.text = "";
             var rankRect = rankObj.GetComponent<RectTransform>();
@@ -623,12 +628,11 @@ namespace OverTheCounter.UI
             // XP text (lower ~35% of panel)
             var xpTextObj = new GameObject("XPLabel");
             xpTextObj.transform.SetParent(_rankBarObj.transform, false);
-            _xpText = xpTextObj.AddComponent<Text>();
-            _xpText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            _xpText.fontSize = 11;
-            _xpText.fontStyle = FontStyle.Normal;
+            _xpText = xpTextObj.AddComponent<TextMeshProUGUI>();
+            _xpText.fontSize = 15;
+            _xpText.fontStyle = FontStyles.Normal;
             _xpText.color = new Color(0.65f, 0.65f, 0.65f, 1f);
-            _xpText.alignment = TextAnchor.MiddleCenter;
+            _xpText.alignment = TextAlignmentOptions.Center;
             _xpText.raycastTarget = false;
             _xpText.text = "";
             var xpTextRect = xpTextObj.GetComponent<RectTransform>();
@@ -681,18 +685,17 @@ namespace OverTheCounter.UI
             var dropObj = new GameObject("XPDrop");
             dropObj.transform.SetParent(_canvasObj.transform, false);
 
-            var label = dropObj.AddComponent<Text>();
-            label.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            label.fontSize = 14;
-            label.fontStyle = FontStyle.Bold;
-            label.alignment = TextAnchor.MiddleCenter;
+            var label = dropObj.AddComponent<TextMeshProUGUI>();
+            label.fontSize = 15;
+            label.fontStyle = FontStyles.Bold;
+            label.alignment = TextAlignmentOptions.Center;
             label.raycastTarget = false;
 
             if (delta > 0 && levelUp)
             {
                 // Combined: green XP + royal purple level-up
                 label.color = new Color(0.4f, 1f, 0.4f, 1f);
-                label.supportRichText = true;
+                label.richText = true;
                 string lvlPart = levels == 1 ? "+1 Level" : $"+{levels} Levels";
                 label.text = $"+{delta} XP <color=#9B40E8>— {lvlPart}</color>";
             }

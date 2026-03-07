@@ -2,7 +2,14 @@ using System;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
+using OverTheCounter.UI;
 using S1API.UI;
+
+#if IL2CPP
+using Il2CppTMPro;
+#else
+using TMPro;
+#endif
 
 namespace OverTheCounter.Apps
 {
@@ -85,7 +92,7 @@ namespace OverTheCounter.Apps
             var btn = UIFactory.Panel("HireMeBtn", parent, new Color(0.08f, 0.28f, 0.22f));
             btn.AddComponent<LayoutElement>().preferredWidth = 148;
 
-            var lbl = UIFactory.Text("Label", "\u2795 Hire / Transfer", btn.transform, 15, TextAnchor.MiddleCenter);
+            var lbl = TMPFactory.Text("Label", "+ Hire / Transfer", btn.transform, 15, TextAlignmentOptions.Center);
             lbl.color = new Color(0.35f, 0.9f, 0.5f);
             var lblRect = lbl.gameObject.GetComponent<RectTransform>();
             lblRect.anchorMin = Vector2.zero;

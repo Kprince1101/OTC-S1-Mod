@@ -1,9 +1,11 @@
+using OverTheCounter.UI;
 using S1API.UI;
 using System;
 using UnityEngine;
 using UnityEngine.UI;
 
 #if IL2CPP
+using Il2CppTMPro;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.Property;
@@ -12,6 +14,7 @@ using Il2CppScheduleOne.Map;
 using NPCInventory = Il2CppScheduleOne.NPCs.NPCInventory;
 using CashInstance = Il2CppScheduleOne.ItemFramework.CashInstance;
 #else
+using TMPro;
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Employees;
 using ScheduleOne.Property;
@@ -27,9 +30,9 @@ namespace OverTheCounter.Apps
     {
         // Employee detail state
         private Employee _detailEmployee;
-        private Text _empDetailStatusText;
-        private Text _empDetailPaidText;
-        private Text _empDetailLockerText;
+        private TextMeshProUGUI _empDetailStatusText;
+        private TextMeshProUGUI _empDetailPaidText;
+        private TextMeshProUGUI _empDetailLockerText;
         private GameObject _empDetailIssuesContainer;
         private GameObject _empDetailInvGrid;
 
@@ -101,7 +104,7 @@ namespace OverTheCounter.Apps
             var backBtn = backBar.AddComponent<Button>();
             backBtn.onClick.AddListener(new Action(CloseEmployeeDetail));
 
-            var backText = UIFactory.Text("BackLabel", "\u25C0  Back", backBar.transform, 16, TextAnchor.MiddleLeft);
+            var backText = TMPFactory.Text("BackLabel", "\u25C0  Back", backBar.transform, 16, TextAlignmentOptions.Left);
             backText.color = new Color(0.7f, 0.7f, 0.7f);
             var backTextRect = backText.gameObject.GetComponent<RectTransform>();
             backTextRect.anchorMin = Vector2.zero;
@@ -160,7 +163,7 @@ namespace OverTheCounter.Apps
             catch { }
 
             // Name
-            var nameText = UIFactory.Text("Name", $"<b>{firstName} {lastName}</b>", contentArea.transform, 20, TextAnchor.MiddleLeft);
+            var nameText = TMPFactory.Text("Name", $"<b>{firstName} {lastName}</b>", contentArea.transform, 20, TextAlignmentOptions.Left);
             nameText.color = Color.white;
             var nameRect = nameText.gameObject.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0, 1);
@@ -171,7 +174,7 @@ namespace OverTheCounter.Apps
 
             // Type · Property
             string typeAndProp = string.IsNullOrEmpty(propName) ? typeDisplay : $"{typeDisplay} · {propName}";
-            var typeText = UIFactory.Text("TypeProp", typeAndProp, contentArea.transform, 14, TextAnchor.MiddleLeft);
+            var typeText = TMPFactory.Text("TypeProp", typeAndProp, contentArea.transform, 15, TextAlignmentOptions.Left);
             typeText.color = new Color(0.55f, 0.55f, 0.55f);
             var typeRect = typeText.gameObject.GetComponent<RectTransform>();
             typeRect.anchorMin = new Vector2(0, 1);
@@ -182,7 +185,7 @@ namespace OverTheCounter.Apps
 
             // Status
             var (statusStr, statusColor) = GetEmployeeStatus(emp);
-            var statusText = UIFactory.Text("Status", statusStr, contentArea.transform, 14, TextAnchor.MiddleLeft);
+            var statusText = TMPFactory.Text("Status", statusStr, contentArea.transform, 15, TextAlignmentOptions.Left);
             statusText.color = statusColor;
             _empDetailStatusText = statusText;
             var statusRect = statusText.gameObject.GetComponent<RectTransform>();
@@ -198,9 +201,9 @@ namespace OverTheCounter.Apps
             string paidStr = paid
                 ? "Paid today: <color=#66BF4D>Yes</color>"
                 : "Paid today: <color=#E84040>No</color>";
-            var paidText = UIFactory.Text("PaidToday", paidStr, contentArea.transform, 14, TextAnchor.MiddleLeft);
+            var paidText = TMPFactory.Text("PaidToday", paidStr, contentArea.transform, 15, TextAlignmentOptions.Left);
             paidText.color = new Color(0.7f, 0.7f, 0.7f);
-            paidText.supportRichText = true;
+            paidText.richText = true;
             _empDetailPaidText = paidText;
             var paidRect = paidText.gameObject.GetComponent<RectTransform>();
             paidRect.anchorMin = new Vector2(0, 1);
@@ -219,9 +222,9 @@ namespace OverTheCounter.Apps
             }
             catch { }
 
-            var lockerText = UIFactory.Text("Locker", lockerStr, contentArea.transform, 14, TextAnchor.MiddleLeft);
+            var lockerText = TMPFactory.Text("Locker", lockerStr, contentArea.transform, 15, TextAlignmentOptions.Left);
             lockerText.color = new Color(0.7f, 0.7f, 0.7f);
-            lockerText.supportRichText = true;
+            lockerText.richText = true;
             _empDetailLockerText = lockerText;
             var lockerRect = lockerText.gameObject.GetComponent<RectTransform>();
             lockerRect.anchorMin = new Vector2(0, 1);
@@ -233,7 +236,7 @@ namespace OverTheCounter.Apps
             // Daily wage
             float wage = 0;
             try { wage = emp.DailyWage; } catch { }
-            var wageText = UIFactory.Text("Wage", $"Daily wage: ${wage:N0}", contentArea.transform, 14, TextAnchor.MiddleLeft);
+            var wageText = TMPFactory.Text("Wage", $"Daily wage: ${wage:N0}", contentArea.transform, 15, TextAlignmentOptions.Left);
             wageText.color = new Color(0.7f, 0.7f, 0.7f);
             var wageRect = wageText.gameObject.GetComponent<RectTransform>();
             wageRect.anchorMin = new Vector2(0, 1);
@@ -243,7 +246,7 @@ namespace OverTheCounter.Apps
             wageRect.sizeDelta = new Vector2(0, 22);
 
             // Work Issues header
-            var issuesLabel = UIFactory.Text("IssuesLabel", "<b>Work Issues</b>", contentArea.transform, 14, TextAnchor.MiddleLeft);
+            var issuesLabel = TMPFactory.Text("IssuesLabel", "<b>Work Issues</b>", contentArea.transform, 15, TextAlignmentOptions.Left);
             issuesLabel.color = new Color(0.7f, 0.7f, 0.7f);
             var issuesLabelRect = issuesLabel.gameObject.GetComponent<RectTransform>();
             issuesLabelRect.anchorMin = new Vector2(0, 1);
@@ -272,7 +275,7 @@ namespace OverTheCounter.Apps
             PopulateIssuesContainer(issuesContainer.transform, emp);
 
             // Inventory header
-            var invLabel = UIFactory.Text("InvLabel", "<b>Inventory</b>", contentArea.transform, 14, TextAnchor.MiddleLeft);
+            var invLabel = TMPFactory.Text("InvLabel", "<b>Inventory</b>", contentArea.transform, 15, TextAlignmentOptions.Left);
             invLabel.color = new Color(0.7f, 0.7f, 0.7f);
             var invLabelRect = invLabel.gameObject.GetComponent<RectTransform>();
             invLabelRect.anchorMin = new Vector2(0, 1);
@@ -326,7 +329,7 @@ namespace OverTheCounter.Apps
 #endif
                 if (issues == null || issues.Count == 0)
                 {
-                    var noIssueText = UIFactory.Text("NoIssues", "No issues", parent, 13, TextAnchor.MiddleLeft);
+                    var noIssueText = TMPFactory.Text("NoIssues", "No issues", parent, 15, TextAlignmentOptions.Left);
                     noIssueText.color = new Color(0.55f, 0.55f, 0.55f);
                     var noIssueLayout = noIssueText.gameObject.AddComponent<LayoutElement>();
                     noIssueLayout.preferredHeight = 18;
@@ -337,14 +340,14 @@ namespace OverTheCounter.Apps
                 {
                     try
                     {
-                        var reasonText = UIFactory.Text("Reason", issue.Reason ?? "", parent, 13, TextAnchor.MiddleLeft);
+                        var reasonText = TMPFactory.Text("Reason", issue.Reason ?? "", parent, 15, TextAlignmentOptions.Left);
                         reasonText.color = Color.white;
                         var reasonLayout = reasonText.gameObject.AddComponent<LayoutElement>();
                         reasonLayout.preferredHeight = 18;
 
                         if (!string.IsNullOrEmpty(issue.Fix))
                         {
-                            var fixText = UIFactory.Text("Fix", $"  Fix: {issue.Fix}", parent, 11, TextAnchor.MiddleLeft);
+                            var fixText = TMPFactory.Text("Fix", $"  Fix: {issue.Fix}", parent, 15, TextAlignmentOptions.Left);
                             fixText.color = new Color(0.5f, 0.5f, 0.5f);
                             var fixLayout = fixText.gameObject.AddComponent<LayoutElement>();
                             fixLayout.preferredHeight = 16;
@@ -355,7 +358,7 @@ namespace OverTheCounter.Apps
             }
             catch
             {
-                var noIssueText = UIFactory.Text("NoIssues", "No issues", parent, 13, TextAnchor.MiddleLeft);
+                var noIssueText = TMPFactory.Text("NoIssues", "No issues", parent, 15, TextAlignmentOptions.Left);
                 noIssueText.color = new Color(0.55f, 0.55f, 0.55f);
                 var noIssueLayout = noIssueText.gameObject.AddComponent<LayoutElement>();
                 noIssueLayout.preferredHeight = 18;
@@ -406,7 +409,7 @@ namespace OverTheCounter.Apps
 
                     if (displayQty != null)
                     {
-                        var qtyText = UIFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 13, TextAnchor.LowerRight);
+                        var qtyText = TMPFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 15, TextAlignmentOptions.BottomRight);
                         qtyText.color = Color.white;
                         var qtyRect = qtyText.gameObject.GetComponent<RectTransform>();
                         qtyRect.anchorMin = Vector2.zero;
@@ -442,7 +445,7 @@ namespace OverTheCounter.Apps
 
             if (mapSprite == null)
             {
-                var noMapText = UIFactory.Text("NoMap", "Map unavailable", mapContainer.transform, 14, TextAnchor.MiddleCenter);
+                var noMapText = TMPFactory.Text("NoMap", "Map unavailable", mapContainer.transform, 15, TextAlignmentOptions.Center);
                 noMapText.color = new Color(0.4f, 0.4f, 0.4f);
                 var noMapRect = noMapText.gameObject.GetComponent<RectTransform>();
                 noMapRect.anchorMin = Vector2.zero;

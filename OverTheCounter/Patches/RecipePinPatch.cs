@@ -6,9 +6,11 @@ using UnityEngine;
 using UnityEngine.UI;
 
 #if IL2CPP
+using Il2CppTMPro;
 using ProductAppDetailPanelType = Il2CppScheduleOne.UI.Phone.ProductManagerApp.ProductAppDetailPanel;
 using ProductDefinitionType = Il2CppScheduleOne.Product.ProductDefinition;
 #else
+using TMPro;
 using ProductAppDetailPanelType = ScheduleOne.UI.Phone.ProductManagerApp.ProductAppDetailPanel;
 using ProductDefinitionType = ScheduleOne.Product.ProductDefinition;
 #endif
@@ -97,7 +99,7 @@ namespace OverTheCounter.Patches
             _pinButton.colors = colors;
             _pinButton.onClick.AddListener(new Action(OnPinClicked));
 
-            var label = S1API.UI.UIFactory.Text("Label", "Pin", btnObj.transform, 15, TextAnchor.MiddleCenter);
+            var label = TMPFactory.Text("Label", "Pin", btnObj.transform, 15, TextAlignmentOptions.Center);
             label.raycastTarget = false;
             var labelRect = label.GetComponent<RectTransform>();
             labelRect.anchorMin = Vector2.zero;

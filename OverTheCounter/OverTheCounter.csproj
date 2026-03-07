@@ -334,6 +334,7 @@
 		<Compile Include="Patches\NpcTypeDiscoveryPatch.cs" />
 		<Compile Include="UI\MinimapOverlay.cs" />
 		<Compile Include="UI\RecipeOverlay.cs" />
+		<Compile Include="UI\TMPFactory.cs" />
 		<Compile Include="Patches\RecipePinPatch.cs" />
 	</ItemGroup>
 

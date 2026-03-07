@@ -12,12 +12,16 @@ using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Storage;
 using Il2CppScheduleOne.UI;
+using Il2CppTMPro;
+using GameCanvasScaler = Il2CppScheduleOne.UI.CanvasScaler;
 #else
 using ScheduleOne.DevUtilities;
 using ScheduleOne.ItemFramework;
 using ScheduleOne.PlayerScripts;
 using ScheduleOne.Storage;
 using ScheduleOne.UI;
+using TMPro;
+using GameCanvasScaler = ScheduleOne.UI.CanvasScaler;
 #endif
 
 namespace OverTheCounter.UI
@@ -33,8 +37,8 @@ namespace OverTheCounter.UI
         private static Transform _listContent;
         private static bool _includeAllShifts;
         private static bool _isCompact;
-        private static Text _statusText;
-        private static Text _collapseText;
+        private static TextMeshProUGUI _statusText;
+        private static TextMeshProUGUI _collapseText;
         private static RectTransform _panelRect;
         private static GameObject _bodyContainer;
         private static GameSystem.Action _refreshAction;
@@ -171,7 +175,11 @@ namespace OverTheCounter.UI
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 80;
 
-            _overlayRoot.AddComponent<UnityEngine.UI.CanvasScaler>();
+            var scaler = _overlayRoot.AddComponent<UnityEngine.UI.CanvasScaler>();
+            scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 0.5f;
+            _overlayRoot.AddComponent<GameCanvasScaler>();
 
             var panelObj = UIFactory.Panel("SmartStashPanel", _overlayRoot.transform, new Color(0.14f, 0.14f, 0.14f, 0.95f));
 
@@ -188,7 +196,7 @@ namespace OverTheCounter.UI
             _panelRect.anchoredPosition = new Vector2(-10f, 0f);
 
             // Header
-            var headerText = UIFactory.Text("Header", "<b>Delivery Manifest</b>", panelObj.transform, 16, TextAnchor.MiddleCenter);
+            var headerText = TMPFactory.Text("Header", "<b>Delivery Manifest</b>", panelObj.transform, 16, TextAlignmentOptions.Center);
             var headerRect = headerText.gameObject.GetComponent<RectTransform>();
             headerRect.anchorMin = new Vector2(0, 1);
             headerRect.anchorMax = new Vector2(1, 1);
@@ -218,7 +226,7 @@ namespace OverTheCounter.UI
             collapseBtn.colors = collapseBtnColors;
             collapseBtn.onClick.AddListener(new Action(OnCompactToggle));
 
-            _collapseText = UIFactory.Text("CollapseIcon", "\u25B2", collapseBtnObj.transform, 12, TextAnchor.MiddleCenter); // ▲ up arrow
+            _collapseText = TMPFactory.Text("CollapseIcon", "\u25B2", collapseBtnObj.transform, 15, TextAlignmentOptions.Center); // ▲ up arrow
             var collapseTextRect = _collapseText.gameObject.GetComponent<RectTransform>();
             collapseTextRect.anchorMin = Vector2.zero;
             collapseTextRect.anchorMax = Vector2.one;
@@ -288,7 +296,7 @@ namespace OverTheCounter.UI
             toggle.targetGraphic = bgImage;
             toggle.onValueChanged.AddListener(new Action<bool>(OnToggleChanged));
 
-            var toggleLabel = UIFactory.Text("ToggleLabel", "Include All Delivery Windows", toggleObj.transform, 13, TextAnchor.MiddleLeft);
+            var toggleLabel = TMPFactory.Text("ToggleLabel", "Include All Delivery Windows", toggleObj.transform, 15, TextAlignmentOptions.Left);
             toggleLabel.color = new Color(0.8f, 0.8f, 0.8f);
             var labelRect = toggleLabel.gameObject.GetComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0, 0);
@@ -297,7 +305,7 @@ namespace OverTheCounter.UI
             labelRect.offsetMax = new Vector2(-4, 0);
 
             // Smart Fill button
-            var (btnMask, btn, btnLabel) = UIFactory.RoundedButtonWithLabel(
+            var (btnMask, btn, btnLabel) = TMPFactory.RoundedButtonWithLabel(
                 "SmartFillBtn", "Smart Fill", _bodyContainer.transform,
                 new Color(0.2f, 0.5f, 0.2f), 230, 32, 14, Color.white
             );
@@ -318,7 +326,7 @@ namespace OverTheCounter.UI
             btn.onClick.AddListener(new Action(OnSmartFillClicked));
 
             // Status text
-            _statusText = UIFactory.Text("StatusText", "", _bodyContainer.transform, 12, TextAnchor.MiddleCenter);
+            _statusText = TMPFactory.Text("StatusText", "", _bodyContainer.transform, 15, TextAlignmentOptions.Center);
             _statusText.color = new Color(0.7f, 0.7f, 0.7f);
             var statusRect = _statusText.gameObject.GetComponent<RectTransform>();
             statusRect.anchorMin = new Vector2(0, 0);
@@ -392,14 +400,13 @@ namespace OverTheCounter.UI
                 var rowRect = rowObj.AddComponent<RectTransform>();
                 rowRect.sizeDelta = new Vector2(0, 20);
 
-                var rowText = rowObj.AddComponent<Text>();
+                var rowText = rowObj.AddComponent<TextMeshProUGUI>();
                 rowText.text = label;
-                rowText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-                rowText.fontSize = 13;
+                rowText.fontSize = 15;
                 rowText.color = textColor;
-                rowText.alignment = TextAnchor.MiddleLeft;
-                rowText.horizontalOverflow = HorizontalWrapMode.Wrap;
-                rowText.verticalOverflow = VerticalWrapMode.Truncate;
+                rowText.alignment = TextAlignmentOptions.Left;
+                TMPFactory.SetWrapping(rowText, true);
+                rowText.overflowMode = TextOverflowModes.Truncate;
 
                 var rowLayout = rowObj.AddComponent<LayoutElement>();
                 rowLayout.preferredHeight = 20f;

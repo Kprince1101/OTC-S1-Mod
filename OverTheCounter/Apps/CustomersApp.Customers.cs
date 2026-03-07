@@ -6,6 +6,7 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 using OverTheCounter.Logic;
+using OverTheCounter.UI;
 using OverTheCounter.Utilities;
 using OverTheCounter.SaveData;
 
@@ -16,12 +17,14 @@ using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.Cartel;
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppTMPro;
 #else
 using ScheduleOne.Economy;
 using ScheduleOne.NPCs;
 using ScheduleOne.Map;
 using ScheduleOne.Cartel;
 using ScheduleOne.DevUtilities;
+using TMPro;
 #endif
 
 namespace OverTheCounter.Apps
@@ -40,9 +43,8 @@ namespace OverTheCounter.Apps
             billingBarRt.sizeDelta = new Vector2(0, 32);
             _billingBar = billingBarObj;
 
-            var billingTextComp = UIFactory.Text("BillingText", "", billingBarObj.transform, 16, TextAnchor.MiddleLeft);
-            billingTextComp.supportRichText = true;
-            billingTextComp.horizontalOverflow = HorizontalWrapMode.Wrap;
+            var billingTextComp = TMPFactory.Text("BillingText", "", billingBarObj.transform, 16, TextAlignmentOptions.Left);
+            billingTextComp.richText = true;
             billingTextComp.color = new Color(0.85f, 0.85f, 0.85f);
             var btRect = billingTextComp.gameObject.GetComponent<RectTransform>();
             btRect.anchorMin = Vector2.zero;
@@ -214,7 +216,7 @@ namespace OverTheCounter.Apps
             if (parent == null) return;
             ClearChildren(parent);
 
-            var msg = UIFactory.Text("Placeholder", "Select a customer\nto view details", parent, 16, TextAnchor.MiddleCenter);
+            var msg = TMPFactory.Text("Placeholder", "Select a customer\nto view details", parent, 16, TextAlignmentOptions.Center);
             msg.color = new Color(0.4f, 0.4f, 0.4f);
             var msgRect = msg.gameObject.GetComponent<RectTransform>();
             msgRect.anchorMin = new Vector2(0, 0.4f);
@@ -233,15 +235,15 @@ namespace OverTheCounter.Apps
 
             if (hasMetStatic)
             {
-                var titleObj = UIFactory.Text("PaywallTitle", "<b>SERVICE OFFLINE</b>", contentParent, 22, TextAnchor.MiddleCenter);
+                var titleObj = TMPFactory.Text("PaywallTitle", "<b>SERVICE OFFLINE</b>", contentParent, 22, TextAlignmentOptions.Center);
                 titleObj.color = new Color(0.7f, 0.2f, 0.2f);
                 var titleLayout = titleObj.gameObject.AddComponent<LayoutElement>();
                 titleLayout.preferredHeight = 40;
                 titleLayout.flexibleWidth = 1;
 
-                var subtitleObj = UIFactory.Text("PaywallSubtitle",
+                var subtitleObj = TMPFactory.Text("PaywallSubtitle",
                     "Active subscription required.\nVisit Static at the Casino to renew.",
-                    contentParent, 14, TextAnchor.MiddleCenter);
+                    contentParent, 15, TextAlignmentOptions.Center);
                 subtitleObj.color = new Color(0.6f, 0.6f, 0.6f);
                 var subtitleLayout = subtitleObj.gameObject.AddComponent<LayoutElement>();
                 subtitleLayout.preferredHeight = 50;
@@ -249,15 +251,15 @@ namespace OverTheCounter.Apps
             }
             else
             {
-                var titleObj = UIFactory.Text("LicenseTitle", "<b>LICENSE INVALID</b>", contentParent, 22, TextAnchor.MiddleCenter);
+                var titleObj = TMPFactory.Text("LicenseTitle", "<b>LICENSE INVALID</b>", contentParent, 22, TextAlignmentOptions.Center);
                 titleObj.color = new Color(0.6f, 0.6f, 0.6f);
                 var titleLayout = titleObj.gameObject.AddComponent<LayoutElement>();
                 titleLayout.preferredHeight = 40;
                 titleLayout.flexibleWidth = 1;
 
-                var subtitleObj = UIFactory.Text("LicenseSubtitle",
+                var subtitleObj = TMPFactory.Text("LicenseSubtitle",
                     "Please wait for an authorized\nrepresentative to contact you.",
-                    contentParent, 14, TextAnchor.MiddleCenter);
+                    contentParent, 15, TextAlignmentOptions.Center);
                 subtitleObj.color = new Color(0.5f, 0.5f, 0.5f);
                 var subtitleLayout = subtitleObj.gameObject.AddComponent<LayoutElement>();
                 subtitleLayout.preferredHeight = 50;
@@ -280,7 +282,7 @@ namespace OverTheCounter.Apps
 
             if ((unlocked == null || unlocked.Count == 0) && (locked == null || locked.Count == 0))
             {
-                UIFactory.Text("Empty", "No Customers Known", contentParent, 20, TextAnchor.MiddleCenter);
+                TMPFactory.Text("Empty", "No Customers Known", contentParent, 20, TextAlignmentOptions.Center);
                 return;
             }
 
@@ -316,9 +318,9 @@ namespace OverTheCounter.Apps
                 if (region >= EMapRegion.Downtown && !IsRegionUnlocked(effectiveTier, region - 1))
                     return;
 
-                var lockedHeader = UIFactory.Text($"Header_{regionName}",
+                var lockedHeader = TMPFactory.Text($"Header_{regionName}",
                     $"<b>{regionName}</b>  <color=#555555>[LOCKED]</color>",
-                    parent, 16, TextAnchor.MiddleCenter);
+                    parent, 16, TextAlignmentOptions.Center);
                 lockedHeader.color = new Color(0.45f, 0.45f, 0.45f);
                 var lockedLayout = lockedHeader.gameObject.AddComponent<LayoutElement>();
                 lockedLayout.preferredHeight = 28f;
@@ -334,7 +336,7 @@ namespace OverTheCounter.Apps
             }
 
             string headerText = $"<b>{regionName}</b>";
-            var headerObj = UIFactory.Text($"Header_{regionName}", headerText, parent, 18, TextAnchor.MiddleCenter);
+            var headerObj = TMPFactory.Text($"Header_{regionName}", headerText, parent, 18, TextAlignmentOptions.Center);
             headerObj.color = new Color(0.8f, 0.8f, 0.8f);
 
             var headerLayout = headerObj.gameObject.AddComponent<LayoutElement>();
@@ -396,7 +398,7 @@ namespace OverTheCounter.Apps
             CreateCustomerSprite(avatarPanel.transform, customer.NPC);
 
             // Name label
-            var nameObj = UIFactory.Text("Name", customer.NPC.FirstName, cellObj.transform, 12, TextAnchor.UpperCenter);
+            var nameObj = TMPFactory.Text("Name", customer.NPC.FirstName, cellObj.transform, 15, TextAlignmentOptions.Top);
             nameObj.color = Color.white;
             var nameRect = nameObj.gameObject.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0, 0);
@@ -408,7 +410,7 @@ namespace OverTheCounter.Apps
             // Desperation indicator
             if (isDesperate)
             {
-                var urgentLabel = UIFactory.Text("UrgentLabel", "<b>URGENT!</b>", cellObj.transform, 10, TextAnchor.UpperCenter);
+                var urgentLabel = TMPFactory.Text("UrgentLabel", "<b>URGENT!</b>", cellObj.transform, 15, TextAlignmentOptions.Top);
                 var urgentRect = urgentLabel.gameObject.GetComponent<RectTransform>();
                 urgentRect.anchorMin = new Vector2(0, 1);
                 urgentRect.anchorMax = new Vector2(1, 1);
@@ -480,9 +482,9 @@ namespace OverTheCounter.Apps
 
             if (truced)
             {
-                var unavailText = UIFactory.Text("UnavailHint",
+                var unavailText = TMPFactory.Text("UnavailHint",
                     "Unavailable while cartel is truced",
-                    parent, 13, TextAnchor.MiddleCenter);
+                    parent, 15, TextAlignmentOptions.Center);
                 unavailText.color = new Color(0.45f, 0.45f, 0.45f);
                 var unavailLe = unavailText.gameObject.AddComponent<LayoutElement>();
                 unavailLe.preferredHeight = 20f;
@@ -502,9 +504,9 @@ namespace OverTheCounter.Apps
             float progress = Mathf.InverseLerp(1f, 0.3f, influence);
             int influencePts = Mathf.RoundToInt(influence * 1000f);
 
-            var hintText = UIFactory.Text("InfluenceHint",
+            var hintText = TMPFactory.Text("InfluenceHint",
                 $"Reduce {prevRegion} cartel influence to unlock",
-                parent, 13, TextAnchor.MiddleCenter);
+                parent, 15, TextAlignmentOptions.Center);
             hintText.color = new Color(0.45f, 0.45f, 0.45f);
             var hintLe = hintText.gameObject.AddComponent<LayoutElement>();
             hintLe.preferredHeight = 20f;
@@ -529,7 +531,7 @@ namespace OverTheCounter.Apps
             fillRt.offsetMin = Vector2.zero;
             fillRt.offsetMax = Vector2.zero;
 
-            var barLabel = UIFactory.Text("BarLabel", $"{influencePts} / 1000  (need ≤300)", barContainer.transform, 12, TextAnchor.MiddleCenter);
+            var barLabel = TMPFactory.Text("BarLabel", $"{influencePts} / 1000  (need ≤300)", barContainer.transform, 15, TextAlignmentOptions.Center);
             var barLabelRt = barLabel.gameObject.GetComponent<RectTransform>();
             barLabelRt.anchorMin = Vector2.zero;
             barLabelRt.anchorMax = Vector2.one;
@@ -550,9 +552,9 @@ namespace OverTheCounter.Apps
 
         private void CreateWestvilleUnlockHint(Transform parent)
         {
-            var hintText = UIFactory.Text("WestvilleHint",
+            var hintText = TMPFactory.Text("WestvilleHint",
                 "Reach rank Hoodlum I to unlock",
-                parent, 13, TextAnchor.MiddleCenter);
+                parent, 15, TextAlignmentOptions.Center);
             hintText.color = new Color(0.45f, 0.45f, 0.45f);
             var hintLe = hintText.gameObject.AddComponent<LayoutElement>();
             hintLe.preferredHeight = 20f;

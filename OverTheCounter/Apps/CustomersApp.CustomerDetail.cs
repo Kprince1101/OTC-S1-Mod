@@ -3,9 +3,11 @@ using System;
 using UnityEngine;
 using UnityEngine.UI;
 using OverTheCounter.Logic;
+using OverTheCounter.UI;
 using OverTheCounter.Utilities;
 
 #if IL2CPP
+using Il2CppTMPro;
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Effects;
@@ -14,6 +16,7 @@ using Il2CppScheduleOne.UI.Phone.Map;
 using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.UI.Items;
 #else
+using TMPro;
 using ScheduleOne.Economy;
 using ScheduleOne.NPCs;
 using ScheduleOne.Effects;
@@ -73,7 +76,7 @@ namespace OverTheCounter.Apps
             }
             catch { }
 
-            var nameText = UIFactory.Text("Name", $"<b>{firstName} {lastName}</b>", _custDetailPanel.transform, 18, TextAnchor.MiddleLeft);
+            var nameText = TMPFactory.Text("Name", $"<b>{firstName} {lastName}</b>", _custDetailPanel.transform, 18, TextAlignmentOptions.Left);
             nameText.color = Color.white;
             var nameRect = nameText.gameObject.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0, 1);
@@ -82,7 +85,7 @@ namespace OverTheCounter.Apps
             nameRect.anchoredPosition = new Vector2(90, -14);
             nameRect.sizeDelta = new Vector2(-90, 24);
 
-            var subText = UIFactory.Text("Subtitle", $"Customer  \u00B7  {regionStr}", _custDetailPanel.transform, 13, TextAnchor.MiddleLeft);
+            var subText = TMPFactory.Text("Subtitle", $"Customer  \u00B7  {regionStr}", _custDetailPanel.transform, 15, TextAlignmentOptions.Left);
             subText.color = new Color(0.55f, 0.55f, 0.55f);
             var subRect = subText.gameObject.GetComponent<RectTransform>();
             subRect.anchorMin = new Vector2(0, 1);
@@ -100,12 +103,12 @@ namespace OverTheCounter.Apps
                 mapBtnRect.anchorMax = new Vector2(1, 1);
                 mapBtnRect.pivot = new Vector2(1, 1);
                 mapBtnRect.anchoredPosition = new Vector2(-10, -14);
-                mapBtnRect.sizeDelta = new Vector2(90, 24);
+                mapBtnRect.sizeDelta = new Vector2(110, 28);
 
                 var mapBtn = mapBtnGo.AddComponent<Button>();
                 mapBtn.onClick.AddListener(new Action(() => ShowCustomerMap(customer)));
 
-                var mapBtnLabel = UIFactory.Text("MapBtnLabel", "Show on Map", mapBtnGo.transform, 12, TextAnchor.MiddleCenter);
+                var mapBtnLabel = TMPFactory.Text("MapBtnLabel", "Show on Map", mapBtnGo.transform, 15, TextAlignmentOptions.Center);
                 mapBtnLabel.color = Color.white;
                 var mapBtnLabelRect = mapBtnLabel.gameObject.GetComponent<RectTransform>();
                 mapBtnLabelRect.anchorMin = Vector2.zero;
@@ -180,7 +183,7 @@ namespace OverTheCounter.Apps
             }
             catch
             {
-                AddDetailText(scrollContent, "Unknown", 13, 18f);
+                AddDetailText(scrollContent, "Unknown", 15, 18f);
             }
             AddDetailSpacer(scrollContent, 4f);
 
@@ -203,7 +206,7 @@ namespace OverTheCounter.Apps
                 }
             }
             catch { }
-            AddDetailText(scrollContent, connectionsStr, 13, 36f, wrap: true);
+            AddDetailText(scrollContent, connectionsStr, 15, 36f, wrap: true);
             AddDetailSpacer(scrollContent, 4f);
 
             // ── Favourite Effects ──
@@ -220,7 +223,7 @@ namespace OverTheCounter.Apps
                             string effName = eff?.Name ?? "";
                             Color effColor = eff?.ProductColor ?? new Color(0.7f, 0.7f, 0.7f);
                             if (string.IsNullOrEmpty(effName)) continue;
-                            var effText = AddDetailText(scrollContent, $"\u25CF  {effName}", 13, 18f);
+                            var effText = AddDetailText(scrollContent, $"\u25CF  {effName}", 15, 18f);
                             effText.color = effColor;
                         }
                         catch { }
@@ -228,19 +231,19 @@ namespace OverTheCounter.Apps
                 }
                 else
                 {
-                    AddDetailText(scrollContent, "None", 13, 18f);
+                    AddDetailText(scrollContent, "None", 15, 18f);
                 }
             }
             catch
             {
-                AddDetailText(scrollContent, "None", 13, 18f);
+                AddDetailText(scrollContent, "None", 15, 18f);
             }
             AddDetailSpacer(scrollContent, 4f);
 
             // ── Weekly Purchases ──
             AddDetailLabel(scrollContent, "WEEKLY PURCHASES");
-            _custDetailWeeklyText = AddDetailText(scrollContent, BuildWeeklyText(customer), 13, 40f, wrap: true);
-            _custDetailWeeklyText.supportRichText = true;
+            _custDetailWeeklyText = AddDetailText(scrollContent, BuildWeeklyText(customer), 15, 40f, wrap: true);
+            _custDetailWeeklyText.richText = true;
 
         }
 
@@ -250,18 +253,18 @@ namespace OverTheCounter.Apps
 
         private void AddDetailLabel(Transform parent, string text)
         {
-            var t = UIFactory.Text("Lbl_" + text, text, parent, 11, TextAnchor.MiddleLeft);
+            var t = TMPFactory.Text("Lbl_" + text, text, parent, 15, TextAlignmentOptions.Left);
             t.color = new Color(0.52f, 0.52f, 0.52f);
             var le = t.gameObject.AddComponent<LayoutElement>();
             le.preferredHeight = 16f;
             le.flexibleWidth = 1;
         }
 
-        private Text AddDetailText(Transform parent, string text, int fontSize, float height, bool wrap = false)
+        private TextMeshProUGUI AddDetailText(Transform parent, string text, int fontSize, float height, bool wrap = false)
         {
-            var t = UIFactory.Text("Txt_" + text.GetHashCode(), text, parent, fontSize, TextAnchor.UpperLeft);
+            var t = TMPFactory.Text("Txt_" + text.GetHashCode(), text, parent, fontSize, TextAlignmentOptions.TopLeft);
             t.color = new Color(0.78f, 0.78f, 0.78f);
-            if (wrap) t.horizontalOverflow = HorizontalWrapMode.Wrap;
+            if (wrap) TMPFactory.SetWrapping(t, true);
             var le = t.gameObject.AddComponent<LayoutElement>();
             le.preferredHeight = height;
             le.flexibleWidth = 1;
@@ -300,7 +303,7 @@ namespace OverTheCounter.Apps
             fillRt.offsetMax = Vector2.zero;
 
             int pct = Mathf.RoundToInt(value * 100f);
-            var pctText = UIFactory.Text("Pct", $"{pct}%", barContainer.transform, 11, TextAnchor.MiddleCenter);
+            var pctText = TMPFactory.Text("Pct", $"{pct}%", barContainer.transform, 15, TextAlignmentOptions.Center);
             pctText.color = Color.white;
             var pctRt = pctText.gameObject.GetComponent<RectTransform>();
             pctRt.anchorMin = Vector2.zero;
@@ -359,7 +362,7 @@ namespace OverTheCounter.Apps
             starImg.raycastTarget = false;
 
             // Label: starts 22px from left (18 star + 4 gap), fills rest of row
-            var labelText = UIFactory.Text("StandardLabel", label, rowGo.transform, 13, TextAnchor.MiddleLeft);
+            var labelText = TMPFactory.Text("StandardLabel", label, rowGo.transform, 15, TextAlignmentOptions.Left);
             labelText.color = new Color(0.78f, 0.78f, 0.78f);
             var labelRt = labelText.gameObject.GetComponent<RectTransform>();
             labelRt.anchorMin = new Vector2(0, 0);
@@ -425,7 +428,7 @@ namespace OverTheCounter.Apps
             backBarRect.sizeDelta = new Vector2(0, BackH);
             backBar.AddComponent<Button>().onClick.AddListener(new Action(CloseCustomerMap));
 
-            var backLabel = UIFactory.Text("BackLbl", "\u2190  Back", backBar.transform, 14, TextAnchor.MiddleLeft);
+            var backLabel = TMPFactory.Text("BackLbl", "\u25C0  Back", backBar.transform, 15, TextAlignmentOptions.Left);
             backLabel.color = new Color(0.4f, 0.7f, 1f);
             var backLabelRect = backLabel.gameObject.GetComponent<RectTransform>();
             backLabelRect.anchorMin = Vector2.zero;
@@ -435,7 +438,7 @@ namespace OverTheCounter.Apps
 
             string custName = "";
             try { custName = customer.NPC.FirstName + " " + customer.NPC.LastName; } catch { }
-            var titleLabel = UIFactory.Text("MapCustName", custName, backBar.transform, 14, TextAnchor.MiddleCenter);
+            var titleLabel = TMPFactory.Text("MapCustName", custName, backBar.transform, 15, TextAlignmentOptions.Center);
             titleLabel.color = Color.white;
             var titleRect = titleLabel.gameObject.GetComponent<RectTransform>();
             titleRect.anchorMin = Vector2.zero;
@@ -494,7 +497,7 @@ namespace OverTheCounter.Apps
 
             if (mapSprite == null)
             {
-                var noMapText = UIFactory.Text("NoMap", "Map unavailable", mapArea.transform, 14, TextAnchor.MiddleCenter);
+                var noMapText = TMPFactory.Text("NoMap", "Map unavailable", mapArea.transform, 15, TextAlignmentOptions.Center);
                 noMapText.color = new Color(0.4f, 0.4f, 0.4f);
                 var noMapRect = noMapText.gameObject.GetComponent<RectTransform>();
                 noMapRect.anchorMin = Vector2.zero;

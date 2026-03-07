@@ -1,6 +1,7 @@
 using MelonLoader;
 using OverTheCounter.Logic;
 using OverTheCounter.SaveData;
+using OverTheCounter.UI;
 using OverTheCounter.Utilities;
 using S1API.UI;
 using System;
@@ -14,10 +15,12 @@ using UnityEngine.UI;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Money;
 using Il2CppScheduleOne.Property;
+using Il2CppTMPro;
 #else
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Money;
 using ScheduleOne.Property;
+using TMPro;
 #endif
 
 namespace OverTheCounter.Apps
@@ -153,7 +156,7 @@ namespace OverTheCounter.Apps
             if (managers.Count == 0 && unmanagedBusinesses.Count == 0)
             {
                 string msg = alternateHire ? "No properties owned yet." : "No managers hired yet.";
-                var emptyText = UIFactory.Text("EmptyMsg", msg, contentParent, 18, TextAnchor.MiddleCenter);
+                var emptyText = TMPFactory.Text("EmptyMsg", msg, contentParent, 18, TextAlignmentOptions.Center);
                 emptyText.color = new Color(0.5f, 0.5f, 0.5f);
                 var emptyLayout = emptyText.gameObject.AddComponent<LayoutElement>();
                 emptyLayout.preferredHeight = 60;
@@ -189,7 +192,7 @@ namespace OverTheCounter.Apps
 
             // Property name
             string bizName = business.PropertyName ?? business.PropertyCode;
-            var nameText = UIFactory.Text("Name", $"<b>{bizName}</b>", cardObj.transform, 14, TextAnchor.MiddleLeft);
+            var nameText = TMPFactory.Text("Name", $"<b>{bizName}</b>", cardObj.transform, 15, TextAlignmentOptions.Left);
             nameText.color = Color.white;
             var nameRect = nameText.gameObject.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0, 1);
@@ -199,7 +202,7 @@ namespace OverTheCounter.Apps
             nameRect.sizeDelta = new Vector2(0, 20);
 
             // "No manager" status
-            var statusText = UIFactory.Text("Status", "No manager", cardObj.transform, 12, TextAnchor.MiddleLeft);
+            var statusText = TMPFactory.Text("Status", "No manager", cardObj.transform, 15, TextAlignmentOptions.Left);
             statusText.color = new Color(0.5f, 0.5f, 0.5f);
             var statusRect = statusText.gameObject.GetComponent<RectTransform>();
             statusRect.anchorMin = new Vector2(0, 1);
@@ -210,8 +213,8 @@ namespace OverTheCounter.Apps
 
             // Cost label
             float signingFee = Config.ManagerSigningFee.Value;
-            var costText = UIFactory.Text("Cost", $"<color=#BBA033>${signingFee:N0}</color>", cardObj.transform, 12, TextAnchor.MiddleLeft);
-            costText.supportRichText = true;
+            var costText = TMPFactory.Text("Cost", $"<color=#BBA033>${signingFee:N0}</color>", cardObj.transform, 15, TextAlignmentOptions.Left);
+            costText.richText = true;
             costText.color = new Color(0.7f, 0.7f, 0.7f);
             var costRect = costText.gameObject.GetComponent<RectTransform>();
             costRect.anchorMin = new Vector2(0, 1);
@@ -222,7 +225,7 @@ namespace OverTheCounter.Apps
 
             // Hire button
             string propCode = business.PropertyCode;
-            var (btnMask, btn, btnLabel) = UIFactory.RoundedButtonWithLabel(
+            var (btnMask, btn, btnLabel) = TMPFactory.RoundedButtonWithLabel(
                 "HireBtn", "Hire", cardObj.transform,
                 new Color(0.2f, 0.5f, 0.2f), 80, 36, 14, Color.white);
             var btnRect = btnMask.GetComponent<RectTransform>();
@@ -381,7 +384,7 @@ namespace OverTheCounter.Apps
             }
             catch { }
 
-            var nameText = UIFactory.Text("Name", $"<b>{firstName} {lastName}</b>", cardObj.transform, 14, TextAnchor.MiddleLeft);
+            var nameText = TMPFactory.Text("Name", $"<b>{firstName} {lastName}</b>", cardObj.transform, 15, TextAlignmentOptions.Left);
             nameText.color = Color.white;
             var nameRect = nameText.gameObject.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0, 1);
@@ -398,9 +401,9 @@ namespace OverTheCounter.Apps
                 float cash = mgr.GetLockerCash();
                 bizLine += $" - <color=#66BF4D>${cash:N0}</color>";
             }
-            var bizText = UIFactory.Text("Business", bizLine, cardObj.transform, 12, TextAnchor.MiddleLeft);
+            var bizText = TMPFactory.Text("Business", bizLine, cardObj.transform, 15, TextAlignmentOptions.Left);
             bizText.color = new Color(0.55f, 0.55f, 0.55f);
-            bizText.supportRichText = true;
+            bizText.richText = true;
             var bizRect = bizText.gameObject.GetComponent<RectTransform>();
             bizRect.anchorMin = new Vector2(0, 1);
             bizRect.anchorMax = new Vector2(0.25f, 1);
@@ -410,7 +413,7 @@ namespace OverTheCounter.Apps
 
             // ── Left: Status ──
             var (statusStr, statusColor) = GetStatusDisplay(mgr);
-            var statusText = UIFactory.Text("Status", statusStr, cardObj.transform, 12, TextAnchor.MiddleLeft);
+            var statusText = TMPFactory.Text("Status", statusStr, cardObj.transform, 15, TextAlignmentOptions.Left);
             statusText.color = statusColor;
             var statusRect = statusText.gameObject.GetComponent<RectTransform>();
             statusRect.anchorMin = new Vector2(0, 1);
@@ -476,7 +479,7 @@ namespace OverTheCounter.Apps
                     // Quantity overlay (bottom-right)
                     if (displayQty != null)
                     {
-                        var qtyText = UIFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 13, TextAnchor.LowerRight);
+                        var qtyText = TMPFactory.Text($"Qty_{i}", displayQty, slotPanel.transform, 15, TextAlignmentOptions.BottomRight);
                         qtyText.color = Color.white;
                         var qtyRect = qtyText.gameObject.GetComponent<RectTransform>();
                         qtyRect.anchorMin = Vector2.zero;
@@ -494,7 +497,7 @@ namespace OverTheCounter.Apps
             // ── Right: Detail page chevron button ──
             var mgrRef = mgr;
 
-            var (chevMask, chevBtn, chevLabel) = UIFactory.RoundedButtonWithLabel(
+            var (chevMask, chevBtn, chevLabel) = TMPFactory.RoundedButtonWithLabel(
                 "DetailBtn", "\u203A", cardObj.transform, // › right angle quote (fallback if icon missing)
                 new Color(0.15f, 0.35f, 0.45f), 65, 65, 8, Color.white);
             var chevRect = chevMask.GetComponent<RectTransform>();

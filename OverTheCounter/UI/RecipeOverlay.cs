@@ -1,5 +1,4 @@
 using MelonLoader;
-using S1API.UI;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -7,11 +6,15 @@ using UnityEngine.UI;
 
 #if IL2CPP
 using Il2CppInterop.Runtime.Injection;
+using Il2CppTMPro;
 using ProductDefinitionType = Il2CppScheduleOne.Product.ProductDefinition;
 using ItemDefinitionType = Il2CppScheduleOne.ItemFramework.ItemDefinition;
+using GameCanvasScaler = Il2CppScheduleOne.UI.CanvasScaler;
 #else
+using TMPro;
 using ProductDefinitionType = ScheduleOne.Product.ProductDefinition;
 using ItemDefinitionType = ScheduleOne.ItemFramework.ItemDefinition;
+using GameCanvasScaler = ScheduleOne.UI.CanvasScaler;
 #endif
 
 namespace OverTheCounter.UI
@@ -30,7 +33,7 @@ namespace OverTheCounter.UI
         private string _pinnedProductId;
         private List<(RectTransform rect, string name)> _chainItems;
         private GameObject _tooltipObj;
-        private Text _tooltipText;
+        private TextMeshProUGUI _tooltipText;
 
         // Temporary storage for chain data during overlay construction.
         // Avoids passing ValueTuple lists through instance method signatures,
@@ -193,7 +196,11 @@ namespace OverTheCounter.UI
             var canvas = _canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = SORT_ORDER;
-            _canvasObj.AddComponent<CanvasScaler>();
+            var scaler = _canvasObj.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 0.5f;
+            _canvasObj.AddComponent<GameCanvasScaler>();
             _canvasObj.AddComponent<GraphicRaycaster>();
             DontDestroyOnLoad(_canvasObj);
 
@@ -255,7 +262,7 @@ namespace OverTheCounter.UI
             titleLayout.childAlignment = TextAnchor.MiddleLeft;
 
             // Title text
-            var titleText = UIFactory.Text("Title", productName, titleObj.transform, 15, TextAnchor.MiddleLeft);
+            var titleText = TMPFactory.Text("Title", productName, titleObj.transform, 15, TextAlignmentOptions.Left);
             titleText.raycastTarget = false;
             var titleLE = titleText.gameObject.AddComponent<LayoutElement>();
             titleLE.flexibleWidth = 1f;
@@ -272,7 +279,7 @@ namespace OverTheCounter.UI
             closeLE.preferredWidth = 22f;
             closeLE.preferredHeight = 22f;
 
-            var closeText = UIFactory.Text("X", "\u2715", closeObj.transform, 15, TextAnchor.MiddleCenter);
+            var closeText = TMPFactory.Text("X", "\u2715", closeObj.transform, 15, TextAlignmentOptions.Center);
             closeText.raycastTarget = false;
             var ctr = closeText.GetComponent<RectTransform>();
             ctr.anchorMin = Vector2.zero;
@@ -333,7 +340,7 @@ namespace OverTheCounter.UI
             iconLE.preferredHeight = ICON_SIZE;
 
             // Label
-            var label = UIFactory.Text("Label", TruncateName(name), itemObj.transform, 15, TextAnchor.MiddleCenter);
+            var label = TMPFactory.Text("Label", TruncateName(name), itemObj.transform, 15, TextAlignmentOptions.Center);
             label.raycastTarget = false;
             var labelLE = label.gameObject.AddComponent<LayoutElement>();
             labelLE.preferredWidth = ICON_SIZE + 20f;
@@ -343,7 +350,7 @@ namespace OverTheCounter.UI
 
         private static void AddArrow(Transform parent)
         {
-            var arrowText = UIFactory.Text("Arrow", "\u2192", parent, 16, TextAnchor.MiddleCenter);
+            var arrowText = TMPFactory.Text("Arrow", "\u2192", parent, 16, TextAlignmentOptions.Center);
             arrowText.raycastTarget = false;
             var arrowLE = arrowText.gameObject.AddComponent<LayoutElement>();
             arrowLE.preferredWidth = 18f;
@@ -365,7 +372,7 @@ namespace OverTheCounter.UI
             hlg.childControlWidth = true;
             hlg.childControlHeight = true;
 
-            _tooltipText = UIFactory.Text("Text", "", _tooltipObj.transform, 15, TextAnchor.MiddleCenter);
+            _tooltipText = TMPFactory.Text("Text", "", _tooltipObj.transform, 15, TextAlignmentOptions.Center);
             _tooltipText.raycastTarget = false;
 
             var fitter = _tooltipObj.AddComponent<ContentSizeFitter>();
