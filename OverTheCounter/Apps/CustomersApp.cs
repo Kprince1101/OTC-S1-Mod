@@ -382,7 +382,7 @@ namespace OverTheCounter.Apps
             AddLandingFeatureCard(col.transform, 2, "Employee Tracking", "Every employee by property,\nstatus, and inventory,\nat a glance.");
 
             var ctaText = TMPFactory.Text("CTAText",
-                $"<color={Tier1Color}>Closed Beta</color>  ·  Access by invite only",
+                $"Available at <color={Tier1Color}>Tier 1</color>  ·  Expand your operation to unlock",
                 col.transform, 17, TextAlignmentOptions.Center);
             ctaText.richText = true;
             var ctaTextRect = ctaText.gameObject.GetComponent<RectTransform>();
