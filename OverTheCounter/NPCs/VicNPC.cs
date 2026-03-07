@@ -366,7 +366,7 @@ namespace OverTheCounter.NPCs
                 else
                 {
                     // Stage 0 / not texted
-                    container.AddNode("ENTRY", "Vic is ignoring you.", choices =>
+                    container.AddNode("ENTRY", "Not now. I'll find you when I need something.", choices =>
                     {
                         choices.Add("LEAVE", "Leave", "EXIT");
                     });
