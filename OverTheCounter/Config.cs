@@ -112,6 +112,7 @@ namespace OverTheCounter
 
         public static ConfigEntry<int> StackSizeMultiplier;
         public static ConfigEntry<bool> GraffitiReEdit;
+        public static ConfigEntry<bool> RecipePinEnabled;
 
         // ── Minimap POIs ──
         private static MelonPreferences_Category _minimapPoi;
@@ -156,7 +157,8 @@ namespace OverTheCounter
             "MinimapShowQuests",
             "MinimapShowProperties",
             "MinimapShowManagers",
-            "MinimapShowRank"
+            "MinimapShowRank",
+            "RecipePinEnabled"
         };
 
         public static void Initialize()
@@ -353,6 +355,11 @@ namespace OverTheCounter
                 "Graffiti Re-Edit",
                 "Allow re-editing spray paint surfaces without consuming spray cans. " +
                 "Spray can must still be equipped to interact."));
+
+            RecipePinEnabled = Register(_world.CreateEntry("RecipePinEnabled", true,
+                "Recipe Pin",
+                "Show a Pin Recipe button in the Product Manager app. " +
+                "Pins a draggable overlay showing the full mixing chain for a product."));
         }
 
         private static ConfigEntry<float> Register(MelonPreferences_Entry<float> entry)

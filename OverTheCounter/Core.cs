@@ -42,6 +42,7 @@ namespace OverTheCounter
             ManagerClipboardPatch.Apply(HarmonyInstance);
             ContactsAppFix.Apply(HarmonyInstance);
             GraffitiPatch.Apply(HarmonyInstance);
+            RecipePinPatch.Apply(HarmonyInstance);
             TimeManager.OnSleepEnd += OnSleepEnd;
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
@@ -52,6 +53,7 @@ namespace OverTheCounter
 
             ImmediateQuestWindowConfig.Register();
             MinimapOverlay.Register();
+            RecipeOverlay.Register();
 #if DEBUG
             DebugHelpers.Register();
 #endif
@@ -92,6 +94,13 @@ namespace OverTheCounter
             {
                 var go = new GameObject("OTC_MinimapController");
                 go.AddComponent<MinimapOverlay>();
+                GameObject.DontDestroyOnLoad(go);
+            }
+
+            if (!GameObject.Find("OTC_RecipeOverlay"))
+            {
+                var go = new GameObject("OTC_RecipeOverlay");
+                go.AddComponent<RecipeOverlay>();
                 GameObject.DontDestroyOnLoad(go);
             }
 
