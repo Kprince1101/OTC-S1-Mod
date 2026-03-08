@@ -11,6 +11,56 @@ namespace OverTheCounter
 {
     public static class Config
     {
+        // ── Manager System ──
+        private static MelonPreferences_Category _managers;
+
+        public static ConfigEntry<float> ManagerDailyWage;
+        public static ConfigEntry<float> ManagerSigningFee;
+        public static ConfigEntry<bool> AlternateHire;
+
+        // ── Vic Laundering ──
+        private static MelonPreferences_Category _laundering;
+
+        public static ConfigEntry<float> VicTier1Cost;
+        public static ConfigEntry<float> VicTier1Return;
+        public static ConfigEntry<int> VicTier2TrustUnlock;
+        public static ConfigEntry<float> VicTier2Cost;
+        public static ConfigEntry<float> VicTier2Return;
+        public static ConfigEntry<int> VicIntroWeedGrams;
+
+        // ── Bella Protocol ──
+        private static MelonPreferences_Category _bella;
+
+        public static ConfigEntry<float> BellaWeedValue;
+        public static ConfigEntry<float> BellaMethValue;
+        public static ConfigEntry<float> BellaCokeValue;
+
+        // ── Contract Notifications ──
+        private static MelonPreferences_Category _notifications;
+
+        public static ConfigEntry<bool> ConsolidationEnabled;
+        public static ConfigEntry<int> ConsolidationThreshold;
+
+        // ── Static Subscription ──
+        private static MelonPreferences_Category _subscription;
+
+        public static ConfigEntry<float> SaasWeeklyCost;
+        public static ConfigEntry<int> SaasCycleDays;
+        public static ConfigEntry<float> AtmDepositTrigger;
+        public static ConfigEntry<float> StaticTier1BankCost;
+        public static ConfigEntry<int> StaticTier1WeedGrams;
+        public static ConfigEntry<float> StaticTier2BankCost;
+        public static ConfigEntry<int> StaticTier2MethGrams;
+        public static ConfigEntry<float> StaticTier3BankCost;
+        public static ConfigEntry<int> StaticTier3PremiumMethGrams;
+
+        // ── World ──
+        private static MelonPreferences_Category _world;
+
+        public static ConfigEntry<int> StackSizeMultiplier;
+        public static ConfigEntry<bool> GraffitiReEdit;
+        public static ConfigEntry<bool> RecipePinEnabled;
+
         // ── Desperation System ──
         private static MelonPreferences_Category _desperation;
 
@@ -26,55 +76,6 @@ namespace OverTheCounter
         public static ConfigEntry<int> DayStartHour;
         public static ConfigEntry<int> DayEndHour;
 
-        // ── Vic Laundering ──
-        private static MelonPreferences_Category _laundering;
-
-        public static ConfigEntry<float> VicTier1Cost;
-        public static ConfigEntry<float> VicTier1Return;
-        public static ConfigEntry<int> VicTier2TrustUnlock;
-        public static ConfigEntry<float> VicTier2Cost;
-        public static ConfigEntry<float> VicTier2Return;
-        public static ConfigEntry<int> VicIntroWeedGrams;
-
-        // ── Static Subscription ──
-        private static MelonPreferences_Category _subscription;
-
-        public static ConfigEntry<float> SaasWeeklyCost;
-        public static ConfigEntry<int> SaasCycleDays;
-        public static ConfigEntry<float> AtmDepositTrigger;
-        public static ConfigEntry<float> StaticTier1BankCost;
-        public static ConfigEntry<int> StaticTier1WeedGrams;
-        public static ConfigEntry<float> StaticTier2BankCost;
-        public static ConfigEntry<int> StaticTier2MethGrams;
-        public static ConfigEntry<float> StaticTier3BankCost;
-        public static ConfigEntry<int> StaticTier3PremiumMethGrams;
-
-        // ── Contract Notifications ──
-        private static MelonPreferences_Category _notifications;
-
-        public static ConfigEntry<bool> ConsolidationEnabled;
-        public static ConfigEntry<int> ConsolidationThreshold;
-
-        // ── Manager System ──
-        private static MelonPreferences_Category _managers;
-
-        public static ConfigEntry<float> ManagerDailyWage;
-        public static ConfigEntry<float> ManagerSigningFee;
-        public static ConfigEntry<bool> ManagerVerboseLogging;
-        public static ConfigEntry<bool> AlternateHire;
-
-        // ── Debug ──
-        private static MelonPreferences_Category _debug;
-
-        public static ConfigEntry<bool> VerboseLogging;
-
-        // ── Bella Protocol ──
-        private static MelonPreferences_Category _bella;
-
-        public static ConfigEntry<float> BellaWeedValue;
-        public static ConfigEntry<float> BellaMethValue;
-        public static ConfigEntry<float> BellaCokeValue;
-
         // ── Drifter System ──
         private static MelonPreferences_Category _drifters;
 
@@ -88,6 +89,19 @@ namespace OverTheCounter
         public static ConfigEntry<int> DrifterLingerMinMin;
         public static ConfigEntry<int> DrifterLingerMaxMin;
         public static ConfigEntry<float> DrifterMinDealValue;
+
+        // ── Debug ──
+        private static MelonPreferences_Category _debug;
+
+        public static ConfigEntry<bool> VerboseLogging;
+        public static ConfigEntry<bool> ManagerVerboseLogging;
+        public static ConfigEntry<bool> DrifterVerboseLogging;
+        public static ConfigEntry<bool> DesperationVerboseLogging;
+        public static ConfigEntry<bool> NpcVerboseLogging;
+        public static ConfigEntry<bool> NetworkVerboseLogging;
+        public static ConfigEntry<bool> QuestVerboseLogging;
+        public static ConfigEntry<bool> NotificationVerboseLogging;
+        public static ConfigEntry<bool> PatchVerboseLogging;
 
         // ── Minimap ──
         private static MelonPreferences_Category _minimap;
@@ -106,13 +120,6 @@ namespace OverTheCounter
         public static ConfigEntry<bool> MinimapShowDay;
         public static ConfigEntry<bool> MinimapUse24HourClock;
         public static ConfigEntry<bool> MinimapShowRank;
-
-        // ── World ──
-        private static MelonPreferences_Category _world;
-
-        public static ConfigEntry<int> StackSizeMultiplier;
-        public static ConfigEntry<bool> GraffitiReEdit;
-        public static ConfigEntry<bool> RecipePinEnabled;
 
         // ── Minimap POIs ──
         private static MelonPreferences_Category _minimapPoi;
@@ -138,6 +145,13 @@ namespace OverTheCounter
             "ConsolidationEnabled",
             "ConsolidationThreshold",
             "ManagerVerboseLogging",
+            "DrifterVerboseLogging",
+            "DesperationVerboseLogging",
+            "NpcVerboseLogging",
+            "NetworkVerboseLogging",
+            "QuestVerboseLogging",
+            "NotificationVerboseLogging",
+            "PatchVerboseLogging",
             "VerboseLogging",
             "MinimapEnabled",
             "MinimapSize",
@@ -163,6 +177,93 @@ namespace OverTheCounter
 
         public static void Initialize()
         {
+            // ── Manager System ──
+            _managers = MelonPreferences.CreateCategory("OverTheCounter_Managers", "Manager System");
+
+            ManagerDailyWage = Register(_managers.CreateEntry("ManagerDailyWage", 350f, "Base Daily Wage",
+                "Base daily wage before upgrade fees are added"));
+            ManagerSigningFee = Register(_managers.CreateEntry("ManagerSigningFee", 3000f, "Signing Fee",
+                "One-time fee deducted from player cash when hiring a manager"));
+            AlternateHire = Register(_managers.CreateEntry("AlternateHire", false, "Alternate Hire",
+                "Show hire buttons in the OTC app instead of using Manny's dialogue. Enable if another mod conflicts with Manny."));
+
+            // ── Vic Laundering ──
+            _laundering = MelonPreferences.CreateCategory("OverTheCounter_Laundering", "Vic Laundering");
+
+            VicTier1Cost = Register(_laundering.CreateEntry("VicTier1Cost", 500f, "Tier 1 Cost",
+                "Cash required for tier-1 laundering"));
+            VicTier1Return = Register(_laundering.CreateEntry("VicTier1Return", 400f, "Tier 1 Return",
+                "Clean money returned for tier-1 laundering"));
+            VicTier2TrustUnlock = Register(_laundering.CreateEntry("VicTier2TrustUnlock", 7, "Tier 2 Trust Unlock",
+                "Trust level required to unlock tier-2 laundering"));
+            VicTier2Cost = Register(_laundering.CreateEntry("VicTier2Cost", 900f, "Tier 2 Cost",
+                "Cash required for tier-2 laundering"));
+            VicTier2Return = Register(_laundering.CreateEntry("VicTier2Return", 750f, "Tier 2 Return",
+                "Clean money returned for tier-2 laundering"));
+            VicIntroWeedGrams = Register(_laundering.CreateEntry("VicIntroWeedGrams", 40, "Intro Quest Weed Grams",
+                "Grams of weed required to complete Vic's intro quest"));
+
+            // ── Bella Protocol ──
+            _bella = MelonPreferences.CreateCategory("OverTheCounter_Bella", "Bella Protocol");
+
+            BellaWeedValue = Register(_bella.CreateEntry("BellaWeedValue", 105f, "Weed Mix Value",
+                "Minimum base price for the weed mix Bella requires"));
+            BellaMethValue = Register(_bella.CreateEntry("BellaMethValue", 200f, "Meth Mix Value",
+                "Minimum base price for the meth mix Bella requires"));
+            BellaCokeValue = Register(_bella.CreateEntry("BellaCokeValue", 400f, "Cocaine Mix Value",
+                "Minimum base price for the cocaine mix Bella requires"));
+
+            // ── Contract Notifications ──
+            _notifications = MelonPreferences.CreateCategory("OverTheCounter_Notifications", "Contract Notifications");
+
+            ConsolidationEnabled = Register(_notifications.CreateEntry("Enabled", true, "Enabled",
+                "Enable/disable contract consolidation (groups same-window deliveries into one HUD entry)"));
+            ConsolidationThreshold = Register(_notifications.CreateEntry("ConsolidationThreshold", 5, "Consolidation Threshold",
+                "Minimum contracts in a window before consolidation kicks in"));
+
+            // ── Static Subscription ──
+            _subscription = MelonPreferences.CreateCategory("OverTheCounter_Subscription", "Static Subscription");
+
+            SaasWeeklyCost = Register(_subscription.CreateEntry("SaasWeeklyCost", 1000f, "Weekly Cost",
+                "Bank balance deducted each billing cycle"));
+            SaasCycleDays = Register(_subscription.CreateEntry("SaasCycleDays", 7, "Cycle Days",
+                "Number of days between subscription payments"));
+            AtmDepositTrigger = Register(_subscription.CreateEntry("AtmDepositTrigger", 5000f, "ATM Deposit Trigger",
+                "Weekly ATM deposit sum that triggers Static's intro quest"));
+            StaticTier1BankCost = Register(_subscription.CreateEntry("StaticTier1BankCost", 1500f, "Tier 1 Bank Cost",
+                "Bank transfer cost for the initial software package"));
+            StaticTier1WeedGrams = Register(_subscription.CreateEntry("StaticTier1WeedGrams", 12, "Tier 1 Weed Grams",
+                "Grams of weed required for the initial package"));
+            StaticTier2BankCost = Register(_subscription.CreateEntry("StaticTier2BankCost", 6000f, "Tier 2 Bank Cost",
+                "Bank transfer cost for the Premium upgrade"));
+            StaticTier2MethGrams = Register(_subscription.CreateEntry("StaticTier2MethGrams", 5, "Tier 2 Meth Grams",
+                "Grams of meth required for the Premium upgrade"));
+            StaticTier3BankCost = Register(_subscription.CreateEntry("StaticTier3BankCost", 12000f, "Tier 3 Bank Cost",
+                "Bank transfer cost for the Enterprise upgrade"));
+            StaticTier3PremiumMethGrams = Register(_subscription.CreateEntry("StaticTier3PremiumMethGrams", 10, "Tier 3 Premium Meth Grams",
+                "Grams of premium meth required for Enterprise upgrade"));
+
+            // ── World ──
+            _world = MelonPreferences.CreateCategory("OverTheCounter_World", "World");
+
+            StackSizeMultiplier = Register(_world.CreateEntry("StackSizeMultiplier", 1,
+                "Stack Size Multiplier",
+                "Multiplies the stack limit of all stackable items by this value. " +
+                "1 = vanilla stacks (default). 2 = double stacks. Affects all inventories. " +
+                "Host value is used in multiplayer. Changing mid-save does not retroactively " +
+                "adjust existing item quantities.",
+                validator: new ValueRange<int>(1, 10)));
+
+            GraffitiReEdit = Register(_world.CreateEntry("GraffitiReEdit", true,
+                "Graffiti Re-Edit",
+                "Allow re-editing spray paint surfaces without consuming spray cans. " +
+                "Spray can must still be equipped to interact."));
+
+            RecipePinEnabled = Register(_world.CreateEntry("RecipePinEnabled", true,
+                "Recipe Pin",
+                "Show a Pin Recipe button in the Product Manager app. " +
+                "Pins a draggable overlay showing the full mixing chain for a product."));
+
             // ── Desperation System ──
             _desperation = MelonPreferences.CreateCategory("OverTheCounter", "Desperation System");
 
@@ -189,80 +290,6 @@ namespace OverTheCounter
             DayEndHour = Register(_desperation.CreateEntry("DayEndHour", 2100, "Day End Hour",
                 "Latest 24h time for desperation rolls (2100 = 9:00 PM)"));
 
-            // ── Vic Laundering ──
-            _laundering = MelonPreferences.CreateCategory("OverTheCounter_Laundering", "Vic Laundering");
-
-            VicTier1Cost = Register(_laundering.CreateEntry("VicTier1Cost", 500f, "Tier 1 Cost",
-                "Cash required for tier-1 laundering"));
-            VicTier1Return = Register(_laundering.CreateEntry("VicTier1Return", 400f, "Tier 1 Return",
-                "Clean money returned for tier-1 laundering"));
-            VicTier2TrustUnlock = Register(_laundering.CreateEntry("VicTier2TrustUnlock", 7, "Tier 2 Trust Unlock",
-                "Trust level required to unlock tier-2 laundering"));
-            VicTier2Cost = Register(_laundering.CreateEntry("VicTier2Cost", 900f, "Tier 2 Cost",
-                "Cash required for tier-2 laundering"));
-            VicTier2Return = Register(_laundering.CreateEntry("VicTier2Return", 750f, "Tier 2 Return",
-                "Clean money returned for tier-2 laundering"));
-            VicIntroWeedGrams = Register(_laundering.CreateEntry("VicIntroWeedGrams", 40, "Intro Quest Weed Grams",
-                "Grams of weed required to complete Vic's intro quest"));
-
-            // ── Static Subscription ──
-            _subscription = MelonPreferences.CreateCategory("OverTheCounter_Subscription", "Static Subscription");
-
-            SaasWeeklyCost = Register(_subscription.CreateEntry("SaasWeeklyCost", 1000f, "Weekly Cost",
-                "Bank balance deducted each billing cycle"));
-            SaasCycleDays = Register(_subscription.CreateEntry("SaasCycleDays", 7, "Cycle Days",
-                "Number of days between subscription payments"));
-            AtmDepositTrigger = Register(_subscription.CreateEntry("AtmDepositTrigger", 5000f, "ATM Deposit Trigger",
-                "Weekly ATM deposit sum that triggers Static's intro quest"));
-            StaticTier1BankCost = Register(_subscription.CreateEntry("StaticTier1BankCost", 1500f, "Tier 1 Bank Cost",
-                "Bank transfer cost for the initial software package"));
-            StaticTier1WeedGrams = Register(_subscription.CreateEntry("StaticTier1WeedGrams", 12, "Tier 1 Weed Grams",
-                "Grams of weed required for the initial package"));
-            StaticTier2BankCost = Register(_subscription.CreateEntry("StaticTier2BankCost", 6000f, "Tier 2 Bank Cost",
-                "Bank transfer cost for the Premium upgrade"));
-            StaticTier2MethGrams = Register(_subscription.CreateEntry("StaticTier2MethGrams", 5, "Tier 2 Meth Grams",
-                "Grams of meth required for the Premium upgrade"));
-            StaticTier3BankCost = Register(_subscription.CreateEntry("StaticTier3BankCost", 12000f, "Tier 3 Bank Cost",
-                "Bank transfer cost for the Enterprise upgrade"));
-            StaticTier3PremiumMethGrams = Register(_subscription.CreateEntry("StaticTier3PremiumMethGrams", 10, "Tier 3 Premium Meth Grams",
-                "Grams of premium meth required for Enterprise upgrade"));
-
-            // ── Contract Notifications ──
-            _notifications = MelonPreferences.CreateCategory("OverTheCounter_Notifications", "Contract Notifications");
-
-            ConsolidationEnabled = Register(_notifications.CreateEntry("Enabled", true, "Enabled",
-                "Enable/disable contract consolidation (groups same-window deliveries into one HUD entry)"));
-            ConsolidationThreshold = Register(_notifications.CreateEntry("ConsolidationThreshold", 5, "Consolidation Threshold",
-                "Minimum contracts in a window before consolidation kicks in"));
-
-            // ── Manager System ──
-            _managers = MelonPreferences.CreateCategory("OverTheCounter_Managers", "Manager System");
-
-            ManagerDailyWage = Register(_managers.CreateEntry("ManagerDailyWage", 350f, "Base Daily Wage",
-                "Base daily wage before upgrade fees are added"));
-            ManagerSigningFee = Register(_managers.CreateEntry("ManagerSigningFee", 3000f, "Signing Fee",
-                "One-time fee deducted from player cash when hiring a manager"));
-            ManagerVerboseLogging = Register(_managers.CreateEntry("ManagerVerboseLogging", false, "Verbose Logging",
-                "Enable detailed manager logging for troubleshooting (shopping list breakdowns, per-item details)"));
-            AlternateHire = Register(_managers.CreateEntry("AlternateHire", false, "Alternate Hire",
-                "Show hire buttons in the OTC app instead of using Manny's dialogue. Enable if another mod conflicts with Manny."));
-
-            // ── Debug ──
-            _debug = MelonPreferences.CreateCategory("OverTheCounter_Debug", "Debug");
-
-            VerboseLogging = Register(_debug.CreateEntry("VerboseLogging", false, "Verbose Logging",
-                "Enable detailed logging for troubleshooting (drifters, quests, sync, NPCs)"));
-
-            // ── Bella Protocol ──
-            _bella = MelonPreferences.CreateCategory("OverTheCounter_Bella", "Bella Protocol");
-
-            BellaWeedValue = Register(_bella.CreateEntry("BellaWeedValue", 105f, "Weed Mix Value",
-                "Minimum base price for the weed mix Bella requires"));
-            BellaMethValue = Register(_bella.CreateEntry("BellaMethValue", 200f, "Meth Mix Value",
-                "Minimum base price for the meth mix Bella requires"));
-            BellaCokeValue = Register(_bella.CreateEntry("BellaCokeValue", 400f, "Cocaine Mix Value",
-                "Minimum base price for the cocaine mix Bella requires"));
-
             // ── Drifter System ──
             _drifters = MelonPreferences.CreateCategory("OverTheCounter_Drifters", "Drifter System");
 
@@ -286,6 +313,48 @@ namespace OverTheCounter
                 "Maximum minutes a drifter lingers after deal completion/expiry"));
             DrifterMinDealValue = Register(_drifters.CreateEntry("DrifterMinDealValue", 90f, "Min Deal Value ($)",
                 "Soft minimum deal value - drifters ask for more quantity until the deal reaches this threshold"));
+
+            // ── Debug ──
+            _debug = MelonPreferences.CreateCategory("OverTheCounter_Debug", "Debug");
+
+            VerboseLogging = Register(_debug.CreateEntry("VerboseLogging", false, "Verbose Logging (General)",
+                "Catch-all verbose logging for systems without a dedicated toggle"));
+            ManagerVerboseLogging = Register(_debug.CreateEntry("ManagerVerboseLogging", false, "Verbose: Manager",
+                "Enable detailed manager logging (shopping list breakdowns, per-item details)"));
+            DrifterVerboseLogging = Register(_debug.CreateEntry("DrifterVerboseLogging", false, "Verbose: Drifter",
+                "Enable detailed drifter system logging"));
+            DesperationVerboseLogging = Register(_debug.CreateEntry("DesperationVerboseLogging", false, "Verbose: Desperation",
+                "Enable detailed desperation system logging"));
+            NpcVerboseLogging = Register(_debug.CreateEntry("NpcVerboseLogging", false, "Verbose: NPC",
+                "Enable detailed NPC logging (Vic, Bella, Static)"));
+            NetworkVerboseLogging = Register(_debug.CreateEntry("NetworkVerboseLogging", false, "Verbose: Network",
+                "Enable detailed network sync logging"));
+            QuestVerboseLogging = Register(_debug.CreateEntry("QuestVerboseLogging", false, "Verbose: Quest",
+                "Enable detailed quest logging"));
+            NotificationVerboseLogging = Register(_debug.CreateEntry("NotificationVerboseLogging", false, "Verbose: Notification",
+                "Enable detailed notification system logging"));
+            PatchVerboseLogging = Register(_debug.CreateEntry("PatchVerboseLogging", false, "Verbose: Patch",
+                "Enable detailed Harmony patch logging"));
+
+            // ── Minimap POIs ──
+            _minimapPoi = MelonPreferences.CreateCategory("OverTheCounter_MinimapPOI", "Minimap POIs");
+
+            MinimapShowPotentialCustomers = Register(_minimapPoi.CreateEntry("MinimapShowPotentialCustomers", true,
+                "Show Potential Customers", "Show potential customer icons on the minimap"));
+            MinimapShowCustomers = Register(_minimapPoi.CreateEntry("MinimapShowCustomers", false,
+                "Show Customers", "Show unlocked customer icons on the minimap"));
+            MinimapShowDealers = Register(_minimapPoi.CreateEntry("MinimapShowDealers", true,
+                "Show Dealers", "Show dealer icons on the minimap (potential and active)"));
+            MinimapShowDeadDrops = Register(_minimapPoi.CreateEntry("MinimapShowDeadDrops", true,
+                "Show Dead Drops", "Show dead drop icons on the minimap"));
+            MinimapShowContracts = Register(_minimapPoi.CreateEntry("MinimapShowContracts", true,
+                "Show Contracts", "Show contract delivery icons on the minimap"));
+            MinimapShowQuests = Register(_minimapPoi.CreateEntry("MinimapShowQuests", true,
+                "Show Quests", "Show quest objective icons on the minimap"));
+            MinimapShowProperties = Register(_minimapPoi.CreateEntry("MinimapShowProperties", true,
+                "Show Properties", "Show owned property icons on the minimap"));
+            MinimapShowManagers = Register(_minimapPoi.CreateEntry("MinimapShowManagers", true,
+                "Show Managers", "Show manager icons on the minimap"));
 
             // ── Minimap ──
             _minimap = MelonPreferences.CreateCategory("OverTheCounter_Minimap", "Minimap");
@@ -319,47 +388,6 @@ namespace OverTheCounter
                 "24-Hour Clock", "Use 24-hour time format instead of 12-hour AM/PM"));
             MinimapShowRank = Register(_minimap.CreateEntry("MinimapShowRank", false,
                 "Show Rank/XP", "Display rank name and XP progress bar near the minimap"));
-
-            // ── Minimap POIs ──
-            _minimapPoi = MelonPreferences.CreateCategory("OverTheCounter_MinimapPOI", "Minimap POIs");
-
-            MinimapShowPotentialCustomers = Register(_minimapPoi.CreateEntry("MinimapShowPotentialCustomers", true,
-                "Show Potential Customers", "Show potential customer icons on the minimap"));
-            MinimapShowCustomers = Register(_minimapPoi.CreateEntry("MinimapShowCustomers", false,
-                "Show Customers", "Show unlocked customer icons on the minimap"));
-            MinimapShowDealers = Register(_minimapPoi.CreateEntry("MinimapShowDealers", true,
-                "Show Dealers", "Show dealer icons on the minimap (potential and active)"));
-            MinimapShowDeadDrops = Register(_minimapPoi.CreateEntry("MinimapShowDeadDrops", true,
-                "Show Dead Drops", "Show dead drop icons on the minimap"));
-            MinimapShowContracts = Register(_minimapPoi.CreateEntry("MinimapShowContracts", true,
-                "Show Contracts", "Show contract delivery icons on the minimap"));
-            MinimapShowQuests = Register(_minimapPoi.CreateEntry("MinimapShowQuests", true,
-                "Show Quests", "Show quest objective icons on the minimap"));
-            MinimapShowProperties = Register(_minimapPoi.CreateEntry("MinimapShowProperties", true,
-                "Show Properties", "Show owned property icons on the minimap"));
-            MinimapShowManagers = Register(_minimapPoi.CreateEntry("MinimapShowManagers", true,
-                "Show Managers", "Show manager icons on the minimap"));
-
-            // ── World ──
-            _world = MelonPreferences.CreateCategory("OverTheCounter_World", "World");
-
-            StackSizeMultiplier = Register(_world.CreateEntry("StackSizeMultiplier", 1,
-                "Stack Size Multiplier",
-                "Multiplies the stack limit of all stackable items by this value. " +
-                "1 = vanilla stacks (default). 2 = double stacks. Affects all inventories. " +
-                "Host value is used in multiplayer. Changing mid-save does not retroactively " +
-                "adjust existing item quantities.",
-                validator: new ValueRange<int>(1, 10)));
-
-            GraffitiReEdit = Register(_world.CreateEntry("GraffitiReEdit", true,
-                "Graffiti Re-Edit",
-                "Allow re-editing spray paint surfaces without consuming spray cans. " +
-                "Spray can must still be equipped to interact."));
-
-            RecipePinEnabled = Register(_world.CreateEntry("RecipePinEnabled", true,
-                "Recipe Pin",
-                "Show a Pin Recipe button in the Product Manager app. " +
-                "Pins a draggable overlay showing the full mixing chain for a product."));
         }
 
         private static ConfigEntry<float> Register(MelonPreferences_Entry<float> entry)

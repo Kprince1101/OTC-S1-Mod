@@ -5,8 +5,8 @@ using S1API.Items;
 using S1API.Money;
 using S1API.Products;
 using OverTheCounter.Logic;
+using OverTheCounter.Utilities;
 using UnityEngine;
-using MelonLoader;
 using System;
 using System.Linq;
 using System.Reflection;
@@ -22,7 +22,6 @@ namespace OverTheCounter
 {
     public class DebugHelpers : MonoBehaviour
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:DebugHelpers");
         private bool _menuVisible;
         private Vector2 _scrollPos;
 
@@ -103,7 +102,7 @@ namespace OverTheCounter
             }
             catch (Exception ex)
             {
-                Logger.Warning($"RefreshCachedDefinitions: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"RefreshCachedDefinitions: {ex.Message}");
             }
         }
 
@@ -128,7 +127,7 @@ namespace OverTheCounter
             }
             catch (Exception ex)
             {
-                Logger.Warning($"FindFromRegistry<{typeof(T).Name}>: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"FindFromRegistry<{typeof(T).Name}>: {ex.Message}");
             }
             return null;
         }
@@ -220,12 +219,12 @@ namespace OverTheCounter
                     }
                     else
                     {
-                        Logger.Warning("No meth definition cached for desperation debug");
+                        OTCLog.Warning(OTCLog.Systems.Patch, "No meth definition cached for desperation debug");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Force Desperation failed: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Patch, $"Force Desperation failed: {ex.Message}");
                     DesperationManager.DebugProductId = null;
                 }
             }
@@ -270,7 +269,7 @@ namespace OverTheCounter
             if (GUILayout.Button("Manager Status"))
             {
                 var status = ManagerController.DebugGetStatus();
-                Logger.Msg($"[Debug] {status}");
+                OTCLog.Msg(OTCLog.Systems.Patch, $"[Debug] {status}");
             }
 
             GUILayout.Space(8);
@@ -294,10 +293,10 @@ namespace OverTheCounter
                             _hsSpawnPos = player.transform.position;
                             _hsSpawnYRot = player.transform.eulerAngles.y;
                             _hsStep = 1;
-                            Logger.Msg($"[HOTSPOT] Spawn marked: ({_hsSpawnPos.x:F2}, {_hsSpawnPos.y:F2}, {_hsSpawnPos.z:F2}) Y:{_hsSpawnYRot:F1}");
+                            OTCLog.Msg(OTCLog.Systems.Patch, $"[HOTSPOT] Spawn marked: ({_hsSpawnPos.x:F2}, {_hsSpawnPos.y:F2}, {_hsSpawnPos.z:F2}) Y:{_hsSpawnYRot:F1}");
                         }
                     }
-                    catch (Exception ex) { Logger.Warning($"Mark spawn failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Patch, $"Mark spawn failed: {ex.Message}"); }
                 }
             }
             // Step 2: Mark destination
@@ -316,10 +315,10 @@ namespace OverTheCounter
                             _hsDestYRot = player.transform.eulerAngles.y;
                             _hsStep = 2;
                             _hsDesc = "";
-                            Logger.Msg($"[HOTSPOT] Dest marked: ({_hsDestPos.x:F2}, {_hsDestPos.y:F2}, {_hsDestPos.z:F2}) Y:{_hsDestYRot:F1}");
+                            OTCLog.Msg(OTCLog.Systems.Patch, $"[HOTSPOT] Dest marked: ({_hsDestPos.x:F2}, {_hsDestPos.y:F2}, {_hsDestPos.z:F2}) Y:{_hsDestYRot:F1}");
                         }
                     }
-                    catch (Exception ex) { Logger.Warning($"Mark dest failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Patch, $"Mark dest failed: {ex.Message}"); }
                 }
                 if (GUILayout.Button("Undo Spawn"))
                     _hsStep = 0;
@@ -345,9 +344,9 @@ namespace OverTheCounter
                                 + $"    {spawnVec}, {_hsSpawnYRot:F1}f),";
 
                     GUIUtility.systemCopyBuffer = code;
-                    Logger.Msg($"[HOTSPOT] === Spot {_hotspotCounter} saved ===");
-                    Logger.Msg($"[HOTSPOT] Desc: \"{desc}\"");
-                    Logger.Msg($"[HOTSPOT] Code (copied):\n{code}");
+                    OTCLog.Msg(OTCLog.Systems.Patch, $"[HOTSPOT] === Spot {_hotspotCounter} saved ===");
+                    OTCLog.Msg(OTCLog.Systems.Patch, $"[HOTSPOT] Desc: \"{desc}\"");
+                    OTCLog.Msg(OTCLog.Systems.Patch, $"[HOTSPOT] Code (copied):\n{code}");
 
                     _hsStep = 0;
                     _hsDesc = "";
@@ -426,7 +425,7 @@ namespace OverTheCounter
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Speed boost failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Speed boost failed: {ex.Message}");
                 _speedBoosted = false;
             }
         }
@@ -446,7 +445,7 @@ namespace OverTheCounter
                 }
                 catch { }
             }
-            Logger.Msg($"Manager speed boost: {(_managerSpeedBoosted ? "ON" : "OFF")} ({speed:F3})");
+            OTCLog.Msg(OTCLog.Systems.Patch, $"Manager speed boost: {(_managerSpeedBoosted ? "ON" : "OFF")} ({speed:F3})");
         }
 
         private static void SpawnPackagedProduct(ProductDefinition productDef, string packagingId, int gramsPerUnit, int count, string label,
@@ -456,14 +455,14 @@ namespace OverTheCounter
             {
                 if (productDef == null)
                 {
-                    Logger.Warning($"No product definition found for {label}");
+                    OTCLog.Warning(OTCLog.Systems.Patch, $"No product definition found for {label}");
                     return;
                 }
 
                 PackagingDefinition packaging = ProductPopulator.GetPackaging(packagingId);
                 if (packaging == null)
                 {
-                    Logger.Warning($"Packaging '{packagingId}' not found");
+                    OTCLog.Warning(OTCLog.Systems.Patch, $"Packaging '{packagingId}' not found");
                     return;
                 }
 
@@ -549,7 +548,7 @@ namespace OverTheCounter
             }
             catch (Exception ex)
             {
-                Logger.Error($"Spawn {label} failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"Spawn {label} failed: {ex.Message}");
             }
         }
     }

@@ -1,5 +1,5 @@
 using HarmonyLib;
-using MelonLoader;
+using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -38,8 +38,6 @@ namespace OverTheCounter.Patches
     /// </summary>
     public static class NpcTypeDiscoveryPatch
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:NpcTypePatch");
-
         public static void Apply(HarmonyLib.Harmony harmony)
         {
             try
@@ -47,7 +45,7 @@ namespace OverTheCounter.Patches
                 var npcType = AccessTools.TypeByName("S1API.Entities.NPC");
                 if (npcType == null)
                 {
-                    Logger.Warning("S1API.Entities.NPC not found — NPC type discovery patch skipped.");
+                    OTCLog.Warning(OTCLog.Systems.Patch, "S1API.Entities.NPC not found — NPC type discovery patch skipped.");
                     return;
                 }
 
@@ -57,19 +55,19 @@ namespace OverTheCounter.Patches
                 if (createWrapper != null)
                 {
                     harmony.Patch(createWrapper, transpiler: transpiler);
-                    Logger.Msg("Patched CreateWrapperForNetworkSpawnedNPC (safe GetTypes).");
+                    OTCLog.Msg(OTCLog.Systems.Patch, "Patched CreateWrapperForNetworkSpawnedNPC (safe GetTypes).");
                 }
 
                 var preRegister = AccessTools.Method(npcType, "PreRegisterAllNpcPrefabs");
                 if (preRegister != null)
                 {
                     harmony.Patch(preRegister, transpiler: transpiler);
-                    Logger.Msg("Patched PreRegisterAllNpcPrefabs (safe GetTypes).");
+                    OTCLog.Msg(OTCLog.Systems.Patch, "Patched PreRegisterAllNpcPrefabs (safe GetTypes).");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to apply NPC type discovery patches: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"Failed to apply NPC type discovery patches: {ex.Message}");
             }
         }
 

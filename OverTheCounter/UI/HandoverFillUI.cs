@@ -1,5 +1,6 @@
 using MelonLoader;
 using OverTheCounter.Logic;
+using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -135,7 +136,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[HandoverFillUI] Smart Fill error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"Smart Fill error: {ex.Message}");
                 SetStatus("Error!", true);
             }
         }
@@ -422,7 +423,7 @@ namespace OverTheCounter.UI
                 }
                 catch (Exception ex)
                 {
-                    Melon<Core>.Logger.Warning($"[HandoverFillUI] Error updating source slot: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Patch, $"Error updating source slot: {ex.Message}");
                 }
             }
 

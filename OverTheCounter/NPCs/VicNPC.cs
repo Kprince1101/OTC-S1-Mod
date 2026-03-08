@@ -33,7 +33,6 @@ namespace OverTheCounter.NPCs
     /// </summary>
     public sealed class VicNPC : NPC
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:VicNPC");
         private static readonly EVOLineType[] DismissalSounds = { EVOLineType.Angry, EVOLineType.Annoyed, EVOLineType.No };
 
         private static readonly Vector3 SpawnPosition = new Vector3(67.75f, 0.97f, 32.36f);
@@ -88,7 +87,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"WarpToSpawn failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"WarpToSpawn failed: {ex.Message}");
             }
         }
 
@@ -150,7 +149,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to set Vic's appearance: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"Failed to set Vic's appearance: {ex.Message}");
                 Appearance.GenerateRandomAppearance();
                 Appearance.Build();
             }
@@ -174,7 +173,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Error($"SetupDialogue FAILED: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"SetupDialogue FAILED: {ex.Message}\n{ex.StackTrace}");
             }
 
             if (VicSaveData.Instance == null)
@@ -184,7 +183,7 @@ namespace OverTheCounter.NPCs
                     new VicSaveData();
                     ConfigSyncData.ApplyPendingGameState();
                 }
-                catch (Exception ex) { Logger.Warning($"VicSaveData fallback creation failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"VicSaveData fallback creation failed: {ex.Message}"); }
             }
 
             VicSaveData.Instance?.OnVicSpawned();
@@ -213,7 +212,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to initialize voice: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"Failed to initialize voice: {ex.Message}");
             }
         }
 
@@ -226,7 +225,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to play dismissal sound: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"Failed to play dismissal sound: {ex.Message}");
             }
         }
 
@@ -411,7 +410,7 @@ namespace OverTheCounter.NPCs
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"ACCEPT callback failed: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.NPC, $"ACCEPT callback failed: {ex.Message}");
                 }
             });
 
@@ -421,7 +420,7 @@ namespace OverTheCounter.NPCs
                 {
                     if (!RemoveWeedFromInventory(Config.VicIntroWeedGrams.Value))
                     {
-                        Logger.Warning($"HANDOVER: failed to remove {Config.VicIntroWeedGrams.Value}g weed from inventory.");
+                        OTCLog.Warning(OTCLog.Systems.NPC, $"HANDOVER: failed to remove {Config.VicIntroWeedGrams.Value}g weed from inventory.");
                         return;
                     }
 
@@ -440,7 +439,7 @@ namespace OverTheCounter.NPCs
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"HANDOVER callback failed: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.NPC, $"HANDOVER callback failed: {ex.Message}");
                 }
             });
 
@@ -484,7 +483,7 @@ namespace OverTheCounter.NPCs
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"LAUNDER callback failed: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.NPC, $"LAUNDER callback failed: {ex.Message}");
                 }
             });
         }
@@ -539,7 +538,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"CountWeedInInventory failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"CountWeedInInventory failed: {ex.Message}");
             }
             return totalGrams;
         }
@@ -577,7 +576,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Error($"RemoveWeedFromInventory failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"RemoveWeedFromInventory failed: {ex.Message}");
                 return false;
             }
             return remaining <= 0;

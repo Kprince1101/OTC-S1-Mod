@@ -1,5 +1,6 @@
 using MelonLoader;
 using OverTheCounter.Logic;
+using OverTheCounter.Utilities;
 using S1API.UI;
 using System;
 using System.Collections.Generic;
@@ -97,7 +98,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[SmartStashOverlayUI] Could not subscribe to storage changes: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Could not subscribe to storage changes: {ex.Message}");
             }
 
             // Subscribe to player hotbar slot changes
@@ -117,7 +118,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[SmartStashOverlayUI] Could not subscribe to hotbar changes: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Could not subscribe to hotbar changes: {ex.Message}");
             }
         }
 
@@ -164,7 +165,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[SmartStashOverlayUI] Error during auto-refresh: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Error during auto-refresh: {ex.Message}");
             }
         }
 
@@ -376,7 +377,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[SmartStashOverlayUI] Error calculating manifest: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"Error calculating manifest: {ex.Message}");
                 SetStatus("Error loading manifest");
                 return;
             }
@@ -539,7 +540,7 @@ namespace OverTheCounter.UI
                         }
                         catch (Exception ex)
                         {
-                            Melon<Core>.Logger.Warning($"[SmartStashOverlayUI] Error modifying container slot: {ex.Message}");
+                            OTCLog.Warning(OTCLog.Systems.Patch, $"Error modifying container slot: {ex.Message}");
                         }
 
                         int unitsTransferred = placed * multiplier;
@@ -560,7 +561,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[SmartStashOverlayUI] Smart Fill error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"Smart Fill error: {ex.Message}");
                 SetStatus("Transfer error!");
             }
         }

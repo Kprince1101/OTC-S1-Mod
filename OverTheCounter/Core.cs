@@ -46,10 +46,10 @@ namespace OverTheCounter
             TimeManager.OnSleepEnd += OnSleepEnd;
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
-                LoggerInstance.Warning("SteamNetworkLib not installed — multiplayer sync disabled. " +
+                OTCLog.Warning(OTCLog.Systems.Network, "SteamNetworkLib not installed — multiplayer sync disabled. " +
                     "Single-player works fine. Install SteamNetworkLib for co-op support.");
 
-            LoggerInstance.Msg("OverTheCounter Initialized.");
+            OTCLog.Msg(OTCLog.Systems.Patch, "OverTheCounter Initialized.");
 
             ImmediateQuestWindowConfig.Register();
             MinimapOverlay.Register();
@@ -59,10 +59,10 @@ namespace OverTheCounter
 #endif
 
             ExtractIcons();
-            _notificationManager = new NotificationManager(LoggerInstance);
-            _desperationManager = new DesperationManager(LoggerInstance);
-            _drifterManager = new DrifterManager(LoggerInstance);
-            _managerManager = new ManagerController(LoggerInstance);
+            _notificationManager = new NotificationManager();
+            _desperationManager = new DesperationManager();
+            _drifterManager = new DrifterManager();
+            _managerManager = new ManagerController();
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
@@ -170,7 +170,7 @@ namespace OverTheCounter
             }
             catch (Exception ex)
             {
-                LoggerInstance.Error($"Error in OnLateUpdate: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"Error in OnLateUpdate: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -223,7 +223,7 @@ namespace OverTheCounter
 
             if (!File.Exists(targetPath))
             {
-                LoggerInstance.Msg($"Extracting {fileName}...");
+                OTCLog.Msg(OTCLog.Systems.Patch, $"Extracting {fileName}...");
                 string resourceName = $"OverTheCounter.Resources.{fileName}";
 
                 using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
@@ -234,11 +234,11 @@ namespace OverTheCounter
                         {
                             stream.CopyTo(fileStream);
                         }
-                        LoggerInstance.Msg($"{fileName} extracted successfully.");
+                        OTCLog.Msg(OTCLog.Systems.Patch, $"{fileName} extracted successfully.");
                     }
                     else
                     {
-                        LoggerInstance.Error($"Could not find embedded resource '{resourceName}'.");
+                        OTCLog.Error(OTCLog.Systems.Patch, $"Could not find embedded resource '{resourceName}'.");
                     }
                 }
             }

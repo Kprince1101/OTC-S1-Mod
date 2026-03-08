@@ -1,6 +1,7 @@
 using HarmonyLib;
 using MelonLoader;
 using OverTheCounter.Logic;
+using OverTheCounter.Utilities;
 using OverTheCounter.UI;
 using System;
 using System.Collections;
@@ -36,7 +37,6 @@ namespace OverTheCounter.Patches
     /// </summary>
     public static class ManagerClipboardPatch
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerClipboard");
 
         // Highlight tracking
         private static NPC _highlightedNpc;
@@ -57,11 +57,11 @@ namespace OverTheCounter.Patches
                         prefix: new HarmonyMethod(typeof(ManagerClipboardPatch), nameof(UpdatePrefix)),
                         postfix: new HarmonyMethod(typeof(ManagerClipboardPatch), nameof(UpdatePostfix)));
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg("Patched ManagementClipboard_Equippable.Update (prefix + postfix)");
+                        OTCLog.Msg(OTCLog.Systems.Manager, "Patched ManagementClipboard_Equippable.Update (prefix + postfix)");
                 }
                 else
                 {
-                    Logger.Warning("ManagementClipboard_Equippable.Update not found");
+                    OTCLog.Warning(OTCLog.Systems.Manager,"ManagementClipboard_Equippable.Update not found");
                 }
 
                 // Patch EmployeeHome.SetAssignedEmployee to clear our manager when another employee takes the locker
@@ -73,7 +73,7 @@ namespace OverTheCounter.Patches
                     harmony.Patch(setEmployeeTarget,
                         postfix: new HarmonyMethod(typeof(ManagerClipboardPatch), nameof(SetAssignedEmployeePostfix)));
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg("Patched EmployeeHome.SetAssignedEmployee");
+                        OTCLog.Msg(OTCLog.Systems.Manager, "Patched EmployeeHome.SetAssignedEmployee");
                 }
 
                 // Patch ManagementClipboard_Equippable.Unequip to clear manager outline
@@ -84,7 +84,7 @@ namespace OverTheCounter.Patches
                     harmony.Patch(unequipTarget,
                         postfix: new HarmonyMethod(typeof(ManagerClipboardPatch), nameof(UnequipPostfix)));
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg("Patched ManagementClipboard_Equippable.Unequip");
+                        OTCLog.Msg(OTCLog.Systems.Manager, "Patched ManagementClipboard_Equippable.Unequip");
                 }
 
                 // Patch ManagementClipboard.Close to clean up our panel
@@ -96,16 +96,16 @@ namespace OverTheCounter.Patches
                     harmony.Patch(closeTarget,
                         postfix: new HarmonyMethod(typeof(ManagerClipboardPatch), nameof(ClosePostfix)));
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg("Patched ManagementClipboard.Close");
+                        OTCLog.Msg(OTCLog.Systems.Manager, "Patched ManagementClipboard.Close");
                 }
                 else
                 {
-                    Logger.Warning("ManagementClipboard.Close not found");
+                    OTCLog.Warning(OTCLog.Systems.Manager,"ManagementClipboard.Close not found");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to apply Manager clipboard patches: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"Failed to apply clipboard patches: {ex.Message}");
             }
         }
 
@@ -163,12 +163,12 @@ namespace OverTheCounter.Patches
                 ManagerConfigPanel.Open(mgr);
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Opened config panel for manager {mgr.Id}");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"Opened config panel for {mgr.Id}");
                 return false; // Skip vanilla Update logic for this frame
             }
             catch (Exception ex)
             {
-                Logger.Error($"UpdatePrefix error: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"UpdatePrefix error: {ex.Message}\n{ex.StackTrace}");
                 return true;
             }
         }
@@ -229,7 +229,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Logger.Warning($"UpdatePostfix error: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"UpdatePostfix error: {ex.Message}");
             }
         }
 
@@ -268,12 +268,12 @@ namespace OverTheCounter.Patches
                 {
                     ManagerConfigPanel.Close();
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg("Config panel closed (clipboard closed)");
+                        OTCLog.Msg(OTCLog.Systems.Manager, "Config panel closed (clipboard closed)");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ClosePostfix error: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ClosePostfix error: {ex.Message}");
             }
         }
 
@@ -304,7 +304,7 @@ namespace OverTheCounter.Patches
                 {
                     if (mgr.AssignedLocker == __instance)
                     {
-                        Logger.Msg($"Locker claimed by employee '{employee.fullName}', clearing manager {mgr.Id}");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"Locker claimed by employee '{employee.fullName}', clearing {mgr.Id}");
                         mgr.ClearLocker();
                         mgr.Configuration.Locker = null;
                         break;
@@ -313,7 +313,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Logger.Warning($"SetAssignedEmployeePostfix error: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"SetAssignedEmployeePostfix error: {ex.Message}");
             }
         }
 
@@ -378,7 +378,7 @@ namespace OverTheCounter.Patches
                     {
                         // Re-link the reference so future lookups use the fast path
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"FindManagerByNpc: re-linked {npcId} via ID fallback");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"FindByNpc: re-linked {npcId} via ID fallback");
                         return mgr;
                     }
                 }
@@ -404,7 +404,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Logger.Warning($"SuppressNpcInteract error: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"SuppressNpcInteract error: {ex.Message}");
             }
         }
 

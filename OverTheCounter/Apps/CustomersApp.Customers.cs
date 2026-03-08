@@ -462,7 +462,7 @@ namespace OverTheCounter.Apps
             }
             else
             {
-                MelonLogger.Warning($"MugshotSprite is null for NPC: {customer.fullName}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"MugshotSprite is null for NPC: {customer.fullName}");
             }
         }
 

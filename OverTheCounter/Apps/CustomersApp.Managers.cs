@@ -277,7 +277,7 @@ namespace OverTheCounter.Apps
                 }
                 catch (Exception ex)
                 {
-                    Melon<Core>.Logger.Error($"[CustomersApp] Hire error: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.Manager, $"Hire error: {ex.Message}");
                     capturedStatusText.text = "Error!";
                     capturedStatusText.color = new Color(0.8f, 0.4f, 0.4f);
                 }

@@ -123,7 +123,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ContractAggregator] Error aggregating contracts: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Notification, $"Error aggregating contracts: {ex.Message}");
             }
 
             // Include accepted drifter deals (not in Contract.Contracts)
@@ -143,7 +143,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ContractAggregator] Error reading drifter deals: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Notification, $"Error reading drifter deals: {ex.Message}");
             }
 
             // Count what the player has in product units (jar=5, baggie=1)
@@ -177,7 +177,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ContractAggregator] Error reading player inventory: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Notification, $"Error reading player inventory: {ex.Message}");
             }
 
             var manifest = new List<ManifestRequirement>();
@@ -261,7 +261,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ContractAggregator] Error reading contracts: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Notification, $"Error reading contracts: {ex.Message}");
             }
 
             // Include accepted drifter deals (not in Contract.Contracts)
@@ -282,7 +282,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ContractAggregator] Error reading drifter deals: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Notification, $"Error reading drifter deals: {ex.Message}");
             }
 
             // Subtract player inventory (greedy allocation across contracts)
@@ -316,7 +316,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ContractAggregator] Error reading player inventory: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Notification, $"Error reading player inventory: {ex.Message}");
             }
 
             foreach (var need in needs)

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using MelonLoader;
+using OverTheCounter.Utilities;
 using UnityEngine;
 
 #if IL2CPP
@@ -20,8 +21,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public static class DrifterHotspots
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:DrifterHotspots");
-
         /// <summary>
         /// Minimum distance from any player for a spawn point to be considered safe.
         /// </summary>
@@ -212,8 +211,7 @@ namespace OverTheCounter.Logic
 
                 if (IsSpawnSafeFromPlayers(pick.SpawnPosition, playerPositions))
                 {
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Safe hotspot found on attempt {attempt + 1}: {pick.Name}");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"Safe hotspot found on attempt {attempt + 1}: {pick.Name}");
                     return pick;
                 }
             }
@@ -232,14 +230,13 @@ namespace OverTheCounter.Logic
             if (halfSafe.Count > 0)
             {
                 var pick = halfSafe[UnityEngine.Random.Range(0, halfSafe.Count)];
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"No perfectly safe hotspot found. Picked from {halfSafe.Count} half-safe candidates: {pick.Name}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"No perfectly safe hotspot found. Picked from {halfSafe.Count} half-safe candidates: {pick.Name}");
                 return pick;
             }
 
             // Last resort: random from all remaining candidates
             var fallback = candidates[0];
-            Logger.Msg($"No safe hotspots at all. Random fallback: {fallback.Name}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"No safe hotspots at all. Random fallback: {fallback.Name}");
             return fallback;
         }
 

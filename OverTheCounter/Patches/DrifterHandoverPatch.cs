@@ -63,12 +63,11 @@ namespace OverTheCounter.Patches
                     return;
 
                 _pendingDrifterId.Value = npcId;
-                if (Config.VerboseLogging.Value)
-                    Melon<Core>.Logger.Msg($"[DrifterHandoverPatch] Detected drifter handover for {npcId}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"Detected handover for {npcId}");
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[DrifterHandoverPatch] Prefix error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"Handover prefix error: {ex.Message}");
             }
         }
 
@@ -96,11 +95,11 @@ namespace OverTheCounter.Patches
             try
             {
                 DrifterManager.Instance?.OnDealCompleted(drifterId);
-                Melon<Core>.Logger.Msg($"[DrifterHandoverPatch] Completed drifter deal {drifterId}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"Completed deal {drifterId}");
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[DrifterHandoverPatch] Postfix error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"Handover postfix error: {ex.Message}");
             }
         }
     }
@@ -122,7 +121,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[HandoverScreenOpenPatch] ClearCustomerSlots failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"ClearCustomerSlots failed: {ex.Message}");
             }
         }
 
@@ -130,13 +129,13 @@ namespace OverTheCounter.Patches
         {
             try
             {
-                Melon<Core>.Logger.Msg($"[HandoverScreenOpenPatch] Open fired, mode={mode}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"HandoverScreen Open fired, mode={mode}");
                 if (mode == HandoverScreen.EMode.Contract)
                     HandoverFillUI.Show();
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[HandoverScreenOpenPatch] Show overlay failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"Show overlay failed: {ex.Message}");
             }
         }
     }
@@ -155,7 +154,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[HandoverScreenClosePatch] Hide overlay failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"Hide overlay failed: {ex.Message}");
             }
         }
     }

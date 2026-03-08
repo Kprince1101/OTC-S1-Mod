@@ -1,6 +1,6 @@
 using HarmonyLib;
-using MelonLoader;
 using OverTheCounter.UI;
+using OverTheCounter.Utilities;
 using System;
 using UnityEngine;
 using UnityEngine.UI;
@@ -38,7 +38,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                MelonLogger.Warning("[OTC] RecipePinPatch failed to apply: " + ex.Message);
+                OTCLog.Warning(OTCLog.Systems.Patch, "RecipePinPatch failed to apply: " + ex.Message);
             }
         }
 
@@ -64,7 +64,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                MelonLogger.Warning("[OTC] RecipePinPatch postfix error: " + ex.Message);
+                OTCLog.Warning(OTCLog.Systems.Patch, "RecipePinPatch postfix error: " + ex.Message);
             }
         }
 

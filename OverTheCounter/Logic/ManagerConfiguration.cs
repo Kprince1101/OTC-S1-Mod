@@ -1,4 +1,5 @@
 using MelonLoader;
+using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,7 +24,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class ManagerConfiguration
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerConfig");
 
         /// <summary>
         /// The locker entity where the manager draws wages from.
@@ -269,7 +269,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Deserialize failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"Deserialize failed: {ex.Message}");
             }
         }
 
@@ -319,7 +319,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"GetGuid failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"GetGuid failed: {ex.Message}");
             }
             return "";
         }
@@ -333,7 +333,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"GetGuid(DeadDrop) failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"GetGuid(DeadDrop) failed: {ex.Message}");
             }
             return "";
         }
@@ -377,7 +377,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ResolveStorage failed for '{guidStr}': {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ResolveStorage failed for '{guidStr}': {ex.Message}");
             }
 
             return null;
@@ -408,7 +408,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ResolveDeadDrop failed for '{guidStr}': {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ResolveDeadDrop failed for '{guidStr}': {ex.Message}");
             }
 
             return null;

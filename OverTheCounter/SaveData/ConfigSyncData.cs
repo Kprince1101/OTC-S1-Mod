@@ -13,8 +13,6 @@ namespace OverTheCounter.SaveData
 {
     public class ConfigSyncData : Saveable
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ConfigSync");
-
         [SaveableField("config_sync_payload")]
         private string _payload = "";
 
@@ -102,7 +100,7 @@ namespace OverTheCounter.SaveData
                                        || ex.Message.Contains("type load"))
             {
                 _networkLibAvailable = false;
-                Logger.Warning("SteamNetworkLib is loaded but incompatible (wrong branch?) — multiplayer sync disabled.");
+                OTCLog.Warning(OTCLog.Systems.Network, "SteamNetworkLib is loaded but incompatible (wrong branch?) — multiplayer sync disabled.");
             }
         }
 
@@ -165,14 +163,13 @@ namespace OverTheCounter.SaveData
             try
             {
                 string statePayload = SerializeGameState();
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"PublishGameState: payload length={statePayload?.Length ?? 0}");
+                OTCLog.Msg(OTCLog.Systems.Network, $"PublishGameState: payload length={statePayload?.Length ?? 0}");
                 if (IsNetworkLibAvailable)
                     PublishGameStateImpl(statePayload);
             }
             catch (Exception ex)
             {
-                Logger.Warning($"PublishGameState failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"PublishGameState failed: {ex.Message}");
             }
         }
 
@@ -195,7 +192,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"PublishDrifterState failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"PublishDrifterState failed: {ex.Message}");
             }
         }
 
@@ -219,7 +216,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"PublishManagerState failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"PublishManagerState failed: {ex.Message}");
             }
         }
 
@@ -261,13 +258,12 @@ namespace OverTheCounter.SaveData
                 {
                     string payload = string.Join(";", msgParts);
                     PublishManagerMessagesImpl(payload);
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"PublishManagerMessages: {payload.Length} chars, {msgParts.Count - 1} messages");
+                    OTCLog.Msg(OTCLog.Systems.Network, $"PublishManagerMessages: {payload.Length} chars, {msgParts.Count - 1} messages");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"PublishManagerMessages failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"PublishManagerMessages failed: {ex.Message}");
             }
         }
 
@@ -306,13 +302,12 @@ namespace OverTheCounter.SaveData
                 {
                     string payload = string.Join(";", msgParts);
                     PublishDrifterMessagesImpl(payload);
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"PublishDrifterMessages: {payload.Length} chars, {msgParts.Count - 1} messages");
+                    OTCLog.Msg(OTCLog.Systems.Network, $"PublishDrifterMessages: {payload.Length} chars, {msgParts.Count - 1} messages");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"PublishDrifterMessages failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"PublishDrifterMessages failed: {ex.Message}");
             }
         }
 
@@ -374,11 +369,11 @@ namespace OverTheCounter.SaveData
                 var cfgData = ParsePayload(newValue);
                 Config.ApplyOverrides(cfgData);
                 RefreshQuestText();
-                Logger.Msg($"Client applied {cfgData.Count} config overrides from SyncVar.");
+                OTCLog.Msg(OTCLog.Systems.Network, $"Client applied {cfgData.Count} config overrides from SyncVar.");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"HandleConfigChanged failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"HandleConfigChanged failed: {ex.Message}");
             }
         }
 
@@ -392,11 +387,11 @@ namespace OverTheCounter.SaveData
                 var state = ParsePayload(newValue);
                 _pendingGameState = state;
                 ApplyGameState(state);
-                Logger.Msg($"Client applied {state.Count} game state values from SyncVar.");
+                OTCLog.Msg(OTCLog.Systems.Network, $"Client applied {state.Count} game state values from SyncVar.");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"HandleStateChanged failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"HandleStateChanged failed: {ex.Message}");
             }
         }
 
@@ -408,11 +403,11 @@ namespace OverTheCounter.SaveData
             try
             {
                 DrifterManager.Instance?.ApplyDrifterState(newValue);
-                Logger.Msg($"Client applied drifter state from SyncVar ({newValue.Length} chars).");
+                OTCLog.Msg(OTCLog.Systems.Network, $"Client applied drifter state from SyncVar ({newValue.Length} chars).");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"HandleDrifterStateChanged failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"HandleDrifterStateChanged failed: {ex.Message}");
             }
         }
 
@@ -424,11 +419,11 @@ namespace OverTheCounter.SaveData
             try
             {
                 ManagerInstance.ApplyManagerSlot(slot, newValue);
-                Logger.Msg($"Client applied manager slot {slot} from SyncVar ({newValue?.Length ?? 0} chars).");
+                OTCLog.Msg(OTCLog.Systems.Network, $"Client applied manager slot {slot} from SyncVar ({newValue?.Length ?? 0} chars).");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"HandleManagerSlotChanged[{slot}] failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"HandleManagerSlotChanged[{slot}] failed: {ex.Message}");
             }
         }
 
@@ -454,18 +449,17 @@ namespace OverTheCounter.SaveData
                     if (ManagerInstance.Active.TryGetValue(id, out var mgr))
                     {
                         mgr.SendTextMessage(text, queueForClient: false);
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg($"Client delivered synced text from manager {id}");
+                        OTCLog.Msg(OTCLog.Systems.Network, $"Client delivered synced text from manager {id}");
                     }
                     else
                     {
-                        Logger.Warning($"Client received message for unknown manager {id}");
+                        OTCLog.Warning(OTCLog.Systems.Network, $"Client received message for unknown manager {id}");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"HandleManagerMessageChanged failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"HandleManagerMessageChanged failed: {ex.Message}");
             }
         }
 
@@ -491,18 +485,17 @@ namespace OverTheCounter.SaveData
                     if (DrifterInstance.Active.TryGetValue(id, out var drifter))
                     {
                         drifter.DeliverTextLocally(text);
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg($"Client delivered synced text from drifter {id}");
+                        OTCLog.Msg(OTCLog.Systems.Network, $"Client delivered synced text from drifter {id}");
                     }
                     else
                     {
-                        Logger.Warning($"Client received message for unknown drifter {id}");
+                        OTCLog.Warning(OTCLog.Systems.Network, $"Client received message for unknown drifter {id}");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"HandleDrifterMessageChanged failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"HandleDrifterMessageChanged failed: {ex.Message}");
             }
         }
 
@@ -632,7 +625,7 @@ namespace OverTheCounter.SaveData
                     }
                     else
                     {
-                        Logger.Warning($"Unknown quest action: {action}");
+                        OTCLog.Warning(OTCLog.Systems.Network, $"Unknown quest action: {action}");
                     }
                     break;
             }
@@ -651,7 +644,7 @@ namespace OverTheCounter.SaveData
         {
             if (_pendingGameState == null || _pendingGameState.Count == 0) return;
             ApplyGameState(_pendingGameState);
-            Logger.Msg("Applied pending game state to newly created SaveData.");
+            OTCLog.Msg(OTCLog.Systems.Network, "Applied pending game state to newly created SaveData.");
         }
 
         // ==================================================================
@@ -674,7 +667,7 @@ namespace OverTheCounter.SaveData
             }
             catch (System.Exception ex)
             {
-                Logger.Warning($"RefreshQuestText failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"RefreshQuestText failed: {ex.Message}");
             }
         }
 

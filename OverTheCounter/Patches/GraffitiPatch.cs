@@ -1,5 +1,5 @@
 using HarmonyLib;
-using MelonLoader;
+using OverTheCounter.Utilities;
 using System;
 
 #if IL2CPP
@@ -47,7 +47,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                MelonLogger.Warning("[OTC] GraffitiPatch failed to apply: " + ex.Message);
+                OTCLog.Warning(OTCLog.Systems.Patch, "GraffitiPatch failed to apply: " + ex.Message);
             }
         }
 

@@ -2038,13 +2038,13 @@ namespace OverTheCounter.Logic
             try
             {
                 var itemDef = ScheduleOne.Registry.GetItem(itemId);
-                if (itemDef == null) { ManagerInstance.Logger.Warning($"Manager {mgrId}: Registry.GetItem('{itemId}') returned null"); return; }
+                if (itemDef == null) { OTCLog.Warning(OTCLog.Systems.Manager, $"{mgrId}: Registry.GetItem('{itemId}') returned null"); return; }
 
                 var storableDef = itemDef.TryCast<StorableItemDefinition>();
-                if (storableDef == null) { ManagerInstance.Logger.Warning($"Manager {mgrId}: item '{itemId}' is not StorableItemDefinition"); return; }
+                if (storableDef == null) { OTCLog.Warning(OTCLog.Systems.Manager, $"{mgrId}: item '{itemId}' is not StorableItemDefinition"); return; }
 
                 var instance = storableDef.GetDefaultInstance(quantity);
-                if (instance == null) { ManagerInstance.Logger.Warning($"Manager {mgrId}: GetDefaultInstance returned null for '{itemId}'"); return; }
+                if (instance == null) { OTCLog.Warning(OTCLog.Systems.Manager, $"{mgrId}: GetDefaultInstance returned null for '{itemId}'"); return; }
 
                 int itemSlotCount = inventory.ItemSlots.Count;
                 int remaining = quantity;
@@ -2080,11 +2080,11 @@ namespace OverTheCounter.Logic
                 }
 
                 if (remaining > 0)
-                    ManagerInstance.Logger.Warning($"Manager {mgrId}: NPC inventory full, couldn't fit {remaining}x {itemId}");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"{mgrId}: NPC inventory full, couldn't fit {remaining}x {itemId}");
             }
             catch (Exception ex)
             {
-                ManagerInstance.Logger.Warning($"Manager {mgrId}: AddToNpcInventory failed for {itemId}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"{mgrId}: AddToNpcInventory failed for {itemId}: {ex.Message}");
             }
         }
 
@@ -2320,7 +2320,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                ManagerInstance.Logger.Warning($"GetStorageQuantity error for '{itemId}': {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"GetStorageQuantity error for '{itemId}': {ex.Message}");
             }
 
             return total;

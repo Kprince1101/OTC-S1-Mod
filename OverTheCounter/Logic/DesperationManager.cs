@@ -1,5 +1,4 @@
-﻿using MelonLoader;
-using S1API.GameTime;
+﻿using S1API.GameTime;
 using S1API.Items;
 using S1API.Products;
 using System;
@@ -31,8 +30,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class DesperationManager
     {
-        private readonly MelonLogger.Instance _logger;
-
         // Active desperation events: CustomerID -> Deadline (in elapsed minutes)
         private readonly Dictionary<string, DesperationEvent> _activeEvents = new();
 
@@ -51,9 +48,8 @@ namespace OverTheCounter.Logic
         // instead of looking up purchase history. Cleared after use.
         internal static string DebugProductId;
 
-        public DesperationManager(MelonLogger.Instance logger)
+        public DesperationManager()
         {
-            _logger = logger;
             Instance = this;
 
             // Subscribe to time events
@@ -87,7 +83,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] OnTimeTick error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"OnTimeTick error: {ex.Message}");
             }
         }
 
@@ -212,7 +208,7 @@ namespace OverTheCounter.Logic
             // Sync desperate IDs to clients
             ConfigSyncData.Instance?.PublishGameState();
 
-            _logger.Msg($"[DesperationManager] Desperation event triggered for {customer.NPC.fullName}. " +
+            OTCLog.Msg(OTCLog.Systems.Desperation, $"Event triggered for {customer.NPC.fullName}. " +
                        $"Response deadline: {Config.ResponseDeadlineMinutes.Value} mins. Daily count: {_dailyEventsTriggered}/{Config.MaxEventsPerDay.Value}");
         }
 
@@ -240,7 +236,7 @@ namespace OverTheCounter.Logic
 
                 if (string.IsNullOrEmpty(productId))
                 {
-                    _logger.Warning($"[DesperationManager] No purchase history for {customer.NPC.fullName}. " +
+                    OTCLog.Warning(OTCLog.Systems.Desperation, $"No purchase history for {customer.NPC.fullName}. " +
                                    "Using fallback contract generation.");
                     FallbackContractGeneration(customer);
                     return;
@@ -250,7 +246,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] ForceCustomerDealOffer failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"ForceCustomerDealOffer failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -265,7 +261,7 @@ namespace OverTheCounter.Logic
                 var listedProducts = ScheduleOne.Product.ProductManager.ListedProducts;
                 if (listedProducts == null || listedProducts.Count == 0)
                 {
-                    _logger.Warning("[DesperationManager] GetActivelyListedProduct: no listed products found");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, "GetActivelyListedProduct: no listed products found");
                     return null;
                 }
 
@@ -277,7 +273,7 @@ namespace OverTheCounter.Logic
                 string productId = product.ID;
                 if (!string.IsNullOrEmpty(productId))
                 {
-                    _logger.Msg($"[DesperationManager] GetActivelyListedProduct: picked '{productId}' from {listedProducts.Count} listed product(s)");
+                    OTCLog.Msg(OTCLog.Systems.Desperation, $"GetActivelyListedProduct: picked '{productId}' from {listedProducts.Count} listed product(s)");
                     return productId;
                 }
 
@@ -285,7 +281,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[DesperationManager] GetActivelyListedProduct failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Desperation, $"GetActivelyListedProduct failed: {ex.Message}");
                 return null;
             }
         }
@@ -306,7 +302,7 @@ namespace OverTheCounter.Logic
 
                 if (calcMethod == null)
                 {
-                    _logger.Warning("[DesperationManager] Could not find CalculateTopWeeklyPurchases method");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, "Could not find CalculateTopWeeklyPurchases method");
                     return null;
                 }
 
@@ -337,7 +333,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] GetCustomerPreferredProduct failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"GetCustomerPreferredProduct failed: {ex.Message}");
                 return null;
             }
         }
@@ -364,7 +360,7 @@ namespace OverTheCounter.Logic
                 }
                 else
                 {
-                    _logger.Warning($"[DesperationManager] Could not get price for {productId}, using default");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, $"Could not get price for {productId}, using default");
                 }
 
                 float payment = price * quantity;
@@ -373,7 +369,7 @@ namespace OverTheCounter.Logic
                 string deliveryLocationGuid = GetRandomDeliveryLocation(customer);
                 if (string.IsNullOrEmpty(deliveryLocationGuid))
                 {
-                    _logger.Warning("[DesperationManager] Could not find delivery location");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, "Could not find delivery location");
                     FallbackContractGeneration(customer);
                     return;
                 }
@@ -415,7 +411,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] CreateDesperationContract failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"CreateDesperationContract failed: {ex.Message}\n{ex.StackTrace}");
                 FallbackContractGeneration(customer);
             }
         }
@@ -435,7 +431,7 @@ namespace OverTheCounter.Logic
 #endif
                 if (mapType == null)
                 {
-                    _logger.Warning("[DesperationManager] Could not find Map type");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, "Could not find Map type");
                     return null;
                 }
 
@@ -446,7 +442,7 @@ namespace OverTheCounter.Logic
 
                 if (mapInstance == null)
                 {
-                    _logger.Warning("[DesperationManager] Map instance is null");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, "Map instance is null");
                     return null;
                 }
 
@@ -454,14 +450,14 @@ namespace OverTheCounter.Logic
                 var getRegionDataMethod = mapInstance.GetType().GetMethod("GetRegionData");
                 if (getRegionDataMethod == null)
                 {
-                    _logger.Warning("[DesperationManager] Could not find GetRegionData method");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, "Could not find GetRegionData method");
                     return null;
                 }
 
                 var regionData = getRegionDataMethod.Invoke(mapInstance, new object[] { customer.NPC.Region });
                 if (regionData == null)
                 {
-                    _logger.Warning($"[DesperationManager] No region data for {customer.NPC.Region}");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, $"No region data for {customer.NPC.Region}");
                     return null;
                 }
 
@@ -469,14 +465,14 @@ namespace OverTheCounter.Logic
                 var getLocationMethod = regionData.GetType().GetMethod("GetRandomUnscheduledDeliveryLocation");
                 if (getLocationMethod == null)
                 {
-                    _logger.Warning("[DesperationManager] Could not find GetRandomUnscheduledDeliveryLocation method");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, "Could not find GetRandomUnscheduledDeliveryLocation method");
                     return null;
                 }
 
                 object deliveryLocation = getLocationMethod.Invoke(regionData, null);
                 if (deliveryLocation == null)
                 {
-                    _logger.Warning($"[DesperationManager] No delivery locations in {customer.NPC.Region}");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, $"No delivery locations in {customer.NPC.Region}");
                     return null;
                 }
 
@@ -485,7 +481,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] GetRandomDeliveryLocation failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"GetRandomDeliveryLocation failed: {ex.Message}");
                 return null;
             }
         }
@@ -509,17 +505,17 @@ namespace OverTheCounter.Logic
                         if (parameters.Length == 1)
                         {
                             method.Invoke(customer, new object[] { contractInfo });
-                            _logger.Msg($"[DesperationManager] Contract offered to player from {customer.NPC.fullName}");
+                            OTCLog.Msg(OTCLog.Systems.Desperation, $"Contract offered to player from {customer.NPC.fullName}");
                             return;
                         }
                     }
                 }
 
-                _logger.Warning("[DesperationManager] Could not find OfferContract method");
+                OTCLog.Warning(OTCLog.Systems.Desperation, "Could not find OfferContract method");
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] OfferContractToCustomer failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"OfferContractToCustomer failed: {ex.Message}");
             }
         }
 
@@ -549,7 +545,7 @@ namespace OverTheCounter.Logic
                             }
                             else
                             {
-                                _logger.Warning($"[DesperationManager] Fallback TryGenerateContract returned null for {customer.NPC.fullName}");
+                                OTCLog.Warning(OTCLog.Systems.Desperation, $"Fallback TryGenerateContract returned null for {customer.NPC.fullName}");
                             }
                             break;
                         }
@@ -558,7 +554,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] FallbackContractGeneration failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"FallbackContractGeneration failed: {ex.Message}");
             }
         }
 
@@ -576,7 +572,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] Failed to send message: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"Failed to send message: {ex.Message}");
             }
         }
 
@@ -595,7 +591,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] SendNPCTextMessage failed for '{ilNpc.fullName}': {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"SendNPCTextMessage failed for '{ilNpc.fullName}': {ex.Message}");
             }
         }
 
@@ -663,7 +659,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[DesperationManager] Failed to clear contract offer/responses: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Desperation, $"Failed to clear contract offer/responses: {ex.Message}");
             }
 
             try { customer.NPC.Movement?.SpeedController?.RemoveSpeedControl("desperation"); } catch { }
@@ -675,7 +671,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] Failed to apply relationship penalty: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"Failed to apply relationship penalty: {ex.Message}");
             }
 
             // Send appropriate failure message
@@ -685,7 +681,7 @@ namespace OverTheCounter.Logic
             int cooldownEnd = GetCurrentElapsedMinutes() + Config.CooldownMinutes.Value;
             _customerCooldowns[customerId] = cooldownEnd;
 
-            _logger.Msg($"[DesperationManager] Desperation event FAILED ({failureType}) for {customer.NPC.fullName}. " +
+            OTCLog.Msg(OTCLog.Systems.Desperation, $"Event FAILED ({failureType}) for {customer.NPC.fullName}. " +
                        $"Relationship {Config.RelationshipPenalty.Value}. Cooldown until minute {cooldownEnd}.");
         }
 
@@ -727,7 +723,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DesperationManager] Failed to send failure message: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"Failed to send failure message: {ex.Message}");
             }
         }
 
@@ -797,7 +793,7 @@ namespace OverTheCounter.Logic
                 Instance._customerCooldowns[customerId] = cooldownEnd;
 
                 ConfigSyncData.Instance?.PublishGameState();
-                Instance._logger.Msg($"[DesperationManager] Desperation event RESOLVED for customer {customerId}. " +
+                OTCLog.Msg(OTCLog.Systems.Desperation, $"Event RESOLVED for customer {customerId}. " +
                                     $"Bonus applied: {Config.BonusMultiplier.Value * 100}%. Cooldown until minute {cooldownEnd}.");
             }
         }
@@ -898,7 +894,7 @@ namespace OverTheCounter.Logic
             _activeEvents.Clear();
             _customerCooldowns.Clear();
             Instance = null;
-            _logger.Msg("[DesperationManager] Cleaned up and unsubscribed from events.");
+            OTCLog.Msg(OTCLog.Systems.Desperation, "Cleaned up and unsubscribed from events.");
         }
 
         /// <summary>
@@ -923,10 +919,10 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Instance._logger.Warning($"[DesperationManager] Failed to set run speed: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, $"Failed to set run speed: {ex.Message}");
                 }
 
-                Instance._logger.Msg($"[DesperationManager] Contract accepted for {evt.Customer?.NPC?.fullName}. New deadline: {Config.DeadlineMinutes.Value} minutes from now.");
+                OTCLog.Msg(OTCLog.Systems.Desperation, $"Contract accepted for {evt.Customer?.NPC?.fullName}. New deadline: {Config.DeadlineMinutes.Value} minutes from now.");
             }
         }
 
@@ -947,7 +943,7 @@ namespace OverTheCounter.Logic
                 Instance._customerCooldowns[customerId] = cooldownEnd;
 
                 ConfigSyncData.Instance?.PublishGameState();
-                Instance._logger.Msg($"[DesperationManager] Desperation event DECLINED (no penalty) for customer {customerId}. 12hr cooldown until minute {cooldownEnd}.");
+                OTCLog.Msg(OTCLog.Systems.Desperation, $"Event DECLINED (no penalty) for customer {customerId}. 12hr cooldown until minute {cooldownEnd}.");
             }
         }
 

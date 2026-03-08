@@ -47,7 +47,6 @@ namespace OverTheCounter.UI
     /// </summary>
     public static class ManagerConfigPanel
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerConfigPanel");
 
         private static GameObject _panelRoot;
         private static ManagerInstance _currentManager;
@@ -188,7 +187,7 @@ namespace OverTheCounter.UI
             _currentManager = mgr;
             CreatePanel();
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Config panel opened for manager {mgr.Id}");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"Config panel opened for manager {mgr.Id}");
         }
 
         /// <summary>
@@ -233,7 +232,7 @@ namespace OverTheCounter.UI
             var mi = Singleton<ManagementInterface>.Instance;
             if (mi == null)
             {
-                Logger.Warning("ManagementInterface not available");
+                OTCLog.Warning(OTCLog.Systems.Manager, "ManagementInterface not available");
                 return;
             }
 
@@ -254,7 +253,7 @@ namespace OverTheCounter.UI
             }
             if (prefabGO == null)
             {
-                Logger.Warning("Packager config panel prefab not found");
+                OTCLog.Warning(OTCLog.Systems.Manager, "Packager config panel prefab not found");
                 return;
             }
 
@@ -267,7 +266,7 @@ namespace OverTheCounter.UI
             var packagerPanel = _panelRoot.GetComponent<PackagerConfigPanel>();
             if (packagerPanel == null)
             {
-                Logger.Warning("PackagerConfigPanel component not found on clone");
+                OTCLog.Warning(OTCLog.Systems.Manager, "PackagerConfigPanel component not found on clone");
                 return;
             }
 
@@ -560,7 +559,7 @@ namespace OverTheCounter.UI
             var mi = Singleton<ManagementInterface>.Instance;
             if (mi?.ItemSelectorScreen == null)
             {
-                Logger.Warning("ItemSelector not available");
+                OTCLog.Warning(OTCLog.Systems.Manager, "ItemSelector not available");
                 return;
             }
 
@@ -836,11 +835,11 @@ namespace OverTheCounter.UI
 
                 _thresholdScreenRoot.SetActive(true);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Showing threshold screen for {_pendingItemDef?.Name} (current={currentThreshold})");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"Showing threshold screen for {_pendingItemDef?.Name} (current={currentThreshold})");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ShowThresholdScreen failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ShowThresholdScreen failed: {ex.Message}");
                 // On failure, restore config panel
                 if (_panelRoot != null) _panelRoot.SetActive(true);
             }
@@ -876,7 +875,7 @@ namespace OverTheCounter.UI
 
                 RefreshItemSlots();
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_currentManager.Id}: slot {savedSlot} = {savedItemId} (threshold={savedThreshold})");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"{_currentManager.Id}: slot {savedSlot} = {savedItemId} (threshold={savedThreshold})");
             }
         }
 
@@ -1016,7 +1015,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to get registry items: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"Failed to get registry items: {ex.Message}");
             }
 
             // Sort by category: Mixers → Soils → Additives → Packaging → Tools
@@ -1134,7 +1133,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Logger.Warning($"FixSelectionInfo error: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"FixSelectionInfo error: {ex.Message}");
             }
         }
 
@@ -1196,7 +1195,7 @@ namespace OverTheCounter.UI
                             if (!_currentManager.Configuration.ValidateAssignment(
                                 pse, capturedRoute, capturedIsSource, out string reason))
                             {
-                                Logger.Warning($"Validation failed: {reason}");
+                                OTCLog.Warning(OTCLog.Systems.Manager, $"Validation failed: {reason}");
                                 pse = null;
                             }
                         }
@@ -1205,7 +1204,7 @@ namespace OverTheCounter.UI
                             if (!_currentManager.Configuration.ValidateAssignment(
                                 dd, capturedRoute, capturedIsSource, out string reason))
                             {
-                                Logger.Warning($"Validation failed: {reason}");
+                                OTCLog.Warning(OTCLog.Systems.Manager, $"Validation failed: {reason}");
                                 dd = null;
                             }
                         }
@@ -1214,7 +1213,7 @@ namespace OverTheCounter.UI
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error($"RouteEntitySelector callback error: {ex.Message}");
+                        OTCLog.Error(OTCLog.Systems.Manager, $"RouteEntitySelector callback error: {ex.Message}");
                     }
                 });
                 return;
@@ -1224,7 +1223,7 @@ namespace OverTheCounter.UI
             var objectSelector = Singleton<ManagementInterface>.Instance?.ObjectSelector;
             if (objectSelector == null)
             {
-                Logger.Warning("ObjectSelector not available");
+                OTCLog.Warning(OTCLog.Systems.Manager, "ObjectSelector not available");
                 return;
             }
 
@@ -1267,7 +1266,7 @@ namespace OverTheCounter.UI
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error($"ObjectSelector callback error: {ex.Message}");
+                        OTCLog.Error(OTCLog.Systems.Manager, $"ObjectSelector callback error: {ex.Message}");
                     }
                 });
 
@@ -1311,7 +1310,7 @@ namespace OverTheCounter.UI
                         home = selected.GetComponentInParent<EmployeeHome>();
                     if (home == null)
                     {
-                        Logger.Warning("Selected storage entity is not an employee locker");
+                        OTCLog.Warning(OTCLog.Systems.Manager, "Selected storage entity is not an employee locker");
                         return;
                     }
 
@@ -1340,7 +1339,7 @@ namespace OverTheCounter.UI
 
             RefreshLabels();
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Manager {_currentManager.Id}: {slotType}[{routeIndex}] = {GetStorageName(selected)}");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"{_currentManager.Id}: {slotType}[{routeIndex}] = {GetStorageName(selected)}");
         }
 
         /// <summary>
@@ -1374,7 +1373,7 @@ namespace OverTheCounter.UI
 
             string name = pse != null ? GetStorageName(pse) : ("Dead Drop (" + (dd?.DeadDropName ?? "?") + ")");
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Manager {_currentManager.Id}: Route[{routeIndex}] {(isSource ? "From" : "To")} = {name}");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"{_currentManager.Id}: Route[{routeIndex}] {(isSource ? "From" : "To")} = {name}");
         }
 
         private static void OnClearClicked(string slotType, int routeIndex, bool isSource)
@@ -1428,7 +1427,7 @@ namespace OverTheCounter.UI
 
             RefreshLabels();
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Manager {_currentManager.Id}: deleted route {routeIndex}");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"{_currentManager.Id}: deleted route {routeIndex}");
         }
 
         // ========== Label Refresh ==========
@@ -1576,7 +1575,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to load manager icon: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"Failed to load manager icon: {ex.Message}");
             }
 
             return _managerIcon;

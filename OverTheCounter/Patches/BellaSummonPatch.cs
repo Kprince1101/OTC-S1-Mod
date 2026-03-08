@@ -1,6 +1,7 @@
 using HarmonyLib;
 using MelonLoader;
 using OverTheCounter.NPCs;
+using OverTheCounter.Utilities;
 using System;
 using System.Collections;
 using UnityEngine;
@@ -29,8 +30,6 @@ namespace OverTheCounter.Patches
     [HarmonyPatch(typeof(StaticDoor))]
     public static class BellaSummonPatch
     {
-        private static readonly MelonLogger.Instance Logger = new("BellaSummonPatch");
-
         private const float IDLE_TIMEOUT = 10f;
         private static bool _bellaSummoned;
 
@@ -48,15 +47,14 @@ namespace OverTheCounter.Patches
                 {
                     if (_bellaSummoned)
                     {
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg("Bella is already summoned, ignoring duplicate request");
+                        OTCLog.Msg(OTCLog.Systems.NPC, "Bella is already summoned, ignoring duplicate request");
                         return false;
                     }
 
                     var building = __instance.Building;
                     if (building == null)
                     {
-                        Logger.Warning("Building is null on StaticDoor, falling back to vanilla");
+                        OTCLog.Warning(OTCLog.Systems.NPC, "Building is null on StaticDoor, falling back to vanilla");
                         return true;
                     }
 
@@ -64,8 +62,7 @@ namespace OverTheCounter.Patches
                     // This handles: warp to door, SetVisible(true), remove from occupants,
                     // face direction, re-enable awareness — the full vanilla flow.
                     string buildingGuid = building.GUID.ToString();
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Summoning Bella via ExitBuilding (building={building.BuildingName}, GUID={buildingGuid})");
+                    OTCLog.Msg(OTCLog.Systems.NPC, $"Summoning Bella via ExitBuilding (building={building.BuildingName}, GUID={buildingGuid})");
 
                     npc.ExitBuilding(buildingGuid);
                     _bellaSummoned = true;
@@ -78,7 +75,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Logger.Error($"NPCSelected_Prefix error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"NPCSelected_Prefix error: {ex.Message}");
             }
 
             return true;
@@ -102,16 +99,14 @@ namespace OverTheCounter.Patches
                     // Bella destroyed or already back in a building — stop tracking
                     if (npc == null || BellaNPC.Instance == null)
                     {
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg("SummonTimer: Bella no longer valid, stopping timer");
+                        OTCLog.Msg(OTCLog.Systems.NPC, "SummonTimer: Bella no longer valid, stopping timer");
                         _bellaSummoned = false;
                         yield break;
                     }
 
                     if (npc.CurrentBuilding != null)
                     {
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg("SummonTimer: Bella already back in building, stopping timer");
+                        OTCLog.Msg(OTCLog.Systems.NPC, "SummonTimer: Bella already back in building, stopping timer");
                         _bellaSummoned = false;
                         yield break;
                     }
@@ -147,8 +142,7 @@ namespace OverTheCounter.Patches
 
                     if (idleTime >= IDLE_TIMEOUT)
                     {
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg($"SummonTimer: Bella idle for {idleTime:F0}s, re-injecting into building");
+                        OTCLog.Msg(OTCLog.Systems.NPC, $"SummonTimer: Bella idle for {idleTime:F0}s, re-injecting into building");
                         _bellaSummoned = false;
                         BellaNPC.Instance.ReInjectIntoBuilding();
                         yield break;
@@ -156,7 +150,7 @@ namespace OverTheCounter.Patches
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"SummonTimer error: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.NPC, $"SummonTimer error: {ex.Message}");
                     _bellaSummoned = false;
                     yield break;
                 }

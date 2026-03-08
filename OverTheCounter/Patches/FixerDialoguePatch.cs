@@ -1,5 +1,4 @@
 ﻿using HarmonyLib;
-using MelonLoader;
 using OverTheCounter.Logic;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
@@ -29,8 +28,6 @@ namespace OverTheCounter.Patches
     [HarmonyPatch(typeof(DialogueController_Fixer))]
     public static class FixerDialoguePatch
     {
-        private static readonly MelonLogger.Instance Logger = new("FixerDialoguePatch");
-
         // State tracking across dialogue steps
         private static bool _managerSelected;
         private static Business _selectedBusiness;
@@ -114,14 +111,13 @@ namespace OverTheCounter.Patches
                         noChoice.ChoiceText = "No eligible businesses";
                         noChoice.ChoiceLabel = "NO_BUSINESSES";
                         existingChoices.Add(noChoice);
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg("No eligible businesses for manager hiring");
+                        OTCLog.Msg(OTCLog.Systems.Patch, "No eligible businesses for manager hiring");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"ModifyChoiceList_Postfix error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"ModifyChoiceList_Postfix error: {ex.Message}");
             }
         }
 
@@ -160,8 +156,7 @@ namespace OverTheCounter.Patches
 #endif
                     __instance.GetHandler()?.ShowNode(responseNode);
 
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg("Warehouse hours quest triggered from Fixer dialogue");
+                    OTCLog.Msg(OTCLog.Systems.Patch, "Warehouse hours quest triggered from Fixer dialogue");
                     return false;
                 }
 
@@ -169,8 +164,7 @@ namespace OverTheCounter.Patches
                 {
                     _managerSelected = true;
                     _selectedBusiness = null;
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg("Manager employee type selected");
+                    OTCLog.Msg(OTCLog.Systems.Patch, "Manager employee type selected");
                     return true; // Let vanilla handle dialogue progression
                 }
 
@@ -189,20 +183,18 @@ namespace OverTheCounter.Patches
                     {
                         if (NetworkHelper.IsHost)
                         {
-                            if (Config.VerboseLogging.Value)
-                                Logger.Msg($"Hiring manager at {_selectedBusiness.PropertyCode} via Fixer dialogue (host)");
+                            OTCLog.Msg(OTCLog.Systems.Patch, $"Hiring manager at {_selectedBusiness.PropertyCode} via Fixer dialogue (host)");
                             ManagerController.Instance?.HireManager(_selectedBusiness);
                         }
                         else
                         {
-                            if (Config.VerboseLogging.Value)
-                                Logger.Msg($"Requesting manager hire at {_selectedBusiness.PropertyCode} via Fixer dialogue (client)");
+                            OTCLog.Msg(OTCLog.Systems.Patch, $"Requesting manager hire at {_selectedBusiness.PropertyCode} via Fixer dialogue (client)");
                             ConfigSyncData.SendQuestAction($"MANAGER_HIRE:{_selectedBusiness.PropertyCode}");
                         }
                     }
                     else
                     {
-                        Logger.Warning("CONFIRM with manager selected but no business chosen");
+                        OTCLog.Warning(OTCLog.Systems.Patch, "CONFIRM with manager selected but no business chosen");
                     }
 
                     // Null out selectedProperty so vanilla Confirm() won't fire
@@ -222,7 +214,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Logger.Error($"ChoiceCallback_Prefix error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"ChoiceCallback_Prefix error: {ex.Message}");
             }
 
             return true;
@@ -249,12 +241,11 @@ namespace OverTheCounter.Patches
                     if (node != null)
                     {
                         __instance.GetHandler().ShowNode(node);
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg("Navigated to SELECT_LOCATION for manager hiring");
+                        OTCLog.Msg(OTCLog.Systems.Patch, "Navigated to SELECT_LOCATION for manager hiring");
                     }
                     else
                     {
-                        Logger.Error("SELECT_LOCATION node not found in active dialogue");
+                        OTCLog.Error(OTCLog.Systems.Patch, "SELECT_LOCATION node not found in active dialogue");
                     }
                     return;
                 }
@@ -268,15 +259,14 @@ namespace OverTheCounter.Patches
                     if (biz != null && string.Equals(biz.PropertyCode, choiceLabel, StringComparison.OrdinalIgnoreCase))
                     {
                         _selectedBusiness = biz;
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg($"Business selected for manager: {biz.PropertyCode}");
+                        OTCLog.Msg(OTCLog.Systems.Patch, $"Business selected for manager: {biz.PropertyCode}");
                         break;
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"ChoiceCallback_Postfix error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"ChoiceCallback_Postfix error: {ex.Message}");
             }
         }
 
@@ -348,7 +338,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Logger.Error($"CheckChoice_Prefix error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"CheckChoice_Prefix error: {ex.Message}");
             }
 
             return true; // Run vanilla for non-manager cases
@@ -381,7 +371,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Logger.Error($"ModifyDialogueText_Prefix error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"ModifyDialogueText_Prefix error: {ex.Message}");
             }
 
             return true;

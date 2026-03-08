@@ -310,6 +310,7 @@
 		<Compile Include="Utilities\ConfigEntry.cs" />
 		<Compile Include="Utilities\StorageFilterHelper.cs" />
 		<Compile Include="Utilities\MugshotUtility.cs" />
+		<Compile Include="Utilities\OTCLog.cs" />
 		<Compile Include="SaveData\ConfigSyncData.cs" />
 		<Compile Include="SaveData\NetworkSyncBridge.cs" />
 

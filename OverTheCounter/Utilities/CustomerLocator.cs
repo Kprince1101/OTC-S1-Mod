@@ -1,5 +1,4 @@
 ﻿using HarmonyLib;
-using MelonLoader;
 using OverTheCounter.Apps;
 using OverTheCounter.Logic;
 using UnityEngine;
@@ -32,7 +31,7 @@ namespace OverTheCounter.Utilities
         {
             if (customer == null || customer.NPC == null)
             {
-                MelonLogger.Warning("Cannot pin null customer.");
+                OTCLog.Warning(OTCLog.Systems.NPC, "Cannot pin null customer.");
                 return;
             }
 
@@ -43,7 +42,7 @@ namespace OverTheCounter.Utilities
 
                 if (npcManager == null || npcManager.PotentialCustomerPoIPrefab == null)
                 {
-                    MelonLogger.Error("NPCManager or POI Prefab not found. Cannot create map marker.");
+                    OTCLog.Error(OTCLog.Systems.NPC, "NPCManager or POI Prefab not found. Cannot create map marker.");
                     return;
                 }
 
@@ -93,7 +92,7 @@ namespace OverTheCounter.Utilities
         {
             if (mgr?.GameNpc == null)
             {
-                MelonLogger.Warning("Cannot locate null manager.");
+                OTCLog.Warning(OTCLog.Systems.Manager, "Cannot locate null manager.");
                 return;
             }
 

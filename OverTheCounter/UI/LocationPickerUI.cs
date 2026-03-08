@@ -1,4 +1,4 @@
-using MelonLoader;
+using OverTheCounter.Utilities;
 using S1API.UI;
 using System;
 using System.Collections.Generic;
@@ -40,7 +40,7 @@ namespace OverTheCounter.UI
         {
             if (customer == null || customer.NPC == null)
             {
-                MelonLogger.Error("[LocationPickerUI] Customer is null");
+                OTCLog.Error(OTCLog.Systems.Desperation, "Customer is null");
                 return;
             }
 
@@ -52,7 +52,7 @@ namespace OverTheCounter.UI
 
             if (locations.Count == 0)
             {
-                MelonLogger.Warning($"[LocationPickerUI] No delivery locations found for region {customer.NPC.Region}");
+                OTCLog.Warning(OTCLog.Systems.Desperation, $"No delivery locations found for region {customer.NPC.Region}");
                 return;
             }
 
@@ -72,21 +72,21 @@ namespace OverTheCounter.UI
                 var mapInstance = Singleton<Map>.Instance;
                 if (mapInstance == null)
                 {
-                    MelonLogger.Warning("[LocationPickerUI] Map instance is null");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, "Map instance is null");
                     return locations;
                 }
 
                 var regionData = mapInstance.GetRegionData(region);
                 if (regionData == null)
                 {
-                    MelonLogger.Warning($"[LocationPickerUI] No region data for {region}");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, $"No region data for {region}");
                     return locations;
                 }
 
                 var deliveryLocations = regionData.RegionDeliveryLocations;
                 if (deliveryLocations == null)
                 {
-                    MelonLogger.Warning("[LocationPickerUI] RegionDeliveryLocations is null");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, "RegionDeliveryLocations is null");
                     return locations;
                 }
 
@@ -106,7 +106,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                MelonLogger.Error($"[LocationPickerUI] Error getting locations: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"Error getting locations: {ex.Message}");
             }
 
             return locations;
@@ -247,7 +247,7 @@ namespace OverTheCounter.UI
 
                 if (btnObj == null)
                 {
-                    MelonLogger.Error($"[LocationPickerUI] Failed to create button for {location.Name}");
+                    OTCLog.Error(OTCLog.Systems.Desperation, $"Failed to create button for {location.Name}");
                     return;
                 }
 
@@ -282,7 +282,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                MelonLogger.Error($"[LocationPickerUI] Error creating button for {location.Name}: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"Error creating button for {location.Name}: {ex.Message}");
             }
         }
 

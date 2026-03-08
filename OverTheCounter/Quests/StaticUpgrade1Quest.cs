@@ -1,5 +1,5 @@
-using MelonLoader;
 using MelonLoader.Utils;
+using OverTheCounter.Utilities;
 using S1API.Quests;
 using S1API.Quests.Constants;
 using S1API.Saveables;
@@ -13,8 +13,6 @@ namespace OverTheCounter.Quests
 {
     public class StaticUpgrade1Quest : Quest
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:StaticUpgrade1Quest");
-
         protected override string Title => "Premium Tier";
         protected override string Description => "Static has the premium tier upgrade available. Check your texts and bring him what he needs.";
         protected override bool AutoBegin => false;
@@ -47,7 +45,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"TriggerInternalInit failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"TriggerInternalInit failed: {ex.Message}");
             }
         }
 
@@ -61,7 +59,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"Initialize failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"Initialize failed: {ex.Message}");
             }
         }
 
@@ -84,7 +82,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"StartQuest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"StartQuest failed: {ex.Message}");
             }
         }
 
@@ -97,7 +95,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"CompleteObj1 failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"CompleteObj1 failed: {ex.Message}");
             }
         }
 
@@ -126,7 +124,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Warning($"OnLoaded rebuild failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"OnLoaded rebuild failed: {ex.Message}");
             }
         }
     }

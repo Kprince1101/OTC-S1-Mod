@@ -1,5 +1,5 @@
 using HarmonyLib;
-using MelonLoader;
+using OverTheCounter.Utilities;
 using System;
 
 #if IL2CPP
@@ -28,7 +28,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                MelonLogger.Warning("[OTC] StackSizePatch failed to apply: " + ex.Message);
+                OTCLog.Warning(OTCLog.Systems.Patch, "StackSizePatch failed to apply: " + ex.Message);
             }
         }
 

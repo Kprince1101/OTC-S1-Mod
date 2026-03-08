@@ -22,7 +22,6 @@ namespace OverTheCounter.Utilities
     /// </summary>
     internal static class MugshotUtility
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:MugshotUtility");
 
         // Incremented on scene transitions. MelonCoroutines persist across scenes,
         // so in-flight coroutines check this to self-abort.
@@ -92,7 +91,7 @@ namespace OverTheCounter.Utilities
 
                 if (_s1apiIsProcessing == null)
                 {
-                    Logger.Warning("Could not find S1API _isProcessingMugshots field");
+                    OTCLog.Warning(OTCLog.Systems.Manager, "Could not find S1API _isProcessingMugshots field");
                     _s1apiReflectionFailed = true;
                     return false;
                 }
@@ -102,7 +101,7 @@ namespace OverTheCounter.Utilities
             }
             catch (Exception ex)
             {
-                Logger.Warning($"S1API reflection init failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"S1API reflection init failed: {ex.Message}");
                 _s1apiReflectionFailed = true;
                 return false;
             }
@@ -127,7 +126,7 @@ namespace OverTheCounter.Utilities
 
             if (generator == null)
             {
-                Logger.Warning("MugshotGenerator not found");
+                OTCLog.Warning(OTCLog.Systems.Manager, "MugshotGenerator not found");
                 DrainQueue(null);
                 yield break;
             }
@@ -137,7 +136,7 @@ namespace OverTheCounter.Utilities
 
             if (mugshotRig == null || iconGenerator == null)
             {
-                Logger.Warning("MugshotRig or IconGenerator is null");
+                OTCLog.Warning(OTCLog.Systems.Manager, "MugshotRig or IconGenerator is null");
                 DrainQueue(null);
                 yield break;
             }
@@ -151,7 +150,7 @@ namespace OverTheCounter.Utilities
             }
             if (mySession != _sessionId) { _isProcessing = false; yield break; }
             if (waitFrames > 0 && Config.VerboseLogging.Value)
-                Logger.Msg($"Waited {waitFrames} frames for S1API mugshot processing to finish");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"Waited {waitFrames} frames for S1API mugshot processing to finish");
 
             // Flush the rig to a clean state. After S1API finishes, the rig retains
             // the last vanilla NPC's bone transforms/mesh, causing misframed captures.
@@ -159,7 +158,7 @@ namespace OverTheCounter.Utilities
             // needs 1 cycle to flush stale state.
             int warmupCycles = waitFrames == 0 ? 5 : 1;
             if (Config.VerboseLogging.Value)
-                Logger.Msg(waitFrames == 0
+                OTCLog.Msg(OTCLog.Systems.Manager,waitFrames == 0
                     ? "Mid-game mugshot request — warming up MugshotRig (5 cycles)"
                     : "Post-S1API flush — resetting MugshotRig (1 cycle)");
 
@@ -190,7 +189,7 @@ namespace OverTheCounter.Utilities
             }
 
             if (Config.VerboseLogging.Value)
-                Logger.Msg("MugshotRig reset complete");
+                OTCLog.Msg(OTCLog.Systems.Manager, "MugshotRig reset complete");
 
             // Process queue
             while (_queue.Count > 0)
@@ -212,7 +211,7 @@ namespace OverTheCounter.Utilities
                     captureSettings = UnityEngine.Object.Instantiate(req.GameNpc.Avatar.CurrentSettings);
                 else
                 {
-                    Logger.Warning($"{req.Label}: no settings available, skipping");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"{req.Label}: no settings available, skipping");
                     req.OnComplete?.Invoke(null);
                     continue;
                 }
@@ -266,7 +265,7 @@ namespace OverTheCounter.Utilities
                     }
                     catch (Exception ex)
                     {
-                        Logger.Warning($"{req.Label}: GetTexture failed: {ex.Message}");
+                        OTCLog.Warning(OTCLog.Systems.Manager, $"{req.Label}: GetTexture failed: {ex.Message}");
                     }
 
                     // Content validation — 5 pixel samples for brightness > threshold
@@ -294,7 +293,7 @@ namespace OverTheCounter.Utilities
                     }
 
                     if (Config.VerboseLogging.Value)
-                        Logger.Msg($"{req.Label} attempt={attempt}: bright={maxBrightness:F3} content={hasContent}");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"{req.Label} attempt={attempt}: bright={maxBrightness:F3} content={hasContent}");
 
                     if (hasContent)
                         break;
@@ -307,7 +306,7 @@ namespace OverTheCounter.Utilities
                     mugshotRig.gameObject.SetActive(false);
 
                     if (attempt == maxRetries)
-                        Logger.Warning($"{req.Label}: no content after {maxRetries + 1} attempts, using last capture");
+                        OTCLog.Warning(OTCLog.Systems.Manager, $"{req.Label}: no content after {maxRetries + 1} attempts, using last capture");
                 }
 
                 // Create sprite and fire callback
@@ -322,7 +321,7 @@ namespace OverTheCounter.Utilities
                     }
                     catch (Exception ex)
                     {
-                        Logger.Warning($"{req.Label}: sprite creation failed: {ex.Message}");
+                        OTCLog.Warning(OTCLog.Systems.Manager, $"{req.Label}: sprite creation failed: {ex.Message}");
                     }
                 }
 
@@ -342,7 +341,7 @@ namespace OverTheCounter.Utilities
                 mugshotRig.gameObject.SetActive(false);
 
                 if (Config.VerboseLogging.Value)
-                    Logger.Msg($"{req.Label}: mugshot {(resultSprite != null ? "ready" : "failed")}");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"{req.Label}: mugshot {(resultSprite != null ? "ready" : "failed")}");
                 req.OnComplete?.Invoke(resultSprite);
             }
 

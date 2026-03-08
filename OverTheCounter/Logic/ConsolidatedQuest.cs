@@ -63,7 +63,7 @@ namespace OverTheCounter.Logic
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ConsolidatedQuest] TriggerInternalInit failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"TriggerInternalInit failed: {ex.Message}");
             }
         }
 
@@ -95,15 +95,14 @@ namespace OverTheCounter.Logic
                     if (s1Quest != null)
                     {
                         _gameQuestInstanceId = s1Quest.GetInstanceID();
-                        if (Config.VerboseLogging.Value)
-                            Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Cached GameQuestInstanceId={_gameQuestInstanceId}");
+                        OTCLog.Msg(OTCLog.Systems.Quest, $"Cached GameQuestInstanceId={_gameQuestInstanceId}");
                     }
                 }
                 catch { }
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ConsolidatedQuest] Initialize failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"Initialize failed: {ex.Message}");
             }
         }
 
@@ -130,8 +129,7 @@ namespace OverTheCounter.Logic
 
             _currentCount = deliveryCount;
             UpdateTitle();
-            if (Config.VerboseLogging.Value)
-                Melon<Core>.Logger.Msg($"[ConsolidatedQuest] UpdateSummary: count={deliveryCount}, products={productSummaries.Count}, title='{Title}'");
+            OTCLog.Msg(OTCLog.Systems.Quest, $"UpdateSummary: count={deliveryCount}, products={productSummaries.Count}, title='{Title}'");
 
             try
             {
@@ -170,7 +168,7 @@ namespace OverTheCounter.Logic
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ConsolidatedQuest] UpdateSummary failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"UpdateSummary failed: {ex.Message}");
             }
         }
 
@@ -261,7 +259,7 @@ namespace OverTheCounter.Logic
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] UpdateTiming failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"UpdateTiming failed: {ex.Message}");
             }
         }
 
@@ -303,7 +301,7 @@ namespace OverTheCounter.Logic
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] UpdateTitle failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"UpdateTitle failed: {ex.Message}");
             }
         }
 
@@ -327,15 +325,15 @@ namespace OverTheCounter.Logic
                 if (s1Quest.hudUI != null)
                     s1Quest.hudUI.UpdateMainLabel();
 
-                if (!_subtitleDebugLogged && Config.VerboseLogging.Value)
+                if (!_subtitleDebugLogged)
                 {
-                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] SetSubtitle: '{subtitle}', hudUI={s1Quest.hudUI != null}, Subtitle='{s1Quest.Subtitle}'");
+                    OTCLog.Msg(OTCLog.Systems.Quest, $"SetSubtitle: '{subtitle}', hudUI={s1Quest.hudUI != null}, Subtitle='{s1Quest.Subtitle}'");
                     _subtitleDebugLogged = true;
                 }
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] SetSubtitleViaReflection failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"SetSubtitleViaReflection failed: {ex.Message}");
             }
         }
 
@@ -373,7 +371,7 @@ namespace OverTheCounter.Logic
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] RemoveExcessEntries failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"RemoveExcessEntries failed: {ex.Message}");
             }
         }
 
@@ -409,7 +407,7 @@ namespace OverTheCounter.Logic
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] ClearAllEntries failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"ClearAllEntries failed: {ex.Message}");
                 try { QuestEntries.Clear(); } catch { }
             }
         }
@@ -438,7 +436,7 @@ namespace OverTheCounter.Logic
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] Hide failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"Hide failed: {ex.Message}");
             }
         }
 
@@ -459,26 +457,26 @@ namespace OverTheCounter.Logic
                 var s1Quest = GetS1Quest();
                 if (s1Quest == null)
                 {
-                    if (!_showDebugLogged) { Melon<Core>.Logger.Warning("[ConsolidatedQuest] Show: s1Quest is null"); _showDebugLogged = true; }
+                    if (!_showDebugLogged) { OTCLog.Warning(OTCLog.Systems.Quest, "Show: s1Quest is null"); _showDebugLogged = true; }
                     return;
                 }
                 if (s1Quest.hudUI == null)
                 {
-                    if (!_showDebugLogged) { Melon<Core>.Logger.Warning("[ConsolidatedQuest] Show: hudUI is null (HUD not created yet by game)"); _showDebugLogged = true; }
+                    if (!_showDebugLogged) { OTCLog.Warning(OTCLog.Systems.Quest, "Show: hudUI is null (HUD not created yet by game)"); _showDebugLogged = true; }
                     return;
                 }
                 if (s1Quest.hudUI.gameObject == null)
                 {
-                    if (!_showDebugLogged) { Melon<Core>.Logger.Warning("[ConsolidatedQuest] Show: hudUI.gameObject is null"); _showDebugLogged = true; }
+                    if (!_showDebugLogged) { OTCLog.Warning(OTCLog.Systems.Quest, "Show: hudUI.gameObject is null"); _showDebugLogged = true; }
                     return;
                 }
 
                 var go = s1Quest.hudUI.gameObject;
 
-                if (!_showDebugLogged && Config.VerboseLogging.Value)
+                if (!_showDebugLogged)
                 {
                     var cg0 = go.GetComponent<CanvasGroup>();
-                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Show: hudUI exists, active={go.activeSelf}, alpha={cg0?.alpha}, title='{s1Quest.GetTitle()}', entries={s1Quest.Entries?.Count}");
+                    OTCLog.Msg(OTCLog.Systems.Quest, $"Show: hudUI exists, active={go.activeSelf}, alpha={cg0?.alpha}, title='{s1Quest.GetTitle()}', entries={s1Quest.Entries?.Count}");
                     _showDebugLogged = true;
                 }
 
@@ -501,7 +499,7 @@ namespace OverTheCounter.Logic
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[ConsolidatedQuest] Show failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"Show failed: {ex.Message}");
             }
         }
 
@@ -511,31 +509,28 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void Dismiss()
         {
-            if (Config.VerboseLogging.Value)
-                Melon<Core>.Logger.Msg("[ConsolidatedQuest] Dismiss() called");
+            OTCLog.Msg(OTCLog.Systems.Quest, "Dismiss() called");
 
             try { ClearAllEntries(); }
-            catch (System.Exception ex) { Melon<Core>.Logger.Warning($"[ConsolidatedQuest] Dismiss: ClearAllEntries threw: {ex.Message}"); }
+            catch (System.Exception ex) { OTCLog.Warning(OTCLog.Systems.Quest, $"Dismiss: ClearAllEntries threw: {ex.Message}"); }
 
             try
             {
                 var s1Quest = GetS1Quest();
                 if (s1Quest == null)
                 {
-                    Melon<Core>.Logger.Warning("[ConsolidatedQuest] Dismiss: GetS1Quest() returned null — cannot Fail");
+                    OTCLog.Warning(OTCLog.Systems.Quest, "Dismiss: GetS1Quest() returned null — cannot Fail");
                     return;
                 }
 
                 int stateBefore = (int)s1Quest.State;
                 string titleBefore = s1Quest.GetTitle() ?? "(null)";
-                if (Config.VerboseLogging.Value)
-                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: calling Fail(false) — state={stateBefore}, title='{titleBefore}', GUID='{s1Quest.StaticGUID}'");
+                OTCLog.Msg(OTCLog.Systems.Quest, $"Dismiss: calling Fail(false) — state={stateBefore}, title='{titleBefore}', GUID='{s1Quest.StaticGUID}'");
 
                 s1Quest.Fail(false);
 
                 int stateAfter = (int)s1Quest.State;
-                if (Config.VerboseLogging.Value)
-                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: Fail(false) returned — state changed {stateBefore} → {stateAfter}");
+                OTCLog.Msg(OTCLog.Systems.Quest, $"Dismiss: Fail(false) returned — state changed {stateBefore} → {stateAfter}");
 
 #if DEBUG
                 // Verify removal from game registries
@@ -554,13 +549,12 @@ namespace OverTheCounter.Logic
                 }
                 catch { }
 
-                if (Config.VerboseLogging.Value)
-                    Melon<Core>.Logger.Msg($"[ConsolidatedQuest] Dismiss: post-Fail registry check — stillInGameQuestsList={inQuestQuests}");
+                OTCLog.Msg(OTCLog.Systems.Quest, $"Dismiss: post-Fail registry check — stillInGameQuestsList={inQuestQuests}");
 #endif
             }
             catch (System.Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ConsolidatedQuest] Dismiss: Fail threw: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"Dismiss: Fail threw: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }

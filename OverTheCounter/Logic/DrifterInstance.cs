@@ -32,7 +32,7 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class DrifterInstance
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:DrifterInstance");
+
         private static readonly EVOLineType[] DismissalSounds = { EVOLineType.Annoyed, EVOLineType.No };
 
         /// <summary>
@@ -99,7 +99,7 @@ namespace OverTheCounter.Logic
         {
             if (Active.ContainsKey(id))
             {
-                Logger.Warning($"Drifter {id} already exists, returning existing instance");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{id} already exists, returning existing instance");
                 return Active[id];
             }
 
@@ -122,7 +122,7 @@ namespace OverTheCounter.Logic
 
             if (gameNpc == null)
             {
-                Logger.Error($"Failed to spawn drifter {id}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"Failed to spawn {id}");
                 return null;
             }
 
@@ -144,7 +144,7 @@ namespace OverTheCounter.Logic
             // Generate real mugshot asynchronously (replaces generic icon when ready)
             EnqueueMugshot(gameNpc, id);
 
-            Logger.Msg($"Created drifter {id}: Type={type}, Hotspot={hotspot.Name}, Position={hotspot.Position}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"Created {id}: Type={type}, Hotspot={hotspot.Name}, Position={hotspot.Position}");
             return instance;
         }
 
@@ -157,7 +157,7 @@ namespace OverTheCounter.Logic
         {
             if (Active.ContainsKey(id))
             {
-                Logger.Warning($"Drifter {id} already exists, returning existing instance");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{id} already exists, returning existing instance");
                 return Active[id];
             }
 
@@ -204,8 +204,7 @@ namespace OverTheCounter.Logic
             MelonCoroutines.Start(DelayedAppearanceReapply(existingNpc, seed));
 
             Active[id] = instance;
-            if (Config.VerboseLogging.Value)
-                Logger.Msg($"Adopted FishNet NPC for drifter {id} ({firstName} {lastName}): Type={type}, Hotspot={hotspot.Name}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"Adopted FishNet NPC for {id} ({firstName} {lastName}): Type={type}, Hotspot={hotspot.Name}");
             return instance;
         }
 
@@ -223,12 +222,11 @@ namespace OverTheCounter.Logic
                 try
                 {
                     DrifterSpawner.GenerateRandomAppearance(npc, seed);
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"[Adopt] Delayed appearance re-apply completed for {npc.ID}");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Adopt] Delayed appearance re-apply completed for {npc.ID}");
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"[Adopt] Delayed re-apply failed for {npc.ID}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"[Adopt] Delayed re-apply failed for {npc.ID}: {ex.Message}");
                 }
             }
         }
@@ -268,18 +266,18 @@ namespace OverTheCounter.Logic
         {
             if (GameNpc == null)
             {
-                Logger.Warning($"Drifter {Id}: cannot send text - GameNpc is null");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: cannot send text - GameNpc is null");
                 return;
             }
 
             try
             {
                 GameNpc.SendTextMessage(message);
-                Logger.Msg($"Drifter {Id} sent text: \"{message}\"");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id} sent text: \"{message}\"");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to send text from drifter {Id}: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"Failed to send text from {Id}: {ex.Message}");
             }
         }
 
@@ -301,12 +299,11 @@ namespace OverTheCounter.Logic
                     ScheduleOne.Messaging.Message.ESenderType.Other,
                     true);
                 conversation.SendMessage(msg, false, false); // local only, no network
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Drifter {Id} delivered synced text locally: \"{message}\"");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id} delivered synced text locally: \"{message}\"");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"DeliverTextLocally failed for drifter {Id}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"DeliverTextLocally failed for {Id}: {ex.Message}");
             }
         }
 
@@ -322,7 +319,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to play dismissal sound: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"Failed to play dismissal sound: {ex.Message}");
             }
         }
 
@@ -338,7 +335,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"WarpTo failed for drifter {Id}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"WarpTo failed for {Id}: {ex.Message}");
             }
         }
 
@@ -355,8 +352,7 @@ namespace OverTheCounter.Logic
                 _destCallback = (GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult>)
                     new Action<ScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
                     {
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg($"Drifter {Id} arrived at destination (result={result})");
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id} arrived at destination (result={result})");
                         if (result == ScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
                             result == ScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
                         {
@@ -369,12 +365,11 @@ namespace OverTheCounter.Logic
                 _lastStuckCheckTime = Time.time;
                 _lastStuckCheckPos = null;
                 _stuckCount = 0;
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Drifter {Id} walking to destination: {Hotspot.Position}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id} walking to destination: {Hotspot.Position}");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"WalkToDestination failed for drifter {Id}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"WalkToDestination failed for {Id}: {ex.Message}");
             }
         }
 
@@ -407,7 +402,7 @@ namespace OverTheCounter.Logic
                     _stuckCount++;
                     if (_stuckCount >= 2) // stuck for 2 consecutive checks (~16s)
                     {
-                        Logger.Warning($"Drifter {Id} stuck at {currentPos.Value} (moved {moved:F1}m in {StuckCheckInterval}s), warping to target");
+                        OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id} stuck at {currentPos.Value} (moved {moved:F1}m in {StuckCheckInterval}s), warping to target");
                         WarpTo(target);
                         _stuckCount = 0;
                         _lastStuckCheckPos = null;
@@ -453,8 +448,7 @@ namespace OverTheCounter.Logic
                     {
                         if (Time.time - _lastEnsureMovingLog > 10f)
                         {
-                            if (Config.VerboseLogging.Value)
-                                Logger.Msg($"Drifter {Id}: resuming walk to spawn (interrupted, dist={dist:F1}m)");
+                            OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: resuming walk to spawn (interrupted, dist={dist:F1}m)");
                             _lastEnsureMovingLog = Time.time;
                         }
                         GameNpc.Movement.SetDestination(Hotspot.SpawnPosition, _spawnCallback, 3f, 1f);
@@ -467,8 +461,7 @@ namespace OverTheCounter.Logic
                     {
                         if (Time.time - _lastEnsureMovingLog > 10f)
                         {
-                            if (Config.VerboseLogging.Value)
-                                Logger.Msg($"Drifter {Id}: resuming walk to destination (interrupted, dist={dist:F1}m)");
+                            OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: resuming walk to destination (interrupted, dist={dist:F1}m)");
                             _lastEnsureMovingLog = Time.time;
                         }
                         GameNpc.Movement.SetDestination(Hotspot.Position, _destCallback, 3f, 1f);
@@ -477,7 +470,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"EnsureMoving failed for drifter {Id}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"EnsureMoving failed for {Id}: {ex.Message}");
             }
         }
 
@@ -494,7 +487,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"FaceDirection failed for drifter {Id}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"FaceDirection failed for {Id}: {ex.Message}");
             }
         }
 
@@ -511,20 +504,18 @@ namespace OverTheCounter.Logic
                 _spawnCallback = (GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult>)
                     new Action<ScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
                     {
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg($"Drifter {Id} arrived at spawn (result={result})");
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id} arrived at spawn (result={result})");
                         if (result == ScheduleOne.NPCs.NPCMovement.WalkResult.Success ||
                             result == ScheduleOne.NPCs.NPCMovement.WalkResult.Partial)
                             FaceDirection(Hotspot.SpawnRotation);
                     });
 
                 GameNpc.Movement.SetDestination(Hotspot.SpawnPosition, _spawnCallback, 3f, 1f);
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Drifter {Id} walking back to spawn: {Hotspot.SpawnPosition}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id} walking back to spawn: {Hotspot.SpawnPosition}");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"WalkToSpawn failed for drifter {Id}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"WalkToSpawn failed for {Id}: {ex.Message}");
             }
         }
 
@@ -541,7 +532,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"SetRunSpeed failed for drifter {Id}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"SetRunSpeed failed for {Id}: {ex.Message}");
             }
         }
 
@@ -555,7 +546,7 @@ namespace OverTheCounter.Logic
             {
                 if (GameNpc?.Behaviour == null)
                 {
-                    Logger.Warning($"Drifter {Id}: no Behaviour component, skipping consume");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: no Behaviour component, skipping consume");
                     WalkToSpawn();
                     return;
                 }
@@ -563,7 +554,7 @@ namespace OverTheCounter.Logic
                 var consumeBehaviour = GameNpc.Behaviour.ConsumeProductBehaviour;
                 if (consumeBehaviour == null)
                 {
-                    Logger.Warning($"Drifter {Id}: ConsumeProductBehaviour is null, skipping consume");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: ConsumeProductBehaviour is null, skipping consume");
                     WalkToSpawn();
                     return;
                 }
@@ -572,7 +563,7 @@ namespace OverTheCounter.Logic
                 ProductDefinition productDef = FindProductDefinition(productId);
                 if (productDef == null)
                 {
-                    Logger.Warning($"Drifter {Id}: ProductDefinition not found for '{productId}', skipping consume");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: ProductDefinition not found for '{productId}', skipping consume");
                     WalkToSpawn();
                     return;
                 }
@@ -583,7 +574,7 @@ namespace OverTheCounter.Logic
                 var productInstance = defaultInstance?.TryCast<ProductItemInstance>();
                 if (productInstance == null)
                 {
-                    Logger.Warning($"Drifter {Id}: Failed to create ProductItemInstance (raw type={defaultInstance?.GetType().Name}), skipping consume");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: Failed to create ProductItemInstance (raw type={defaultInstance?.GetType().Name}), skipping consume");
                     WalkToSpawn();
                     return;
                 }
@@ -599,14 +590,13 @@ namespace OverTheCounter.Logic
                     consumeBehaviour.onConsumeDone.AddListener((UnityAction)(() =>
                     {
                         IsConsuming = false;
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg($"Drifter {Id}: consume animation finished, walking to spawn");
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: consume animation finished, walking to spawn");
                         WalkToSpawn();
                     }));
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Drifter {Id}: Failed to hook onConsumeDone: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: Failed to hook onConsumeDone: {ex.Message}");
                 }
 
                 // Send product and activate the behaviour
@@ -614,19 +604,18 @@ namespace OverTheCounter.Logic
                 {
                     consumeBehaviour.SendProduct(productInstance);
                     consumeBehaviour.Activate();
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Drifter {Id}: started consume animation for {productId}");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: started consume animation for {productId}");
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Drifter {Id}: SendProduct/Activate failed ({ex.Message}), trying Activate only");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: SendProduct/Activate failed ({ex.Message}), trying Activate only");
                     try
                     {
                         consumeBehaviour.Activate();
                     }
                     catch
                     {
-                        Logger.Warning($"Drifter {Id}: Activate also failed, falling back to WalkToSpawn");
+                        OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: Activate also failed, falling back to WalkToSpawn");
                         IsConsuming = false;
                         WalkToSpawn();
                         return;
@@ -638,7 +627,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Drifter {Id}: PlayConsumeAnimation failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: PlayConsumeAnimation failed: {ex.Message}");
                 IsConsuming = false;
                 WalkToSpawn();
             }
@@ -651,7 +640,7 @@ namespace OverTheCounter.Logic
             if (IsConsuming)
             {
                 IsConsuming = false;
-                Logger.Warning($"Drifter {Id}: consume timeout after 10s, forcing WalkToSpawn");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: consume timeout after 10s, forcing WalkToSpawn");
                 WalkToSpawn();
             }
         }
@@ -672,7 +661,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                MelonLogger.Warning($"FindProductDefinition failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"FindProductDefinition failed: {ex.Message}");
             }
             return null;
         }
@@ -690,7 +679,7 @@ namespace OverTheCounter.Logic
                 var inventory = GameNpc?.Inventory;
                 if (inventory == null)
                 {
-                    Logger.Warning($"Drifter {Id}: no Inventory component, skipping stock");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: no Inventory component, skipping stock");
                     return;
                 }
 
@@ -709,12 +698,11 @@ namespace OverTheCounter.Logic
                     }
                 }
 
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Drifter {Id}: stocked inventory with {count} items from handover");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: stocked inventory with {count} items from handover");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Drifter {Id}: StockInventory failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: StockInventory failed: {ex.Message}");
             }
         }
 
@@ -729,17 +717,16 @@ namespace OverTheCounter.Logic
                 var inventory = GameNpc?.Inventory;
                 if (inventory == null)
                 {
-                    Logger.Warning($"Drifter {Id}: no Inventory component, skipping cash stock");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: no Inventory component, skipping cash stock");
                     return;
                 }
 
                 inventory.AddCash(amount);
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Drifter {Id}: stocked ${amount:F0} cash in inventory");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: stocked ${amount:F0} cash in inventory");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Drifter {Id}: StockCash failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: StockCash failed: {ex.Message}");
             }
         }
 
@@ -756,7 +743,7 @@ namespace OverTheCounter.Logic
                 var combatBehaviour = GameNpc?.Behaviour?.CombatBehaviour;
                 if (combatBehaviour == null)
                 {
-                    Logger.Warning($"Drifter {Id}: CombatBehaviour is null, cannot equip weapon");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: CombatBehaviour is null, cannot equip weapon");
                     return;
                 }
 
@@ -773,14 +760,14 @@ namespace OverTheCounter.Logic
                 var prefabGo = prefab?.TryCast<GameObject>();
                 if (prefabGo == null)
                 {
-                    Logger.Warning($"Drifter {Id}: weapon prefab not found at '{weaponPath}'");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: weapon prefab not found at '{weaponPath}'");
                     return;
                 }
 
                 var avatarWeapon = prefabGo.GetComponent<AvatarWeapon>();
                 if (avatarWeapon == null)
                 {
-                    Logger.Warning($"Drifter {Id}: no AvatarWeapon component on '{weaponPath}'");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: no AvatarWeapon component on '{weaponPath}'");
                     return;
                 }
 
@@ -791,15 +778,14 @@ namespace OverTheCounter.Logic
                 if (string.IsNullOrEmpty(assetPath))
                 {
                     avatarWeapon.AssetPath = weaponPath;
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Drifter {Id}: fixed empty AssetPath → '{weaponPath}'");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: fixed empty AssetPath → '{weaponPath}'");
                 }
 
                 combatBehaviour.DefaultWeapon = avatarWeapon;
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Drifter {Id}: EquipWeapon failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: EquipWeapon failed: {ex.Message}");
             }
         }
 
@@ -814,14 +800,14 @@ namespace OverTheCounter.Logic
                 var combatBehaviour = GameNpc?.Behaviour?.CombatBehaviour;
                 if (combatBehaviour == null)
                 {
-                    Logger.Warning($"Drifter {Id}: CombatBehaviour is null, cannot attack");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: CombatBehaviour is null, cannot attack");
                     return;
                 }
 
                 var player = targetPlayer ?? Player.Local;
                 if (player == null)
                 {
-                    Logger.Warning($"Drifter {Id}: target player is null, cannot attack");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: target player is null, cannot attack");
                     return;
                 }
 
@@ -833,11 +819,11 @@ namespace OverTheCounter.Logic
                 combatBehaviour.SetTargetAndEnable_Server(player.NetworkObject);
                 IsAttacking = true;
 
-                Logger.Msg($"Drifter {Id}: attacking player {player.PlayerCode}!");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: attacking player {player.PlayerCode}!");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Drifter {Id}: AttackPlayer failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: AttackPlayer failed: {ex.Message}");
             }
         }
 
@@ -846,7 +832,7 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void Despawn()
         {
-            Logger.Msg($"Despawning drifter {Id}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"Despawning {Id}");
 
             Active.Remove(Id);
 
@@ -855,8 +841,7 @@ namespace OverTheCounter.Logic
                 if (IsAdopted)
                 {
                     // FishNet-adopted NPC: release reference only, server handles destroy
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Drifter {Id}: releasing adopted FishNet NPC");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: releasing adopted FishNet NPC");
                 }
                 else
                 {
@@ -957,7 +942,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Failed to cleanup drifter {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"Failed to cleanup {id}: {ex.Message}");
                 }
             }
             Active.Clear();

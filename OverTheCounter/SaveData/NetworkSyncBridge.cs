@@ -37,8 +37,6 @@ namespace OverTheCounter.SaveData
     /// </summary>
     internal static class NetworkSyncBridge
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:NetworkSync");
-
         private static bool _networkInitialized;
         private static bool _initialSyncDone;
 
@@ -82,7 +80,7 @@ namespace OverTheCounter.SaveData
                 _netClient = new SteamNetworkClient();
                 if (!_netClient.Initialize())
                 {
-                    Logger.Warning("SteamNetworkClient.Initialize() returned false (single-player?).");
+                    OTCLog.Warning(OTCLog.Systems.Network, "SteamNetworkClient.Initialize() returned false (single-player?).");
                     _netClient = null;
                     return;
                 }
@@ -98,19 +96,19 @@ namespace OverTheCounter.SaveData
                 {
                     _mgrSlots[i] = _netClient.CreateHostSyncVar($"m{i}", "", _syncOptions);
                     int slot = i; // capture for closure
-                    _mgrSlots[i].OnSyncError += (ex) => Logger.Warning($"Manager slot {slot} SyncVar error: {ex.Message}");
+                    _mgrSlots[i].OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Manager slot {slot} SyncVar error: {ex.Message}");
                     _mgrSlots[i].OnValueChanged += (oldVal, newVal) => OnManagerSlotChanged(slot, oldVal, newVal);
                 }
 
                 // Diagnostic error handlers — surface silent SyncVar failures.
-                _configVar.OnSyncError += (ex) => Logger.Warning($"Config SyncVar error: {ex.Message}");
-                _stateVar.OnSyncError += (ex) => Logger.Warning($"State SyncVar error: {ex.Message}");
-                _drifterVar.OnSyncError += (ex) => Logger.Warning($"Drifter SyncVar error: {ex.Message}");
-                _mgrMsgVar.OnSyncError += (ex) => Logger.Warning($"MgrMsg SyncVar error: {ex.Message}");
-                _drifterMsgVar.OnSyncError += (ex) => Logger.Warning($"DrifterMsg SyncVar error: {ex.Message}");
-                _actionVar.OnSyncError += (ex) => Logger.Warning($"Action SyncVar error: {ex.Message}");
-                _configVar.OnWriteIgnored += (_) => { if (Config.VerboseLogging.Value) Logger.Msg("Config SyncVar write ignored (not lobby owner)."); };
-                _stateVar.OnWriteIgnored += (_) => { if (Config.VerboseLogging.Value) Logger.Msg("State SyncVar write ignored (not lobby owner)."); };
+                _configVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Config SyncVar error: {ex.Message}");
+                _stateVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"State SyncVar error: {ex.Message}");
+                _drifterVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Drifter SyncVar error: {ex.Message}");
+                _mgrMsgVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"MgrMsg SyncVar error: {ex.Message}");
+                _drifterMsgVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"DrifterMsg SyncVar error: {ex.Message}");
+                _actionVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Action SyncVar error: {ex.Message}");
+                _configVar.OnWriteIgnored += (_) => { OTCLog.Msg(OTCLog.Systems.Network, "Config SyncVar write ignored (not lobby owner)."); };
+                _stateVar.OnWriteIgnored += (_) => { OTCLog.Msg(OTCLog.Systems.Network, "State SyncVar write ignored (not lobby owner)."); };
 
                 // Client callbacks: receive config and state from host.
                 _configVar.OnValueChanged += OnConfigChanged;
@@ -125,11 +123,11 @@ namespace OverTheCounter.SaveData
                 // NOTE: Initial value push is deferred to ProcessMessages() after lobby
                 // discovery. SyncVar writes before _currentLobby is set fail silently.
 
-                Logger.Msg($"SteamNetworkLib SyncVars initialized (inLobby={_netClient.IsInLobby}).");
+                OTCLog.Msg(OTCLog.Systems.Network, $"SteamNetworkLib SyncVars initialized (inLobby={_netClient.IsInLobby}).");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to initialize SteamNetworkLib: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"Failed to initialize SteamNetworkLib: {ex.Message}");
                 _netClient = null;
             }
         }
@@ -188,11 +186,11 @@ namespace OverTheCounter.SaveData
                     _drifterMsgVar?.Refresh();
                     _actionVar?.Refresh();
 
-                    Logger.Msg($"Initial SyncVar sync after lobby discovery (lobbyHost={_netClient.IsHost}).");
+                    OTCLog.Msg(OTCLog.Systems.Network, $"Initial SyncVar sync after lobby discovery (lobbyHost={_netClient.IsHost}).");
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Post-lobby-discovery sync failed: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Network, $"Post-lobby-discovery sync failed: {ex.Message}");
                 }
             }
 
@@ -232,13 +230,13 @@ namespace OverTheCounter.SaveData
                             if (colonIdx <= 0 || colonIdx >= val.Length - 1) continue;
                             string action = val.Substring(colonIdx + 1);
 
-                            Logger.Msg($"Host received quest action '{action}' from {kvp.Key} (polled)");
+                            OTCLog.Msg(OTCLog.Systems.Network, $"Host received quest action '{action}' from {kvp.Key} (polled)");
                             ConfigSyncData.HandleActionReceived(action);
                         }
                     }
                     catch (Exception ex)
                     {
-                        Logger.Warning($"Action poll failed: {ex.Message}");
+                        OTCLog.Warning(OTCLog.Systems.Network, $"Action poll failed: {ex.Message}");
                     }
                 }
             }
@@ -256,7 +254,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Cleanup failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"Cleanup failed: {ex.Message}");
             }
 
             _netClient = null;
@@ -325,16 +323,15 @@ namespace OverTheCounter.SaveData
             {
                 if (_actionVar == null)
                 {
-                    Logger.Warning($"SendAction: SyncVar not initialized yet.");
+                    OTCLog.Warning(OTCLog.Systems.Network, "SendAction: SyncVar not initialized yet.");
                     return;
                 }
                 _actionVar.Value = value;
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Sent quest action via SyncVar: {value}");
+                OTCLog.Msg(OTCLog.Systems.Network, $"Sent quest action via SyncVar: {value}");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"SendAction failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"SendAction failed: {ex.Message}");
             }
         }
 
@@ -350,8 +347,7 @@ namespace OverTheCounter.SaveData
             _stateVar.Value = statePayload;
             if (_drifterVar != null)
                 _drifterVar.Value = drifterPayload;
-            if (Config.VerboseLogging.Value)
-                Logger.Msg("Pushed config, game state, and drifter state to SyncVars.");
+            OTCLog.Msg(OTCLog.Systems.Network, "Pushed config, game state, and drifter state to SyncVars.");
         }
 
         // ==================================================================
@@ -421,12 +417,12 @@ namespace OverTheCounter.SaveData
                 if (colonIdx <= 0 || colonIdx >= newValue.Length - 1) return;
                 string action = newValue.Substring(colonIdx + 1);
 
-                Logger.Msg($"Host received quest action '{action}' from {sender}");
+                OTCLog.Msg(OTCLog.Systems.Network, $"Host received quest action '{action}' from {sender}");
                 ConfigSyncData.HandleActionReceived(action);
             }
             catch (Exception ex)
             {
-                Logger.Warning($"OnActionChanged failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network, $"OnActionChanged failed: {ex.Message}");
             }
         }
     }

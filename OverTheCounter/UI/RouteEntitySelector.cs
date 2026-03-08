@@ -1,4 +1,4 @@
-using MelonLoader;
+using OverTheCounter.Utilities;
 using System;
 using UnityEngine;
 
@@ -35,8 +35,6 @@ namespace OverTheCounter.UI
     /// </summary>
     public static class RouteEntitySelector
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:RouteSelector");
-
         private static bool _isOpen;
         private static Action<PlaceableStorageEntity, DeadDrop> _callback;
 
@@ -76,7 +74,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Open UI setup failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"RouteEntitySelector Open UI setup failed: {ex.Message}");
             }
         }
 
@@ -131,7 +129,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Logger.Error($"Tick error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"RouteEntitySelector Tick error: {ex.Message}");
                 Close(false);
             }
         }
@@ -220,12 +218,12 @@ namespace OverTheCounter.UI
             if (pushSelection && _callback != null)
             {
                 try { _callback(pse, dd); }
-                catch (Exception ex) { Logger.Error($"Callback error: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Error(OTCLog.Systems.Manager, $"RouteEntitySelector Callback error: {ex.Message}"); }
             }
             else if (!pushSelection && _callback != null)
             {
                 try { _callback(null, null); }
-                catch (Exception ex) { Logger.Error($"Cancel callback error: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Error(OTCLog.Systems.Manager, $"RouteEntitySelector Cancel callback error: {ex.Message}"); }
             }
 
             _callback = null;
@@ -265,7 +263,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Dead drop outline failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"RouteEntitySelector dead drop outline failed: {ex.Message}");
             }
         }
 

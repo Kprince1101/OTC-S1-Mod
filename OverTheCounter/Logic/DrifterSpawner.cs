@@ -1,5 +1,6 @@
 ﻿using MelonLoader;
 using MelonLoader.Utils;
+using OverTheCounter.Utilities;
 using S1API.Utils;
 using UnityEngine;
 using UnityEngine.AI;
@@ -35,8 +36,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public static class DrifterSpawner
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:DrifterSpawner");
-
         private static NetworkObject _cachedBasePrefab;
         private static bool _prefabSearched;
 
@@ -57,20 +56,19 @@ namespace OverTheCounter.Logic
                 var networkManager = InstanceFinder.NetworkManager;
                 if (networkManager == null)
                 {
-                    Logger.Error("NetworkManager not found");
+                    OTCLog.Error(OTCLog.Systems.Drifter, "NetworkManager not found");
                     return null;
                 }
 
                 var spawnablePrefabs = networkManager.SpawnablePrefabs;
                 if (spawnablePrefabs == null)
                 {
-                    Logger.Error("SpawnablePrefabs not available");
+                    OTCLog.Error(OTCLog.Systems.Drifter, "SpawnablePrefabs not available");
                     return null;
                 }
 
                 int count = spawnablePrefabs.GetObjectCount();
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Searching {count} spawnable prefabs for CivilianNPC...");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"Searching {count} spawnable prefabs for CivilianNPC...");
 
                 for (int i = 0; i < count; i++)
                 {
@@ -82,8 +80,7 @@ namespace OverTheCounter.Logic
                     if (name == "CivilianNPC")
                     {
                         _cachedBasePrefab = obj;
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg("Found CivilianNPC prefab");
+                        OTCLog.Msg(OTCLog.Systems.Drifter, "Found CivilianNPC prefab");
                         return _cachedBasePrefab;
                     }
                 }
@@ -95,17 +92,17 @@ namespace OverTheCounter.Logic
                     if (obj?.gameObject?.GetComponent<NPC>() != null)
                     {
                         _cachedBasePrefab = obj;
-                        Logger.Msg($"Using fallback NPC prefab: {obj.gameObject.name}");
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"Using fallback NPC prefab: {obj.gameObject.name}");
                         return _cachedBasePrefab;
                     }
                 }
 
-                Logger.Error("No suitable NPC prefab found");
+                OTCLog.Error(OTCLog.Systems.Drifter, "No suitable NPC prefab found");
                 return null;
             }
             catch (Exception ex)
             {
-                Logger.Error($"GetBasePrefab failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"GetBasePrefab failed: {ex.Message}");
                 return null;
             }
         }
@@ -126,7 +123,7 @@ namespace OverTheCounter.Logic
                 var basePrefab = GetBasePrefab();
                 if (basePrefab == null)
                 {
-                    Logger.Error($"Cannot spawn drifter {id}: no base prefab");
+                    OTCLog.Error(OTCLog.Systems.Drifter, $"Cannot spawn {id}: no base prefab");
                     return null;
                 }
 
@@ -134,7 +131,7 @@ namespace OverTheCounter.Logic
                 var clone = UnityEngine.Object.Instantiate(basePrefab);
                 if (clone == null || clone.gameObject == null)
                 {
-                    Logger.Error($"Failed to instantiate prefab for drifter {id}");
+                    OTCLog.Error(OTCLog.Systems.Drifter, $"Failed to instantiate prefab for {id}");
                     return null;
                 }
 
@@ -152,7 +149,7 @@ namespace OverTheCounter.Logic
                 var npc = clone.gameObject.GetComponent<NPC>();
                 if (npc == null)
                 {
-                    Logger.Error($"Cloned object missing NPC component for drifter {id}");
+                    OTCLog.Error(OTCLog.Systems.Drifter, $"Cloned object missing NPC component for {id}");
                     UnityEngine.Object.Destroy(clone.gameObject);
                     return null;
                 }
@@ -190,7 +187,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Failed to add Customer component for drifter {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"Failed to add Customer component for {id}: {ex.Message}");
                 }
 
                 // Activate (this triggers Awake + Start on all components)
@@ -222,17 +219,16 @@ namespace OverTheCounter.Logic
                     if (InstanceFinder.ServerManager != null)
                     {
                         InstanceFinder.ServerManager.Spawn(clone);
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg($"ServerManager.Spawn completed for drifter {id}");
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"ServerManager.Spawn completed for {id}");
                     }
                     else
                     {
-                        Logger.Warning($"ServerManager is null, drifter {id} may not function correctly");
+                        OTCLog.Warning(OTCLog.Systems.Drifter, $"ServerManager is null, {id} may not function correctly");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"ServerManager.Spawn failed for drifter {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"ServerManager.Spawn failed for {id}: {ex.Message}");
                 }
 
                 // Warp to position
@@ -244,15 +240,15 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Movement setup failed for drifter {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"Movement setup failed for {id}: {ex.Message}");
                 }
 
-                Logger.Msg($"Spawned drifter {id} ({firstName} {lastName}) at {spawnPos}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"Spawned {id} ({firstName} {lastName}) at {spawnPos}");
                 return npc;
             }
             catch (Exception ex)
             {
-                Logger.Error($"Spawn failed for drifter {id}: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"Spawn failed for {id}: {ex.Message}\n{ex.StackTrace}");
                 return null;
             }
         }
@@ -351,7 +347,7 @@ namespace OverTheCounter.Logic
         {
             if (npc?.Avatar == null)
             {
-                Logger.Warning("Cannot generate appearance: NPC or Avatar is null");
+                OTCLog.Warning(OTCLog.Systems.Drifter, "Cannot generate appearance: NPC or Avatar is null");
                 return;
             }
 
@@ -483,12 +479,11 @@ namespace OverTheCounter.Logic
                 // Restore random state
                 UnityEngine.Random.state = state;
 
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Generated random appearance for {npc.ID}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"Generated random appearance for {npc.ID}");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"GenerateRandomAppearance failed for {npc.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"GenerateRandomAppearance failed for {npc.ID}: {ex.Message}");
             }
         }
 
@@ -557,8 +552,7 @@ namespace OverTheCounter.Logic
                 // Check if conversation already exists
                 if (npc.GetMSGConversation() != null)
                 {
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Messaging already initialized for {npc.ID}");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"Messaging already initialized for {npc.ID}");
                     return;
                 }
 
@@ -570,12 +564,11 @@ namespace OverTheCounter.Logic
                 conversation.SetIsKnown(true);
                 DrifterConversations[npc.ID] = conversation;
 
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Initialized messaging for {npc.ID}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"Initialized messaging for {npc.ID}");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"InitializeMessaging failed for {npc.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"InitializeMessaging failed for {npc.ID}: {ex.Message}");
             }
         }
 
@@ -601,15 +594,14 @@ namespace OverTheCounter.Logic
                     if (other.VoiceOverEmitter?.GetDatabase() != null)
                     {
                         npc.VoiceOverEmitter.SetDatabase(other.VoiceOverEmitter.GetDatabase(), false);
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg($"Borrowed voice database for {npc.ID}");
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"Borrowed voice database for {npc.ID}");
                         return;
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"EnsureVoiceDatabase failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"EnsureVoiceDatabase failed: {ex.Message}");
             }
         }
 
@@ -640,17 +632,16 @@ namespace OverTheCounter.Logic
                 _drifterIcon = ImageUtils.LoadImage(iconPath);
                 if (_drifterIcon != null)
                 {
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg("Loaded DrifterProfileIcon.png");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, "Loaded ProfileIcon.png");
                 }
                 else
                 {
-                    Logger.Warning("DrifterProfileIcon.png not found or failed to load");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, "ProfileIcon.png not found or failed to load");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to load drifter icon: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"Failed to load icon: {ex.Message}");
             }
 
             return _drifterIcon;
@@ -682,8 +673,7 @@ namespace OverTheCounter.Logic
                     if (netObj != null && InstanceFinder.ServerManager != null && netObj.IsSpawned)
                     {
                         InstanceFinder.ServerManager.Despawn(netObj);
-                        if (Config.VerboseLogging.Value)
-                            Logger.Msg($"ServerManager.Despawn completed for drifter {id}");
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"ServerManager.Despawn completed for {id}");
                     }
                     else if (npc.gameObject != null)
                     {
@@ -697,11 +687,11 @@ namespace OverTheCounter.Logic
                         UnityEngine.Object.Destroy(npc.gameObject);
                 }
 
-                Logger.Msg($"Despawned drifter {id}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"Despawned {id}");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Despawn failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"Despawn failed: {ex.Message}");
             }
         }
 
@@ -734,13 +724,12 @@ namespace OverTheCounter.Logic
                 // Create default affinity data
                 _drifterCustomerData.DefaultAffinityData = new ScheduleOne.Economy.CustomerAffinityData();
 
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg("Created CustomerData for drifters");
+                OTCLog.Msg(OTCLog.Systems.Drifter, "Created CustomerData");
                 return _drifterCustomerData;
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to create CustomerData: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"Failed to create CustomerData: {ex.Message}");
                 return null;
             }
         }
@@ -759,7 +748,7 @@ namespace OverTheCounter.Logic
                 // Verify object is inactive (Awake won't run until activated)
                 if (npc.gameObject.activeSelf)
                 {
-                    Logger.Warning($"Cannot add Customer to active GameObject for {npc.ID}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"Cannot add Customer to active GameObject for {npc.ID}");
                     return null;
                 }
 
@@ -767,8 +756,7 @@ namespace OverTheCounter.Logic
                 var existing = npc.gameObject.GetComponent<Customer>();
                 if (existing != null)
                 {
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Drifter {npc.ID} already has Customer component");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"{npc.ID} already has Customer component");
                     return existing;
                 }
 
@@ -776,7 +764,7 @@ namespace OverTheCounter.Logic
                 var customerData = GetOrCreateDrifterCustomerData();
                 if (customerData == null)
                 {
-                    Logger.Error($"Cannot add Customer - no CustomerData available");
+                    OTCLog.Error(OTCLog.Systems.Drifter, $"Cannot add Customer - no CustomerData available");
                     return null;
                 }
 
@@ -786,14 +774,13 @@ namespace OverTheCounter.Logic
                 // Set customerData directly (IL2CPP exposes this as a property)
                 customer.SetCustData(customerData);
 
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Set CustomerData for drifter {npc.ID}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"Set CustomerData for {npc.ID}");
 
                 return customer;
             }
             catch (Exception ex)
             {
-                Logger.Error($"AddCustomerComponent failed for {npc?.ID}: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"AddCustomerComponent failed for {npc?.ID}: {ex.Message}");
                 return null;
             }
         }
@@ -813,15 +800,14 @@ namespace OverTheCounter.Logic
                 var existing = npc.gameObject.GetComponent<Customer>();
                 if (existing != null)
                 {
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Drifter {npc.ID} already has Customer component (active)");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"{npc.ID} already has Customer component (active)");
                     return existing;
                 }
 
                 var customerData = GetOrCreateDrifterCustomerData();
                 if (customerData == null)
                 {
-                    Logger.Error($"Cannot add Customer to active NPC - no CustomerData available");
+                    OTCLog.Error(OTCLog.Systems.Drifter, $"Cannot add Customer to active NPC - no CustomerData available");
                     return null;
                 }
 
@@ -837,8 +823,7 @@ namespace OverTheCounter.Logic
                 // Isolate from vanilla deal system (see IsolateDrifterCustomer)
                 IsolateDrifterCustomer(npc);
 
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Added Customer component to active NPC {npc.ID}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"Added Customer component to active NPC {npc.ID}");
                 return customer;
             }
             catch (Exception ex)
@@ -846,7 +831,7 @@ namespace OverTheCounter.Logic
                 // Ensure we reactivate even on failure
                 try { if (npc?.gameObject != null && !npc.gameObject.activeSelf) npc.gameObject.SetActive(true); }
                 catch { }
-                Logger.Error($"AddCustomerComponentToActive failed for {npc?.ID}: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"AddCustomerComponentToActive failed for {npc?.ID}: {ex.Message}");
                 return null;
             }
         }
@@ -898,12 +883,11 @@ namespace OverTheCounter.Logic
                 customer.SetTimeSinceLastDealOffered(0);
                 customer.SetTimeSinceLastDealCompleted(0);
 
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Isolated drifter Customer from vanilla deal system: {npc.ID}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"Isolated Customer from vanilla deal system: {npc.ID}");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"IsolateDrifterCustomer failed for {npc?.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"IsolateCustomer failed for {npc?.ID}: {ex.Message}");
             }
         }
 
@@ -934,7 +918,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"RemoveActionsForTarget failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"RemoveActionsForTarget failed: {ex.Message}");
             }
         }
 

@@ -56,8 +56,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class DrifterManager
     {
-        private readonly MelonLogger.Instance _logger;
-
         // Active drifter tracking: DrifterId -> DrifterEvent
         private readonly Dictionary<string, DrifterEvent> _activeEvents = new();
         internal IReadOnlyDictionary<string, DrifterEvent> ActiveEvents => _activeEvents;
@@ -89,9 +87,8 @@ namespace OverTheCounter.Logic
             return results;
         }
 
-        public DrifterManager(MelonLogger.Instance logger)
+        public DrifterManager()
         {
-            _logger = logger;
             Instance = this;
 
             TimeManager.OnTick += OnTimeTick;
@@ -122,7 +119,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DrifterManager] OnTimeTick error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] OnTimeTick error: {ex.Message}");
             }
         }
 
@@ -134,8 +131,7 @@ namespace OverTheCounter.Logic
             // Drifters should never persist across days — despawn all active drifters
             if (_activeEvents.Count > 0)
             {
-                if (Config.VerboseLogging.Value)
-                    _logger.Msg($"[DrifterManager] Day pass: despawning {_activeEvents.Count} active drifter(s)");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Day pass: despawning {_activeEvents.Count} active instance(s)");
                 foreach (var evt in _activeEvents.Values)
                 {
                     var drifter = DrifterInstance.Active.GetValueOrDefault(evt.DrifterId);
@@ -200,7 +196,7 @@ namespace OverTheCounter.Logic
                 var hotspot = GetAvailableHotspot();
                 if (hotspot == null)
                 {
-                    _logger.Warning("[DrifterManager] No available hotspots for drifter spawn");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, "[Manager] No available hotspots for spawn");
                     return;
                 }
 
@@ -237,7 +233,7 @@ namespace OverTheCounter.Logic
                 {
                     // Capture FishNet ObjectId for client-side lookup
                     try { evt.NetworkObjectId = drifter.GameNpc.NetworkObject.ObjectId; }
-                    catch { _logger.Warning($"[DrifterManager] Could not get NetworkObjectId for {drifterId}"); }
+                    catch { OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Could not get NetworkObjectId for {drifterId}"); }
 
                     // Walk from spawn point to destination
                     drifter.WalkToDestination();
@@ -246,7 +242,7 @@ namespace OverTheCounter.Logic
                     evt.State = DrifterEventState.OfferPending;
                     evt.TextSendTime = spawnTime + 1; // 1 minute delay before text
 
-                    _logger.Msg($"[DrifterManager] Spawned drifter {drifterId}: Type={type}, Hotspot={hotspot.Name}, NetObjId={evt.NetworkObjectId}, Spawn={hotspot.SpawnPosition}, Dest={hotspot.Position}");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Spawned {drifterId}: Type={type}, Hotspot={hotspot.Name}, NetObjId={evt.NetworkObjectId}, Spawn={hotspot.SpawnPosition}, Dest={hotspot.Position}");
 
                     // Sync to clients
                     ConfigSyncData.Instance?.PublishDrifterState();
@@ -259,12 +255,12 @@ namespace OverTheCounter.Logic
                 else
                 {
                     _activeEvents.Remove(drifterId);
-                    _logger.Error($"[DrifterManager] Failed to create drifter NPC {drifterId}");
+                    OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] Failed to create NPC {drifterId}");
                 }
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DrifterManager] SpawnDrifter failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] Spawn failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -288,7 +284,7 @@ namespace OverTheCounter.Logic
                 var listedProducts = ScheduleOne.Product.ProductManager.ListedProducts;
                 if (listedProducts == null || listedProducts.Count == 0)
                 {
-                    _logger.Warning("[DrifterManager] No listed products - cannot generate deal");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, "[Manager] No listed products - cannot generate deal");
                     return false;
                 }
 
@@ -321,7 +317,7 @@ namespace OverTheCounter.Logic
 
                 if (selectedProduct == null)
                 {
-                    _logger.Warning("[DrifterManager] Could not select product");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, "[Manager] Could not select product");
                     return false;
                 }
 
@@ -367,14 +363,12 @@ namespace OverTheCounter.Logic
 
                         if (fallback != null)
                         {
-                            if (Config.VerboseLogging.Value)
-                                _logger.Msg($"[DrifterManager] {selectedProduct.Name} overpriced (appeal={appeal:F2}), switching to {fallback.Name}");
+                            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] {selectedProduct.Name} overpriced (appeal={appeal:F2}), switching to {fallback.Name}");
                             selectedProduct = fallback;
                         }
                         else
                         {
-                            if (Config.VerboseLogging.Value)
-                                _logger.Msg("[DrifterManager] All products overpriced, aborting deal");
+                            OTCLog.Msg(OTCLog.Systems.Drifter, "[Manager] All products overpriced, aborting deal");
                             return false;
                         }
                     }
@@ -429,12 +423,12 @@ namespace OverTheCounter.Logic
                 evt.Quantity = quantity;
                 evt.Payment = payment;
 
-                _logger.Msg($"[DrifterManager] Generated deal for {evt.DrifterId}: {quantity}x {evt.ProductName} @ ${payment} (type={evt.Type}, mult={priceMultiplier})");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Generated deal for {evt.DrifterId}: {quantity}x {evt.ProductName} @ ${payment} (type={evt.Type}, mult={priceMultiplier})");
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DrifterManager] GenerateDealRequest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] GenerateDealRequest failed: {ex.Message}");
                 return false;
             }
         }
@@ -502,8 +496,7 @@ namespace OverTheCounter.Logic
                         if (evt.LingerDeadline <= 0)
                         {
                             evt.LingerDeadline = currentMinutes + Config.DrifterLingerMaxMin.Value;
-                            if (Config.VerboseLogging.Value)
-                                _logger.Msg($"[DrifterManager] Set fallback linger deadline for {evt.DrifterId} (state={evt.State})");
+                            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Set fallback linger deadline for {evt.DrifterId} (state={evt.State})");
                         }
 
                         // NPC destroyed or invalid — despawn immediately
@@ -524,7 +517,7 @@ namespace OverTheCounter.Logic
                                     drifter.IsAttacking = false;
                                     drifter.IsKnockedOut = true;
                                     evt.LingerDeadline = currentMinutes + 180;
-                                    _logger.Msg($"[DrifterManager] Robber {evt.DrifterId} knocked out, lingering 180min for looting");
+                                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Robber {evt.DrifterId} knocked out, lingering 180min for looting");
                                 }
                             }
                             catch { /* NPC destroyed — will despawn below */ }
@@ -601,13 +594,13 @@ namespace OverTheCounter.Logic
                 evt.PendingClientMessage = message;
                 HasPendingDrifterMessages = true;
 
-                _logger.Msg($"[DrifterManager] Sent intro text for drifter {evt.DrifterId}: {evt.Quantity}x {evt.ProductName} @ ${evt.Payment}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Sent intro text for {evt.DrifterId}: {evt.Quantity}x {evt.ProductName} @ ${evt.Payment}");
 
                 ShowDealResponses(evt, drifter);
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[DrifterManager] Failed to send intro text: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Failed to send intro text: {ex.Message}");
             }
         }
 
@@ -618,7 +611,7 @@ namespace OverTheCounter.Logic
         {
             if (drifter?.GameNpc?.GetMSGConversation() == null)
             {
-                _logger.Warning($"[DrifterManager] Cannot show responses - MSGConversation is null for {evt.DrifterId}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Cannot show responses - MSGConversation is null for {evt.DrifterId}");
                 return;
             }
 
@@ -640,28 +633,28 @@ namespace OverTheCounter.Logic
 
                 // network=false: each side keeps its own callbacks (networked responses lose lambdas during serialization)
                 conversation.ShowResponses(responses, 0.5f, false);
-                _logger.Msg($"[DrifterManager] Showing deal responses for drifter {evt.DrifterId}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Showing deal responses for {evt.DrifterId}");
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DrifterManager] ShowDealResponses failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] ShowDealResponses failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
         private void OnAcceptResponse(string drifterId)
         {
-            _logger.Msg($"[DrifterManager] Accept response clicked for drifter {drifterId}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Accept response clicked for {drifterId}");
 
             if (!_activeEvents.TryGetValue(drifterId, out var evt))
             {
-                _logger.Warning($"[DrifterManager] OnAcceptResponse: unknown drifter {drifterId}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] OnAcceptResponse: unknown {drifterId}");
                 return;
             }
 
             // Other player may have already accepted — ignore stale button click
             if (evt.State >= DrifterEventState.DealAccepted)
             {
-                _logger.Msg($"[DrifterManager] OnAcceptResponse: drifter {drifterId} already in state {evt.State}, ignoring");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] OnAcceptResponse: {drifterId} already in state {evt.State}, ignoring");
                 return;
             }
 
@@ -702,17 +695,17 @@ namespace OverTheCounter.Logic
 
         private void OnDeclineResponse(string drifterId)
         {
-            _logger.Msg($"[DrifterManager] Decline response clicked for drifter {drifterId}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Decline response clicked for {drifterId}");
 
             if (!_activeEvents.TryGetValue(drifterId, out var evt))
             {
-                _logger.Warning($"[DrifterManager] OnDeclineResponse: unknown drifter {drifterId}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] OnDeclineResponse: unknown {drifterId}");
                 return;
             }
 
             if (evt.State >= DrifterEventState.DealAccepted)
             {
-                _logger.Msg($"[DrifterManager] OnDeclineResponse: drifter {drifterId} already in state {evt.State}, ignoring");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] OnDeclineResponse: {drifterId} already in state {evt.State}, ignoring");
                 return;
             }
 
@@ -853,14 +846,14 @@ namespace OverTheCounter.Logic
         {
             if (!_activeEvents.TryGetValue(drifterId, out var evt))
             {
-                _logger.Warning($"[DrifterManager] OpenDrifterHandover: unknown drifter {drifterId}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] OpenHandover: unknown {drifterId}");
                 return;
             }
 
             var drifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
             if (drifter?.GameNpc == null)
             {
-                _logger.Warning($"[DrifterManager] OpenDrifterHandover: drifter NPC not found {drifterId}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] OpenHandover: NPC not found {drifterId}");
                 return;
             }
 
@@ -868,7 +861,7 @@ namespace OverTheCounter.Logic
             var customer = DrifterSpawner.GetCustomerComponent(drifter.GameNpc);
             if (customer == null)
             {
-                _logger.Error($"[DrifterManager] OpenDrifterHandover: Customer component missing for {drifterId}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] OpenHandover: Customer component missing for {drifterId}");
                 return;
             }
 
@@ -898,7 +891,7 @@ namespace OverTheCounter.Logic
                 var contract = CreateDrifterContract(evt, customer, productList);
                 if (contract == null)
                 {
-                    _logger.Error($"[DrifterManager] Failed to create contract for drifter {drifterId}");
+                    OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] Failed to create contract for {drifterId}");
                     return;
                 }
 
@@ -919,7 +912,7 @@ namespace OverTheCounter.Logic
                 var handoverScreen = Singleton<HandoverScreen>.Instance;
                 if (handoverScreen == null)
                 {
-                    _logger.Error("[DrifterManager] HandoverScreen singleton not found");
+                    OTCLog.Error(OTCLog.Systems.Drifter, "[Manager] HandoverScreen singleton not found");
                     return;
                 }
 
@@ -927,11 +920,11 @@ namespace OverTheCounter.Logic
                 try { drifter.GameNpc.Movement?.Stop(); } catch { }
 
                 handoverScreen.Open(contract, customer, HandoverScreen.EMode.Contract, callback, successChance, false);
-                _logger.Msg($"[DrifterManager] Opened HandoverScreen for drifter {drifterId}: {evt.Quantity}x {evt.ProductName} @ ${evt.Payment}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Opened HandoverScreen for {drifterId}: {evt.Quantity}x {evt.ProductName} @ ${evt.Payment}");
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DrifterManager] OpenDrifterHandover failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] OpenHandover failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -974,13 +967,13 @@ namespace OverTheCounter.Logic
                 );
 
                 _drifterContracts[evt.DrifterId] = contract;
-                _logger.Msg($"[DrifterManager] Created contract for drifter {evt.DrifterId}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Created contract for {evt.DrifterId}");
 
                 return contract;
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DrifterManager] CreateDrifterContract failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] CreateContract failed: {ex.Message}\n{ex.StackTrace}");
                 return null;
             }
         }
@@ -990,12 +983,12 @@ namespace OverTheCounter.Logic
         /// </summary>
         private void OnDrifterHandoverClosed(string drifterId, HandoverScreen.EHandoverOutcome outcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance> items, float askingPrice)
         {
-            _logger.Msg($"[DrifterManager] Handover closed for {drifterId}: outcome={outcome}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Handover closed for {drifterId}: outcome={outcome}");
 
             if (outcome == HandoverScreen.EHandoverOutcome.Cancelled)
             {
                 // Player cancelled - deal still pending, resume drifter movement
-                _logger.Msg($"[DrifterManager] Handover cancelled for {drifterId}, deal still pending");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Handover cancelled for {drifterId}, deal still pending");
                 var cancelledDrifter = DrifterInstance.Active.GetValueOrDefault(drifterId);
                 cancelledDrifter?.EnsureMoving();
                 return;
@@ -1047,7 +1040,7 @@ namespace OverTheCounter.Logic
                     ConfigSyncData.SendQuestAction($"DRIFTER_COMPLETE:{drifterId}:{Player.Local?.PlayerCode ?? ""}");
                 }
 
-                _logger.Msg($"[DrifterManager] Robber {drifterId}: stocked ${lootCash:F0} loot, attack incoming");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Robber {drifterId}: stocked ${lootCash:F0} loot, attack incoming");
                 return;
             }
 
@@ -1064,7 +1057,7 @@ namespace OverTheCounter.Logic
 
                     if (!accepted)
                     {
-                        _logger.Msg($"[DrifterManager] Drifter {drifterId} REJECTED deal (matchScore={matchScore:F2})");
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] {drifterId} REJECTED deal (matchScore={matchScore:F2})");
 
                         drifter?.PlayDismissalSound();
                         try { Singleton<HandoverScreen>.Instance?.ClearCustomerSlots(true); } catch { }
@@ -1097,7 +1090,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"[DrifterManager] Rejection check failed for {drifterId}, proceeding with deal: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Rejection check failed for {drifterId}, proceeding with deal: {ex.Message}");
                 }
             }
 
@@ -1120,11 +1113,11 @@ namespace OverTheCounter.Logic
                         contract, items,
                         out highestAddiction, out mainType,
                         out matchedProductCount, out qualityDifference));
-                    _logger.Msg($"[DrifterManager] EvaluateDelivery: satisfaction={satisfaction:F2} qualityDiff={qualityDifference:F2} matchedCount={matchedProductCount}");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] EvaluateDelivery: satisfaction={satisfaction:F2} qualityDiff={qualityDifference:F2} matchedCount={matchedProductCount}");
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"[DrifterManager] EvaluateDelivery failed for {drifterId}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] EvaluateDelivery failed for {drifterId}: {ex.Message}");
                 }
 
                 // Replicates vanilla Customer.ProcessHandover bonus logic
@@ -1166,7 +1159,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"[DrifterManager] Bonus calculation failed for {drifterId}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Bonus calculation failed for {drifterId}: {ex.Message}");
                 }
             }
 
@@ -1174,7 +1167,7 @@ namespace OverTheCounter.Logic
             for (int i = 0; i < bonuses.Count; i++)
             {
                 bonusTotal += bonuses[i].Amount;
-                _logger.Msg($"[DrifterManager] Bonus: {bonuses[i].Title} +${bonuses[i].Amount:F0}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Bonus: {bonuses[i].Title} +${bonuses[i].Amount:F0}");
             }
 
             try
@@ -1183,17 +1176,17 @@ namespace OverTheCounter.Logic
                 if (contract != null)
                 {
                     contract.SubmitPayment(bonusTotal);
-                    _logger.Msg($"[DrifterManager] SubmitPayment: base=${contract.Payment:F0} + bonus=${bonusTotal:F0}");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] SubmitPayment: base=${contract.Payment:F0} + bonus=${bonusTotal:F0}");
                 }
                 else
                 {
                     NetworkSingleton<MoneyManager>.Instance?.ChangeCashBalance(evt.Payment, true, true);
-                    _logger.Warning($"[DrifterManager] Fallback payment ${evt.Payment} (no contract)");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Fallback payment ${evt.Payment} (no contract)");
                 }
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DrifterManager] Payment failed for {drifterId}: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] Payment failed for {drifterId}: {ex.Message}");
             }
 
             try
@@ -1204,12 +1197,12 @@ namespace OverTheCounter.Logic
                     float basePayment = contract?.Payment ?? evt.Payment;
                     Singleton<DealCompletionPopup>.Instance?.PlayPopup(
                         customer, satisfaction, relDelta, basePayment, bonuses);
-                    _logger.Msg($"[DrifterManager] Playing DealCompletionPopup for {drifterId}");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Playing DealCompletionPopup for {drifterId}");
                 }
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[DrifterManager] DealCompletionPopup failed for {drifterId}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] DealCompletionPopup failed for {drifterId}: {ex.Message}");
             }
 
             // Thank the player in person via worldspace dialogue bubble
@@ -1247,7 +1240,7 @@ namespace OverTheCounter.Logic
         {
             if (drifter?.GameNpc?.DialogueHandler == null)
             {
-                _logger.Warning($"[DrifterManager] Cannot setup dialogue choice - DialogueHandler null for {evt.DrifterId}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Cannot setup dialogue choice - DialogueHandler null for {evt.DrifterId}");
                 return;
             }
 
@@ -1256,7 +1249,7 @@ namespace OverTheCounter.Logic
                 var dialogueController = drifter.GameNpc.DialogueHandler.GetComponent<DialogueController>();
                 if (dialogueController == null)
                 {
-                    _logger.Warning($"[DrifterManager] DialogueController not found for {evt.DrifterId}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] DialogueController not found for {evt.DrifterId}");
                     return;
                 }
 
@@ -1283,11 +1276,11 @@ namespace OverTheCounter.Logic
                 dialogueController.AddDialogueChoice(choice);
                 _dealChoices[evt.DrifterId] = choice;
 
-                _logger.Msg($"[DrifterManager] Added deal dialogue choice for {evt.DrifterId}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Added deal dialogue choice for {evt.DrifterId}");
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DrifterManager] SetupDealDialogueChoice failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] SetupDealDialogueChoice failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -1327,21 +1320,21 @@ namespace OverTheCounter.Logic
             try
             {
                 var player = targetPlayer ?? Player.Local;
-                _logger.Msg($"[DrifterManager] NARC STING for {evt.DrifterId}! target={player?.PlayerCode} IsHost={NetworkHelper.IsHost}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] NARC STING for {evt.DrifterId}! target={player?.PlayerCode} IsHost={NetworkHelper.IsHost}");
 
                 if (player?.CrimeData == null)
                 {
-                    _logger.Warning("[DrifterManager] TriggerNarcSting: target player or CrimeData is null");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, "[Manager] TriggerNarcSting: target player or CrimeData is null");
                     return;
                 }
 
-                _logger.Msg($"[DrifterManager] TriggerNarcSting: player={player.PlayerCode}, pos={player.transform?.position}, currentPursuit={player.CrimeData.CurrentPursuitLevel}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] TriggerNarcSting: player={player.PlayerCode}, pos={player.transform?.position}, currentPursuit={player.CrimeData.CurrentPursuitLevel}");
 
                 // Record player position and set active wanted status
                 player.CrimeData.RecordLastKnownPosition(true);
                 player.CrimeData.AddCrime(new DrugTrafficking());
                 player.CrimeData.SetPursuitLevel(PlayerCrimeData.EPursuitLevel.Arresting);
-                _logger.Msg($"[DrifterManager] TriggerNarcSting: pursuit set to Arresting, now={player.CrimeData.CurrentPursuitLevel}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] TriggerNarcSting: pursuit set to Arresting, now={player.CrimeData.CurrentPursuitLevel}");
 
                 // Warp officers near the player for fast response, then start foot pursuit.
                 // Also redirect any nearby on-duty officers for immediate backup.
@@ -1353,11 +1346,11 @@ namespace OverTheCounter.Logic
                 if (drifter != null)
                     SetupNarcPostStingDialogue(evt, drifter);
 
-                _logger.Msg("[DrifterManager] Narc sting complete");
+                OTCLog.Msg(OTCLog.Systems.Drifter, "[Manager] Narc sting complete");
             }
             catch (Exception ex)
             {
-                _logger.Error($"[DrifterManager] TriggerNarcSting failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Drifter, $"[Manager] TriggerNarcSting failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -1371,14 +1364,14 @@ namespace OverTheCounter.Logic
             var station = PoliceStation.GetClosestPoliceStation(player.transform.position);
             if (station == null)
             {
-                _logger.Warning("[DrifterManager] WarpOfficersNearPlayer: No police station found");
+                OTCLog.Warning(OTCLog.Systems.Drifter, "[Manager] WarpOfficersNearPlayer: No police station found");
                 yield break;
             }
 
             string playerCode = player.PlayerCode;
             if (string.IsNullOrEmpty(playerCode))
             {
-                _logger.Warning("[DrifterManager] WarpOfficersNearPlayer: PlayerCode is null");
+                OTCLog.Warning(OTCLog.Systems.Drifter, "[Manager] WarpOfficersNearPlayer: PlayerCode is null");
                 yield break;
             }
 
@@ -1392,7 +1385,7 @@ namespace OverTheCounter.Logic
 
             if (officers.Count == 0)
             {
-                _logger.Msg("[DrifterManager] WarpOfficersNearPlayer: pool empty, falling back to redirect");
+                OTCLog.Msg(OTCLog.Systems.Drifter, "[Manager] WarpOfficersNearPlayer: pool empty, falling back to redirect");
                 RedirectNearbyOfficers(count, player);
                 yield break;
             }
@@ -1413,11 +1406,11 @@ namespace OverTheCounter.Logic
 
                     officers[i].Movement.Warp(warpPos);
                     officers[i].BeginFootPursuit_Networked(playerCode, false);
-                    _logger.Msg($"[DrifterManager] Warped officer {i} ~10m from player, pursuing");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Warped officer {i} ~10m from player, pursuing");
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"[DrifterManager] WarpOfficersNearPlayer: officer {i} failed: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] WarpOfficersNearPlayer: officer {i} failed: {ex.Message}");
                 }
             }
         }
@@ -1433,31 +1426,31 @@ namespace OverTheCounter.Logic
                 var station = PoliceStation.GetClosestPoliceStation(player.transform.position);
                 if (station == null)
                 {
-                    _logger.Warning("[DrifterManager] DispatchOfficers: No police station found");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, "[Manager] DispatchOfficers: No police station found");
                     return;
                 }
 
                 int poolCount = station.OfficerPool?.Count ?? 0;
                 int fromPool = Math.Min(count, poolCount);
-                _logger.Msg($"[DrifterManager] DispatchOfficers: station={station.name}, pool={poolCount}, fromPool={fromPool}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] DispatchOfficers: station={station.name}, pool={poolCount}, fromPool={fromPool}");
 
                 if (fromPool > 0)
                 {
                     station.Dispatch(fromPool, player);
                     count -= fromPool;
-                    _logger.Msg($"[DrifterManager] DispatchOfficers: dispatched {fromPool} from pool, remaining need={count}");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] DispatchOfficers: dispatched {fromPool} from pool, remaining need={count}");
                 }
 
                 // Fallback: redirect nearby on-duty officers when pool is empty/insufficient
                 if (count > 0)
                 {
-                    _logger.Msg($"[DrifterManager] DispatchOfficers: pool insufficient, redirecting {count} nearby officers");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] DispatchOfficers: pool insufficient, redirecting {count} nearby officers");
                     RedirectNearbyOfficers(count, player);
                 }
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[DrifterManager] DispatchOfficers failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] DispatchOfficers failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -1472,14 +1465,14 @@ namespace OverTheCounter.Logic
                 var officers = PoliceOfficer.Officers;
                 if (officers == null || officers.Count == 0)
                 {
-                    _logger.Warning("[DrifterManager] RedirectNearbyOfficers: No officers in world");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, "[Manager] RedirectNearbyOfficers: No officers in world");
                     return;
                 }
 
                 string playerCode = player.PlayerCode;
                 if (string.IsNullOrEmpty(playerCode))
                 {
-                    _logger.Warning("[DrifterManager] RedirectNearbyOfficers: PlayerCode is null");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, "[Manager] RedirectNearbyOfficers: PlayerCode is null");
                     return;
                 }
 
@@ -1512,22 +1505,22 @@ namespace OverTheCounter.Logic
                     {
                         candidates[i].officer.BeginFootPursuit_Networked(playerCode, true);
                         redirected++;
-                        _logger.Msg($"[DrifterManager] Redirected officer at dist={candidates[i].dist:F0}m to pursue player");
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Redirected officer at dist={candidates[i].dist:F0}m to pursue player");
                     }
                     catch (Exception ex)
                     {
-                        _logger.Warning($"[DrifterManager] Failed to redirect officer: {ex.Message}");
+                        OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Failed to redirect officer: {ex.Message}");
                     }
                 }
 
                 if (redirected == 0)
-                    _logger.Warning("[DrifterManager] RedirectNearbyOfficers: No available officers found");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, "[Manager] RedirectNearbyOfficers: No available officers found");
                 else
-                    _logger.Msg($"[DrifterManager] Redirected {redirected}/{count} officers to pursue");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Redirected {redirected}/{count} officers to pursue");
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[DrifterManager] RedirectNearbyOfficers failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] RedirectNearbyOfficers failed: {ex.Message}");
             }
         }
 
@@ -1565,11 +1558,11 @@ namespace OverTheCounter.Logic
 
                 dialogueController.AddDialogueChoice(choice);
                 _narcPostStingChoices[drifterId] = choice;
-                _logger.Msg($"[DrifterManager] Added narc post-sting dialogue for {drifterId}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Added narc post-sting dialogue for {drifterId}");
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[DrifterManager] SetupNarcPostStingDialogue failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] SetupNarcPostStingDialogue failed: {ex.Message}");
             }
         }
 
@@ -1610,12 +1603,12 @@ namespace OverTheCounter.Logic
                 if (_narcBackupDispatched.Add(drifterId))
                 {
                     DispatchOfficers(2, player);
-                    _logger.Msg($"[DrifterManager] Narc {drifterId} called backup");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Narc {drifterId} called backup");
                 }
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[DrifterManager] OnNarcPostStingTalk failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] OnNarcPostStingTalk failed: {ex.Message}");
             }
         }
 
@@ -1669,11 +1662,11 @@ namespace OverTheCounter.Logic
                 UnityEngine.Random.state = state;
 
                 drifter.EquipWeapon(weaponPath);
-                _logger.Msg($"[DrifterManager] Robber {drifter.Id}: weapon={weaponPath ?? "fists"} (roll={roll:F2})");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Robber {drifter.Id}: weapon={weaponPath ?? "fists"} (roll={roll:F2})");
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[DrifterManager] SelectRobberWeapon failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] SelectRobberWeapon failed: {ex.Message}");
             }
         }
 
@@ -1689,7 +1682,7 @@ namespace OverTheCounter.Logic
             if (drifter != null && drifter.IsValid)
             {
                 drifter.AttackPlayer(targetPlayer);
-                _logger.Msg($"[DrifterManager] Robber {drifterId}: attack initiated after {delay}s delay (target={targetPlayer?.PlayerCode ?? "local"})");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Robber {drifterId}: attack initiated after {delay}s delay (target={targetPlayer?.PlayerCode ?? "local"})");
             }
         }
 
@@ -1712,7 +1705,7 @@ namespace OverTheCounter.Logic
                     if (objId > 0)
                     {
                         evt.NetworkObjectId = objId;
-                        _logger.Msg($"[DrifterManager] Delayed ObjectId capture: {evt.DrifterId} → {objId} (attempt {attempt + 1})");
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Delayed ObjectId capture: {evt.DrifterId} → {objId} (attempt {attempt + 1})");
                         ConfigSyncData.Instance?.PublishDrifterState();
                         yield break;
                     }
@@ -1720,7 +1713,7 @@ namespace OverTheCounter.Logic
                 catch { yield break; }
             }
 
-            _logger.Warning($"[DrifterManager] ObjectId capture failed after 60s for {evt.DrifterId}");
+            OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] ObjectId capture failed after 60s for {evt.DrifterId}");
         }
 
         private string GetLocationHint(string hotspotName)
@@ -1730,7 +1723,7 @@ namespace OverTheCounter.Logic
 
         private void ExpireDrifterOffer(DrifterEvent evt, DrifterInstance drifter)
         {
-            _logger.Msg($"[DrifterManager] Offer expired for drifter {evt.DrifterId}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Offer expired for {evt.DrifterId}");
 
             // Send expiry text and clear response buttons so player can't accept after timeout
             if (drifter != null)
@@ -1761,7 +1754,7 @@ namespace OverTheCounter.Logic
 
         private void FailDrifterDelivery(DrifterEvent evt, DrifterInstance drifter)
         {
-            _logger.Msg($"[DrifterManager] Delivery failed for drifter {evt.DrifterId}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Delivery failed for {evt.DrifterId}");
 
             // Fail the quest
             if (DrifterDealQuest.ActiveQuests.TryGetValue(evt.DrifterId, out var quest))
@@ -1795,7 +1788,7 @@ namespace OverTheCounter.Logic
 
         private void DespawnDrifter(DrifterEvent evt, DrifterInstance drifter)
         {
-            _logger.Msg($"[DrifterManager] Despawning drifter {evt.DrifterId}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Despawning {evt.DrifterId}");
             evt.State = DrifterEventState.Despawning;
 
             // Clean up quest if still active
@@ -1816,7 +1809,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"[DrifterManager] Error despawning drifter: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Error despawning: {ex.Message}");
                 }
             }
         }
@@ -1830,13 +1823,13 @@ namespace OverTheCounter.Logic
 
             if (!_activeEvents.TryGetValue(drifterId, out var evt))
             {
-                _logger.Warning($"[DrifterManager] OnDealAccepted: unknown drifter {drifterId}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] OnDealAccepted: unknown {drifterId}");
                 return;
             }
 
             if (evt.State >= DrifterEventState.DealAccepted)
             {
-                _logger.Msg($"[DrifterManager] OnDealAccepted: drifter {drifterId} already in state {evt.State}, ignoring");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] OnDealAccepted: {drifterId} already in state {evt.State}, ignoring");
                 return;
             }
 
@@ -1867,9 +1860,9 @@ namespace OverTheCounter.Logic
                     quest.StartQuest();
                 }
             }
-            catch (Exception ex) { _logger.Warning($"[DrifterManager] Quest creation failed: {ex.Message}"); }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Quest creation failed: {ex.Message}"); }
 
-            _logger.Msg($"[DrifterManager] Deal accepted for drifter {drifterId}. Delivery deadline: {Config.DrifterDeliveryDeadlineMin.Value} min");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Deal accepted for {drifterId}. Delivery deadline: {Config.DrifterDeliveryDeadlineMin.Value} min");
             ConfigSyncData.Instance?.PublishDrifterState();
         }
 
@@ -1908,7 +1901,7 @@ namespace OverTheCounter.Logic
                 drifter.State = DrifterState.DealCompleted;
             }
 
-            _logger.Msg($"[DrifterManager] Deal completed for drifter {drifterId}. Type={evt.Type}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Deal completed for {drifterId}. Type={evt.Type}");
             ConfigSyncData.Instance?.PublishDrifterState();
 
             return evt.Type;
@@ -1925,7 +1918,7 @@ namespace OverTheCounter.Logic
 
             // Resolve the client player who triggered the deal
             Player clientPlayer = FindPlayerByCode(playerCode);
-            _logger.Msg($"[DrifterManager] Remote DRIFTER_COMPLETE: {drifterId} type={completedType} playerCode={playerCode} playerFound={clientPlayer != null}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Remote COMPLETE: {drifterId} type={completedType} playerCode={playerCode} playerFound={clientPlayer != null}");
 
             if (completedType == DrifterType.Narc && evt != null)
             {
@@ -2029,7 +2022,7 @@ namespace OverTheCounter.Logic
                         var netObj = npc.NetworkObject;
                         if (netObj != null && netObj.ObjectId == objectId)
                         {
-                            _logger.Msg($"[DrifterManager] Found NPC by ObjectId={objectId}: {npc.gameObject.name}");
+                            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Found NPC by ObjectId={objectId}: {npc.gameObject.name}");
                             return npc;
                         }
                     }
@@ -2072,7 +2065,7 @@ namespace OverTheCounter.Logic
             }
 
             if (bestMatch != null)
-                _logger.Msg($"[DrifterManager] Found NPC by position fallback (dist={bestDist:F1}m): {bestMatch.gameObject.name}");
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Found NPC by position fallback (dist={bestDist:F1}m): {bestMatch.gameObject.name}");
 
             return bestMatch;
         }
@@ -2097,7 +2090,7 @@ namespace OverTheCounter.Logic
                 // Give up after 120 seconds
                 if (now - pa.CreatedTime > 120f)
                 {
-                    _logger.Warning($"[DrifterManager] Giving up adoption for {pa.DrifterId} (timeout)");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Giving up adoption for {pa.DrifterId} (timeout)");
                     completed.Add(kv.Key);
                     continue;
                 }
@@ -2178,7 +2171,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"[DrifterManager] Messaging replay failed for {pa.DrifterId}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Messaging replay failed for {pa.DrifterId}: {ex.Message}");
                 }
             }
 
@@ -2191,11 +2184,11 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"[DrifterManager] Quest/dialogue setup failed for {pa.DrifterId}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Quest/dialogue setup failed for {pa.DrifterId}: {ex.Message}");
                 }
             }
 
-            _logger.Msg($"[DrifterManager] Client adopted drifter {pa.DrifterId}: state={state}, type={pa.Type}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Client adopted {pa.DrifterId}: state={state}, type={pa.Type}");
         }
 
         /// <summary>
@@ -2212,10 +2205,10 @@ namespace OverTheCounter.Logic
                     quest.Initialize(evt.DrifterId, evt.ProductName, evt.Quantity, evt.Payment,
                                     hotspot.Position, hotspot.Description, evt.DeliveryDeadline);
                     quest.StartQuest();
-                    _logger.Msg($"[DrifterManager] Client quest created for {evt.DrifterId}");
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Client quest created for {evt.DrifterId}");
                 }
             }
-            catch (Exception ex) { _logger.Warning($"[DrifterManager] Client quest creation failed: {ex.Message}"); }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Client quest creation failed: {ex.Message}"); }
         }
 
         /// <summary>
@@ -2286,7 +2279,7 @@ namespace OverTheCounter.Logic
                     var hotspot = DrifterHotspots.GetHotspotByName(hotspotName);
                     if (hotspot == null)
                     {
-                        _logger.Warning($"[DrifterManager] Hotspot '{hotspotName}' not found for {drifterId}, skipping");
+                        OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Hotspot '{hotspotName}' not found for {drifterId}, skipping");
                         continue;
                     }
 
@@ -2325,7 +2318,7 @@ namespace OverTheCounter.Logic
                                 Seed = seed, State = state, NetworkObjectId = netObjId,
                                 CreatedTime = Time.time
                             };
-                            _logger.Msg($"[DrifterManager] Queued adoption for {drifterId} (netObjId={netObjId}, not in registry yet)");
+                            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Queued adoption for {drifterId} (netObjId={netObjId}, not in registry yet)");
                         }
                     }
                     else
@@ -2360,7 +2353,7 @@ namespace OverTheCounter.Logic
                             }
                             catch (Exception ex)
                             {
-                                _logger.Warning($"[DrifterManager] OfferSent replay failed for {drifterId}: {ex.Message}");
+                                OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] OfferSent replay failed for {drifterId}: {ex.Message}");
                             }
                         }
 
@@ -2522,7 +2515,7 @@ namespace OverTheCounter.Logic
 
             DrifterInstance.CleanupAll();
             Instance = null;
-            _logger.Msg("[DrifterManager] Cleaned up and unsubscribed from events.");
+            OTCLog.Msg(OTCLog.Systems.Drifter, "[Manager] Cleaned up and unsubscribed from events.");
         }
 
         // Debug methods

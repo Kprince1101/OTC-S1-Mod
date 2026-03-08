@@ -1,4 +1,5 @@
 using MelonLoader;
+using OverTheCounter.Utilities;
 using S1API.GameTime;
 using S1API.Leveling;
 using System;
@@ -32,8 +33,6 @@ namespace OverTheCounter.UI
     [RegisterTypeInIl2Cpp]
     public class MinimapOverlay : MonoBehaviour
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC: Minimap");
-
         // Zoom levels: smaller = more map visible in the window (more zoomed out)
         private static readonly float[] ZoomSizes = { 0f, 2400f, 1200f, 600f };
 
@@ -198,7 +197,7 @@ namespace OverTheCounter.UI
             string rawPos = Config.MinimapPosition?.Value ?? "TopRight";
             if (!ValidPositions.Contains(rawPos))
             {
-                Logger.Warning($"Invalid MinimapPosition '{rawPos}', defaulting to TopRight");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Invalid MinimapPosition '{rawPos}', defaulting to TopRight");
                 rawPos = "TopRight";
                 Config.MinimapPosition.Value = rawPos;
             }
@@ -402,7 +401,7 @@ namespace OverTheCounter.UI
                         iconContainer.localEulerAngles = Vector3.zero;
                 }
             }
-            catch (Exception ex) { Logger.Warning($"Failed to clone player POI: {ex.Message}"); }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to clone player POI: {ex.Message}"); }
 
             // Fallback if clone failed — simple green circle
             if (_playerMarkerRect == null)
@@ -1116,7 +1115,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Logger.Warning($"UpdateMinimap: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"UpdateMinimap: {ex.Message}");
             }
         }
 
