@@ -47,7 +47,11 @@ namespace OverTheCounter.Logic
             get => _state;
             private set
             {
-                if (_state != value) { _state = value; ManagerInstance.StatePublishNeeded = true; }
+                if (_state == value) return;
+                _state = value;
+                ManagerInstance.StatePublishNeeded = true;
+                if (value == SupplyState.Idle || value == SupplyState.AtStore || value == SupplyState.AtStorage)
+                    RestoreIdlePriority();
             }
         }
 
@@ -56,9 +60,10 @@ namespace OverTheCounter.Logic
         private float _storeArrivalTime;
         private float _storageArrivalTime;
 
-        // Walk failure tracking (warp after 5 consecutive failures, vanilla pattern)
+        // Walk failure tracking — cascading fallback chain replaces hard warp
         private int _consecutiveWalkFailures;
-        private const int MAX_WALK_FAILURES = 5;
+        private const int WALK_AVOIDANCE_PRIORITY = 5;
+        private const int IDLE_AVOIDANCE_PRIORITY = 50;
         private const float MAX_CASH_WITHDRAWAL = 1000f;
 
         // Walk resume state
@@ -942,10 +947,9 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            _manager.LogWarning($"walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES}) to {visit.Location.DisplayName}");
-                            if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                            if (!TryWalkEscalation(visit.Location.Position, _storeWalkCallback))
                             {
-                                _manager.LogWarning($"warping to store after {MAX_WALK_FAILURES} walk failures");
+                                _manager.LogWarning("escalation exhausted, warping to store");
                                 WarpToPosition(visit.Location.Position);
                                 State = SupplyState.AtStore;
                                 _storeArrivalTime = UnityEngine.Time.time;
@@ -956,6 +960,7 @@ namespace OverTheCounter.Logic
                         // On Stopped: leave state as WalkingToStore for EnsureMovingDuringRun() to resume
                     });
 
+                SetWalkingPriority();
                 _manager.GameNpc.Movement.SetDestination(visit.Location.Position, _storeWalkCallback, 3f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
                     _manager.Log($"walking to {visit.Location.DisplayName} | inventory: [{_manager.GetInventorySummary()}]");
@@ -1423,9 +1428,9 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                            if (!TryWalkEscalation(storagePos.Value, _storageWalkCallback))
                             {
-                                _manager.LogWarning($"warping to storage after {MAX_WALK_FAILURES} walk failures");
+                                _manager.LogWarning("escalation exhausted, warping to storage");
                                 WarpToPosition(storagePos.Value);
                                 State = SupplyState.AtStorage;
                                 _storageArrivalTime = UnityEngine.Time.time;
@@ -1434,6 +1439,7 @@ namespace OverTheCounter.Logic
                         }
                     });
 
+                SetWalkingPriority();
                 _manager.GameNpc.Movement.SetDestination(storagePos.Value, _storageWalkCallback, 2f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
                     _manager.Log($"walking to supply storage | inventory: [{_manager.GetInventorySummary()}]");
@@ -1673,17 +1679,19 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                            if (!TryWalkEscalation(location.Destination, _idleWalkCallback))
                             {
-                                _manager.LogWarning($"warping to idle point");
+                                _manager.LogWarning("escalation exhausted, warping to idle point");
                                 WarpToPosition(location.Destination);
                                 try { _manager.GameNpc?.Movement?.FaceDirection(location.DestRotation * Vector3.forward); }
                                 catch { }
+                                _consecutiveWalkFailures = 0;
                                 FinishRun();
                             }
                         }
                     });
 
+                SetWalkingPriority();
                 _manager.GameNpc.Movement.SetDestination(location.Destination, _idleWalkCallback, 3f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
                     _manager.Log($"walking to idle point (supply) | inventory: [{_manager.GetInventorySummary()}]");
@@ -1898,8 +1906,7 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Detects if the manager is stuck (hasn't moved for STUCK_WARP_TIMEOUT seconds)
-        /// and warps to the appropriate target, transitioning state to match
-        /// the existing MAX_WALK_FAILURES warp patterns.
+        /// and warps to the current walk target (short warp) then transitions state.
         /// </summary>
         private void CheckStuckDuringWalk()
         {
@@ -2317,6 +2324,91 @@ namespace OverTheCounter.Logic
             }
 
             return total;
+        }
+
+        // ==================================================================
+        // Walk escalation & avoidance priority
+        // ==================================================================
+
+        /// <summary>
+        /// Cascading fallback chain for walk failures.
+        /// Returns true if an escalation was attempted, false if all levels exhausted.
+        /// Supply runs are outdoor-only so no NavMesh switching is needed.
+        /// </summary>
+        private bool TryWalkEscalation(Vector3 target,
+            GameSystem.Action<NPCMovement.WalkResult> callback)
+        {
+            var movement = _manager.GameNpc?.Movement;
+            if (movement == null) return false;
+
+            switch (_consecutiveWalkFailures)
+            {
+                case 1:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("walk failed, retrying with IgnoreCosts");
+                    movement.SetAgentType(NPCMovement.EAgentType.IgnoreCosts);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                case 2:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("walk failed with IgnoreCosts, retrying on Humanoid");
+                    movement.SetAgentType(NPCMovement.EAgentType.Humanoid);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                case 3:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("walk failed, IgnoreCosts from current position");
+                    movement.SetAgentType(NPCMovement.EAgentType.IgnoreCosts);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                default:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("all walk escalation attempts exhausted");
+                    movement.SetAgentType(NPCMovement.EAgentType.Humanoid);
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Sets high avoidance priority so the manager pushes through NPC crowds while walking.
+        /// </summary>
+        private void SetWalkingPriority()
+        {
+            try
+            {
+                var agent = _manager.GameNpc?.Movement?.Agent;
+                if (agent != null) agent.avoidancePriority = WALK_AVOIDANCE_PRIORITY;
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Restores default avoidance priority when idle (yields to other NPCs).
+        /// </summary>
+        private void RestoreIdlePriority()
+        {
+            try
+            {
+                var agent = _manager.GameNpc?.Movement?.Agent;
+                if (agent != null) agent.avoidancePriority = IDLE_AVOIDANCE_PRIORITY;
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Ensures the manager is on civilian NavMesh for outdoor travel.
+        /// Safe to call at any time — restores Humanoid agent type.
+        /// </summary>
+        public void EnsureCivilianNavMesh()
+        {
+            try
+            {
+                _manager.GameNpc?.Movement?.SetAgentType(NPCMovement.EAgentType.Humanoid);
+            }
+            catch { }
         }
 
         // ==================================================================

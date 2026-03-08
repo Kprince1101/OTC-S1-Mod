@@ -437,6 +437,10 @@ namespace OverTheCounter.Logic
                     return;
                 }
 
+                // Ensure manager is on civilian NavMesh before cross-town walk
+                instance.DistributionBehaviour?.EnsureCivilianNavMesh();
+                instance.SupplyBehaviour?.EnsureCivilianNavMesh();
+
                 // Track target location for EnsureMoving resume
                 instance.TargetLocation = location;
                 instance.ArrivedAtDestination = false;

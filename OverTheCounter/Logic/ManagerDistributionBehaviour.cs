@@ -51,7 +51,14 @@ namespace OverTheCounter.Logic
             get => _state;
             private set
             {
-                if (_state != value) { _state = value; ManagerInstance.StatePublishNeeded = true; }
+                if (_state == value) return;
+                _state = value;
+                ManagerInstance.StatePublishNeeded = true;
+                // Restore idle avoidance priority when no longer actively walking
+                if (value == DistributionState.Idle ||
+                    value == DistributionState.AtSource ||
+                    value == DistributionState.AtDest)
+                    RestoreIdlePriority();
             }
         }
         public int CurrentRouteDisplay => Math.Max(1, _currentRouteIndex + 1); // 1-indexed for UI, clamped during resume runs
@@ -66,9 +73,10 @@ namespace OverTheCounter.Logic
         private float _sourceArrivalTime;
         private float _destArrivalTime;
 
-        // Walk failure tracking (warp after 5 consecutive failures, vanilla pattern)
+        // Walk failure tracking — cascading fallback chain replaces hard warp after N failures
         private int _consecutiveWalkFailures;
-        private const int MAX_WALK_FAILURES = 5;
+        private const int WALK_AVOIDANCE_PRIORITY = 5;   // high priority while walking (pushes through crowds)
+        private const int IDLE_AVOIDANCE_PRIORITY = 50;   // default when idle (yields to others)
 
         // Walk resume state
         private Vector3 _currentWalkTarget;
@@ -453,18 +461,28 @@ namespace OverTheCounter.Logic
                             else if (result == NPCMovement.WalkResult.Failed)
                             {
                                 _consecutiveWalkFailures++;
-                                _manager.LogWarning($"source property walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
-                                if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                                if (!TryWalkEscalation(propertyPos.Value, _sourcePropertyWalkCallback))
                                 {
-                                    _manager.LogWarning($"warping to source storage after {MAX_WALK_FAILURES} failures");
-                                    WarpToPosition(capturedAccessPos);
+                                    // All escalation exhausted — warp to property exterior (NOT into building)
+                                    _manager.LogWarning("escalation exhausted, warping to property exterior");
+                                    WarpToPosition(propertyPos.Value);
                                     _consecutiveWalkFailures = 0;
-                                    State = DistributionState.AtSource;
-                                    _sourceArrivalTime = UnityEngine.Time.time;
+                                    if (SwitchToEmployeeNavMesh())
+                                    {
+                                        State = DistributionState.WalkingToSource;
+                                        IssueWalkToSource(capturedAccessPos);
+                                    }
+                                    else
+                                    {
+                                        WarpToPosition(capturedAccessPos);
+                                        State = DistributionState.AtSource;
+                                        _sourceArrivalTime = UnityEngine.Time.time;
+                                    }
                                 }
                             }
                         });
 
+                    SetWalkingPriority();
                     _manager.GameNpc.Movement.SetDestination(propertyPos.Value, _sourcePropertyWalkCallback, 3f, 1f);
                 }
                 catch (Exception ex)
@@ -499,10 +517,9 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            _manager.LogWarning($"source walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
-                            if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                            if (!TryWalkEscalation(target, _sourceWalkCallback))
                             {
-                                _manager.LogWarning($"warping to source after {MAX_WALK_FAILURES} failures");
+                                _manager.LogWarning("escalation exhausted, warping to source");
                                 WarpToPosition(target);
                                 State = DistributionState.AtSource;
                                 _sourceArrivalTime = UnityEngine.Time.time;
@@ -511,6 +528,7 @@ namespace OverTheCounter.Logic
                         }
                     });
 
+                SetWalkingPriority();
                 _manager.GameNpc.Movement.SetDestination(target, _sourceWalkCallback, 2f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
                     _manager.Log($"walking to source for route {CurrentRouteDisplay} | inventory: [{_manager.GetInventorySummary()}]");
@@ -737,18 +755,27 @@ namespace OverTheCounter.Logic
                             else if (result == NPCMovement.WalkResult.Failed)
                             {
                                 _consecutiveWalkFailures++;
-                                _manager.LogWarning($"dest property walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
-                                if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                                if (!TryWalkEscalation(propertyPos.Value, _destPropertyWalkCallback))
                                 {
-                                    _manager.LogWarning($"warping to dest storage after {MAX_WALK_FAILURES} failures");
-                                    WarpToPosition(capturedAccessPos);
+                                    _manager.LogWarning("escalation exhausted, warping to property exterior for dest");
+                                    WarpToPosition(propertyPos.Value);
                                     _consecutiveWalkFailures = 0;
-                                    State = DistributionState.AtDest;
-                                    _destArrivalTime = UnityEngine.Time.time;
+                                    if (SwitchToEmployeeNavMesh())
+                                    {
+                                        State = DistributionState.WalkingToDest;
+                                        IssueWalkToDest(capturedAccessPos);
+                                    }
+                                    else
+                                    {
+                                        WarpToPosition(capturedAccessPos);
+                                        State = DistributionState.AtDest;
+                                        _destArrivalTime = UnityEngine.Time.time;
+                                    }
                                 }
                             }
                         });
 
+                    SetWalkingPriority();
                     _manager.GameNpc.Movement.SetDestination(propertyPos.Value, _destPropertyWalkCallback, 3f, 1f);
                 }
                 catch (Exception ex)
@@ -782,10 +809,9 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            _manager.LogWarning($"dest walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
-                            if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                            if (!TryWalkEscalation(target, _destWalkCallback))
                             {
-                                _manager.LogWarning($"warping to dest after {MAX_WALK_FAILURES} failures");
+                                _manager.LogWarning("escalation exhausted, warping to dest");
                                 WarpToPosition(target);
                                 State = DistributionState.AtDest;
                                 _destArrivalTime = UnityEngine.Time.time;
@@ -794,6 +820,7 @@ namespace OverTheCounter.Logic
                         }
                     });
 
+                SetWalkingPriority();
                 _manager.GameNpc.Movement.SetDestination(target, _destWalkCallback, 2f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
                     _manager.Log($"walking to destination for route {CurrentRouteDisplay} | inventory: [{_manager.GetInventorySummary()}]");
@@ -1021,9 +1048,9 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                            if (!TryWalkEscalation(location.Destination, _idleWalkCallback))
                             {
-                                _manager.LogWarning($"warping to idle point");
+                                _manager.LogWarning("escalation exhausted, warping to idle point");
                                 WarpToPosition(location.Destination);
                                 try { _manager.GameNpc?.Movement?.FaceDirection(location.DestRotation * Vector3.forward); }
                                 catch { }
@@ -1032,6 +1059,7 @@ namespace OverTheCounter.Logic
                         }
                     });
 
+                SetWalkingPriority();
                 _manager.GameNpc.Movement.SetDestination(location.Destination, _idleWalkCallback, 3f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
                     _manager.Log($"walking to idle point after distribution | inventory: [{_manager.GetInventorySummary()}]");
@@ -1176,8 +1204,8 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Detects if the manager is stuck (hasn't moved for STUCK_WARP_TIMEOUT seconds)
-        /// and warps to the appropriate target, transitioning state to match
-        /// the existing MAX_WALK_FAILURES warp patterns.
+        /// and attempts escalation before warping. Warps only to the current walk target
+        /// (property exterior for outdoor walks, not directly into buildings).
         /// </summary>
         private void CheckStuckDuringWalk()
         {
@@ -1204,27 +1232,55 @@ namespace OverTheCounter.Logic
             if (_lastMovedTime <= 0f || UnityEngine.Time.time - _lastMovedTime < STUCK_WARP_TIMEOUT)
                 return;
 
-            _manager.LogWarning($"stuck for {STUCK_WARP_TIMEOUT}s during {State}, warping");
+            _manager.LogWarning($"stuck for {STUCK_WARP_TIMEOUT}s during {State}, warping to walk target");
+
+            // Warp to current walk target (NOT the inner access point for property walks).
+            // For WalkingToSourceProperty/WalkingToDestProperty this is the property exterior.
+            WarpToPosition(_currentWalkTarget);
             _consecutiveWalkFailures = 0;
 
             switch (State)
             {
                 case DistributionState.WalkingToSourceProperty:
+                    // Warped to property exterior — switch NavMesh and walk inside
+                    if (SwitchToEmployeeNavMesh())
+                    {
+                        State = DistributionState.WalkingToSource;
+                        IssueWalkToSource(_currentAccessTarget);
+                    }
+                    else
+                    {
+                        WarpToPosition(_currentAccessTarget);
+                        State = DistributionState.AtSource;
+                        _sourceArrivalTime = UnityEngine.Time.time;
+                    }
+                    break;
+
                 case DistributionState.WalkingToSource:
-                    WarpToPosition(_currentAccessTarget);
                     State = DistributionState.AtSource;
                     _sourceArrivalTime = UnityEngine.Time.time;
                     break;
 
                 case DistributionState.WalkingToDestProperty:
+                    if (SwitchToEmployeeNavMesh())
+                    {
+                        State = DistributionState.WalkingToDest;
+                        IssueWalkToDest(_currentAccessTarget);
+                    }
+                    else
+                    {
+                        WarpToPosition(_currentAccessTarget);
+                        State = DistributionState.AtDest;
+                        _destArrivalTime = UnityEngine.Time.time;
+                    }
+                    break;
+
                 case DistributionState.WalkingToDest:
-                    WarpToPosition(_currentAccessTarget);
                     State = DistributionState.AtDest;
                     _destArrivalTime = UnityEngine.Time.time;
                     break;
 
                 case DistributionState.WalkingToPropertyExit:
-                    WarpToPosition(_currentWalkTarget);
                     RestoreCivilianNavMesh();
                     _currentPropertyExterior = null;
                     _exitBuildingContinuation?.Invoke();
@@ -1390,10 +1446,9 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            _manager.LogWarning($"property exit walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
-                            if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                            if (!TryWalkEscalation(_currentPropertyExterior.Value, _propertyExitWalkCallback))
                             {
-                                _manager.LogWarning($"warping to property exterior");
+                                _manager.LogWarning("escalation exhausted, warping to property exterior");
                                 WarpToPosition(_currentPropertyExterior.Value);
                                 _consecutiveWalkFailures = 0;
                                 RestoreCivilianNavMesh();
@@ -1404,6 +1459,7 @@ namespace OverTheCounter.Logic
                         }
                     });
 
+                SetWalkingPriority();
                 _manager.GameNpc.Movement.SetDestination(_currentPropertyExterior.Value, _propertyExitWalkCallback, 3f, 1f);
             }
             catch (Exception ex)
@@ -1703,6 +1759,110 @@ namespace OverTheCounter.Logic
             }
             catch { }
             return -1;
+        }
+
+        // ==================================================================
+        // Walk escalation — cascading fallback chain
+        // ==================================================================
+
+        /// <summary>
+        /// Attempts to escalate a failed walk through the fallback chain.
+        /// Returns true if a retry was issued (caller should wait for next callback).
+        /// Returns false if all attempts exhausted (caller should handle final warp).
+        ///
+        /// Chain: Humanoid → IgnoreCosts → Humanoid retry → employee NavMesh → IgnoreCosts → exhausted.
+        /// </summary>
+        private bool TryWalkEscalation(Vector3 target,
+            GameSystem.Action<NPCMovement.WalkResult> callback)
+        {
+            var movement = _manager.GameNpc?.Movement;
+            if (movement == null) return false;
+
+            switch (_consecutiveWalkFailures)
+            {
+                case 1:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("walk failed, retrying with IgnoreCosts");
+                    movement.SetAgentType(NPCMovement.EAgentType.IgnoreCosts);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                case 2:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("walk failed with IgnoreCosts, retrying on Humanoid");
+                    movement.SetAgentType(NPCMovement.EAgentType.Humanoid);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                case 3:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("walk failed, trying employee NavMesh");
+                    if (SwitchToEmployeeNavMesh())
+                    {
+                        movement.SetDestination(target, callback, 3f, 1f);
+                        return true;
+                    }
+                    // Can't switch — skip to next level
+                    _consecutiveWalkFailures++;
+                    goto case 4;
+
+                case 4:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("walk failed, IgnoreCosts from current position");
+                    movement.SetAgentType(NPCMovement.EAgentType.IgnoreCosts);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                default:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("all walk escalation attempts exhausted");
+                    // Restore clean state for the warp
+                    movement.SetAgentType(NPCMovement.EAgentType.Humanoid);
+                    if (_usingEmployeeNavMesh)
+                        RestoreCivilianNavMesh();
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Sets high avoidance priority so the manager pushes through NPC crowds while walking.
+        /// </summary>
+        private void SetWalkingPriority()
+        {
+            try
+            {
+                var agent = _manager.GameNpc?.Movement?.Agent;
+                if (agent != null) agent.avoidancePriority = WALK_AVOIDANCE_PRIORITY;
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Restores default avoidance priority when idle (yields to other NPCs).
+        /// </summary>
+        private void RestoreIdlePriority()
+        {
+            try
+            {
+                var agent = _manager.GameNpc?.Movement?.Agent;
+                if (agent != null) agent.avoidancePriority = IDLE_AVOIDANCE_PRIORITY;
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Ensures the manager is on civilian NavMesh for outdoor travel.
+        /// Safe to call at any time — no-ops if already on civilian.
+        /// </summary>
+        public void EnsureCivilianNavMesh()
+        {
+            if (_usingEmployeeNavMesh)
+                RestoreCivilianNavMesh();
+            try
+            {
+                _manager.GameNpc?.Movement?.SetAgentType(NPCMovement.EAgentType.Humanoid);
+            }
+            catch { }
         }
 
         private void WarpToPosition(Vector3 position)

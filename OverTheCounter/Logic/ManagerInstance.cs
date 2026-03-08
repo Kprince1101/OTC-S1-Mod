@@ -132,6 +132,9 @@ namespace OverTheCounter.Logic
         internal ManagerLocations.BusinessLocation TargetLocation { get; set; }
         public bool ArrivedAtDestination { get; set; }
         private float _lastEnsureMovingLog;
+        private int _consecutiveWalkFailures;
+        private const int WALK_AVOIDANCE_PRIORITY = 5;
+        private const int IDLE_AVOIDANCE_PRIORITY = 50;
 
         // Job rotation: supply → route0 → route1 → route2 → supply → ...
         // Step 0 = supply, 1-3 = distribution routes 0-2
@@ -597,6 +600,7 @@ namespace OverTheCounter.Logic
 
                 TargetLocation = location;
                 ArrivedAtDestination = false;
+                _consecutiveWalkFailures = 0;
 
                 _destCallback = (GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult>)
                     new Action<ScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
@@ -606,11 +610,28 @@ namespace OverTheCounter.Logic
                         {
                             ArrivedAtDestination = true;
                             TargetLocation = null;
+                            _consecutiveWalkFailures = 0;
+                            RestoreIdlePriority();
                             FaceDirection(location.DestRotation);
+                        }
+                        else if (result == ScheduleOne.NPCs.NPCMovement.WalkResult.Failed)
+                        {
+                            _consecutiveWalkFailures++;
+                            if (!TryWalkEscalation(location.Destination, _destCallback))
+                            {
+                                LogWarning("escalation exhausted, warping to destination");
+                                WarpToPosition(location.Destination);
+                                ArrivedAtDestination = true;
+                                TargetLocation = null;
+                                _consecutiveWalkFailures = 0;
+                                RestoreIdlePriority();
+                                FaceDirection(location.DestRotation);
+                            }
                         }
                         // On Stopped (e.g. dialogue interrupt), leave TargetLocation set so EnsureMoving can resume
                     });
 
+                SetWalkingPriority();
                 GameNpc.Movement.SetDestination(location.Destination, _destCallback, 3f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
                     Log($"walking to destination: {location.Destination}");
@@ -631,6 +652,82 @@ namespace OverTheCounter.Logic
                 GameNpc?.Movement?.FaceDirection(rotation * Vector3.forward);
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Cascading fallback chain for walk failures (hire walk).
+        /// Returns true if an escalation was attempted, false if all levels exhausted.
+        /// </summary>
+        private bool TryWalkEscalation(Vector3 target,
+            GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> callback)
+        {
+            var movement = GameNpc?.Movement;
+            if (movement == null) return false;
+
+            switch (_consecutiveWalkFailures)
+            {
+                case 1:
+                    if (Config.ManagerVerboseLogging.Value)
+                        Log("walk failed, retrying with IgnoreCosts");
+                    movement.SetAgentType(ScheduleOne.NPCs.NPCMovement.EAgentType.IgnoreCosts);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                case 2:
+                    if (Config.ManagerVerboseLogging.Value)
+                        Log("walk failed with IgnoreCosts, retrying on Humanoid");
+                    movement.SetAgentType(ScheduleOne.NPCs.NPCMovement.EAgentType.Humanoid);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                case 3:
+                    if (Config.ManagerVerboseLogging.Value)
+                        Log("walk failed, IgnoreCosts from current position");
+                    movement.SetAgentType(ScheduleOne.NPCs.NPCMovement.EAgentType.IgnoreCosts);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                default:
+                    if (Config.ManagerVerboseLogging.Value)
+                        Log("all walk escalation attempts exhausted");
+                    movement.SetAgentType(ScheduleOne.NPCs.NPCMovement.EAgentType.Humanoid);
+                    return false;
+            }
+        }
+
+        private void SetWalkingPriority()
+        {
+            try
+            {
+                var agent = GameNpc?.Movement?.Agent;
+                if (agent != null) agent.avoidancePriority = WALK_AVOIDANCE_PRIORITY;
+            }
+            catch { }
+        }
+
+        private void RestoreIdlePriority()
+        {
+            try
+            {
+                var agent = GameNpc?.Movement?.Agent;
+                if (agent != null) agent.avoidancePriority = IDLE_AVOIDANCE_PRIORITY;
+            }
+            catch { }
+        }
+
+        private void WarpToPosition(Vector3 position)
+        {
+            try
+            {
+                if (NavMeshUtility.SamplePosition(position, out UnityEngine.AI.NavMeshHit hit, 5f, -1))
+                    GameNpc?.Movement?.Warp(hit.position);
+                else
+                    GameNpc?.Movement?.Warp(position);
+            }
+            catch (Exception ex)
+            {
+                LogWarning($"WarpToPosition failed: {ex.Message}");
+            }
         }
 
         /// <summary>
