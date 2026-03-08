@@ -80,6 +80,25 @@ namespace OverTheCounter
             BellaProtocolQuest.ResetInstance();
             Patches.BellaSummonPatch.Reset();
 
+            // WORKAROUND: S1API bug — SaveableAutoRegistry never clears cached instances
+            // between game sessions, causing [SaveableField] values and runtime state to
+            // leak from one save into the next. ClearCache() exists but is never called.
+            // See tools/s1api_saveable_bug.md for full analysis.
+            // Remove this when S1API fixes the bug upstream.
+            try
+            {
+                var registryType = typeof(S1API.Internal.Abstraction.Saveable).Assembly
+                    .GetType("S1API.Saveables.SaveableAutoRegistry");
+                var clearMethod = registryType?.GetMethod("ClearCache",
+                    BindingFlags.Static | BindingFlags.NonPublic);
+                clearMethod?.Invoke(null, null);
+                OTCLog.Msg(OTCLog.Systems.Patch, "Cleared S1API SaveableAutoRegistry cache");
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to clear SaveableAutoRegistry: {ex.Message}");
+            }
+
             // Drifters are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
             DrifterSpawner.ResetCache();

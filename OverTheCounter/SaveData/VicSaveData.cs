@@ -53,9 +53,6 @@ namespace OverTheCounter.SaveData
         // because NPCs aren't accessible during the sleep transition.
         private bool _fireOnNextTick;
 
-        // Runtime-only: ensures we do the stale-data check exactly once per session.
-        private bool _staleCheckDone;
-
         // Runtime-only: deferred re-publish after save/load so the client
         // receives correct state even if the initial SyncVar push missed us.
         private bool _needsStatePublish;
@@ -232,21 +229,6 @@ namespace OverTheCounter.SaveData
             {
                 _needsStatePublish = false;
                 ConfigSyncData.Instance?.PublishGameState();
-            }
-
-            // Stale data check: host-only since client state comes from ApplyHostState.
-            if (NetworkHelper.IsHost && !_staleCheckDone && _hasBeenTexted)
-            {
-                _staleCheckDone = true;
-                if (!_unlocked && !IsCleanCashQuestStarted())
-                {
-                    _hasBeenTexted = false;
-                    _triggerPendingDay = -1;
-                    _questCreated = false;
-                    _needsIntroText = false;
-                    _fireOnNextTick = false;
-                }
-                return;
             }
 
             // Deferred trigger from OnSleepEnd (host-only path).
