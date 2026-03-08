@@ -43,7 +43,8 @@ namespace OverTheCounter.Apps
             var backBtn = backBar.AddComponent<Button>();
             backBtn.onClick.AddListener(new Action(CloseManagerLog));
 
-            var backText = TMPFactory.Text("BackLabel", "\u25C0  Back", backBar.transform, 16, TextAlignmentOptions.Left); // ◀ left triangle
+            var backText = TMPFactory.Text("BackLabel", "<  Back", backBar.transform, 16, TextAlignmentOptions.Left);
+            backText.richText = false;
             backText.color = new Color(0.7f, 0.7f, 0.7f);
             var backTextRect = backText.gameObject.GetComponent<RectTransform>();
             backTextRect.anchorMin = Vector2.zero;

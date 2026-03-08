@@ -140,7 +140,8 @@ namespace OverTheCounter.Apps
             var backBtn = backBar.AddComponent<Button>();
             backBtn.onClick.AddListener(new Action(CloseManagerDetail));
 
-            var backText = TMPFactory.Text("BackLabel", "\u25C0  Back", backBar.transform, 16, TextAlignmentOptions.Left); // ◀ left triangle
+            var backText = TMPFactory.Text("BackLabel", "<  Back", backBar.transform, 16, TextAlignmentOptions.Left);
+            backText.richText = false;
             backText.color = new Color(0.7f, 0.7f, 0.7f);
             var backTextRect = backText.gameObject.GetComponent<RectTransform>();
             backTextRect.anchorMin = Vector2.zero;
@@ -725,7 +726,7 @@ namespace OverTheCounter.Apps
             var (speedMask, speedBtnComp, speedBtnLabel) = TMPFactory.RoundedButtonWithLabel(
                 "SpeedUpgradeBtn", speedBtnStr, speedCard.transform,
                 speedMaxed ? new Color(0.25f, 0.25f, 0.25f) : new Color(0.20f, 0.45f, 0.20f),
-                130, 30, 4, speedMaxed ? new Color(0.4f, 0.4f, 0.4f) : Color.white);
+                160, 30, 4, speedMaxed ? new Color(0.4f, 0.4f, 0.4f) : Color.white);
             var speedBtnRect = speedMask.GetComponent<RectTransform>();
             speedBtnRect.anchorMin = new Vector2(0.5f, 1);
             speedBtnRect.anchorMax = new Vector2(0.5f, 1);
@@ -855,7 +856,7 @@ namespace OverTheCounter.Apps
             var (invMask, invBtnComp, invBtnLabel) = TMPFactory.RoundedButtonWithLabel(
                 "InvUpgradeBtn", invBtnStr, invCard.transform,
                 invMaxed ? new Color(0.25f, 0.25f, 0.25f) : new Color(0.20f, 0.45f, 0.20f),
-                130, 30, 4, invMaxed ? new Color(0.4f, 0.4f, 0.4f) : Color.white);
+                160, 30, 4, invMaxed ? new Color(0.4f, 0.4f, 0.4f) : Color.white);
             var invBtnRect = invMask.GetComponent<RectTransform>();
             invBtnRect.anchorMin = new Vector2(0.5f, 1);
             invBtnRect.anchorMax = new Vector2(0.5f, 1);

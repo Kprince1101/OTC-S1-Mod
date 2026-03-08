@@ -182,6 +182,14 @@ namespace OverTheCounter.Patches
         {
             try
             {
+                // Tick the route entity selector even when clipboard is closed
+                // (RouteEntitySelector.Open() closes the clipboard, so it must tick independently)
+                if (RouteEntitySelector.IsOpen)
+                {
+                    RouteEntitySelector.Tick();
+                    return;
+                }
+
                 // When clipboard is open, enforce our UI overrides every frame
                 if (Singleton<ManagementClipboard>.Instance != null &&
                     Singleton<ManagementClipboard>.Instance.IsOpen)

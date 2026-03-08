@@ -428,7 +428,8 @@ namespace OverTheCounter.Apps
             backBarRect.sizeDelta = new Vector2(0, BackH);
             backBar.AddComponent<Button>().onClick.AddListener(new Action(CloseCustomerMap));
 
-            var backLabel = TMPFactory.Text("BackLbl", "\u25C0  Back", backBar.transform, 15, TextAlignmentOptions.Left);
+            var backLabel = TMPFactory.Text("BackLbl", "<  Back", backBar.transform, 15, TextAlignmentOptions.Left);
+            backLabel.richText = false;
             backLabel.color = new Color(0.4f, 0.7f, 1f);
             var backLabelRect = backLabel.gameObject.GetComponent<RectTransform>();
             backLabelRect.anchorMin = Vector2.zero;

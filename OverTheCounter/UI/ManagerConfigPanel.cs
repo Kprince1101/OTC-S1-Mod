@@ -17,6 +17,7 @@ using UnityEngine.UI;
 #if IL2CPP
 using Il2CppInterop.Runtime;
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.EntityFramework;
 using Il2CppScheduleOne.Management;
@@ -27,6 +28,7 @@ using Il2CppScheduleOne.UI.Management;
 using Il2CppTMPro;
 #else
 using ScheduleOne.DevUtilities;
+using ScheduleOne.Economy;
 using ScheduleOne.Employees;
 using ScheduleOne.EntityFramework;
 using ScheduleOne.Management;
@@ -135,6 +137,10 @@ namespace OverTheCounter.UI
         /// </summary>
         public static void EnforceUI()
         {
+            // RouteEntitySelector is ticked from ManagerClipboardPatch.UpdatePostfix
+            // (clipboard is closed while selector is active, so EnforceUI doesn't run)
+            if (RouteEntitySelector.IsOpen) return;
+
             try
             {
                 // Hide NothingSelectedLabel (ManagementInterface.Open re-enables it on every clipboard open)
@@ -1173,6 +1179,48 @@ namespace OverTheCounter.UI
         {
             if (_currentManager == null) return;
 
+            // Route slots use our custom RouteEntitySelector (supports dead drops + storage)
+            if (slotType == "From" || slotType == "To")
+            {
+                string instruction = $"Select Route {routeIndex + 1} {slotType}";
+                string capturedSlot = slotType;
+                int capturedRoute = routeIndex;
+                bool capturedIsSource = isSource;
+
+                RouteEntitySelector.Open(instruction, (pse, dd) =>
+                {
+                    try
+                    {
+                        if (pse != null && capturedRoute >= 0 && _currentManager != null)
+                        {
+                            if (!_currentManager.Configuration.ValidateAssignment(
+                                pse, capturedRoute, capturedIsSource, out string reason))
+                            {
+                                Logger.Warning($"Validation failed: {reason}");
+                                pse = null;
+                            }
+                        }
+                        if (dd != null && capturedRoute >= 0 && _currentManager != null)
+                        {
+                            if (!_currentManager.Configuration.ValidateAssignment(
+                                dd, capturedRoute, capturedIsSource, out string reason))
+                            {
+                                Logger.Warning($"Validation failed: {reason}");
+                                dd = null;
+                            }
+                        }
+
+                        ApplyRouteSelection(capturedRoute, capturedIsSource, pse, dd);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error($"RouteEntitySelector callback error: {ex.Message}");
+                    }
+                });
+                return;
+            }
+
+            // Locker/Supply use the vanilla ObjectSelector (only needs PlaceableStorageEntity)
             var objectSelector = Singleton<ManagementInterface>.Instance?.ObjectSelector;
             if (objectSelector == null)
             {
@@ -1180,7 +1228,6 @@ namespace OverTheCounter.UI
                 return;
             }
 
-            // Build current selection list
             var currentList = new GameSystem.Collections.Generic.List<BuildableItem>();
             PlaceableStorageEntity current = GetCurrentSlotEntity(slotType, routeIndex, isSource);
             if (current != null)
@@ -1190,7 +1237,6 @@ namespace OverTheCounter.UI
                     currentList.Add(buildable);
             }
 
-            // Type filter — restrict to PlaceableStorageEntity
             var typeReqs = new GameSystem.Collections.Generic.List<GameSystem.Type>();
 #if IL2CPP
             typeReqs.Add(Il2CppType.Of<PlaceableStorageEntity>());
@@ -1198,18 +1244,11 @@ namespace OverTheCounter.UI
             typeReqs.Add(typeof(PlaceableStorageEntity));
 #endif
 
-            string instruction;
-            switch (slotType)
-            {
-                case "Locker": instruction = "Select Locker"; break;
-                case "Supply": instruction = "Select Supplies Container"; break;
-                default: instruction = $"Select Route {routeIndex + 1} {slotType}"; break;
-            }
+            string lockerSupplyInstruction = slotType == "Locker" ? "Select Locker" : "Select Supplies Container";
 
-            // Capture slot context for the callback
-            string capturedSlot = slotType;
-            int capturedRoute = routeIndex;
-            bool capturedIsSource = isSource;
+            string capturedSlotLS = slotType;
+            int capturedRouteLS = routeIndex;
+            bool capturedIsSourceLS = isSource;
 
             _selectorCallback = (GameSystem.Action<GameSystem.Collections.Generic.List<BuildableItem>>)
                 new Action<GameSystem.Collections.Generic.List<BuildableItem>>((objs) =>
@@ -1223,28 +1262,8 @@ namespace OverTheCounter.UI
                             selected = obj?.TryCast<PlaceableStorageEntity>();
                             if (selected == null)
                                 selected = obj?.GetComponent<PlaceableStorageEntity>();
-
-                            // Validate same-route source/dest conflict
-                            if (selected != null && capturedRoute >= 0 && _currentManager != null)
-                            {
-                                if (!_currentManager.Configuration.ValidateAssignment(
-                                    selected, capturedRoute, capturedIsSource, out string reason))
-                                {
-                                    // Log GUIDs for diagnosis — helps distinguish "same rack clicked twice"
-                                    // from genuine false-positive equality
-                                    var route = _currentManager.Configuration.Routes[capturedRoute];
-                                    var existingEntity = capturedIsSource ? route.Destination : route.Source;
-                                    string existingGuid = ManagerConfiguration.GetGuid(existingEntity);
-                                    string selectedGuid = ManagerConfiguration.GetGuid(selected);
-                                    Logger.Warning($"Validation failed: {reason} " +
-                                        $"(existing={GetStorageName(existingEntity)} [{existingGuid}], " +
-                                        $"selected={GetStorageName(selected)} [{selectedGuid}], " +
-                                        $"sameRef={ReferenceEquals(existingEntity, selected)})");
-                                    selected = null;
-                                }
-                            }
                         }
-                        ApplySelection(capturedSlot, capturedRoute, capturedIsSource, selected);
+                        ApplySelection(capturedSlotLS, capturedRouteLS, capturedIsSourceLS, selected);
                     }
                     catch (Exception ex)
                     {
@@ -1252,9 +1271,8 @@ namespace OverTheCounter.UI
                     }
                 });
 
-            // Pass null for property to allow cross-property container selection
             objectSelector.Open(
-                instruction, "", 1, currentList, typeReqs,
+                lockerSupplyInstruction, "", 1, currentList, typeReqs,
                 null,
                 null,
                 _selectorCallback,
@@ -1313,9 +1331,9 @@ namespace OverTheCounter.UI
             else if (routeIndex >= 0 && routeIndex < config.Routes.Length)
             {
                 if (isSource)
-                    config.Routes[routeIndex].Source = selected;
+                    config.Routes[routeIndex].SetSource(selected);
                 else
-                    config.Routes[routeIndex].Destination = selected;
+                    config.Routes[routeIndex].SetDest(selected);
             }
 
             SyncConfig();
@@ -1325,8 +1343,55 @@ namespace OverTheCounter.UI
                 Logger.Msg($"Manager {_currentManager.Id}: {slotType}[{routeIndex}] = {GetStorageName(selected)}");
         }
 
+        /// <summary>
+        /// Applies a route selection from RouteEntitySelector (supports both PSE and DeadDrop).
+        /// </summary>
+        private static void ApplyRouteSelection(int routeIndex, bool isSource, PlaceableStorageEntity pse, DeadDrop dd)
+        {
+            if (_currentManager == null) return;
+            if (routeIndex < 0 || routeIndex >= _currentManager.Configuration.Routes.Length) return;
+
+            var route = _currentManager.Configuration.Routes[routeIndex];
+
+            if (pse != null)
+            {
+                if (isSource) route.SetSource(pse);
+                else route.SetDest(pse);
+            }
+            else if (dd != null)
+            {
+                if (isSource) route.SetSource(dd);
+                else route.SetDest(dd);
+            }
+            else
+            {
+                // Cancel — no change
+                return;
+            }
+
+            SyncConfig();
+            RefreshLabels();
+
+            string name = pse != null ? GetStorageName(pse) : ("Dead Drop (" + (dd?.DeadDropName ?? "?") + ")");
+            if (Config.ManagerVerboseLogging.Value)
+                Logger.Msg($"Manager {_currentManager.Id}: Route[{routeIndex}] {(isSource ? "From" : "To")} = {name}");
+        }
+
         private static void OnClearClicked(string slotType, int routeIndex, bool isSource)
         {
+            if (slotType == "From" || slotType == "To")
+            {
+                // Clear route endpoint (handles both PSE and dead drop)
+                if (_currentManager != null && routeIndex >= 0 && routeIndex < _currentManager.Configuration.Routes.Length)
+                {
+                    var route = _currentManager.Configuration.Routes[routeIndex];
+                    if (isSource) route.ClearSource();
+                    else route.ClearDest();
+                    SyncConfig();
+                    RefreshLabels();
+                }
+                return;
+            }
             ApplySelection(slotType, routeIndex, isSource, null);
         }
 
@@ -1393,7 +1458,7 @@ namespace OverTheCounter.UI
 
             for (int i = 0; i < 3; i++)
             {
-                RefreshRouteEntry(i, config.Routes[i].Source, config.Routes[i].Destination);
+                RefreshRouteEntry(i, config.Routes[i]);
             }
         }
 
@@ -1442,23 +1507,25 @@ namespace OverTheCounter.UI
                 _addRouteButton.SetActive(visibleCount < 3);
         }
 
-        private static void RefreshRouteEntry(int index, PlaceableStorageEntity source, PlaceableStorageEntity dest)
+        private static void RefreshRouteEntry(int index, ManagerConfiguration.DistributionRoute route)
         {
             if (index < 0 || index >= _routes.Length) return;
             var entry = _routes[index];
             if (entry.Root == null) return;
 
             // Source
-            string srcName = GetStorageName(source);
+            string srcName = route.IsSourceDeadDrop
+                ? "Dead Drop (" + (route.SourceDeadDrop?.DeadDropName ?? "?") + ")"
+                : GetStorageName(route.Source);
             if (entry.SourceLabel != null)
                 entry.SourceLabel.text = string.IsNullOrEmpty(srcName) ? "None" : srcName;
 
             if (entry.SourceIcon != null)
             {
                 Sprite srcSprite = null;
-                if (source != null)
+                if (!route.IsSourceDeadDrop && route.Source != null)
                 {
-                    var buildable = source.TryCast<BuildableItem>();
+                    var buildable = route.Source.TryCast<BuildableItem>();
                     srcSprite = buildable?.ItemInstance?.Icon;
                 }
                 entry.SourceIcon.sprite = srcSprite;
@@ -1472,16 +1539,18 @@ namespace OverTheCounter.UI
             }
 
             // Destination
-            string dstName = GetStorageName(dest);
+            string dstName = route.IsDestDeadDrop
+                ? "Dead Drop (" + (route.DestDeadDrop?.DeadDropName ?? "?") + ")"
+                : GetStorageName(route.Destination);
             if (entry.DestLabel != null)
                 entry.DestLabel.text = string.IsNullOrEmpty(dstName) ? "None" : dstName;
 
             if (entry.DestIcon != null)
             {
                 Sprite dstSprite = null;
-                if (dest != null)
+                if (!route.IsDestDeadDrop && route.Destination != null)
                 {
-                    var buildable = dest.TryCast<BuildableItem>();
+                    var buildable = route.Destination.TryCast<BuildableItem>();
                     dstSprite = buildable?.ItemInstance?.Icon;
                 }
                 entry.DestIcon.sprite = dstSprite;
