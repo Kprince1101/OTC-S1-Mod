@@ -2,7 +2,6 @@ using HarmonyLib;
 using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 
@@ -79,7 +78,7 @@ namespace OverTheCounter.Patches
         private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
             var getTypesMethod = typeof(Assembly).GetMethod(nameof(Assembly.GetTypes), Type.EmptyTypes);
-            var safeMethod = typeof(NpcTypeDiscoveryPatch).GetMethod(nameof(SafeGetTypes), BindingFlags.Public | BindingFlags.Static);
+            var safeMethod = typeof(SafeTypeLoadPatch).GetMethod(nameof(SafeTypeLoadPatch.SafeGetTypes), BindingFlags.Public | BindingFlags.Static);
 
             foreach (var instruction in instructions)
             {
@@ -87,24 +86,6 @@ namespace OverTheCounter.Patches
                     yield return new CodeInstruction(OpCodes.Call, safeMethod);
                 else
                     yield return instruction;
-            }
-        }
-
-        /// <summary>
-        /// Drop-in replacement for Assembly.GetTypes(). On success, returns the full
-        /// type array. On ReflectionTypeLoadException (some types reference missing
-        /// assemblies), returns only the types that loaded — filtering out null entries
-        /// that represent the unresolvable types.
-        /// </summary>
-        public static Type[] SafeGetTypes(Assembly assembly)
-        {
-            try
-            {
-                return assembly.GetTypes();
-            }
-            catch (ReflectionTypeLoadException ex)
-            {
-                return ex.Types.Where(t => t != null).ToArray();
             }
         }
     }

@@ -19,9 +19,10 @@ using UnityEngine;
 using Il2CppInterop.Runtime.Injection;
 #endif
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.4.0", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.5.0", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 [assembly: MelonOptionalDependencies("SteamNetworkLib")]
+[assembly: HarmonyDontPatchAll]
 
 namespace OverTheCounter
 {
@@ -37,6 +38,10 @@ namespace OverTheCounter
             Config.Initialize();
             Config.SubscribeToChanges();
             CustomersApp.ApplyHireMeDefaults();
+            SafeTypeLoadPatch.Apply(HarmonyInstance);
+            foreach (var type in typeof(Core).Assembly.GetValidTypes())
+                try { HarmonyInstance.CreateClassProcessor(type).Patch(); }
+                catch (Exception ex) { OTCLog.Error(OTCLog.Systems.Patch, $"Failed to patch {type.FullName}: {ex.Message}"); }
             NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
             StackSizePatch.Apply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
