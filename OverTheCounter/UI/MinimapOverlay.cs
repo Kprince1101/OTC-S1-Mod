@@ -53,6 +53,9 @@ namespace OverTheCounter.UI
         private RectTransform _markersParent;
         private Image _borderImage;
 
+        // Compass labels (N, E, S, W) — children of Canvas, positioned inside minimap area
+        private RectTransform[] _compassRects;
+
         // Map dimensions from MapApp.ContentRect
         private float _contentW = 2048f;
         private float _contentH = 2048f;
@@ -432,6 +435,8 @@ namespace OverTheCounter.UI
                 _playerMarkerRect.anchoredPosition = Vector2.zero;
             }
 
+            CreateCompassLabels();
+
             // Time/day and rank bar — positioned above or below minimap based on InfoOnTop
             bool hasTimeDay = _cfgShowTime || _cfgShowDay;
             CreateTimeDayLabel();
@@ -440,6 +445,115 @@ namespace OverTheCounter.UI
             SnapshotConfig();
             _cachedPOIs = null;
             _lastPOIRefresh = 0f;
+        }
+
+        // ── Compass labels ──
+
+        private static readonly string[] CompassLetters = { "N", "E", "S", "W" };
+        private static readonly float[] CompassWorldAngles = { 0f, 90f, 180f, 270f };
+
+        private void CreateCompassLabels()
+        {
+            if (_canvasObj == null) return;
+
+            _compassRects = new RectTransform[4];
+            for (int i = 0; i < 4; i++)
+            {
+                var go = new GameObject("Compass_" + CompassLetters[i]);
+                go.transform.SetParent(_canvasObj.transform, false);
+
+                var rt = go.AddComponent<RectTransform>();
+                rt.anchorMin = Vector2.zero;
+                rt.anchorMax = Vector2.zero;
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(20f, 20f);
+
+                // N: Image on parent GO for dark circle background, TMP on child
+                // S/E/W: TMP directly on GO (no background)
+                if (i == 0)
+                {
+                    var bgImg = go.AddComponent<Image>();
+                    bgImg.sprite = GetCircleMaskSprite();
+                    bgImg.color = new Color(0f, 0f, 0f, 0.7f);
+                    bgImg.raycastTarget = false;
+
+                    var tmp = TMPFactory.Text("NLabel", "N", go.transform, 15,
+                        TextAlignmentOptions.Center, FontStyles.Bold);
+                    tmp.color = new Color(1f, 0.3f, 0.3f, 0.9f);
+                    tmp.raycastTarget = false;
+                }
+                else
+                {
+                    var tmp = TMPFactory.Text(CompassLetters[i], CompassLetters[i], go.transform, 15,
+                        TextAlignmentOptions.Center, FontStyles.Bold);
+                    tmp.color = new Color(0.9f, 0.9f, 0.9f, 0.65f);
+                    tmp.raycastTarget = false;
+                    // Override stretch anchors — parent GO controls positioning
+                    var tmpRt = tmp.rectTransform;
+                    tmpRt.anchorMin = Vector2.zero;
+                    tmpRt.anchorMax = Vector2.one;
+                    tmpRt.offsetMin = Vector2.zero;
+                    tmpRt.offsetMax = Vector2.zero;
+                }
+
+                _compassRects[i] = rt;
+            }
+        }
+
+        private void UpdateCompassLabels(float yRot)
+        {
+            if (_compassRects == null) return;
+
+            bool show = Config.MinimapShowCompass.Value;
+            float centerX = _minimapX + _minimapTotalSize / 2f;
+            float centerY = _minimapY + _minimapTotalSize / 2f;
+            float radius = _cfgSize / 2f - 11f;
+            bool rotating = Config.MinimapRotateWithPlayer.Value;
+
+            for (int i = 0; i < 4; i++)
+            {
+                var rt = _compassRects[i];
+                if (rt == null) continue;
+
+                rt.gameObject.SetActive(show);
+                if (!show) continue;
+
+                float screenAngleRad = (rotating
+                    ? CompassWorldAngles[i] - yRot
+                    : CompassWorldAngles[i]) * Mathf.Deg2Rad;
+
+                float dirX = Mathf.Sin(screenAngleRad);
+                float dirY = Mathf.Cos(screenAngleRad);
+
+                Vector2 offset = _cfgCircle
+                    ? new Vector2(dirX, dirY) * radius
+                    : ClampToSquareEdge(dirX, dirY, radius);
+                rt.anchoredPosition = new Vector2(centerX + offset.x, centerY + offset.y);
+                rt.localEulerAngles = Vector3.zero;
+            }
+        }
+
+        // ── Edge indicators ──
+
+        /// <summary>Projects a direction vector onto the boundary of a square with the given half-size.</summary>
+        private static Vector2 ClampToSquareEdge(float dirX, float dirY, float half)
+        {
+            float ax = Mathf.Abs(dirX);
+            float ay = Mathf.Abs(dirY);
+            if (ax < 0.0001f && ay < 0.0001f) return Vector2.zero;
+
+            float scale = ax > ay ? half / ax : half / ay;
+            return new Vector2(dirX * scale, dirY * scale);
+        }
+
+        private static bool ShouldShowEdgeIndicator(POI poi)
+        {
+            string goName = poi.gameObject.name;
+            if (goName.StartsWith("QuestPoI") || goName.StartsWith("POIPrefab")) return true;
+            if (goName.StartsWith("ContractPoI")) return true;
+            if (goName.StartsWith("PotentialCustomerPoI")) return true;
+            if (goName.StartsWith("PotentialDealerPoI")) return true;
+            return false;
         }
 
         private static readonly string[] ShortDayNames = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
@@ -646,6 +760,7 @@ namespace OverTheCounter.UI
             _cachedPOIs = null;
             _npcPoiTemplate = null;
             _zoom = 0;
+            _compassRects = null;
         }
 
         private void SpawnXPDrop(int delta, bool levelUp = false, int levels = 1)
@@ -792,6 +907,8 @@ namespace OverTheCounter.UI
                         _playerMarkerRect.localEulerAngles = new Vector3(0f, 0f, -yRot);
                 }
 
+                UpdateCompassLabels(yRot);
+
                 // Refresh POI cache periodically
                 if (_cachedPOIs == null || Time.time - _lastPOIRefresh > 5f)
                 {
@@ -828,12 +945,16 @@ namespace OverTheCounter.UI
                 // Culling threshold — expand when rotating to avoid pop-in at corners
                 float halfSize = _cfgSize / 2f;
                 bool rotating = Config.MinimapRotateWithPlayer.Value;
-                float cullThreshold = rotating ? halfSize * 1.5f : halfSize;
+                float cullThreshold = rotating ? halfSize * 1.5f : halfSize + 20f;
                 float iconScale = _cfgIconScale;
                 float counterRot = rotating ? -_rotationPivot.localEulerAngles.z : 0f;
 
                 // Mirror POI UI elements as cloned icons
                 _activeCloneIds.Clear();
+                float yRotRad = yRot * Mathf.Deg2Rad;
+                float cosYRot = Mathf.Cos(yRotRad);
+                float sinYRot = Mathf.Sin(yRotRad);
+                float edgeHalf = halfSize - 10f;
 
                 foreach (var poi in _cachedPOIs)
                 {
@@ -848,8 +969,39 @@ namespace OverTheCounter.UI
                         // Cull check uses player-relative distance in minimap pixels
                         float relX = (poiMapPos.x - playerMapPos.x) * scaleX;
                         float relY = (poiMapPos.y - playerMapPos.y) * scaleY;
-                        if (Mathf.Abs(relX) > cullThreshold || Mathf.Abs(relY) > cullThreshold)
+                        float distSq = relX * relX + relY * relY;
+                        bool beyondCull = _cfgCircle
+                            ? distSq > cullThreshold * cullThreshold
+                            : Mathf.Abs(relX) > cullThreshold || Mathf.Abs(relY) > cullThreshold;
+                        bool edgeWorthy = Config.MinimapShowEdgeIndicators.Value && ShouldShowEdgeIndicator(poi);
+
+                        // Screen-space coords (mask clips in screen space, not map space)
+                        float screenX, screenY;
+                        if (rotating)
+                        {
+                            screenX = relX * cosYRot - relY * sinYRot;
+                            screenY = relX * sinYRot + relY * cosYRot;
+                        }
+                        else
+                        {
+                            screenX = relX;
+                            screenY = relY;
+                        }
+
+                        // Edge-clamp slightly before the mask edge to avoid partial-clip blind spots
+                        float visibleR = halfSize - 5f;
+                        bool outsideVisible = _cfgCircle
+                            ? distSq > visibleR * visibleR
+                            : Mathf.Abs(screenX) > visibleR || Mathf.Abs(screenY) > visibleR;
+                        bool showAtEdge = edgeWorthy && outsideVisible;
+
+                        if (beyondCull && !edgeWorthy)
+                        {
+                            int offId = poi.GetInstanceID();
+                            if (_poiClones.TryGetValue(offId, out var offRect) && offRect != null)
+                                offRect.gameObject.SetActive(false);
                             continue;
+                        }
 
                         int id = poi.GetInstanceID();
                         _activeCloneIds.Add(id);
@@ -874,8 +1026,33 @@ namespace OverTheCounter.UI
                             }
                         }
 
-                        // Absolute map-space position — MapImage panning handles centering on player
-                        cloneRect.anchoredPosition = new Vector2(poiMapPos.x * scaleX, poiMapPos.y * scaleY);
+                        if (showAtEdge)
+                        {
+                            // Clamp screen-space direction to edge, transform back to markers-parent
+                            Vector2 edgeScreen = _cfgCircle
+                                ? new Vector2(screenX, screenY).normalized * edgeHalf
+                                : ClampToSquareEdge(screenX, screenY, edgeHalf);
+
+                            if (rotating)
+                            {
+                                float ex = edgeScreen.x * cosYRot + edgeScreen.y * sinYRot;
+                                float ey = -edgeScreen.x * sinYRot + edgeScreen.y * cosYRot;
+                                cloneRect.anchoredPosition = new Vector2(
+                                    playerMapPos.x * scaleX + ex,
+                                    playerMapPos.y * scaleY + ey);
+                            }
+                            else
+                            {
+                                cloneRect.anchoredPosition = new Vector2(
+                                    playerMapPos.x * scaleX + edgeScreen.x,
+                                    playerMapPos.y * scaleY + edgeScreen.y);
+                            }
+                        }
+                        else
+                        {
+                            // Absolute map-space position — MapImage panning handles centering on player
+                            cloneRect.anchoredPosition = new Vector2(poiMapPos.x * scaleX, poiMapPos.y * scaleY);
+                        }
 
                         // Counter-rotate so icons stay upright when map rotates.
                         // For remote players, also apply their facing direction.

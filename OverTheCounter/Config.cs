@@ -122,6 +122,8 @@ namespace OverTheCounter
         public static ConfigEntry<bool> MinimapShowDay;
         public static ConfigEntry<bool> MinimapUse24HourClock;
         public static ConfigEntry<bool> MinimapShowRank;
+        public static ConfigEntry<bool> MinimapShowCompass;
+        public static ConfigEntry<bool> MinimapShowEdgeIndicators;
 
         // ── Minimap POIs ──
         private static MelonPreferences_Category _minimapPoi;
@@ -177,6 +179,8 @@ namespace OverTheCounter
             "MinimapShowProperties",
             "MinimapShowManagers",
             "MinimapShowRank",
+            "MinimapShowCompass",
+            "MinimapShowEdgeIndicators",
             "RecipePinEnabled"
         };
 
@@ -399,6 +403,10 @@ namespace OverTheCounter
                 "24-Hour Clock", "Use 24-hour time format instead of 12-hour AM/PM"));
             MinimapShowRank = Register(_minimap.CreateEntry("MinimapShowRank", false,
                 "Show Rank/XP", "Display rank name and XP progress bar near the minimap"));
+            MinimapShowCompass = Register(_minimap.CreateEntry("MinimapShowCompass", true,
+                "Show Compass", "Display N/S/E/W cardinal direction labels on the minimap edge"));
+            MinimapShowEdgeIndicators = Register(_minimap.CreateEntry("MinimapShowEdgeIndicators", true,
+                "Edge Indicators", "Show POI icons pinned to the minimap edge for off-screen points of interest"));
         }
 
         private static ConfigEntry<float> Register(MelonPreferences_Entry<float> entry)
