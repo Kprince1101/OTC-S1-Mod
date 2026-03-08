@@ -570,7 +570,7 @@ namespace OverTheCounter.UI
             bgRect.pivot = new Vector2(pivotX, pivotY);
 
             float labelWidth = size + (_cfgBorderWidth * 2);
-            float panelHeight = 42f;
+            float panelHeight = 52f;
             bgRect.sizeDelta = new Vector2(labelWidth, panelHeight);
 
             float xSign = isRight ? -1f : 1f;
@@ -595,10 +595,10 @@ namespace OverTheCounter.UI
             _rankText.raycastTarget = false;
             _rankText.text = "";
             var rankRect = rankObj.GetComponent<RectTransform>();
-            rankRect.anchorMin = new Vector2(0f, 0.55f);
+            rankRect.anchorMin = new Vector2(0f, 0.52f);
             rankRect.anchorMax = new Vector2(1f, 1f);
             rankRect.offsetMin = new Vector2(6, 0);
-            rankRect.offsetMax = new Vector2(-6, -2);
+            rankRect.offsetMax = new Vector2(-6, -4);
 
             // XP bar background
             var xpBgObj = new GameObject("XPBarBg");
@@ -607,8 +607,8 @@ namespace OverTheCounter.UI
             xpBgImg.color = new Color(0.15f, 0.15f, 0.15f, 1f);
             xpBgImg.raycastTarget = false;
             var xpBgRect = xpBgObj.GetComponent<RectTransform>();
-            xpBgRect.anchorMin = new Vector2(0f, 0.35f);
-            xpBgRect.anchorMax = new Vector2(1f, 0.54f);
+            xpBgRect.anchorMin = new Vector2(0f, 0.38f);
+            xpBgRect.anchorMax = new Vector2(1f, 0.52f);
             xpBgRect.offsetMin = new Vector2(6, 0);
             xpBgRect.offsetMax = new Vector2(-6, 0);
 
@@ -624,7 +624,7 @@ namespace OverTheCounter.UI
             xpFillRect.offsetMin = Vector2.zero;
             xpFillRect.offsetMax = Vector2.zero;
 
-            // XP text (lower ~35% of panel)
+            // XP text (lower portion of panel)
             var xpTextObj = new GameObject("XPLabel");
             xpTextObj.transform.SetParent(_rankBarObj.transform, false);
             _xpText = xpTextObj.AddComponent<TextMeshProUGUI>();
@@ -636,8 +636,8 @@ namespace OverTheCounter.UI
             _xpText.text = "";
             var xpTextRect = xpTextObj.GetComponent<RectTransform>();
             xpTextRect.anchorMin = new Vector2(0f, 0f);
-            xpTextRect.anchorMax = new Vector2(1f, 0.34f);
-            xpTextRect.offsetMin = new Vector2(6, 2);
+            xpTextRect.anchorMax = new Vector2(1f, 0.28f);
+            xpTextRect.offsetMin = new Vector2(6, 3);
             xpTextRect.offsetMax = new Vector2(-6, 0);
         }
 
