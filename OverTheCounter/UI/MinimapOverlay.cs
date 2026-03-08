@@ -86,13 +86,20 @@ namespace OverTheCounter.UI
         private int _lastKnownTier = -1;
         private readonly List<XPDropLabel> _xpDrops = new List<XPDropLabel>();
 
+        // Computed minimap position (bottom-left corner of border in canvas coords)
+        private float _minimapX;
+        private float _minimapY;
+        private float _minimapTotalSize;
+
         // Remote player POI → Player lookup (rebuilt on POI cache refresh)
         private readonly Dictionary<int, Player> _poiToPlayer = new();
 
         // Cached config values — rebuild minimap when structural settings change
         private int _cfgSize;
         private bool _cfgCircle;
-        private string _cfgPosition;
+        private int _cfgHOffset;
+        private int _cfgVOffset;
+        private bool _cfgInfoOnTop;
         private KeyCode _cfgToggleKey;
         private float _cfgIconScale;
         private int _cfgBorderWidth;
@@ -100,11 +107,6 @@ namespace OverTheCounter.UI
         private bool _cfgShowDay;
         private bool _cfgUse24Hour;
         private bool _cfgShowRank;
-
-        private static readonly HashSet<string> ValidPositions = new()
-        {
-            "TopLeft", "TopRight", "BottomLeft", "BottomRight"
-        };
 
         public static void Register()
         {
@@ -194,14 +196,15 @@ namespace OverTheCounter.UI
 
             _cfgCircle = Config.MinimapCircle.Value;
 
-            string rawPos = Config.MinimapPosition?.Value ?? "TopRight";
-            if (!ValidPositions.Contains(rawPos))
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch, $"Invalid MinimapPosition '{rawPos}', defaulting to TopRight");
-                rawPos = "TopRight";
-                Config.MinimapPosition.Value = rawPos;
-            }
-            _cfgPosition = rawPos;
+            _cfgHOffset = Mathf.Clamp(Config.MinimapHorizontalOffset.Value, 0, 100);
+            if (Config.MinimapHorizontalOffset.Value != _cfgHOffset)
+                Config.MinimapHorizontalOffset.RawEntry.Value = _cfgHOffset;
+
+            _cfgVOffset = Mathf.Clamp(Config.MinimapVerticalOffset.Value, 0, 100);
+            if (Config.MinimapVerticalOffset.Value != _cfgVOffset)
+                Config.MinimapVerticalOffset.RawEntry.Value = _cfgVOffset;
+
+            _cfgInfoOnTop = Config.MinimapInfoOnTop.Value;
 
             int rawZoom = Config.MinimapDefaultZoom.Value;
             int clampedZoom = Mathf.Clamp(rawZoom, 1, 3);
@@ -230,7 +233,9 @@ namespace OverTheCounter.UI
         {
             return Config.MinimapSize.Value != _cfgSize
                 || Config.MinimapCircle.Value != _cfgCircle
-                || (Config.MinimapPosition?.Value ?? "TopRight") != _cfgPosition
+                || Config.MinimapHorizontalOffset.Value != _cfgHOffset
+                || Config.MinimapVerticalOffset.Value != _cfgVOffset
+                || Config.MinimapInfoOnTop.Value != _cfgInfoOnTop
                 || (Config.MinimapToggleKey?.Value ?? KeyCode.N) != _cfgToggleKey
                 || Math.Abs(Config.MinimapIconScale.Value - _cfgIconScale) > 0.001f
                 || Config.MinimapBorderWidth.Value != _cfgBorderWidth
@@ -311,18 +316,25 @@ namespace OverTheCounter.UI
             _borderImage.raycastTarget = false;
             var borderRect = borderObj.GetComponent<RectTransform>();
             int bw = _cfgBorderWidth;
-            ApplyPosition(borderRect, size + (bw * 2), margin - bw, _cfgPosition);
+            _minimapTotalSize = size + (bw * 2);
+            ApplyFreePosition(borderRect, _minimapTotalSize, margin, _cfgHOffset, _cfgVOffset);
+            _minimapX = borderRect.anchoredPosition.x;
+            _minimapY = borderRect.anchoredPosition.y;
             if (circle)
                 _borderImage.sprite = GetCircleMaskSprite();
 
-            // Container (dark background + clip mask)
+            // Container (dark background + clip mask — inset by border width)
             var containerObj = new GameObject("MinimapContainer");
             containerObj.transform.SetParent(_canvasObj.transform, false);
             var containerImg = containerObj.AddComponent<Image>();
             containerImg.color = new Color(0.05f, 0.05f, 0.05f, 0.85f);
             containerImg.raycastTarget = false;
             var containerRect = containerObj.GetComponent<RectTransform>();
-            ApplyPosition(containerRect, size, margin, _cfgPosition);
+            containerRect.anchorMin = Vector2.zero;
+            containerRect.anchorMax = Vector2.zero;
+            containerRect.pivot = Vector2.zero;
+            containerRect.sizeDelta = new Vector2(size, size);
+            containerRect.anchoredPosition = new Vector2(_minimapX + bw, _minimapY + bw);
 
             if (circle)
             {
@@ -420,10 +432,10 @@ namespace OverTheCounter.UI
                 _playerMarkerRect.anchoredPosition = Vector2.zero;
             }
 
-            // Time/day label — positioned below minimap for top corners, above for bottom
+            // Time/day and rank bar — positioned above or below minimap based on InfoOnTop
             bool hasTimeDay = _cfgShowTime || _cfgShowDay;
-            CreateTimeDayLabel(size, margin);
-            CreateRankBar(size, margin, hasTimeDay);
+            CreateTimeDayLabel();
+            CreateRankBar(hasTimeDay);
 
             SnapshotConfig();
             _cachedPOIs = null;
@@ -451,7 +463,7 @@ namespace OverTheCounter.UI
             public const float Rise = 40f;
         }
 
-        private void CreateTimeDayLabel(int size, int margin)
+        private void CreateTimeDayLabel()
         {
             bool showTime = Config.MinimapShowTime.Value;
             bool showDay = Config.MinimapShowDay.Value;
@@ -466,43 +478,19 @@ namespace OverTheCounter.UI
             bgImage.raycastTarget = false;
 
             var bgRect = _timeDayObj.GetComponent<RectTransform>();
+            bgRect.anchorMin = Vector2.zero;
+            bgRect.anchorMax = Vector2.zero;
+            bgRect.pivot = Vector2.zero;
 
-            bool isTop = _cfgPosition.StartsWith("Top");
-            bool isRight = _cfgPosition.EndsWith("Right");
-
-            // Anchor to same horizontal edge as minimap
-            float anchorX = isRight ? 1f : 0f;
-            float pivotX = isRight ? 1f : 0f;
-
-            // Vertical: below minimap for top, above for bottom
-            float anchorY = isTop ? 1f : 0f;
-            float pivotY = isTop ? 1f : 0f;
-
-            bgRect.anchorMin = new Vector2(anchorX, anchorY);
-            bgRect.anchorMax = new Vector2(anchorX, anchorY);
-            bgRect.pivot = new Vector2(pivotX, pivotY);
-
-            float labelWidth = size + (_cfgBorderWidth * 2);
+            float labelWidth = _minimapTotalSize;
             float labelHeight = 24f;
             bgRect.sizeDelta = new Vector2(labelWidth, labelHeight);
 
-            // Position: flush with minimap border edges
-            float xSign = isRight ? -1f : 1f;
-            float bw = _cfgBorderWidth;
-            float xPos = xSign * (margin - bw);
-
-            // Vertical offset from screen edge: minimap occupies (margin-bw) to (margin-bw + size+2*bw)
-            // For top: label goes right below border → y = -(margin - bw + size + 2*bw + gap)
-            // For bottom: label goes right above border → y = (margin - bw + size + 2*bw + gap)
-            float minimapTotalHeight = size + (bw * 2);
             float gap = 2f;
-            float yOffset = (margin - bw) + minimapTotalHeight + gap;
-
-            // BottomRight has a +80 offset for the HUD bar
-            if (_cfgPosition == "BottomRight") yOffset += 80;
-
-            float yPos = isTop ? -yOffset : yOffset;
-            bgRect.anchoredPosition = new Vector2(xPos, yPos);
+            float yPos = _cfgInfoOnTop
+                ? _minimapY + _minimapTotalSize + gap
+                : _minimapY - gap - labelHeight;
+            bgRect.anchoredPosition = new Vector2(_minimapX, yPos);
 
             // Layout: day on left, time on right (or centered if only one)
             if (showDay)
@@ -544,7 +532,7 @@ namespace OverTheCounter.UI
             }
         }
 
-        private void CreateRankBar(int size, int margin, bool belowTimeDay)
+        private void CreateRankBar(bool belowTimeDay)
         {
             if (!Config.MinimapShowRank.Value) return;
 
@@ -556,33 +544,19 @@ namespace OverTheCounter.UI
             bgImage.raycastTarget = false;
 
             var bgRect = _rankBarObj.GetComponent<RectTransform>();
+            bgRect.anchorMin = Vector2.zero;
+            bgRect.anchorMax = Vector2.zero;
+            bgRect.pivot = Vector2.zero;
 
-            bool isTop = _cfgPosition.StartsWith("Top");
-            bool isRight = _cfgPosition.EndsWith("Right");
-
-            float anchorX = isRight ? 1f : 0f;
-            float pivotX = isRight ? 1f : 0f;
-            float anchorY = isTop ? 1f : 0f;
-            float pivotY = isTop ? 1f : 0f;
-
-            bgRect.anchorMin = new Vector2(anchorX, anchorY);
-            bgRect.anchorMax = new Vector2(anchorX, anchorY);
-            bgRect.pivot = new Vector2(pivotX, pivotY);
-
-            float labelWidth = size + (_cfgBorderWidth * 2);
             float panelHeight = 52f;
-            bgRect.sizeDelta = new Vector2(labelWidth, panelHeight);
+            bgRect.sizeDelta = new Vector2(_minimapTotalSize, panelHeight);
 
-            float xSign = isRight ? -1f : 1f;
-            float bw = _cfgBorderWidth;
-            float xPos = xSign * (margin - bw);
-            float minimapTotalHeight = size + (bw * 2);
             float gap = 2f;
-            float timeDayHeight = belowTimeDay ? 24f + gap : 0f;
-            float yOffset = (margin - bw) + minimapTotalHeight + gap + timeDayHeight;
-            if (_cfgPosition == "BottomRight") yOffset += 80;
-            float yPos = isTop ? -yOffset : yOffset;
-            bgRect.anchoredPosition = new Vector2(xPos, yPos);
+            float timeDayOffset = belowTimeDay ? 24f + gap : 0f;
+            float yPos = _cfgInfoOnTop
+                ? _minimapY + _minimapTotalSize + gap + timeDayOffset
+                : _minimapY - gap - timeDayOffset - panelHeight;
+            bgRect.anchoredPosition = new Vector2(_minimapX, yPos);
 
             // Rank text (upper ~50% of panel)
             var rankObj = new GameObject("RankLabel");
@@ -1119,39 +1093,23 @@ namespace OverTheCounter.UI
             }
         }
 
-        private static void ApplyPosition(RectTransform rect, int size, int margin, string pos)
+        private static void ApplyFreePosition(RectTransform rect, float totalSize, float margin,
+            int hOffset, int vOffset)
         {
-            float m = margin;
+            const float refW = 1920f, refH = 1080f;
+            float xMin = margin;
+            float xMax = refW - totalSize - margin;
+            float yMin = margin;
+            float yMax = refH - totalSize - margin;
 
-            switch (pos)
-            {
-                case "TopLeft":
-                    rect.anchorMin = new Vector2(0, 1);
-                    rect.anchorMax = new Vector2(0, 1);
-                    rect.pivot = new Vector2(0, 1);
-                    rect.anchoredPosition = new Vector2(m, -m);
-                    break;
-                case "BottomRight":
-                    rect.anchorMin = new Vector2(1, 0);
-                    rect.anchorMax = new Vector2(1, 0);
-                    rect.pivot = new Vector2(1, 0);
-                    rect.anchoredPosition = new Vector2(-m, m + 80); // +80 clears the bottom HUD bar
-                    break;
-                case "BottomLeft":
-                    rect.anchorMin = new Vector2(0, 0);
-                    rect.anchorMax = new Vector2(0, 0);
-                    rect.pivot = new Vector2(0, 0);
-                    rect.anchoredPosition = new Vector2(m, m);
-                    break;
-                default: // TopRight (defensive — SnapshotConfig validates before reaching here)
-                    rect.anchorMin = new Vector2(1, 1);
-                    rect.anchorMax = new Vector2(1, 1);
-                    rect.pivot = new Vector2(1, 1);
-                    rect.anchoredPosition = new Vector2(-m, -m);
-                    break;
-            }
+            float x = Mathf.Lerp(xMin, xMax, hOffset / 100f);
+            float y = Mathf.Lerp(yMax, yMin, vOffset / 100f);
 
-            rect.sizeDelta = new Vector2(size, size);
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.zero;
+            rect.pivot = Vector2.zero;
+            rect.sizeDelta = new Vector2(totalSize, totalSize);
+            rect.anchoredPosition = new Vector2(x, y);
         }
 
         private static bool IsPoiVisible(POI poi)

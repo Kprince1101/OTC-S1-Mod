@@ -113,7 +113,9 @@ namespace OverTheCounter
         public static ConfigEntry<int> MinimapDefaultZoom;
         public static ConfigEntry<float> MinimapIconScale;
         public static MelonPreferences_Entry<KeyCode> MinimapToggleKey;
-        public static MelonPreferences_Entry<string> MinimapPosition;
+        public static ConfigEntry<int> MinimapHorizontalOffset;
+        public static ConfigEntry<int> MinimapVerticalOffset;
+        public static ConfigEntry<bool> MinimapInfoOnTop;
         public static MelonPreferences_Entry<Color> MinimapBorderColor;
         public static ConfigEntry<int> MinimapBorderWidth;
         public static ConfigEntry<bool> MinimapShowTime;
@@ -159,6 +161,9 @@ namespace OverTheCounter
             "MinimapCircle",
             "MinimapDefaultZoom",
             "MinimapIconScale",
+            "MinimapHorizontalOffset",
+            "MinimapVerticalOffset",
+            "MinimapInfoOnTop",
             "MinimapBorderWidth",
             "MinimapShowTime",
             "MinimapShowDay",
@@ -373,8 +378,14 @@ namespace OverTheCounter
                 "POI icon scale on the minimap"));
             MinimapToggleKey = _minimap.CreateEntry("MinimapToggleKey", KeyCode.N, "Toggle Key",
                 "Hotkey to cycle minimap zoom");
-            MinimapPosition = _minimap.CreateEntry("MinimapPosition", "TopRight", "Position",
-                "TopLeft, TopRight, BottomLeft, BottomRight");
+            MinimapHorizontalOffset = Register(_minimap.CreateEntry("MinimapHorizontalOffset", 100,
+                "Horizontal Offset", "Horizontal position (0=left, 100=right)",
+                validator: new ValueRange<int>(0, 100)));
+            MinimapVerticalOffset = Register(_minimap.CreateEntry("MinimapVerticalOffset", 0,
+                "Vertical Offset", "Vertical position (0=top, 100=bottom)",
+                validator: new ValueRange<int>(0, 100)));
+            MinimapInfoOnTop = Register(_minimap.CreateEntry("MinimapInfoOnTop", false,
+                "Info Panels On Top", "Place time/day and rank bar above the minimap instead of below"));
             MinimapBorderColor = _minimap.CreateEntry("MinimapBorderColor",
                 new Color(0.2f, 0.2f, 0.2f, 0.9f), "Border Color",
                 "Minimap border color");
