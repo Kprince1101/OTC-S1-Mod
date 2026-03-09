@@ -95,7 +95,7 @@ If you prefer not to use a mod manager, you'll need to install each dependency y
 Settings are stored in MelonLoader's config file and organized into the following categories:
 
 * **Desperation System** — Enable/disable toggle, fiend addiction threshold, trigger chance per hour, max daily events, response/delivery deadlines, bonus multiplier, relationship penalty, cooldown, and active hours.
-* **Vic Laundering** — Tier costs, returns, trust unlock threshold, and intro quest requirements.
+* **Vic Laundering** — Tier costs, returns, trust unlock threshold, deposit trigger amount, and intro quest requirements.
 * **Static Subscription** — Weekly billing cost, cycle length, ATM deposit trigger, and tier upgrade costs/requirements.
 * **Contract Notifications** — Enable/disable toggle, consolidation threshold (minimum contracts before grouping kicks in).
 * **Manager System** — Daily wage, signing fee, and alternate hire mode toggle.
