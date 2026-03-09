@@ -15,8 +15,6 @@ namespace OverTheCounter.SaveData
 {
     public class VicSaveData : Saveable
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:VicSaveData");
-
         [SaveableField("vic_unlocked")]
         private bool _unlocked;
 
@@ -54,9 +52,6 @@ namespace OverTheCounter.SaveData
         // Runtime-only: defers trigger from OnSleepEnd to next Tick()
         // because NPCs aren't accessible during the sleep transition.
         private bool _fireOnNextTick;
-
-        // Runtime-only: ensures we do the stale-data check exactly once per session.
-        private bool _staleCheckDone;
 
         // Runtime-only: deferred re-publish after save/load so the client
         // receives correct state even if the initial SyncVar push missed us.
@@ -208,8 +203,7 @@ namespace OverTheCounter.SaveData
                 int effectiveStage = _unlocked ? 3 : _questAccepted ? 2 : 1;
                 if (VicIntroQuest.Instance.Stage < effectiveStage)
                 {
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Tick reconciliation: quest stage {VicIntroQuest.Instance.Stage} → {effectiveStage}");
+                    OTCLog.Msg(OTCLog.Systems.NPC, $"Tick reconciliation: quest stage {VicIntroQuest.Instance.Stage} → {effectiveStage}");
                     ReconcileQuest();
                 }
             }
@@ -235,21 +229,6 @@ namespace OverTheCounter.SaveData
             {
                 _needsStatePublish = false;
                 ConfigSyncData.Instance?.PublishGameState();
-            }
-
-            // Stale data check: host-only since client state comes from ApplyHostState.
-            if (NetworkHelper.IsHost && !_staleCheckDone && _hasBeenTexted)
-            {
-                _staleCheckDone = true;
-                if (!_unlocked && !IsCleanCashQuestStarted())
-                {
-                    _hasBeenTexted = false;
-                    _triggerPendingDay = -1;
-                    _questCreated = false;
-                    _needsIntroText = false;
-                    _fireOnNextTick = false;
-                }
-                return;
             }
 
             // Deferred trigger from OnSleepEnd (host-only path).
@@ -314,12 +293,12 @@ namespace OverTheCounter.SaveData
                 }
                 else
                 {
-                    Logger.Error("QuestManager.CreateQuest<VicIntroQuest> returned null.");
+                    OTCLog.Error(OTCLog.Systems.NPC, "QuestManager.CreateQuest<VicIntroQuest> returned null.");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"CreateOrResumeQuest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"CreateOrResumeQuest failed: {ex.Message}");
             }
         }
 
@@ -350,7 +329,7 @@ namespace OverTheCounter.SaveData
                 if (!questAlreadyDone)
                 {
                     try { VicIntroQuest.Instance?.CompleteObj1(); }
-                    catch (Exception ex) { Logger.Warning($"Client VicIntroQuest CompleteObj1 failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Client VicIntroQuest CompleteObj1 failed: {ex.Message}"); }
                 }
                 changed = true;
             }
@@ -359,7 +338,7 @@ namespace OverTheCounter.SaveData
             {
                 _unlocked = true;
                 try { VicIntroQuest.Instance?.CompleteObj2(); }
-                catch (Exception ex) { Logger.Warning($"Client VicIntroQuest CompleteObj2 failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Client VicIntroQuest CompleteObj2 failed: {ex.Message}"); }
                 changed = true;
             }
 
@@ -403,13 +382,13 @@ namespace OverTheCounter.SaveData
                     _questAccepted = true;
                     _questCreated = true;
                     try { VicIntroQuest.Instance?.CompleteObj1(); }
-                    catch (Exception ex) { Logger.Warning($"Remote VicIntroQuest CompleteObj1 failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Remote VicIntroQuest CompleteObj1 failed: {ex.Message}"); }
                     break;
 
                 case "VIC_QUEST_COMPLETE":
                     _unlocked = true;
                     try { VicIntroQuest.Instance?.CompleteObj2(); }
-                    catch (Exception ex) { Logger.Warning($"Remote VicIntroQuest CompleteObj2 failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Remote VicIntroQuest CompleteObj2 failed: {ex.Message}"); }
                     break;
 
                 case "VIC_LAUNDER":
@@ -423,7 +402,7 @@ namespace OverTheCounter.SaveData
                     break;
 
                 default:
-                    Logger.Warning($"VicSaveData: unknown remote action '{action}'");
+                    OTCLog.Warning(OTCLog.Systems.NPC, $"VicSaveData: unknown remote action '{action}'");
                     return;
             }
 
@@ -450,13 +429,13 @@ namespace OverTheCounter.SaveData
                 }
                 else
                 {
-                    Logger.Warning("Vic NPC not found — deferring intro text until spawn.");
+                    OTCLog.Warning(OTCLog.Systems.NPC, "Vic NPC not found — deferring intro text until spawn.");
                     _needsIntroText = true;
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"TrySendIntroText failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"TrySendIntroText failed: {ex.Message}");
                 _needsIntroText = true;
             }
         }
@@ -479,7 +458,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Could not check Clean Cash quest: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"Could not check Clean Cash quest: {ex.Message}");
             }
             return false;
         }

@@ -1,4 +1,3 @@
-using MelonLoader;
 using OverTheCounter.Utilities;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,8 +25,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class NotificationManager
     {
-        private readonly MelonLogger.Instance _logger;
-
         /// <summary>
         /// Per-window consolidated group state.
         /// </summary>
@@ -49,9 +46,8 @@ namespace OverTheCounter.Logic
         private bool _staleCleaned;
         private int _staleCleanupFrame;
 
-        public NotificationManager(MelonLogger.Instance logger)
+        public NotificationManager()
         {
-            _logger = logger;
         }
 
         /// <summary>
@@ -127,14 +123,14 @@ namespace OverTheCounter.Logic
                             }
                             catch (System.Exception ex)
                             {
-                                _logger.Warning($"[StaleCleanup] Quest inspection threw: {ex.Message}");
+                                OTCLog.Warning(OTCLog.Systems.Notification, $"Quest inspection threw: {ex.Message}");
                             }
                         }
                     }
                 }
                 catch (System.Exception ex)
                 {
-                    _logger.Warning($"[StaleCleanup] Exception: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Notification, $"Stale cleanup exception: {ex.Message}");
                 }
             }
 
@@ -226,7 +222,7 @@ namespace OverTheCounter.Logic
                 catch (System.Exception ex)
                 {
                     // Only log actual errors
-                    _logger.Warning($"[GroupContractsByWindow] Customer check failed for contract {i}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Notification, $"Customer check failed for contract {i}: {ex.Message}");
                 }
 
                 // Check delivery window
@@ -265,27 +261,24 @@ namespace OverTheCounter.Logic
         /// </summary>
         private void ActivateGroup((int, int) windowKey, List<Contract> contracts)
         {
-            if (Config.VerboseLogging.Value)
-                _logger.Msg($"[Activate] Creating ConsolidatedQuest for {contracts.Count} contracts, window {windowKey.Item1}-{windowKey.Item2}");
+            OTCLog.Msg(OTCLog.Systems.Notification, $"Creating ConsolidatedQuest for {contracts.Count} contracts, window {windowKey.Item1}-{windowKey.Item2}");
 
             var quest = (ConsolidatedQuest)S1API.Quests.QuestManager.CreateQuest<ConsolidatedQuest>();
             if (quest != null)
             {
                 quest.Initialize();
-                if (Config.VerboseLogging.Value)
-                    _logger.Msg("[Activate] Quest created and initialized.");
+                OTCLog.Msg(OTCLog.Systems.Notification, "Quest created and initialized.");
             }
             else
             {
-                _logger.Error("[Activate] CreateQuest<ConsolidatedQuest> returned null!");
+                OTCLog.Error(OTCLog.Systems.Notification, "CreateQuest<ConsolidatedQuest> returned null!");
                 return;
             }
 
             // Read the instance ID right now while it's fresh — storing it in our
             // own managed class avoids IL2CPP field clobbering on the quest object.
             int instanceId = quest.GameQuestInstanceId;
-            if (Config.VerboseLogging.Value)
-                _logger.Msg($"[Activate] Stored GameQuestInstanceId={instanceId} for window {windowKey}");
+            OTCLog.Msg(OTCLog.Systems.Notification, $"Stored GameQuestInstanceId={instanceId} for window {windowKey}");
 
             _activeGroups[windowKey] = new ConsolidatedGroup { Quest = quest, GameQuestInstanceId = instanceId };
         }
@@ -298,8 +291,7 @@ namespace OverTheCounter.Logic
             if (!_activeGroups.TryGetValue(windowKey, out var group))
                 return;
 
-            if (Config.VerboseLogging.Value)
-                _logger.Msg($"[Deactivate] Removing group window {windowKey.Item1}-{windowKey.Item2}");
+            OTCLog.Msg(OTCLog.Systems.Notification, $"Removing group window {windowKey.Item1}-{windowKey.Item2}");
 
             // Restore all contract HUDs — the next frame's HideGroupHUDs will
             // re-hide contracts that are still in other active groups.
@@ -311,8 +303,7 @@ namespace OverTheCounter.Logic
             }
 
             _activeGroups.Remove(windowKey);
-            if (Config.VerboseLogging.Value)
-                _logger.Msg("[Deactivate] Group removed.");
+            OTCLog.Msg(OTCLog.Systems.Notification, "Group removed.");
         }
 
         /// <summary>
@@ -392,7 +383,7 @@ namespace OverTheCounter.Logic
         {
             if (group.Quest == null)
             {
-                if (!group.DebugUpdateLogged) { _logger.Warning($"[UpdateGroupSummary] Quest is null for window {windowKey}"); group.DebugUpdateLogged = true; }
+                if (!group.DebugUpdateLogged) { OTCLog.Warning(OTCLog.Systems.Notification, $"Quest is null for window {windowKey}"); group.DebugUpdateLogged = true; }
                 return;
             }
 
@@ -402,7 +393,7 @@ namespace OverTheCounter.Logic
             // If there are no products to display, deconsolidate instead of showing a blank quest.
             if (productSummaries.Count == 0 || contracts.Count == 0)
             {
-                _logger.Warning($"[UpdateGroupSummary] Empty products for window {windowKey}, deactivating group");
+                OTCLog.Warning(OTCLog.Systems.Notification, $"Empty products for window {windowKey}, deactivating group");
                 DeactivateGroup(windowKey);
                 return;
             }
@@ -414,8 +405,7 @@ namespace OverTheCounter.Logic
             {
                 if (!group.DebugUpdateLogged)
                 {
-                    if (Config.VerboseLogging.Value)
-                        _logger.Msg($"[UpdateGroupSummary] Window {windowKey}: data changed, count={contracts.Count}, products={productSummaries.Count}");
+                    OTCLog.Msg(OTCLog.Systems.Notification, $"Window {windowKey}: data changed, count={contracts.Count}, products={productSummaries.Count}");
                     group.DebugUpdateLogged = true;
                 }
                 // Data changed — update tracking and quest content

@@ -1,5 +1,5 @@
 using HarmonyLib;
-using MelonLoader;
+using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -21,8 +21,6 @@ namespace OverTheCounter.Logic.Placement
     /// </summary>
     public static class BuildingGridFactory
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:BuildingGrid");
-
         /// <summary>Tracks OTC-created grids so Harmony patches can identify them.</summary>
         internal static readonly HashSet<Grid> OtcGrids = new();
         /// <summary>Maps OTC grids to their building root transform (used as Container).</summary>
@@ -53,7 +51,7 @@ namespace OverTheCounter.Logic.Placement
             int tileLayer = LayerMask.NameToLayer("Tile");
             if (tileLayer < 0)
             {
-                Logger.Error("'Tile' physics layer not found — cannot create placement grid.");
+                OTCLog.Error(OTCLog.Systems.Patch,"'Tile' physics layer not found — cannot create placement grid.");
                 return null;
             }
 
@@ -208,7 +206,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to register grid GUID: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"Failed to register grid GUID: {ex.Message}");
             }
         }
 

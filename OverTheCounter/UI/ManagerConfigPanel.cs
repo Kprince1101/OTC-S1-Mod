@@ -17,6 +17,7 @@ using UnityEngine.UI;
 #if IL2CPP
 using Il2CppInterop.Runtime;
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.EntityFramework;
 using Il2CppScheduleOne.Management;
@@ -27,6 +28,7 @@ using Il2CppScheduleOne.UI.Management;
 using Il2CppTMPro;
 #else
 using ScheduleOne.DevUtilities;
+using ScheduleOne.Economy;
 using ScheduleOne.Employees;
 using ScheduleOne.EntityFramework;
 using ScheduleOne.Management;
@@ -45,7 +47,6 @@ namespace OverTheCounter.UI
     /// </summary>
     public static class ManagerConfigPanel
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerConfigPanel");
 
         private static GameObject _panelRoot;
         private static ManagerInstance _currentManager;
@@ -135,6 +136,10 @@ namespace OverTheCounter.UI
         /// </summary>
         public static void EnforceUI()
         {
+            // RouteEntitySelector is ticked from ManagerClipboardPatch.UpdatePostfix
+            // (clipboard is closed while selector is active, so EnforceUI doesn't run)
+            if (RouteEntitySelector.IsOpen) return;
+
             try
             {
                 // Hide NothingSelectedLabel (ManagementInterface.Open re-enables it on every clipboard open)
@@ -182,7 +187,7 @@ namespace OverTheCounter.UI
             _currentManager = mgr;
             CreatePanel();
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Config panel opened for manager {mgr.Id}");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"Config panel opened for manager {mgr.Id}");
         }
 
         /// <summary>
@@ -227,7 +232,7 @@ namespace OverTheCounter.UI
             var mi = Singleton<ManagementInterface>.Instance;
             if (mi == null)
             {
-                Logger.Warning("ManagementInterface not available");
+                OTCLog.Warning(OTCLog.Systems.Manager, "ManagementInterface not available");
                 return;
             }
 
@@ -248,7 +253,7 @@ namespace OverTheCounter.UI
             }
             if (prefabGO == null)
             {
-                Logger.Warning("Packager config panel prefab not found");
+                OTCLog.Warning(OTCLog.Systems.Manager, "Packager config panel prefab not found");
                 return;
             }
 
@@ -261,7 +266,7 @@ namespace OverTheCounter.UI
             var packagerPanel = _panelRoot.GetComponent<PackagerConfigPanel>();
             if (packagerPanel == null)
             {
-                Logger.Warning("PackagerConfigPanel component not found on clone");
+                OTCLog.Warning(OTCLog.Systems.Manager, "PackagerConfigPanel component not found on clone");
                 return;
             }
 
@@ -554,7 +559,7 @@ namespace OverTheCounter.UI
             var mi = Singleton<ManagementInterface>.Instance;
             if (mi?.ItemSelectorScreen == null)
             {
-                Logger.Warning("ItemSelector not available");
+                OTCLog.Warning(OTCLog.Systems.Manager, "ItemSelector not available");
                 return;
             }
 
@@ -715,7 +720,7 @@ namespace OverTheCounter.UI
                 descGO.transform.SetParent(_thresholdScreenRoot.transform, false);
                 var descTMP = descGO.AddComponent<TextMeshProUGUI>();
                 descTMP.text = "How many should the manager\nkeep in stock at the supply drop?";
-                descTMP.fontSize = 14;
+                descTMP.fontSize = 15;
                 descTMP.alignment = TextAlignmentOptions.Center;
                 descTMP.color = new Color(0.25f, 0.25f, 0.25f);
                 var descRT = descGO.GetComponent<RectTransform>();
@@ -747,11 +752,14 @@ namespace OverTheCounter.UI
                     var nfUI = sliderGO.GetComponent<ScheduleOne.UI.Management.NumberFieldUI>();
                     if (nfUI != null)
                     {
-                        // Use the item's actual stack limit as the slider step
+                        // Use the item's actual stack limit as the slider step.
+                        // _pendingStackLimit stores the base value (for saving).
+                        // effectiveLimit = base × StackSizeMultiplier is used for display only.
                         int stackLimit = 20;
                         try { if (_pendingItemDef != null) stackLimit = _pendingItemDef.StackLimit; } catch { }
                         if (stackLimit <= 0) stackLimit = 20;
                         _pendingStackLimit = stackLimit;
+                        int effectiveLimit = stackLimit * Config.StackSizeMultiplier.Value;
 
                         nfUI.Slider.onValueChanged.RemoveAllListeners();
                         nfUI.FieldLabel.text = "Max Stock";
@@ -760,16 +768,16 @@ namespace OverTheCounter.UI
                         nfUI.Slider.wholeNumbers = true;
                         float sliderVal = Mathf.Clamp(currentThreshold / (float)stackLimit, 1f, 5f);
                         nfUI.Slider.SetValueWithoutNotify(sliderVal);
-                        nfUI.ValueLabel.text = (Mathf.RoundToInt(sliderVal) * stackLimit).ToString();
-                        nfUI.MinValueLabel.text = stackLimit.ToString();
-                        nfUI.MaxValueLabel.text = (stackLimit * 5).ToString();
+                        nfUI.ValueLabel.text = (Mathf.RoundToInt(sliderVal) * effectiveLimit).ToString();
+                        nfUI.MinValueLabel.text = effectiveLimit.ToString();
+                        nfUI.MaxValueLabel.text = (effectiveLimit * 5).ToString();
 
                         _thresholdSlider = nfUI.Slider;
 
-                        int capturedLimit = stackLimit;
+                        int capturedEffective = effectiveLimit;
                         nfUI.Slider.onValueChanged.AddListener(new Action<float>(val =>
                         {
-                            int displayVal = Mathf.RoundToInt(val) * capturedLimit;
+                            int displayVal = Mathf.RoundToInt(val) * capturedEffective;
                             nfUI.ValueLabel.text = displayVal.ToString();
                         }));
                     }
@@ -827,11 +835,11 @@ namespace OverTheCounter.UI
 
                 _thresholdScreenRoot.SetActive(true);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Showing threshold screen for {_pendingItemDef?.Name} (current={currentThreshold})");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"Showing threshold screen for {_pendingItemDef?.Name} (current={currentThreshold})");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ShowThresholdScreen failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ShowThresholdScreen failed: {ex.Message}");
                 // On failure, restore config panel
                 if (_panelRoot != null) _panelRoot.SetActive(true);
             }
@@ -867,7 +875,7 @@ namespace OverTheCounter.UI
 
                 RefreshItemSlots();
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Manager {_currentManager.Id}: slot {savedSlot} = {savedItemId} (threshold={savedThreshold})");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"{_currentManager.Id}: slot {savedSlot} = {savedItemId} (threshold={savedThreshold})");
             }
         }
 
@@ -943,7 +951,7 @@ namespace OverTheCounter.UI
                 if (slot.ThresholdLabel != null)
                 {
                     if (hasItem)
-                        slot.ThresholdLabel.text = $"({config.StockedThresholds[i]})";
+                        slot.ThresholdLabel.text = $"({config.StockedThresholds[i] * Config.StackSizeMultiplier.Value})";
                     else
                         slot.ThresholdLabel.text = "";
                 }
@@ -1007,7 +1015,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to get registry items: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"Failed to get registry items: {ex.Message}");
             }
 
             // Sort by category: Mixers → Soils → Additives → Packaging → Tools
@@ -1125,7 +1133,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Logger.Warning($"FixSelectionInfo error: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"FixSelectionInfo error: {ex.Message}");
             }
         }
 
@@ -1170,14 +1178,55 @@ namespace OverTheCounter.UI
         {
             if (_currentManager == null) return;
 
-            var objectSelector = Singleton<ManagementInterface>.Instance?.ObjectSelector;
-            if (objectSelector == null)
+            // Route slots use our custom RouteEntitySelector (supports dead drops + storage)
+            if (slotType == "From" || slotType == "To")
             {
-                Logger.Warning("ObjectSelector not available");
+                string instruction = $"Select Route {routeIndex + 1} {slotType}";
+                string capturedSlot = slotType;
+                int capturedRoute = routeIndex;
+                bool capturedIsSource = isSource;
+
+                RouteEntitySelector.Open(instruction, (pse, dd) =>
+                {
+                    try
+                    {
+                        if (pse != null && capturedRoute >= 0 && _currentManager != null)
+                        {
+                            if (!_currentManager.Configuration.ValidateAssignment(
+                                pse, capturedRoute, capturedIsSource, out string reason))
+                            {
+                                OTCLog.Warning(OTCLog.Systems.Manager, $"Validation failed: {reason}");
+                                pse = null;
+                            }
+                        }
+                        if (dd != null && capturedRoute >= 0 && _currentManager != null)
+                        {
+                            if (!_currentManager.Configuration.ValidateAssignment(
+                                dd, capturedRoute, capturedIsSource, out string reason))
+                            {
+                                OTCLog.Warning(OTCLog.Systems.Manager, $"Validation failed: {reason}");
+                                dd = null;
+                            }
+                        }
+
+                        ApplyRouteSelection(capturedRoute, capturedIsSource, pse, dd);
+                    }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Error(OTCLog.Systems.Manager, $"RouteEntitySelector callback error: {ex.Message}");
+                    }
+                });
                 return;
             }
 
-            // Build current selection list
+            // Locker/Supply use the vanilla ObjectSelector (only needs PlaceableStorageEntity)
+            var objectSelector = Singleton<ManagementInterface>.Instance?.ObjectSelector;
+            if (objectSelector == null)
+            {
+                OTCLog.Warning(OTCLog.Systems.Manager, "ObjectSelector not available");
+                return;
+            }
+
             var currentList = new GameSystem.Collections.Generic.List<BuildableItem>();
             PlaceableStorageEntity current = GetCurrentSlotEntity(slotType, routeIndex, isSource);
             if (current != null)
@@ -1187,7 +1236,6 @@ namespace OverTheCounter.UI
                     currentList.Add(buildable);
             }
 
-            // Type filter — restrict to PlaceableStorageEntity
             var typeReqs = new GameSystem.Collections.Generic.List<GameSystem.Type>();
 #if IL2CPP
             typeReqs.Add(Il2CppType.Of<PlaceableStorageEntity>());
@@ -1195,18 +1243,11 @@ namespace OverTheCounter.UI
             typeReqs.Add(typeof(PlaceableStorageEntity));
 #endif
 
-            string instruction;
-            switch (slotType)
-            {
-                case "Locker": instruction = "Select Locker"; break;
-                case "Supply": instruction = "Select Supplies Container"; break;
-                default: instruction = $"Select Route {routeIndex + 1} {slotType}"; break;
-            }
+            string lockerSupplyInstruction = slotType == "Locker" ? "Select Locker" : "Select Supplies Container";
 
-            // Capture slot context for the callback
-            string capturedSlot = slotType;
-            int capturedRoute = routeIndex;
-            bool capturedIsSource = isSource;
+            string capturedSlotLS = slotType;
+            int capturedRouteLS = routeIndex;
+            bool capturedIsSourceLS = isSource;
 
             _selectorCallback = (GameSystem.Action<GameSystem.Collections.Generic.List<BuildableItem>>)
                 new Action<GameSystem.Collections.Generic.List<BuildableItem>>((objs) =>
@@ -1220,38 +1261,17 @@ namespace OverTheCounter.UI
                             selected = obj?.TryCast<PlaceableStorageEntity>();
                             if (selected == null)
                                 selected = obj?.GetComponent<PlaceableStorageEntity>();
-
-                            // Validate same-route source/dest conflict
-                            if (selected != null && capturedRoute >= 0 && _currentManager != null)
-                            {
-                                if (!_currentManager.Configuration.ValidateAssignment(
-                                    selected, capturedRoute, capturedIsSource, out string reason))
-                                {
-                                    // Log GUIDs for diagnosis — helps distinguish "same rack clicked twice"
-                                    // from genuine false-positive equality
-                                    var route = _currentManager.Configuration.Routes[capturedRoute];
-                                    var existingEntity = capturedIsSource ? route.Destination : route.Source;
-                                    string existingGuid = ManagerConfiguration.GetGuid(existingEntity);
-                                    string selectedGuid = ManagerConfiguration.GetGuid(selected);
-                                    Logger.Warning($"Validation failed: {reason} " +
-                                        $"(existing={GetStorageName(existingEntity)} [{existingGuid}], " +
-                                        $"selected={GetStorageName(selected)} [{selectedGuid}], " +
-                                        $"sameRef={ReferenceEquals(existingEntity, selected)})");
-                                    selected = null;
-                                }
-                            }
                         }
-                        ApplySelection(capturedSlot, capturedRoute, capturedIsSource, selected);
+                        ApplySelection(capturedSlotLS, capturedRouteLS, capturedIsSourceLS, selected);
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error($"ObjectSelector callback error: {ex.Message}");
+                        OTCLog.Error(OTCLog.Systems.Manager, $"ObjectSelector callback error: {ex.Message}");
                     }
                 });
 
-            // Pass null for property to allow cross-property container selection
             objectSelector.Open(
-                instruction, "", 1, currentList, typeReqs,
+                lockerSupplyInstruction, "", 1, currentList, typeReqs,
                 null,
                 null,
                 _selectorCallback,
@@ -1290,7 +1310,7 @@ namespace OverTheCounter.UI
                         home = selected.GetComponentInParent<EmployeeHome>();
                     if (home == null)
                     {
-                        Logger.Warning("Selected storage entity is not an employee locker");
+                        OTCLog.Warning(OTCLog.Systems.Manager, "Selected storage entity is not an employee locker");
                         return;
                     }
 
@@ -1310,20 +1330,67 @@ namespace OverTheCounter.UI
             else if (routeIndex >= 0 && routeIndex < config.Routes.Length)
             {
                 if (isSource)
-                    config.Routes[routeIndex].Source = selected;
+                    config.Routes[routeIndex].SetSource(selected);
                 else
-                    config.Routes[routeIndex].Destination = selected;
+                    config.Routes[routeIndex].SetDest(selected);
             }
 
             SyncConfig();
 
             RefreshLabels();
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Manager {_currentManager.Id}: {slotType}[{routeIndex}] = {GetStorageName(selected)}");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"{_currentManager.Id}: {slotType}[{routeIndex}] = {GetStorageName(selected)}");
+        }
+
+        /// <summary>
+        /// Applies a route selection from RouteEntitySelector (supports both PSE and DeadDrop).
+        /// </summary>
+        private static void ApplyRouteSelection(int routeIndex, bool isSource, PlaceableStorageEntity pse, DeadDrop dd)
+        {
+            if (_currentManager == null) return;
+            if (routeIndex < 0 || routeIndex >= _currentManager.Configuration.Routes.Length) return;
+
+            var route = _currentManager.Configuration.Routes[routeIndex];
+
+            if (pse != null)
+            {
+                if (isSource) route.SetSource(pse);
+                else route.SetDest(pse);
+            }
+            else if (dd != null)
+            {
+                if (isSource) route.SetSource(dd);
+                else route.SetDest(dd);
+            }
+            else
+            {
+                // Cancel — no change
+                return;
+            }
+
+            SyncConfig();
+            RefreshLabels();
+
+            string name = pse != null ? GetStorageName(pse) : ("Dead Drop (" + (dd?.DeadDropName ?? "?") + ")");
+            if (Config.ManagerVerboseLogging.Value)
+                OTCLog.Msg(OTCLog.Systems.Manager, $"{_currentManager.Id}: Route[{routeIndex}] {(isSource ? "From" : "To")} = {name}");
         }
 
         private static void OnClearClicked(string slotType, int routeIndex, bool isSource)
         {
+            if (slotType == "From" || slotType == "To")
+            {
+                // Clear route endpoint (handles both PSE and dead drop)
+                if (_currentManager != null && routeIndex >= 0 && routeIndex < _currentManager.Configuration.Routes.Length)
+                {
+                    var route = _currentManager.Configuration.Routes[routeIndex];
+                    if (isSource) route.ClearSource();
+                    else route.ClearDest();
+                    SyncConfig();
+                    RefreshLabels();
+                }
+                return;
+            }
             ApplySelection(slotType, routeIndex, isSource, null);
         }
 
@@ -1360,7 +1427,7 @@ namespace OverTheCounter.UI
 
             RefreshLabels();
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Manager {_currentManager.Id}: deleted route {routeIndex}");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"{_currentManager.Id}: deleted route {routeIndex}");
         }
 
         // ========== Label Refresh ==========
@@ -1390,7 +1457,7 @@ namespace OverTheCounter.UI
 
             for (int i = 0; i < 3; i++)
             {
-                RefreshRouteEntry(i, config.Routes[i].Source, config.Routes[i].Destination);
+                RefreshRouteEntry(i, config.Routes[i]);
             }
         }
 
@@ -1439,23 +1506,25 @@ namespace OverTheCounter.UI
                 _addRouteButton.SetActive(visibleCount < 3);
         }
 
-        private static void RefreshRouteEntry(int index, PlaceableStorageEntity source, PlaceableStorageEntity dest)
+        private static void RefreshRouteEntry(int index, ManagerConfiguration.DistributionRoute route)
         {
             if (index < 0 || index >= _routes.Length) return;
             var entry = _routes[index];
             if (entry.Root == null) return;
 
             // Source
-            string srcName = GetStorageName(source);
+            string srcName = route.IsSourceDeadDrop
+                ? "Dead Drop (" + (route.SourceDeadDrop?.DeadDropName ?? "?") + ")"
+                : GetStorageName(route.Source);
             if (entry.SourceLabel != null)
                 entry.SourceLabel.text = string.IsNullOrEmpty(srcName) ? "None" : srcName;
 
             if (entry.SourceIcon != null)
             {
                 Sprite srcSprite = null;
-                if (source != null)
+                if (!route.IsSourceDeadDrop && route.Source != null)
                 {
-                    var buildable = source.TryCast<BuildableItem>();
+                    var buildable = route.Source.TryCast<BuildableItem>();
                     srcSprite = buildable?.ItemInstance?.Icon;
                 }
                 entry.SourceIcon.sprite = srcSprite;
@@ -1469,16 +1538,18 @@ namespace OverTheCounter.UI
             }
 
             // Destination
-            string dstName = GetStorageName(dest);
+            string dstName = route.IsDestDeadDrop
+                ? "Dead Drop (" + (route.DestDeadDrop?.DeadDropName ?? "?") + ")"
+                : GetStorageName(route.Destination);
             if (entry.DestLabel != null)
                 entry.DestLabel.text = string.IsNullOrEmpty(dstName) ? "None" : dstName;
 
             if (entry.DestIcon != null)
             {
                 Sprite dstSprite = null;
-                if (dest != null)
+                if (!route.IsDestDeadDrop && route.Destination != null)
                 {
-                    var buildable = dest.TryCast<BuildableItem>();
+                    var buildable = route.Destination.TryCast<BuildableItem>();
                     dstSprite = buildable?.ItemInstance?.Icon;
                 }
                 entry.DestIcon.sprite = dstSprite;
@@ -1504,7 +1575,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to load manager icon: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"Failed to load manager icon: {ex.Message}");
             }
 
             return _managerIcon;

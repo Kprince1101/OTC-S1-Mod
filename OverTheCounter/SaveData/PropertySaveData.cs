@@ -295,7 +295,7 @@ namespace OverTheCounter.SaveData
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Failed to restore '{item.PrefabId}': {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.General,$"Failed to restore '{item.PrefabId}': {ex.Message}");
                 }
             }
 
@@ -340,7 +340,7 @@ namespace OverTheCounter.SaveData
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"RestoreSlotContentsDeferred failed for {item.PrefabId}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.General,$"RestoreSlotContentsDeferred failed for {item.PrefabId}: {ex.Message}");
                 }
             }
         }
@@ -402,7 +402,6 @@ namespace OverTheCounter.SaveData
         // Storage contents persistence (mirrors game's ItemSet pattern)
         // ==================================================================
 
-        private static readonly MelonLogger.Instance Logger = new("OTC:PropertySave");
 
         /// <summary>
         /// Rebuilds <see cref="_placedItems"/> from the live grid state, then snapshots
@@ -454,7 +453,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"SnapshotStorageContents failed: {ex}");
+                OTCLog.Warning(OTCLog.Systems.General,$"SnapshotStorageContents failed: {ex}");
             }
         }
 
@@ -594,7 +593,7 @@ namespace OverTheCounter.SaveData
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"RestoreEntitySlots slot {i} failed: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.General,$"RestoreEntitySlots slot {i} failed: {ex.Message}");
                 }
             }
         }

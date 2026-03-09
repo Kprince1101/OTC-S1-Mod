@@ -30,8 +30,6 @@ namespace OverTheCounter.Logic.Placement
     /// </summary>
     public static class BuildingPlacementPatch
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:PlacementPatch");
-
         // Cached reflection for GridItem.InitializeGridItem patching
         private static MethodInfo _initBuildableItem;
         private static Type _gridItemType;
@@ -70,7 +68,7 @@ namespace OverTheCounter.Logic.Placement
                         prefix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(GridAwakePrefix)));
                 }
                 else
-                    Logger.Warning("Grid.Awake not found — placement grid will not work");
+                    OTCLog.Warning(OTCLog.Systems.Patch,"Grid.Awake not found — placement grid will not work");
 
                 // Patch Tile.Awake — skip temperature delegate setup for OTC tiles
                 var tileAwake = AccessTools.Method(typeof(Tile), "Awake");
@@ -80,7 +78,7 @@ namespace OverTheCounter.Logic.Placement
                         prefix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(TileAwakePrefix)));
                 }
                 else
-                    Logger.Warning("Tile.Awake not found — OTC tiles may crash on activation");
+                    OTCLog.Warning(OTCLog.Systems.Patch,"Tile.Awake not found — OTC tiles may crash on activation");
 
                 // Patch Tile.CanBeBuiltOn — bypass Property.IsOwned check for OTC tiles
                 var canBeBuiltOn = AccessTools.Method(typeof(Tile), "CanBeBuiltOn");
@@ -90,7 +88,7 @@ namespace OverTheCounter.Logic.Placement
                         prefix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(TileCanBeBuiltOnPrefix)));
                 }
                 else
-                    Logger.Warning("Tile.CanBeBuiltOn not found — placement validation will fail");
+                    OTCLog.Warning(OTCLog.Systems.Patch,"Tile.CanBeBuiltOn not found — placement validation will fail");
 
                 // --- Placement flow patches ---
 
@@ -102,7 +100,7 @@ namespace OverTheCounter.Logic.Placement
                         prefix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(GridContainerPrefix)));
                 }
                 else
-                    Logger.Warning("Grid.Container getter not found — placed items will crash");
+                    OTCLog.Warning(OTCLog.Systems.Patch,"Grid.Container getter not found — placed items will crash");
 
                 // Patch GridItem.InitializeGridItem — bypass GetProperty for OTC grids
                 _gridItemType = AccessTools.TypeByName("ScheduleOne.EntityFramework.GridItem")
@@ -116,7 +114,7 @@ namespace OverTheCounter.Logic.Placement
                             prefix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(InitializeGridItemPrefix)));
                     }
                     else
-                        Logger.Warning("GridItem.InitializeGridItem not found — placement will crash");
+                        OTCLog.Warning(OTCLog.Systems.Patch,"GridItem.InitializeGridItem not found — placement will crash");
 
                     // Cache InitializeBuildableItem for the prefix
                     var buildableType = AccessTools.TypeByName("ScheduleOne.EntityFramework.BuildableItem")
@@ -133,12 +131,12 @@ namespace OverTheCounter.Logic.Placement
                             "<ParentProperty>k__BackingField",
                             BindingFlags.NonPublic | BindingFlags.Instance);
                         if (_parentPropertyBackingField == null)
-                            Logger.Warning("ParentProperty backing field not found — will try property setter");
+                            OTCLog.Warning(OTCLog.Systems.Patch,"ParentProperty backing field not found — will try property setter");
 #endif
                     }
                 }
                 else
-                    Logger.Warning("GridItem type not found — placement patches skipped");
+                    OTCLog.Warning(OTCLog.Systems.Patch,"GridItem type not found — placement patches skipped");
 
                 // Patch BuildManager.CreateGridItem — apply desk visual when counter is placed
                 var buildManagerType = AccessTools.TypeByName("ScheduleOne.Building.BuildManager")
@@ -152,7 +150,7 @@ namespace OverTheCounter.Logic.Placement
                             postfix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(CreateGridItemPostfix)));
                     }
                     else
-                        Logger.Warning("BuildManager.CreateGridItem not found — counter visual won't persist on re-placement");
+                        OTCLog.Warning(OTCLog.Systems.Patch,"BuildManager.CreateGridItem not found — counter visual won't persist on re-placement");
                 }
 
                 // Patch BuildStart_Grid.CreateGhostModel — swap ghost visual from plastic table to desk
@@ -168,10 +166,10 @@ namespace OverTheCounter.Logic.Placement
                             postfix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(CreateGhostModelPostfix)));
                     }
                     else
-                        Logger.Warning("BuildStart_Grid.CreateGhostModel not found — ghost will show plastic table");
+                        OTCLog.Warning(OTCLog.Systems.Patch,"BuildStart_Grid.CreateGhostModel not found — ghost will show plastic table");
                 }
                 else
-                    Logger.Warning("BuildStart_Grid type not found");
+                    OTCLog.Warning(OTCLog.Systems.Patch,"BuildStart_Grid type not found");
 
                 // --- BuildUpdate_Grid patches ---
                 var buildUpdateGridType = AccessTools.TypeByName("ScheduleOne.Building.BuildUpdate_Grid")
@@ -194,12 +192,12 @@ namespace OverTheCounter.Logic.Placement
                             prefix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(OnClosestIntersectionChangedPrefix)));
                     }
                     else
-                        Logger.Warning("OnClosestIntersectionChanged not found — ghost will lock to one tile");
+                        OTCLog.Warning(OTCLog.Systems.Patch,"OnClosestIntersectionChanged not found — ghost will lock to one tile");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to apply placement patches: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"Failed to apply placement patches: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -263,7 +261,7 @@ namespace OverTheCounter.Logic.Placement
                 var propertyType = AccessTools.TypeByName("ScheduleOne.Property.Property");
                 if (propertyType == null)
                 {
-                    Logger.Error("Property type not found — stub creation failed");
+                    OTCLog.Error(OTCLog.Systems.Patch,"Property type not found — stub creation failed");
                     return;
                 }
                 var prop = go.AddComponent(propertyType);
@@ -272,7 +270,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to create stub Property: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"Failed to create stub Property: {ex.Message}");
             }
         }
 
@@ -325,7 +323,7 @@ namespace OverTheCounter.Logic.Placement
                 }
                 else
                 {
-                    Logger.Error("Cannot set ParentProperty — no backing field or setter found");
+                    OTCLog.Error(OTCLog.Systems.Patch,"Cannot set ParentProperty — no backing field or setter found");
                 }
             }
 #endif
@@ -352,7 +350,7 @@ namespace OverTheCounter.Logic.Placement
             {
                 if (_initBuildableItem == null)
                 {
-                    Logger.Error("InitializeBuildableItem method not cached — cannot place on OTC grid");
+                    OTCLog.Error(OTCLog.Systems.Patch,"InitializeBuildableItem method not cached — cannot place on OTC grid");
                     return true;
                 }
 
@@ -370,7 +368,7 @@ namespace OverTheCounter.Logic.Placement
                 }
                 else
                 {
-                    Logger.Error("SetGridData not found on GridItem");
+                    OTCLog.Error(OTCLog.Systems.Patch,"SetGridData not found on GridItem");
                 }
 
                 // Set ParentProperty AFTER SetGridData — ProcessGridData overwrites it to null
@@ -414,7 +412,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Error($"OTC InitializeGridItem failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"OTC InitializeGridItem failed: {ex.Message}\n{ex.StackTrace}");
                 return true;
             }
 
@@ -452,7 +450,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Warning($"RecordPlacement failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"RecordPlacement failed: {ex.Message}");
             }
         }
 
@@ -532,7 +530,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Warning($"CreateGhostModelPostfix: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"CreateGhostModelPostfix: {ex.Message}");
             }
         }
 
@@ -609,7 +607,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Warning($"CreateGridItemPostfix: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"CreateGridItemPostfix: {ex.Message}");
             }
         }
 

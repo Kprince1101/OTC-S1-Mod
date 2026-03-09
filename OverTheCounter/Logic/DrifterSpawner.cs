@@ -1,5 +1,6 @@
 using MelonLoader;
 using MelonLoader.Utils;
+using OverTheCounter.Utilities;
 using S1API.Utils;
 using UnityEngine;
 using System;
@@ -24,8 +25,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public static class DrifterSpawner
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:DrifterSpawner");
-
         internal static readonly Dictionary<string, MSGConversation> DrifterConversations = new();
 
         // =====================================================================
@@ -114,16 +113,21 @@ namespace OverTheCounter.Logic
             try
             {
                 if (npc.GetMSGConversation() != null)
+                {
+                    OTCLog.Msg(OTCLog.Systems.Drifter, $"Messaging already initialized for {npc.ID}");
                     return;
+                }
 
                 var conversation = new MSGConversation(npc, npc.fullName);
                 npc.SetMSGConversation(conversation);
                 conversation.SetIsKnown(true);
                 DrifterConversations[npc.ID] = conversation;
+
+                OTCLog.Msg(OTCLog.Systems.Drifter, $"Initialized messaging for {npc.ID}");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"InitializeMessaging failed for {npc.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"InitializeMessaging failed for {npc.ID}: {ex.Message}");
             }
         }
 
@@ -146,13 +150,14 @@ namespace OverTheCounter.Logic
                     if (other.VoiceOverEmitter?.GetDatabase() != null)
                     {
                         npc.VoiceOverEmitter.SetDatabase(other.VoiceOverEmitter.GetDatabase(), false);
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"Borrowed voice database for {npc.ID}");
                         return;
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"EnsureVoiceDatabase failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"EnsureVoiceDatabase failed: {ex.Message}");
             }
         }
 
@@ -178,12 +183,18 @@ namespace OverTheCounter.Logic
             {
                 string iconPath = Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "DrifterProfileIcon.png");
                 _drifterIcon = ImageUtils.LoadImage(iconPath);
-                if (_drifterIcon == null)
-                    Logger.Warning("DrifterProfileIcon.png not found or failed to load");
+                if (_drifterIcon != null)
+                {
+                    OTCLog.Msg(OTCLog.Systems.Drifter, "Loaded ProfileIcon.png");
+                }
+                else
+                {
+                    OTCLog.Warning(OTCLog.Systems.Drifter, "ProfileIcon.png not found or failed to load");
+                }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to load drifter icon: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"Failed to load icon: {ex.Message}");
             }
 
             return _drifterIcon;

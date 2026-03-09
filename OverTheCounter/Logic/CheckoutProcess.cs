@@ -51,8 +51,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class CheckoutProcess
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:Checkout");
-
         /// <summary>Active checkout instance, or null when idle.</summary>
         public static CheckoutProcess Instance { get; private set; }
 
@@ -263,7 +261,7 @@ namespace OverTheCounter.Logic
             // Timeout after 3 seconds
             if (Time.time - _lockRequestTime > 3f)
             {
-                Logger.Warning("Checkout lock request timed out");
+                OTCLog.Warning(OTCLog.Systems.Customer,"Checkout lock request timed out");
                 _pendingLockRequest = false;
                 _pendingCustomerId = null;
                 return;
@@ -284,7 +282,7 @@ namespace OverTheCounter.Logic
                 }
                 else
                 {
-                    Logger.Warning($"Lock granted but customer {_pendingCustomerId} not found");
+                    OTCLog.Warning(OTCLog.Systems.Customer,$"Lock granted but customer {_pendingCustomerId} not found");
                     _pendingCustomerId = null;
                 }
             }
@@ -339,14 +337,14 @@ namespace OverTheCounter.Logic
             if (!CustomerInstance.Active.TryGetValue(custId, out var customer) ||
                 customer.State != CustomerState.CheckingOut)
             {
-                Logger.Warning($"Checkout request for invalid customer {custId}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"Checkout request for invalid customer {custId}");
                 return;
             }
 
             // Grant lock to client by publishing their Steam ID as lock holder
             SaveData.ConfigSyncData.Instance?.PublishCheckoutState(clientSteamId, custId);
             if (Config.VerboseLogging.Value)
-                Logger.Msg($"Checkout lock granted to {clientSteamId} for customer {custId}");
+                OTCLog.Msg(OTCLog.Systems.Customer,$"Checkout lock granted to {clientSteamId} for customer {custId}");
         }
 
         /// <summary>
@@ -406,7 +404,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"HandleCheckoutDone failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"HandleCheckoutDone failed: {ex.Message}");
                 SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
             }
         }
@@ -712,7 +710,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"ApplyVisuals failed for {product.ProductName}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Customer,$"ApplyVisuals failed for {product.ProductName}: {ex.Message}");
                 }
 
                 go.transform.rotation = counterTransform.rotation * Quaternion.Euler(ProductRotX, 0f, 0f);
@@ -795,7 +793,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"GrabItem animation failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"GrabItem animation failed: {ex.Message}");
             }
 
             _state = State.CustomerPickup;
@@ -998,7 +996,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"SearchAndShowAvailable failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"SearchAndShowAvailable failed: {ex.Message}");
             }
         }
 
@@ -1137,7 +1135,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"SearchPlayerInventory failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"SearchPlayerInventory failed: {ex.Message}");
             }
 
             return found;
@@ -1169,17 +1167,17 @@ namespace OverTheCounter.Logic
                     }
                     else
                     {
-                        Logger.Warning($"ConsumeFromSource '{productName}': hotbar[{hotbarIndex}] out of range");
+                        OTCLog.Warning(OTCLog.Systems.Customer,$"ConsumeFromSource '{productName}': hotbar[{hotbarIndex}] out of range");
                     }
                 }
                 else
                 {
-                    Logger.Warning($"ConsumeFromSource '{productName}': no source");
+                    OTCLog.Warning(OTCLog.Systems.Customer,$"ConsumeFromSource '{productName}': no source");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ConsumeFromSource failed for {productName}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"ConsumeFromSource failed for {productName}: {ex.Message}");
             }
         }
 
@@ -1206,7 +1204,7 @@ namespace OverTheCounter.Logic
 #endif
                 if (prodDef == null)
                 {
-                    Logger.Warning($"ReturnProduct: could not find ProductDefinition for '{product.ProductId}'");
+                    OTCLog.Warning(OTCLog.Systems.Customer,$"ReturnProduct: could not find ProductDefinition for '{product.ProductId}'");
                     return false;
                 }
 
@@ -1218,7 +1216,7 @@ namespace OverTheCounter.Logic
 #endif
                 if (productInstance == null)
                 {
-                    Logger.Warning($"ReturnProduct: GetDefaultInstance returned null for '{product.ProductId}'");
+                    OTCLog.Warning(OTCLog.Systems.Customer,$"ReturnProduct: GetDefaultInstance returned null for '{product.ProductId}'");
                     return false;
                 }
 
@@ -1274,7 +1272,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ReturnProduct failed for '{product.ProductName}': {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"ReturnProduct failed for '{product.ProductName}': {ex.Message}");
                 return false;
             }
         }
@@ -1375,11 +1373,11 @@ namespace OverTheCounter.Logic
                 if (def?.StoredItem != null)
                     _cashPrefab = def.StoredItem.gameObject;
                 else
-                    Logger.Warning("Cash definition or StoredItem not found in Registry");
+                    OTCLog.Warning(OTCLog.Systems.Customer,"Cash definition or StoredItem not found in Registry");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"CacheCashPrefab failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"CacheCashPrefab failed: {ex.Message}");
             }
         }
 
@@ -1453,7 +1451,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"LockPlayerInput failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"LockPlayerInput failed: {ex.Message}");
             }
         }
 
@@ -1472,7 +1470,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"UnlockPlayerInput failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"UnlockPlayerInput failed: {ex.Message}");
             }
         }
 
@@ -1532,7 +1530,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"PlayCustomerVoice({lineType}) failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"PlayCustomerVoice({lineType}) failed: {ex.Message}");
             }
         }
 
@@ -1575,7 +1573,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Failed to record sale: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Customer,$"Failed to record sale: {ex.Message}");
                 }
 
                 // Signal customer to exit
@@ -1608,7 +1606,7 @@ namespace OverTheCounter.Logic
 
         private void Abort()
         {
-            Logger.Warning("Checkout aborted — customer or counter invalid");
+            OTCLog.Warning(OTCLog.Systems.Customer,"Checkout aborted — customer or counter invalid");
             BudtenderHUD.Hide();
             UnlockPlayerInput();
 
@@ -1617,7 +1615,7 @@ namespace OverTheCounter.Logic
             {
                 if (product.Visual == null) continue;
                 if (!ReturnProduct(product))
-                    Logger.Warning($"Abort: no storage for '{product.ProductName}' — item lost");
+                    OTCLog.Warning(OTCLog.Systems.Customer,$"Abort: no storage for '{product.ProductName}' — item lost");
             }
 
             if (NetworkHelper.IsHost)

@@ -1,3 +1,4 @@
+using OverTheCounter.UI;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -310,7 +311,7 @@ namespace OverTheCounter.Logic
             label.fontSize = 9;
             label.alignment = TextAlignmentOptions.Center;
             label.color = LabelColor;
-            label.enableWordWrapping = false;
+            TMPFactory.SetWrapping(label, false);
             label.overflowMode = TextOverflowModes.Ellipsis;
             label.raycastTarget = false;
 

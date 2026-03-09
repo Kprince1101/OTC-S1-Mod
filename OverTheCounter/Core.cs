@@ -9,6 +9,7 @@ using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
 using OverTheCounter.UI;
 using OverTheCounter.Utilities;
+using S1API.GameTime;
 using S1API.PhoneApp;
 using System;
 using System.IO;
@@ -22,9 +23,10 @@ using Il2CppFishNet.Object;
 using FishNet.Object;
 #endif
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.3.0", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.5.0", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 [assembly: MelonOptionalDependencies("SteamNetworkLib")]
+[assembly: HarmonyDontPatchAll]
 
 namespace OverTheCounter
 {
@@ -40,8 +42,14 @@ namespace OverTheCounter
         public override void OnInitializeMelon()
         {
             Config.Initialize();
-            SaveManagerPatch.Apply(HarmonyInstance);
+            Config.SubscribeToChanges();
+            CustomersApp.ApplyHireMeDefaults();
+            SafeTypeLoadPatch.Apply(HarmonyInstance);
+            foreach (var type in typeof(Core).Assembly.GetValidTypes())
+                try { HarmonyInstance.CreateClassProcessor(type).Patch(); }
+                catch (Exception ex) { OTCLog.Error(OTCLog.Systems.Patch, $"Failed to patch {type.FullName}: {ex.Message}"); }
             NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
+            StackSizePatch.Apply(HarmonyInstance);
             ConfigSyncPatch.TryApply(HarmonyInstance);
             DoorSyncPatch.TryApply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
@@ -51,38 +59,40 @@ namespace OverTheCounter
             }
             catch (Exception ex)
             {
-                LoggerInstance.Error($"BuildingPlacementPatch.Apply failed: {ex}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"BuildingPlacementPatch.Apply failed: {ex}");
             }
-
             try
             {
                 ConfigReplicatorPatch.Apply(HarmonyInstance);
             }
             catch (Exception ex)
             {
-                LoggerInstance.Error($"ConfigReplicatorPatch.Apply failed: {ex}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"ConfigReplicatorPatch.Apply failed: {ex}");
             }
-
             ContactsAppFix.Apply(HarmonyInstance);
+            GraffitiPatch.Apply(HarmonyInstance);
+            RecipePinPatch.Apply(HarmonyInstance);
+            TimeManager.OnSleepEnd += OnSleepEnd;
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
-                LoggerInstance.Warning("SteamNetworkLib not installed — multiplayer sync disabled. " +
+                OTCLog.Warning(OTCLog.Systems.Network, "SteamNetworkLib not installed — multiplayer sync disabled. " +
                     "Single-player works fine. Install SteamNetworkLib for co-op support.");
 
-            LoggerInstance.Msg("OverTheCounter Initialized.");
+            OTCLog.Msg(OTCLog.Systems.Patch, "OverTheCounter Initialized.");
 
             ImmediateQuestWindowConfig.Register();
             MinimapOverlay.Register();
+            RecipeOverlay.Register();
 #if DEBUG
             DebugHelpers.Register();
 #endif
 
             ExtractIcons();
-            _notificationManager = new NotificationManager(LoggerInstance);
-            _desperationManager = new DesperationManager(LoggerInstance);
-            _drifterManager = new DrifterManager(LoggerInstance);
-            _managerManager = new ManagerController(LoggerInstance);
-            _customerManager = new CustomerManager(LoggerInstance);
+            _notificationManager = new NotificationManager();
+            _desperationManager = new DesperationManager();
+            _drifterManager = new DrifterManager();
+            _managerManager = new ManagerController();
+            _customerManager = new CustomerManager();
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
@@ -102,6 +112,25 @@ namespace OverTheCounter
             BellaProtocolQuest.ResetInstance();
             Patches.BellaSummonPatch.Reset();
 
+            // WORKAROUND: S1API bug — SaveableAutoRegistry never clears cached instances
+            // between game sessions, causing [SaveableField] values and runtime state to
+            // leak from one save into the next. ClearCache() exists but is never called.
+            // See tools/s1api_saveable_bug.md for full analysis.
+            // Remove this when S1API fixes the bug upstream.
+            try
+            {
+                var registryType = typeof(S1API.Internal.Abstraction.Saveable).Assembly
+                    .GetType("S1API.Saveables.SaveableAutoRegistry");
+                var clearMethod = registryType?.GetMethod("ClearCache",
+                    BindingFlags.Static | BindingFlags.NonPublic);
+                clearMethod?.Invoke(null, null);
+                OTCLog.Msg(OTCLog.Systems.Patch, "Cleared S1API SaveableAutoRegistry cache");
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to clear SaveableAutoRegistry: {ex.Message}");
+            }
+
             // Drifters + customers are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
             CustomerInstance.CleanupAll();
@@ -117,6 +146,13 @@ namespace OverTheCounter
             {
                 var go = new GameObject("OTC_MinimapController");
                 go.AddComponent<MinimapOverlay>();
+                GameObject.DontDestroyOnLoad(go);
+            }
+
+            if (!GameObject.Find("OTC_RecipeOverlay"))
+            {
+                var go = new GameObject("OTC_RecipeOverlay");
+                go.AddComponent<RecipeOverlay>();
                 GameObject.DontDestroyOnLoad(go);
             }
 
@@ -295,12 +331,26 @@ namespace OverTheCounter
             }
             catch (Exception ex)
             {
-                LoggerInstance.Error($"Error in OnLateUpdate: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"Error in OnLateUpdate: {ex.Message}\n{ex.StackTrace}");
             }
+        }
+
+        /// <summary>
+        /// After sleep, the schedule system's warpIfSkipped fires before this callback,
+        /// so Static has been warped to position but lost facing. WarpToSpawn() re-applies
+        /// both. Bella's schedule was removed so she can't be warped outside, but
+        /// ReInjectIntoBuilding() re-disables her schedule as a safety net.
+        /// </summary>
+        private static void OnSleepEnd(int minutesSkipped)
+        {
+            if (!NetworkHelper.IsHost) return;
+            StaticNPC.Instance?.WarpToSpawn();
+            BellaNPC.Instance?.ReInjectIntoBuilding();
         }
 
         public override void OnDeinitializeMelon()
         {
+            TimeManager.OnSleepEnd -= OnSleepEnd;
             ConfigSyncData.Cleanup();
             _notificationManager?.Cleanup();
             _desperationManager?.Cleanup();
@@ -335,6 +385,7 @@ namespace OverTheCounter
 
             if (!File.Exists(targetPath))
             {
+                OTCLog.Msg(OTCLog.Systems.Patch, $"Extracting {fileName}...");
                 string resourceName = $"OverTheCounter.Resources.{fileName}";
 
                 using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
@@ -345,10 +396,11 @@ namespace OverTheCounter
                         {
                             stream.CopyTo(fileStream);
                         }
+                        OTCLog.Msg(OTCLog.Systems.Patch, $"{fileName} extracted successfully.");
                     }
                     else
                     {
-                        LoggerInstance.Error($"Could not find embedded resource '{resourceName}'.");
+                        OTCLog.Error(OTCLog.Systems.Patch, $"Could not find embedded resource '{resourceName}'.");
                     }
                 }
             }

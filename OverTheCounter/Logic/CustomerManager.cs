@@ -1,4 +1,3 @@
-using MelonLoader;
 using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
@@ -22,8 +21,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class CustomerManager
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:CustomerManager");
-
         public static CustomerManager Instance { get; private set; }
 
         private int _lastSpawnSlot = -1;  // tracks half-hour slots (hour*2 + 0or1)
@@ -58,7 +55,7 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Creates the manager and hooks into game time events.
         /// </summary>
-        public CustomerManager(MelonLogger.Instance logger)
+        public CustomerManager()
         {
             Instance = this;
 
@@ -91,7 +88,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Error($"OnTimeTick failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Customer, $"OnTimeTick failed: {ex.Message}");
             }
         }
 
@@ -138,7 +135,7 @@ namespace OverTheCounter.Logic
                 var spawnPoint = CustomerSpawnPoints.GetRandomSpawnPoint();
                 if (spawnPoint == null)
                 {
-                    Logger.Warning("No spawn point available for customer");
+                    OTCLog.Warning(OTCLog.Systems.Customer, "No spawn point available for customer");
                     return;
                 }
 
@@ -152,7 +149,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Error($"TrySpawnCustomer failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Customer, $"TrySpawnCustomer failed: {ex.Message}");
             }
         }
 
@@ -182,7 +179,7 @@ namespace OverTheCounter.Logic
                             customer.ArrivedAtDestination = false;
                             customer.State = CustomerState.EnteringStore;
                             if (!customer.SwitchToEmployeeNavMesh())
-                                Logger.Warning($"{customer.Id} failed to switch to employee NavMesh");
+                                OTCLog.Warning(OTCLog.Systems.Customer, $"{customer.Id} failed to switch to employee NavMesh");
                             // Warp to ramp base (runtime Employee mesh), then walk up
                             // through door to room center. Target must be >2m inside the
                             // wall (X=-161.4) so the 2m walk tolerance doesn't trigger
@@ -630,7 +627,7 @@ namespace OverTheCounter.Logic
 
                 if (now - pa.CreatedTime > 120f)
                 {
-                    Logger.Warning($"Giving up adoption for {pa.CustomerId} (timeout)");
+                    OTCLog.Warning(OTCLog.Systems.Customer, $"Giving up adoption for {pa.CustomerId} (timeout)");
                     completed.Add(kv.Key);
                     continue;
                 }

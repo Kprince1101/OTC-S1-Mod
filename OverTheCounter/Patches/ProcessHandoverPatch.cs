@@ -64,7 +64,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ProcessHandoverPatch] Prefix error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"ProcessHandover prefix error: {ex.Message}");
             }
         }
 
@@ -95,7 +95,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ProcessHandoverPatch] Postfix error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"ProcessHandover postfix error: {ex.Message}");
             }
         }
 
@@ -133,14 +133,14 @@ namespace OverTheCounter.Patches
 #endif
             if (type == null)
             {
-                Melon<Core>.Logger.Warning("[DealCompletionPopupPatch] Could not find DealCompletionPopup type.");
+                OTCLog.Warning(OTCLog.Systems.Patch, "Could not find DealCompletionPopup type.");
                 return null;
             }
 
             var method = AccessTools.Method(type, "PlayPopup");
             if (method == null)
             {
-                Melon<Core>.Logger.Warning("[DealCompletionPopupPatch] Could not find PlayPopup method.");
+                OTCLog.Warning(OTCLog.Systems.Patch, "Could not find PlayPopup method.");
             }
             return method;
         }
@@ -178,7 +178,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[DealCompletionPopupPatch] Error: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"DealCompletionPopup error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -201,7 +201,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[ContractSubmitPaymentPatch] Error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"ContractSubmitPayment error: {ex.Message}");
             }
         }
     }

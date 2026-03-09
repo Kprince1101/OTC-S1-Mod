@@ -1,4 +1,4 @@
-using MelonLoader;
+using OverTheCounter.Utilities;
 using S1API.UI;
 using System;
 using System.Collections.Generic;
@@ -10,11 +10,15 @@ using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.UI.Phone.Messages;
+using Il2CppTMPro;
+using GameCanvasScaler = Il2CppScheduleOne.UI.CanvasScaler;
 #else
 using ScheduleOne.Economy;
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Map;
 using ScheduleOne.UI.Phone.Messages;
+using TMPro;
+using GameCanvasScaler = ScheduleOne.UI.CanvasScaler;
 #endif
 
 namespace OverTheCounter.UI
@@ -36,7 +40,7 @@ namespace OverTheCounter.UI
         {
             if (customer == null || customer.NPC == null)
             {
-                MelonLogger.Error("[LocationPickerUI] Customer is null");
+                OTCLog.Error(OTCLog.Systems.Desperation, "Customer is null");
                 return;
             }
 
@@ -48,7 +52,7 @@ namespace OverTheCounter.UI
 
             if (locations.Count == 0)
             {
-                MelonLogger.Warning($"[LocationPickerUI] No delivery locations found for region {customer.NPC.Region}");
+                OTCLog.Warning(OTCLog.Systems.Desperation, $"No delivery locations found for region {customer.NPC.Region}");
                 return;
             }
 
@@ -68,21 +72,21 @@ namespace OverTheCounter.UI
                 var mapInstance = Singleton<Map>.Instance;
                 if (mapInstance == null)
                 {
-                    MelonLogger.Warning("[LocationPickerUI] Map instance is null");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, "Map instance is null");
                     return locations;
                 }
 
                 var regionData = mapInstance.GetRegionData(region);
                 if (regionData == null)
                 {
-                    MelonLogger.Warning($"[LocationPickerUI] No region data for {region}");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, $"No region data for {region}");
                     return locations;
                 }
 
                 var deliveryLocations = regionData.RegionDeliveryLocations;
                 if (deliveryLocations == null)
                 {
-                    MelonLogger.Warning("[LocationPickerUI] RegionDeliveryLocations is null");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, "RegionDeliveryLocations is null");
                     return locations;
                 }
 
@@ -102,7 +106,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                MelonLogger.Error($"[LocationPickerUI] Error getting locations: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"Error getting locations: {ex.Message}");
             }
 
             return locations;
@@ -126,7 +130,11 @@ namespace OverTheCounter.UI
             rootCanvas.sortingOrder = 90; // Above phone UI, below loading screen (100)
 
             // Required components for UI interaction
-            _pickerRoot.AddComponent<CanvasScaler>();
+            var scaler = _pickerRoot.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 0.5f;
+            _pickerRoot.AddComponent<GameCanvasScaler>();
             _pickerRoot.AddComponent<GraphicRaycaster>();
 
             // Create dark overlay (full screen)
@@ -142,11 +150,11 @@ namespace OverTheCounter.UI
             panelRect.sizeDelta = new Vector2(280, 400);
 
             // Title using UIFactory
-            var titleText = UIFactory.Text("Title", "<b>Select Location</b>", panelObj.transform, 16, TextAnchor.MiddleCenter);
+            var titleText = TMPFactory.Text("Title", "<b>Select Location</b>", panelObj.transform, 16, TextAlignmentOptions.Center);
             PositionAtTop(titleText.gameObject.GetComponent<RectTransform>(), -8, 25);
 
             // Subtitle using UIFactory
-            var subtitleText = UIFactory.Text("Subtitle", $"Where should {_currentCustomer.NPC.FirstName} meet you?", panelObj.transform, 12, TextAnchor.MiddleCenter);
+            var subtitleText = TMPFactory.Text("Subtitle", $"Where should {_currentCustomer.NPC.FirstName} meet you?", panelObj.transform, 15, TextAlignmentOptions.Center);
             subtitleText.color = new Color(0.7f, 0.7f, 0.7f);
             PositionAtTop(subtitleText.gameObject.GetComponent<RectTransform>(), -35, 18);
 
@@ -182,7 +190,7 @@ namespace OverTheCounter.UI
             UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(listContent);
 
             // Cancel button at bottom using UIFactory
-            var (cancelMask, cancelBtn, cancelLabel) = UIFactory.RoundedButtonWithLabel(
+            var (cancelMask, cancelBtn, cancelLabel) = TMPFactory.RoundedButtonWithLabel(
                 "CancelBtn",
                 "Cancel",
                 panelObj.transform,
@@ -239,7 +247,7 @@ namespace OverTheCounter.UI
 
                 if (btnObj == null)
                 {
-                    MelonLogger.Error($"[LocationPickerUI] Failed to create button for {location.Name}");
+                    OTCLog.Error(OTCLog.Systems.Desperation, $"Failed to create button for {location.Name}");
                     return;
                 }
 
@@ -257,7 +265,7 @@ namespace OverTheCounter.UI
                 btn.colors = colors;
 
                 // Configure text: smaller font size and add horizontal padding to prevent clipping
-                btnText.fontSize = 11;
+                btnText.fontSize = 15;
                 btnText.color = Color.white;
                 var textRect = btnText.GetComponent<RectTransform>();
                 textRect.offsetMin = new Vector2(5, 0);  // left padding
@@ -274,7 +282,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                MelonLogger.Error($"[LocationPickerUI] Error creating button for {location.Name}: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"Error creating button for {location.Name}: {ex.Message}");
             }
         }
 

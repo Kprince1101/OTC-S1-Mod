@@ -1,5 +1,7 @@
 using MelonLoader;
+using OverTheCounter.Utilities;
 using S1API.GameTime;
+using S1API.Leveling;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -13,6 +15,8 @@ using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.UI;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.UI.Phone.Map;
+using Il2CppTMPro;
+using GameCanvasScaler = Il2CppScheduleOne.UI.CanvasScaler;
 #else
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Economy;
@@ -20,6 +24,8 @@ using ScheduleOne.Map;
 using ScheduleOne.UI;
 using ScheduleOne.PlayerScripts;
 using ScheduleOne.UI.Phone.Map;
+using TMPro;
+using GameCanvasScaler = ScheduleOne.UI.CanvasScaler;
 #endif
 
 namespace OverTheCounter.UI
@@ -27,8 +33,6 @@ namespace OverTheCounter.UI
     [RegisterTypeInIl2Cpp]
     public class MinimapOverlay : MonoBehaviour
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC: Minimap");
-
         // Zoom levels: smaller = more map visible in the window (more zoomed out)
         private static readonly float[] ZoomSizes = { 0f, 2400f, 1200f, 600f };
 
@@ -48,6 +52,9 @@ namespace OverTheCounter.UI
         private RectTransform _mapRect;
         private RectTransform _markersParent;
         private Image _borderImage;
+
+        // Compass labels (N, E, S, W) — children of Canvas, positioned inside minimap area
+        private RectTransform[] _compassRects;
 
         // Map dimensions from MapApp.ContentRect
         private float _contentW = 2048f;
@@ -70,24 +77,39 @@ namespace OverTheCounter.UI
 
         // Time/day display
         private GameObject _timeDayObj;
-        private Text _timeText;
-        private Text _dayText;
+        private TextMeshProUGUI _timeText;
+        private TextMeshProUGUI _dayText;
+
+        // Rank/XP bar
+        private GameObject _rankBarObj;
+        private TextMeshProUGUI _rankText;
+        private Image _xpBarFill;
+        private TextMeshProUGUI _xpText;
+        private int _lastKnownXP = -1;
+        private int _lastKnownTier = -1;
+        private readonly List<XPDropLabel> _xpDrops = new List<XPDropLabel>();
+
+        // Computed minimap position (bottom-left corner of border in canvas coords)
+        private float _minimapX;
+        private float _minimapY;
+        private float _minimapTotalSize;
+
+        // Remote player POI → Player lookup (rebuilt on POI cache refresh)
+        private readonly Dictionary<int, Player> _poiToPlayer = new();
 
         // Cached config values — rebuild minimap when structural settings change
         private int _cfgSize;
         private bool _cfgCircle;
-        private string _cfgPosition;
+        private int _cfgHOffset;
+        private int _cfgVOffset;
+        private bool _cfgInfoOnTop;
         private KeyCode _cfgToggleKey;
         private float _cfgIconScale;
         private int _cfgBorderWidth;
         private bool _cfgShowTime;
         private bool _cfgShowDay;
         private bool _cfgUse24Hour;
-
-        private static readonly HashSet<string> ValidPositions = new()
-        {
-            "TopLeft", "TopRight", "BottomLeft", "BottomRight"
-        };
+        private bool _cfgShowRank;
 
         public static void Register()
         {
@@ -177,14 +199,15 @@ namespace OverTheCounter.UI
 
             _cfgCircle = Config.MinimapCircle.Value;
 
-            string rawPos = Config.MinimapPosition?.Value ?? "TopRight";
-            if (!ValidPositions.Contains(rawPos))
-            {
-                Logger.Warning($"Invalid MinimapPosition '{rawPos}', defaulting to TopRight");
-                rawPos = "TopRight";
-                Config.MinimapPosition.Value = rawPos;
-            }
-            _cfgPosition = rawPos;
+            _cfgHOffset = Mathf.Clamp(Config.MinimapHorizontalOffset.Value, 0, 100);
+            if (Config.MinimapHorizontalOffset.Value != _cfgHOffset)
+                Config.MinimapHorizontalOffset.RawEntry.Value = _cfgHOffset;
+
+            _cfgVOffset = Mathf.Clamp(Config.MinimapVerticalOffset.Value, 0, 100);
+            if (Config.MinimapVerticalOffset.Value != _cfgVOffset)
+                Config.MinimapVerticalOffset.RawEntry.Value = _cfgVOffset;
+
+            _cfgInfoOnTop = Config.MinimapInfoOnTop.Value;
 
             int rawZoom = Config.MinimapDefaultZoom.Value;
             int clampedZoom = Mathf.Clamp(rawZoom, 1, 3);
@@ -204,6 +227,7 @@ namespace OverTheCounter.UI
             _cfgShowTime = Config.MinimapShowTime.Value;
             _cfgShowDay = Config.MinimapShowDay.Value;
             _cfgUse24Hour = Config.MinimapUse24HourClock.Value;
+            _cfgShowRank = Config.MinimapShowRank.Value;
 
             _toggleKey = _cfgToggleKey;
         }
@@ -212,13 +236,16 @@ namespace OverTheCounter.UI
         {
             return Config.MinimapSize.Value != _cfgSize
                 || Config.MinimapCircle.Value != _cfgCircle
-                || (Config.MinimapPosition?.Value ?? "TopRight") != _cfgPosition
+                || Config.MinimapHorizontalOffset.Value != _cfgHOffset
+                || Config.MinimapVerticalOffset.Value != _cfgVOffset
+                || Config.MinimapInfoOnTop.Value != _cfgInfoOnTop
                 || (Config.MinimapToggleKey?.Value ?? KeyCode.N) != _cfgToggleKey
                 || Math.Abs(Config.MinimapIconScale.Value - _cfgIconScale) > 0.001f
                 || Config.MinimapBorderWidth.Value != _cfgBorderWidth
                 || Config.MinimapShowTime.Value != _cfgShowTime
                 || Config.MinimapShowDay.Value != _cfgShowDay
-                || Config.MinimapUse24HourClock.Value != _cfgUse24Hour;
+                || Config.MinimapUse24HourClock.Value != _cfgUse24Hour
+                || Config.MinimapShowRank.Value != _cfgShowRank;
         }
 
         private void ToggleMinimap()
@@ -277,7 +304,11 @@ namespace OverTheCounter.UI
             var canvas = _canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 999;
-            _canvasObj.AddComponent<UnityEngine.UI.CanvasScaler>();
+            var scaler = _canvasObj.AddComponent<UnityEngine.UI.CanvasScaler>();
+            scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 0.5f;
+            _canvasObj.AddComponent<GameCanvasScaler>();
             UnityEngine.Object.DontDestroyOnLoad(_canvasObj);
 
             // Border (slightly larger background behind the container)
@@ -288,18 +319,25 @@ namespace OverTheCounter.UI
             _borderImage.raycastTarget = false;
             var borderRect = borderObj.GetComponent<RectTransform>();
             int bw = _cfgBorderWidth;
-            ApplyPosition(borderRect, size + (bw * 2), margin - bw, _cfgPosition);
+            _minimapTotalSize = size + (bw * 2);
+            ApplyFreePosition(borderRect, _minimapTotalSize, margin, _cfgHOffset, _cfgVOffset);
+            _minimapX = borderRect.anchoredPosition.x;
+            _minimapY = borderRect.anchoredPosition.y;
             if (circle)
                 _borderImage.sprite = GetCircleMaskSprite();
 
-            // Container (dark background + clip mask)
+            // Container (dark background + clip mask — inset by border width)
             var containerObj = new GameObject("MinimapContainer");
             containerObj.transform.SetParent(_canvasObj.transform, false);
             var containerImg = containerObj.AddComponent<Image>();
             containerImg.color = new Color(0.05f, 0.05f, 0.05f, 0.85f);
             containerImg.raycastTarget = false;
             var containerRect = containerObj.GetComponent<RectTransform>();
-            ApplyPosition(containerRect, size, margin, _cfgPosition);
+            containerRect.anchorMin = Vector2.zero;
+            containerRect.anchorMax = Vector2.zero;
+            containerRect.pivot = Vector2.zero;
+            containerRect.sizeDelta = new Vector2(size, size);
+            containerRect.anchoredPosition = new Vector2(_minimapX + bw, _minimapY + bw);
 
             if (circle)
             {
@@ -378,7 +416,7 @@ namespace OverTheCounter.UI
                         iconContainer.localEulerAngles = Vector3.zero;
                 }
             }
-            catch (Exception ex) { Logger.Warning($"Failed to clone player POI: {ex.Message}"); }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to clone player POI: {ex.Message}"); }
 
             // Fallback if clone failed — simple green circle
             if (_playerMarkerRect == null)
@@ -397,17 +435,149 @@ namespace OverTheCounter.UI
                 _playerMarkerRect.anchoredPosition = Vector2.zero;
             }
 
-            // Time/day label — positioned below minimap for top corners, above for bottom
-            CreateTimeDayLabel(size, margin);
+            CreateCompassLabels();
+
+            // Time/day and rank bar — positioned above or below minimap based on InfoOnTop
+            bool hasTimeDay = _cfgShowTime || _cfgShowDay;
+            CreateTimeDayLabel();
+            CreateRankBar(hasTimeDay);
 
             SnapshotConfig();
             _cachedPOIs = null;
             _lastPOIRefresh = 0f;
         }
 
+        // ── Compass labels ──
+
+        private static readonly string[] CompassLetters = { "N", "E", "S", "W" };
+        private static readonly float[] CompassWorldAngles = { 0f, 90f, 180f, 270f };
+
+        private void CreateCompassLabels()
+        {
+            if (_canvasObj == null) return;
+
+            _compassRects = new RectTransform[4];
+            for (int i = 0; i < 4; i++)
+            {
+                var go = new GameObject("Compass_" + CompassLetters[i]);
+                go.transform.SetParent(_canvasObj.transform, false);
+
+                var rt = go.AddComponent<RectTransform>();
+                rt.anchorMin = Vector2.zero;
+                rt.anchorMax = Vector2.zero;
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(20f, 20f);
+
+                // N: Image on parent GO for dark circle background, TMP on child
+                // S/E/W: TMP directly on GO (no background)
+                if (i == 0)
+                {
+                    var bgImg = go.AddComponent<Image>();
+                    bgImg.sprite = GetCircleMaskSprite();
+                    bgImg.color = new Color(0f, 0f, 0f, 0.7f);
+                    bgImg.raycastTarget = false;
+
+                    var tmp = TMPFactory.Text("NLabel", "N", go.transform, 15,
+                        TextAlignmentOptions.Center, FontStyles.Bold);
+                    tmp.color = new Color(1f, 0.3f, 0.3f, 0.9f);
+                    tmp.raycastTarget = false;
+                }
+                else
+                {
+                    var tmp = TMPFactory.Text(CompassLetters[i], CompassLetters[i], go.transform, 15,
+                        TextAlignmentOptions.Center, FontStyles.Bold);
+                    tmp.color = new Color(0.9f, 0.9f, 0.9f, 0.65f);
+                    tmp.raycastTarget = false;
+                    // Override stretch anchors — parent GO controls positioning
+                    var tmpRt = tmp.rectTransform;
+                    tmpRt.anchorMin = Vector2.zero;
+                    tmpRt.anchorMax = Vector2.one;
+                    tmpRt.offsetMin = Vector2.zero;
+                    tmpRt.offsetMax = Vector2.zero;
+                }
+
+                _compassRects[i] = rt;
+            }
+        }
+
+        private void UpdateCompassLabels(float yRot)
+        {
+            if (_compassRects == null) return;
+
+            bool show = Config.MinimapShowCompass.Value;
+            float centerX = _minimapX + _minimapTotalSize / 2f;
+            float centerY = _minimapY + _minimapTotalSize / 2f;
+            float radius = _cfgSize / 2f - 11f;
+            bool rotating = Config.MinimapRotateWithPlayer.Value;
+
+            for (int i = 0; i < 4; i++)
+            {
+                var rt = _compassRects[i];
+                if (rt == null) continue;
+
+                rt.gameObject.SetActive(show);
+                if (!show) continue;
+
+                float screenAngleRad = (rotating
+                    ? CompassWorldAngles[i] - yRot
+                    : CompassWorldAngles[i]) * Mathf.Deg2Rad;
+
+                float dirX = Mathf.Sin(screenAngleRad);
+                float dirY = Mathf.Cos(screenAngleRad);
+
+                Vector2 offset = _cfgCircle
+                    ? new Vector2(dirX, dirY) * radius
+                    : ClampToSquareEdge(dirX, dirY, radius);
+                rt.anchoredPosition = new Vector2(centerX + offset.x, centerY + offset.y);
+                rt.localEulerAngles = Vector3.zero;
+            }
+        }
+
+        // ── Edge indicators ──
+
+        /// <summary>Projects a direction vector onto the boundary of a square with the given half-size.</summary>
+        private static Vector2 ClampToSquareEdge(float dirX, float dirY, float half)
+        {
+            float ax = Mathf.Abs(dirX);
+            float ay = Mathf.Abs(dirY);
+            if (ax < 0.0001f && ay < 0.0001f) return Vector2.zero;
+
+            float scale = ax > ay ? half / ax : half / ay;
+            return new Vector2(dirX * scale, dirY * scale);
+        }
+
+        private static bool ShouldShowEdgeIndicator(POI poi)
+        {
+            string goName = poi.gameObject.name;
+            if (goName.StartsWith("QuestPoI") || goName.StartsWith("POIPrefab")) return true;
+            if (goName.StartsWith("ContractPoI")) return true;
+            if (goName.StartsWith("PotentialCustomerPoI")) return true;
+            if (goName.StartsWith("PotentialDealerPoI")) return true;
+            return false;
+        }
+
         private static readonly string[] ShortDayNames = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
 
-        private void CreateTimeDayLabel(int size, int margin)
+        private static readonly string[] RankNames =
+        {
+            "Street Rat", "Hoodlum", "Peddler", "Hustler", "Bagman",
+            "Enforcer", "Shot Caller", "Block Boss", "Underlord", "Baron", "Kingpin"
+        };
+
+        private static readonly string[] RomanTiers = { "", "I", "II", "III", "IV", "V" };
+
+        private class XPDropLabel
+        {
+            public TextMeshProUGUI Label;
+            public RectTransform Rect;
+            public float Timer;
+            public float StartY;
+            public float StartX;
+            public const float Duration = 1.4f;
+            public const float Rise = 40f;
+        }
+
+        private void CreateTimeDayLabel()
         {
             bool showTime = Config.MinimapShowTime.Value;
             bool showDay = Config.MinimapShowDay.Value;
@@ -422,55 +592,30 @@ namespace OverTheCounter.UI
             bgImage.raycastTarget = false;
 
             var bgRect = _timeDayObj.GetComponent<RectTransform>();
+            bgRect.anchorMin = Vector2.zero;
+            bgRect.anchorMax = Vector2.zero;
+            bgRect.pivot = Vector2.zero;
 
-            bool isTop = _cfgPosition.StartsWith("Top");
-            bool isRight = _cfgPosition.EndsWith("Right");
-
-            // Anchor to same horizontal edge as minimap
-            float anchorX = isRight ? 1f : 0f;
-            float pivotX = isRight ? 1f : 0f;
-
-            // Vertical: below minimap for top, above for bottom
-            float anchorY = isTop ? 1f : 0f;
-            float pivotY = isTop ? 1f : 0f;
-
-            bgRect.anchorMin = new Vector2(anchorX, anchorY);
-            bgRect.anchorMax = new Vector2(anchorX, anchorY);
-            bgRect.pivot = new Vector2(pivotX, pivotY);
-
-            float labelWidth = size + (_cfgBorderWidth * 2);
+            float labelWidth = _minimapTotalSize;
             float labelHeight = 24f;
             bgRect.sizeDelta = new Vector2(labelWidth, labelHeight);
 
-            // Position: flush with minimap border edges
-            float xSign = isRight ? -1f : 1f;
-            float bw = _cfgBorderWidth;
-            float xPos = xSign * (margin - bw);
-
-            // Vertical offset from screen edge: minimap occupies (margin-bw) to (margin-bw + size+2*bw)
-            // For top: label goes right below border → y = -(margin - bw + size + 2*bw + gap)
-            // For bottom: label goes right above border → y = (margin - bw + size + 2*bw + gap)
-            float minimapTotalHeight = size + (bw * 2);
             float gap = 2f;
-            float yOffset = (margin - bw) + minimapTotalHeight + gap;
-
-            // BottomRight has a +80 offset for the HUD bar
-            if (_cfgPosition == "BottomRight") yOffset += 80;
-
-            float yPos = isTop ? -yOffset : yOffset;
-            bgRect.anchoredPosition = new Vector2(xPos, yPos);
+            float yPos = _cfgInfoOnTop
+                ? _minimapY + _minimapTotalSize + gap
+                : _minimapY - gap - labelHeight;
+            bgRect.anchoredPosition = new Vector2(_minimapX, yPos);
 
             // Layout: day on left, time on right (or centered if only one)
             if (showDay)
             {
                 var dayObj = new GameObject("DayLabel");
                 dayObj.transform.SetParent(_timeDayObj.transform, false);
-                _dayText = dayObj.AddComponent<Text>();
-                _dayText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-                _dayText.fontSize = 14;
-                _dayText.fontStyle = FontStyle.Bold;
+                _dayText = dayObj.AddComponent<TextMeshProUGUI>();
+                _dayText.fontSize = 15;
+                _dayText.fontStyle = FontStyles.Bold;
                 _dayText.color = new Color(0.55f, 0.85f, 1f); // light blue
-                _dayText.alignment = showTime ? TextAnchor.MiddleLeft : TextAnchor.MiddleCenter;
+                _dayText.alignment = showTime ? TextAlignmentOptions.Left : TextAlignmentOptions.Center;
                 _dayText.raycastTarget = false;
                 _dayText.text = "";
 
@@ -485,12 +630,11 @@ namespace OverTheCounter.UI
             {
                 var timeObj = new GameObject("TimeLabel");
                 timeObj.transform.SetParent(_timeDayObj.transform, false);
-                _timeText = timeObj.AddComponent<Text>();
-                _timeText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-                _timeText.fontSize = 14;
-                _timeText.fontStyle = FontStyle.Bold;
+                _timeText = timeObj.AddComponent<TextMeshProUGUI>();
+                _timeText.fontSize = 15;
+                _timeText.fontStyle = FontStyles.Bold;
                 _timeText.color = new Color(1f, 0.9f, 0.4f); // warm gold
-                _timeText.alignment = showDay ? TextAnchor.MiddleRight : TextAnchor.MiddleCenter;
+                _timeText.alignment = showDay ? TextAlignmentOptions.Right : TextAlignmentOptions.Center;
                 _timeText.raycastTarget = false;
                 _timeText.text = "";
 
@@ -500,6 +644,89 @@ namespace OverTheCounter.UI
                 timeRect.offsetMin = new Vector2(8, 0);
                 timeRect.offsetMax = new Vector2(-8, 0);
             }
+        }
+
+        private void CreateRankBar(bool belowTimeDay)
+        {
+            if (!Config.MinimapShowRank.Value) return;
+
+            _rankBarObj = new GameObject("MinimapRankBar");
+            _rankBarObj.transform.SetParent(_canvasObj.transform, false);
+
+            var bgImage = _rankBarObj.AddComponent<Image>();
+            bgImage.color = new Color(0.08f, 0.08f, 0.08f, 0.85f);
+            bgImage.raycastTarget = false;
+
+            var bgRect = _rankBarObj.GetComponent<RectTransform>();
+            bgRect.anchorMin = Vector2.zero;
+            bgRect.anchorMax = Vector2.zero;
+            bgRect.pivot = Vector2.zero;
+
+            float panelHeight = 52f;
+            bgRect.sizeDelta = new Vector2(_minimapTotalSize, panelHeight);
+
+            float gap = 2f;
+            float timeDayOffset = belowTimeDay ? 24f + gap : 0f;
+            float yPos = _cfgInfoOnTop
+                ? _minimapY + _minimapTotalSize + gap + timeDayOffset
+                : _minimapY - gap - timeDayOffset - panelHeight;
+            bgRect.anchoredPosition = new Vector2(_minimapX, yPos);
+
+            // Rank text (upper ~50% of panel)
+            var rankObj = new GameObject("RankLabel");
+            rankObj.transform.SetParent(_rankBarObj.transform, false);
+            _rankText = rankObj.AddComponent<TextMeshProUGUI>();
+            _rankText.fontSize = 15;
+            _rankText.fontStyle = FontStyles.Bold;
+            _rankText.color = new Color(1f, 0.9f, 0.4f);
+            _rankText.alignment = TextAlignmentOptions.Center;
+            _rankText.raycastTarget = false;
+            _rankText.text = "";
+            var rankRect = rankObj.GetComponent<RectTransform>();
+            rankRect.anchorMin = new Vector2(0f, 0.52f);
+            rankRect.anchorMax = new Vector2(1f, 1f);
+            rankRect.offsetMin = new Vector2(6, 0);
+            rankRect.offsetMax = new Vector2(-6, -4);
+
+            // XP bar background
+            var xpBgObj = new GameObject("XPBarBg");
+            xpBgObj.transform.SetParent(_rankBarObj.transform, false);
+            var xpBgImg = xpBgObj.AddComponent<Image>();
+            xpBgImg.color = new Color(0.15f, 0.15f, 0.15f, 1f);
+            xpBgImg.raycastTarget = false;
+            var xpBgRect = xpBgObj.GetComponent<RectTransform>();
+            xpBgRect.anchorMin = new Vector2(0f, 0.38f);
+            xpBgRect.anchorMax = new Vector2(1f, 0.52f);
+            xpBgRect.offsetMin = new Vector2(6, 0);
+            xpBgRect.offsetMax = new Vector2(-6, 0);
+
+            // XP fill (child of bar bg — anchorMax.x driven by fill ratio)
+            var xpFillObj = new GameObject("XPBarFill");
+            xpFillObj.transform.SetParent(xpBgObj.transform, false);
+            _xpBarFill = xpFillObj.AddComponent<Image>();
+            _xpBarFill.color = new Color(0.25f, 0.85f, 0.35f, 1f);
+            _xpBarFill.raycastTarget = false;
+            var xpFillRect = xpFillObj.GetComponent<RectTransform>();
+            xpFillRect.anchorMin = Vector2.zero;
+            xpFillRect.anchorMax = new Vector2(0f, 1f);
+            xpFillRect.offsetMin = Vector2.zero;
+            xpFillRect.offsetMax = Vector2.zero;
+
+            // XP text (lower portion of panel)
+            var xpTextObj = new GameObject("XPLabel");
+            xpTextObj.transform.SetParent(_rankBarObj.transform, false);
+            _xpText = xpTextObj.AddComponent<TextMeshProUGUI>();
+            _xpText.fontSize = 15;
+            _xpText.fontStyle = FontStyles.Normal;
+            _xpText.color = new Color(0.65f, 0.65f, 0.65f, 1f);
+            _xpText.alignment = TextAlignmentOptions.Center;
+            _xpText.raycastTarget = false;
+            _xpText.text = "";
+            var xpTextRect = xpTextObj.GetComponent<RectTransform>();
+            xpTextRect.anchorMin = new Vector2(0f, 0f);
+            xpTextRect.anchorMax = new Vector2(1f, 0.28f);
+            xpTextRect.offsetMin = new Vector2(6, 3);
+            xpTextRect.offsetMax = new Vector2(-6, 0);
         }
 
         private void DestroyMinimap()
@@ -517,12 +744,104 @@ namespace OverTheCounter.UI
             _timeDayObj = null;
             _timeText = null;
             _dayText = null;
+            _rankBarObj = null;
+            _rankText = null;
+            _xpBarFill = null;
+            _xpText = null;
+            _lastKnownXP = -1;
+            _lastKnownTier = -1;
+            foreach (var d in _xpDrops)
+                if (d.Label != null) UnityEngine.Object.Destroy(d.Label.gameObject);
+            _xpDrops.Clear();
             _poiClones.Clear();
             _customerClones.Clear();
+            _poiToPlayer.Clear();
             _activeCloneIds.Clear();
             _cachedPOIs = null;
             _npcPoiTemplate = null;
             _zoom = 0;
+            _compassRects = null;
+        }
+
+        private void SpawnXPDrop(int delta, bool levelUp = false, int levels = 1)
+        {
+            if (_rankBarObj == null || _canvasObj == null) return;
+            if (delta == 0 && !levelUp) return;
+
+            var barRect = _rankBarObj.GetComponent<RectTransform>();
+
+            var dropObj = new GameObject("XPDrop");
+            dropObj.transform.SetParent(_canvasObj.transform, false);
+
+            var label = dropObj.AddComponent<TextMeshProUGUI>();
+            label.fontSize = 15;
+            label.fontStyle = FontStyles.Bold;
+            label.alignment = TextAlignmentOptions.Center;
+            label.raycastTarget = false;
+
+            if (delta > 0 && levelUp)
+            {
+                // Combined: green XP + royal purple level-up
+                label.color = new Color(0.4f, 1f, 0.4f, 1f);
+                label.richText = true;
+                string lvlPart = levels == 1 ? "+1 Level" : $"+{levels} Levels";
+                label.text = $"+{delta} XP <color=#9B40E8>— {lvlPart}</color>";
+            }
+            else if (delta > 0)
+            {
+                label.color = new Color(0.4f, 1f, 0.4f, 1f);
+                label.text = $"+{delta} XP";
+            }
+            else
+            {
+                // Standalone level-up (no XP delta this frame)
+                label.color = new Color(0.6f, 0.3f, 1f, 1f);
+                label.fontSize = 15;
+                label.text = levels == 1 ? "+1 Level" : $"+{levels} Levels";
+            }
+
+            var dropRect = dropObj.GetComponent<RectTransform>();
+            dropRect.anchorMin = barRect.anchorMin;
+            dropRect.anchorMax = barRect.anchorMax;
+            dropRect.pivot = barRect.pivot;
+            dropRect.sizeDelta = new Vector2(barRect.sizeDelta.x, 20f);
+
+            // Start just above the top edge of the rank bar
+            float pivotY = barRect.pivot.y;
+            float topEdge = barRect.anchoredPosition.y + (pivotY < 0.5f ? barRect.sizeDelta.y : 0f);
+            float startY = topEdge + 4f;
+            dropRect.anchoredPosition = new Vector2(barRect.anchoredPosition.x, startY);
+
+            _xpDrops.Add(new XPDropLabel
+            {
+                Label = label,
+                Rect = dropRect,
+                Timer = 0f,
+                StartY = startY,
+                StartX = barRect.anchoredPosition.x
+            });
+        }
+
+        private void UpdateXPDrops()
+        {
+            for (int i = _xpDrops.Count - 1; i >= 0; i--)
+            {
+                var drop = _xpDrops[i];
+                drop.Timer += Time.deltaTime;
+                float t = Mathf.Clamp01(drop.Timer / XPDropLabel.Duration);
+
+                drop.Rect.anchoredPosition = new Vector2(drop.StartX, drop.StartY + XPDropLabel.Rise * t);
+
+                float alpha = t < 0.4f ? 1f : Mathf.Clamp01(1f - (t - 0.4f) / 0.6f);
+                var c = drop.Label.color;
+                drop.Label.color = new Color(c.r, c.g, c.b, alpha);
+
+                if (drop.Timer >= XPDropLabel.Duration)
+                {
+                    UnityEngine.Object.Destroy(drop.Label.gameObject);
+                    _xpDrops.RemoveAt(i);
+                }
+            }
         }
 
         private void UpdateMinimap()
@@ -544,7 +863,9 @@ namespace OverTheCounter.UI
                 var mapUtil = Singleton<MapPositionUtility>.Instance;
                 if (mapUtil == null) return;
 
-                Vector3 playerWorldPos = player.transform.position;
+                Vector3 playerWorldPos = player.CurrentVehicle != null
+                    ? player.CurrentVehicle.transform.position
+                    : player.transform.position;
                 Vector2 playerMapPos = mapUtil.GetMapPosition(playerWorldPos);
 
                 // Scale from ContentRect space to minimap pixels
@@ -554,13 +875,18 @@ namespace OverTheCounter.UI
                 // Center map image on player position (offset within RotationPivot)
                 _mapRect.anchoredPosition = new Vector2(-playerMapPos.x * scaleX, -playerMapPos.y * scaleY);
 
-                // Get player facing direction
+                // Get player facing direction (use vehicle rotation when in a vehicle)
                 float yRot = 0f;
                 try
                 {
-                    var movement = PlayerMovement.Instance;
-                    if (movement != null)
-                        yRot = movement.transform.eulerAngles.y;
+                    if (player.CurrentVehicle != null)
+                        yRot = player.CurrentVehicle.transform.eulerAngles.y;
+                    else
+                    {
+                        var movement = PlayerMovement.Instance;
+                        if (movement != null)
+                            yRot = movement.transform.eulerAngles.y;
+                    }
                 }
                 catch { }
 
@@ -581,11 +907,28 @@ namespace OverTheCounter.UI
                         _playerMarkerRect.localEulerAngles = new Vector3(0f, 0f, -yRot);
                 }
 
+                UpdateCompassLabels(yRot);
+
                 // Refresh POI cache periodically
                 if (_cachedPOIs == null || Time.time - _lastPOIRefresh > 5f)
                 {
                     _cachedPOIs = UnityEngine.Object.FindObjectsOfType<POI>();
                     _lastPOIRefresh = Time.time;
+
+                    // Build POI → remote Player lookup so we can update their facing direction
+                    _poiToPlayer.Clear();
+                    try
+                    {
+                        var playerList = Player.PlayerList;
+                        for (int i = 0; i < playerList.Count; i++)
+                        {
+                            var p = playerList[i];
+                            if (p == null || p == player) continue;
+                            var poi = p.PoI;
+                            if (poi != null) _poiToPlayer[poi.GetInstanceID()] = p;
+                        }
+                    }
+                    catch { }
                 }
 
                 // Force-update POI positions (they only update when MapApp is open)
@@ -602,12 +945,16 @@ namespace OverTheCounter.UI
                 // Culling threshold — expand when rotating to avoid pop-in at corners
                 float halfSize = _cfgSize / 2f;
                 bool rotating = Config.MinimapRotateWithPlayer.Value;
-                float cullThreshold = rotating ? halfSize * 1.5f : halfSize;
+                float cullThreshold = rotating ? halfSize * 1.5f : halfSize + 20f;
                 float iconScale = _cfgIconScale;
                 float counterRot = rotating ? -_rotationPivot.localEulerAngles.z : 0f;
 
                 // Mirror POI UI elements as cloned icons
                 _activeCloneIds.Clear();
+                float yRotRad = yRot * Mathf.Deg2Rad;
+                float cosYRot = Mathf.Cos(yRotRad);
+                float sinYRot = Mathf.Sin(yRotRad);
+                float edgeHalf = halfSize - 10f;
 
                 foreach (var poi in _cachedPOIs)
                 {
@@ -622,8 +969,39 @@ namespace OverTheCounter.UI
                         // Cull check uses player-relative distance in minimap pixels
                         float relX = (poiMapPos.x - playerMapPos.x) * scaleX;
                         float relY = (poiMapPos.y - playerMapPos.y) * scaleY;
-                        if (Mathf.Abs(relX) > cullThreshold || Mathf.Abs(relY) > cullThreshold)
+                        float distSq = relX * relX + relY * relY;
+                        bool beyondCull = _cfgCircle
+                            ? distSq > cullThreshold * cullThreshold
+                            : Mathf.Abs(relX) > cullThreshold || Mathf.Abs(relY) > cullThreshold;
+                        bool edgeWorthy = Config.MinimapShowEdgeIndicators.Value && ShouldShowEdgeIndicator(poi);
+
+                        // Screen-space coords (mask clips in screen space, not map space)
+                        float screenX, screenY;
+                        if (rotating)
+                        {
+                            screenX = relX * cosYRot - relY * sinYRot;
+                            screenY = relX * sinYRot + relY * cosYRot;
+                        }
+                        else
+                        {
+                            screenX = relX;
+                            screenY = relY;
+                        }
+
+                        // Edge-clamp slightly before the mask edge to avoid partial-clip blind spots
+                        float visibleR = halfSize - 5f;
+                        bool outsideVisible = _cfgCircle
+                            ? distSq > visibleR * visibleR
+                            : Mathf.Abs(screenX) > visibleR || Mathf.Abs(screenY) > visibleR;
+                        bool showAtEdge = edgeWorthy && outsideVisible;
+
+                        if (beyondCull && !edgeWorthy)
+                        {
+                            int offId = poi.GetInstanceID();
+                            if (_poiClones.TryGetValue(offId, out var offRect) && offRect != null)
+                                offRect.gameObject.SetActive(false);
                             continue;
+                        }
 
                         int id = poi.GetInstanceID();
                         _activeCloneIds.Add(id);
@@ -638,12 +1016,55 @@ namespace OverTheCounter.UI
                             cloneRect.pivot = new Vector2(0.5f, 0.5f);
                             cloneRect.localScale = new Vector3(iconScale, iconScale, iconScale);
                             _poiClones[id] = cloneRect;
+
+                            // For remote player POIs: zero the game's IconContainer rotation
+                            // so our root-level rotation controls facing direction cleanly
+                            if (_poiToPlayer.ContainsKey(id))
+                            {
+                                var ic = cloneRect.Find("IconContainer");
+                                if (ic != null) ic.localEulerAngles = Vector3.zero;
+                            }
                         }
 
-                        // Absolute map-space position — MapImage panning handles centering on player
-                        cloneRect.anchoredPosition = new Vector2(poiMapPos.x * scaleX, poiMapPos.y * scaleY);
-                        // Counter-rotate so icons stay upright when map rotates
-                        cloneRect.localEulerAngles = new Vector3(0f, 0f, counterRot);
+                        if (showAtEdge)
+                        {
+                            // Clamp screen-space direction to edge, transform back to markers-parent
+                            Vector2 edgeScreen = _cfgCircle
+                                ? new Vector2(screenX, screenY).normalized * edgeHalf
+                                : ClampToSquareEdge(screenX, screenY, edgeHalf);
+
+                            if (rotating)
+                            {
+                                float ex = edgeScreen.x * cosYRot + edgeScreen.y * sinYRot;
+                                float ey = -edgeScreen.x * sinYRot + edgeScreen.y * cosYRot;
+                                cloneRect.anchoredPosition = new Vector2(
+                                    playerMapPos.x * scaleX + ex,
+                                    playerMapPos.y * scaleY + ey);
+                            }
+                            else
+                            {
+                                cloneRect.anchoredPosition = new Vector2(
+                                    playerMapPos.x * scaleX + edgeScreen.x,
+                                    playerMapPos.y * scaleY + edgeScreen.y);
+                            }
+                        }
+                        else
+                        {
+                            // Absolute map-space position — MapImage panning handles centering on player
+                            cloneRect.anchoredPosition = new Vector2(poiMapPos.x * scaleX, poiMapPos.y * scaleY);
+                        }
+
+                        // Counter-rotate so icons stay upright when map rotates.
+                        // For remote players, also apply their facing direction.
+                        float cloneRot = counterRot;
+                        if (_poiToPlayer.TryGetValue(id, out var remotePlayer))
+                        {
+                            float remoteYRot = remotePlayer.CurrentVehicle != null
+                                ? remotePlayer.CurrentVehicle.transform.eulerAngles.y
+                                : remotePlayer.transform.eulerAngles.y;
+                            cloneRot += -remoteYRot;
+                        }
+                        cloneRect.localEulerAngles = new Vector3(0f, 0f, cloneRot);
                         cloneRect.gameObject.SetActive(true);
                     }
                     catch { }
@@ -801,46 +1222,71 @@ namespace OverTheCounter.UI
                 // Keep player marker on top
                 if (_playerMarkerRect != null)
                     _playerMarkerRect.transform.SetAsLastSibling();
+
+                // Update rank/XP bar
+                if (_rankText != null)
+                {
+                    try
+                    {
+                        if (LevelManager.Exists)
+                        {
+                            var rank = LevelManager.Rank;
+                            int tier = LevelManager.Tier;
+                            int rankIdx = (int)rank;
+                            string rankName = rankIdx >= 0 && rankIdx < RankNames.Length
+                                ? RankNames[rankIdx]
+                                : rank.ToString();
+                            string tierStr = tier >= 1 && tier <= 5 ? RomanTiers[tier] : tier.ToString();
+                            _rankText.text = $"{rankName} {tierStr}";
+
+                            int xp = LevelManager.XP;
+                            bool tierChanged = _lastKnownTier >= 0 && tier > _lastKnownTier;
+                            int tierDelta = tierChanged ? tier - _lastKnownTier : 0;
+
+                            if (_lastKnownXP >= 0 && xp > _lastKnownXP)
+                                SpawnXPDrop(xp - _lastKnownXP, tierChanged, tierDelta);
+                            else if (tierChanged)
+                                SpawnXPDrop(0, true, tierDelta); // XP already reset; standalone level drop
+
+                            _lastKnownXP = xp;
+                            _lastKnownTier = tier;
+
+                            float xpToNext = LevelManager.XPToNextTier;
+                            float ratio = xpToNext > 0 ? Mathf.Clamp01(xp / xpToNext) : 1f;
+                            if (_xpBarFill != null)
+                                _xpBarFill.rectTransform.anchorMax = new Vector2(ratio, 1f);
+                            if (_xpText != null)
+                                _xpText.text = $"{xp} / {Mathf.RoundToInt(xpToNext)} XP";
+                        }
+                    }
+                    catch { }
+                }
+
+                UpdateXPDrops();
             }
             catch (Exception ex)
             {
-                Logger.Warning($"UpdateMinimap: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"UpdateMinimap: {ex.Message}");
             }
         }
 
-        private static void ApplyPosition(RectTransform rect, int size, int margin, string pos)
+        private static void ApplyFreePosition(RectTransform rect, float totalSize, float margin,
+            int hOffset, int vOffset)
         {
-            float m = margin;
+            const float refW = 1920f, refH = 1080f;
+            float xMin = margin;
+            float xMax = refW - totalSize - margin;
+            float yMin = margin;
+            float yMax = refH - totalSize - margin;
 
-            switch (pos)
-            {
-                case "TopLeft":
-                    rect.anchorMin = new Vector2(0, 1);
-                    rect.anchorMax = new Vector2(0, 1);
-                    rect.pivot = new Vector2(0, 1);
-                    rect.anchoredPosition = new Vector2(m, -m);
-                    break;
-                case "BottomRight":
-                    rect.anchorMin = new Vector2(1, 0);
-                    rect.anchorMax = new Vector2(1, 0);
-                    rect.pivot = new Vector2(1, 0);
-                    rect.anchoredPosition = new Vector2(-m, m + 80); // +80 clears the bottom HUD bar
-                    break;
-                case "BottomLeft":
-                    rect.anchorMin = new Vector2(0, 0);
-                    rect.anchorMax = new Vector2(0, 0);
-                    rect.pivot = new Vector2(0, 0);
-                    rect.anchoredPosition = new Vector2(m, m);
-                    break;
-                default: // TopRight (defensive — SnapshotConfig validates before reaching here)
-                    rect.anchorMin = new Vector2(1, 1);
-                    rect.anchorMax = new Vector2(1, 1);
-                    rect.pivot = new Vector2(1, 1);
-                    rect.anchoredPosition = new Vector2(-m, -m);
-                    break;
-            }
+            float x = Mathf.Lerp(xMin, xMax, hOffset / 100f);
+            float y = Mathf.Lerp(yMax, yMin, vOffset / 100f);
 
-            rect.sizeDelta = new Vector2(size, size);
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.zero;
+            rect.pivot = Vector2.zero;
+            rect.sizeDelta = new Vector2(totalSize, totalSize);
+            rect.anchoredPosition = new Vector2(x, y);
         }
 
         private static bool IsPoiVisible(POI poi)

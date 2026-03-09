@@ -1,6 +1,6 @@
-using MelonLoader;
 using MelonLoader.Utils;
 using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using S1API.Quests;
 using S1API.Saveables;
 using S1API.Utils;
@@ -13,8 +13,6 @@ namespace OverTheCounter.Quests
 {
     public class BellaProtocolQuest : Quest
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:BellaProtocolQuest");
-
         protected override string Title => "Executive Privilege";
         protected override string Description => "Someone at the Fixer's mentioned a contact who can help with warehouse access.";
         protected override bool AutoBegin => false;
@@ -50,7 +48,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"TriggerInternalInit failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"TriggerInternalInit failed: {ex.Message}");
             }
         }
 
@@ -67,7 +65,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"Initialize failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"Initialize failed: {ex.Message}");
             }
         }
 
@@ -100,7 +98,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"StartQuest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"StartQuest failed: {ex.Message}");
             }
         }
 
@@ -114,7 +112,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"AdvanceToWeedRequest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"AdvanceToWeedRequest failed: {ex.Message}");
             }
         }
 
@@ -128,7 +126,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"AdvanceToMethRequest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"AdvanceToMethRequest failed: {ex.Message}");
             }
         }
 
@@ -142,7 +140,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"AdvanceToCocaineRequest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"AdvanceToCocaineRequest failed: {ex.Message}");
             }
         }
 
@@ -155,7 +153,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"CompleteQuest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"CompleteQuest failed: {ex.Message}");
             }
         }
 
@@ -174,16 +172,14 @@ namespace OverTheCounter.Quests
             {
                 int saveStage = _stage;
                 int bellaStage = BellaSaveData.Instance?.Stage ?? -1;
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"OnLoaded: save _stage={saveStage}, BellaSaveData.Stage={bellaStage}");
+                OTCLog.Msg(OTCLog.Systems.Quest, $"OnLoaded: save _stage={saveStage}, BellaSaveData.Stage={bellaStage}");
 
                 // BellaSaveData is the authority — host state may have advanced
                 // the stage via SyncVar before this quest's save was loaded.
                 if (BellaSaveData.Instance != null && BellaSaveData.Instance.Stage > _stage)
                     _stage = BellaSaveData.Instance.Stage;
 
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"OnLoaded: rebuilding entries at _stage={_stage}");
+                OTCLog.Msg(OTCLog.Systems.Quest, $"OnLoaded: rebuilding entries at _stage={_stage}");
 
                 QuestEntries.Clear();
                 _visitEntry = AddEntry("Visit Bella at the downtown apartment", BellaBuilding);
@@ -213,7 +209,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Warning($"OnLoaded rebuild failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"OnLoaded rebuild failed: {ex.Message}");
             }
         }
     }

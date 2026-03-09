@@ -1,4 +1,6 @@
 using MelonLoader;
+using OverTheCounter.UI;
+using OverTheCounter.Utilities;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -225,7 +227,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (System.Exception ex)
             {
-                MelonLogger.Error($"ComputerScreen.Create failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"ComputerScreen.Create failed: {ex.Message}");
             }
         }
 
@@ -385,7 +387,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (System.Exception ex)
             {
-                MelonLogger.Warning($"SearchAvailability failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"SearchAvailability failed: {ex.Message}");
             }
         }
 
@@ -607,7 +609,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (System.Exception ex)
             {
-                MelonLogger.Warning($"UpdateVisibleRows failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"UpdateVisibleRows failed: {ex.Message}");
             }
         }
 
@@ -753,7 +755,7 @@ namespace OverTheCounter.Logic.Placement
             nameRt.anchorMax = new Vector2(0f, 0.5f);
             nameRt.pivot = new Vector2(0f, 0.5f);
             nameRt.anchoredPosition = new Vector2(NameX, 0f);
-            nameText.enableWordWrapping = false;
+            TMPFactory.SetWrapping(nameText, false);
             nameText.overflowMode = TextOverflowModes.Ellipsis;
 
             // Quantity (center column)

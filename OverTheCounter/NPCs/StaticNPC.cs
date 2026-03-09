@@ -30,7 +30,6 @@ namespace OverTheCounter.NPCs
 {
     public sealed class StaticNPC : NPC
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:StaticNPC");
         private static readonly EVOLineType[] DismissalSounds = { EVOLineType.Angry, EVOLineType.Annoyed, EVOLineType.No };
 
         private ScheduleOne.NPCs.NPC _gameNpc;
@@ -83,7 +82,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"WarpToSpawn failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"WarpToSpawn failed: {ex.Message}");
             }
         }
 
@@ -148,7 +147,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to set Static's appearance: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"Failed to set Static's appearance: {ex.Message}");
                 Appearance.GenerateRandomAppearance();
                 Appearance.Build();
             }
@@ -172,7 +171,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Error($"SetupDialogue FAILED: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"SetupDialogue FAILED: {ex.Message}\n{ex.StackTrace}");
             }
 
             try
@@ -181,25 +180,29 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to register onConsumeDone listener: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"Failed to register onConsumeDone listener: {ex.Message}");
             }
 
             if (StaticSaveData.Instance == null)
             {
-                try { new StaticSaveData(); }
-                catch (Exception ex) { Logger.Warning($"StaticSaveData fallback creation failed: {ex.Message}"); }
+                try
+                {
+                    new StaticSaveData();
+                    ConfigSyncData.ApplyPendingGameState();
+                }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"StaticSaveData fallback creation failed: {ex.Message}"); }
             }
 
             if (StaticThreadSaveData.Instance == null)
             {
                 try { new StaticThreadSaveData(); }
-                catch (Exception ex) { Logger.Warning($"StaticThreadSaveData fallback creation failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Quest, $"StaticThreadSaveData fallback creation failed: {ex.Message}"); }
             }
 
             if (PropertySaveData.Instance == null)
             {
                 try { new PropertySaveData(); }
-                catch (Exception ex) { Logger.Warning($"PropertySaveData fallback creation failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Quest, $"PropertySaveData fallback creation failed: {ex.Message}"); }
             }
 
             // Host: reconcile thread from current state variables.
@@ -234,7 +237,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to initialize voice: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"Failed to initialize voice: {ex.Message}");
             }
         }
 
@@ -247,7 +250,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to play dismissal sound: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"Failed to play dismissal sound: {ex.Message}");
             }
         }
 
@@ -294,31 +297,26 @@ namespace OverTheCounter.NPCs
                 }
                 else if (!introCompleted)
                 {
-                    // ── Intro: Multi-step sales pitch ──
-                    container.AddNode("ENTRY", "*sniffs* \u2014 You. Yeah, you. You've been setting off every tripwire on my network. Big deposits, open channels \u2014 you might as well be screaming. I'm Static. I build things. Useful things. For people like you.", choices =>
+                    // ── Intro: Focused pitch on actual features ──
+                    container.AddNode("ENTRY", "*nods at your phone* \u2014 You're scaling and you don't even know it. I'm Static. I build software for operations like yours \u2014 keeps everything managed so you're not doing it in your head.", choices =>
                     {
-                        choices.Add("PITCH_START", "What kind of things?", "PITCH1");
+                        choices.Add("PITCH_START", "What software?", "PITCH1");
                         choices.Add("LEAVE", "Not interested.", "LEAVE_EXIT");
                     });
 
-                    container.AddNode("PITCH1", "Software. Customer intel \u2014 scrapes police bands, cross-references buyer patterns, flags desperation levels. A whole CRM for your... *glances around* ...actual business.", choices =>
+                    container.AddNode("PITCH1", "One app. You see your managers \u2014 where they are, what they're running. Your employees \u2014 which property, what's in their inventory, if there's a problem. Your customers \u2014 who they are, what they buy. *taps head* Tight operation.", choices =>
                     {
-                        choices.Add("PITCH1_NEXT", "Keep talking.", "PITCH2");
+                        choices.Add("PITCH1_NEXT", "What's it cost?", "COST");
                     });
 
-                    container.AddNode("PITCH2", "*leans in* \u2014 Look, right now I've only got clean signal in Northtown and Westville. The other zones? Firmware's fried. Bad receivers, packet loss \u2014 total garbage. But those two? Crystal. Clear.", choices =>
-                    {
-                        choices.Add("PITCH2_NEXT", "What's it cost?", "COST");
-                    });
-
-                    container.AddNode("COST", $"${Config.StaticTier1BankCost.Value:N0} \u2014 bank transfer, not cash, I don't touch paper \u2014 and {Config.StaticTier1WeedGrams.Value} grams of weed. Call the weed a licensing fee. *sniffs* Bring both and I'll get you set up.", choices =>
+                    container.AddNode("COST", $"${Config.StaticTier1BankCost.Value:N0} \u2014 bank transfer, not cash \u2014 and {Config.StaticTier1WeedGrams.Value} grams of weed. Call the weed a licensing fee. *sniffs* Bring both.", choices =>
                     {
                         choices.Add("ACCEPT", "Deal.", "ACCEPT_EXIT");
                         choices.Add("LEAVE", "I'll think about it.", "LEAVE_EXIT");
                     });
 
-                    container.AddNode("ACCEPT_EXIT", "*taps temple* Good. I'll ping you.");
-                    container.AddNode("LEAVE_EXIT", "*scratches neck* You know where I am. Don't take forever.");
+                    container.AddNode("ACCEPT_EXIT", "*taps temple* Good. Come back with it.");
+                    container.AddNode("LEAVE_EXIT", "*scratches neck* You know where I am.");
                 }
                 else if (crmTier == 0)
                 {
@@ -334,7 +332,7 @@ namespace OverTheCounter.NPCs
                             choices.Add("LEAVE", "Not yet.", "LEAVE_EXIT");
                         });
 
-                        container.AddNode("BUY_INITIAL_EXIT", $"*cracks knuckles* \u2014 Package is live. Northtown, Westville \u2014 those are your clean zones. I'm billing ${Config.SaasWeeklyCost.Value:N0} a week from your bank. Automatic. Don't let it run dry or I cut the feed.");
+                        container.AddNode("BUY_INITIAL_EXIT", $"*cracks knuckles* \u2014 You're live. Check the app \u2014 managers, employees, customers, all of it. Northtown and Westville covered. I'm billing ${Config.SaasWeeklyCost.Value:N0} a week from your bank. Don't let it run dry.");
                     }
                     else
                     {
@@ -568,7 +566,7 @@ namespace OverTheCounter.NPCs
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"ACCEPT callback failed: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.NPC, $"ACCEPT callback failed: {ex.Message}");
                 }
             });
 
@@ -593,7 +591,7 @@ namespace OverTheCounter.NPCs
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"BUY_INITIAL callback failed: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.NPC, $"BUY_INITIAL callback failed: {ex.Message}");
                 }
             });
 
@@ -634,7 +632,7 @@ namespace OverTheCounter.NPCs
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"BUY_UPGRADE callback failed: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.NPC, $"BUY_UPGRADE callback failed: {ex.Message}");
                 }
             });
 
@@ -652,7 +650,7 @@ namespace OverTheCounter.NPCs
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"RESTORE_FINAL callback failed: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.NPC, $"RESTORE_FINAL callback failed: {ex.Message}");
                 }
             });
 
@@ -670,7 +668,7 @@ namespace OverTheCounter.NPCs
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"CANCEL_CONFIRM callback failed: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.NPC, $"CANCEL_CONFIRM callback failed: {ex.Message}");
                 }
             });
 
@@ -707,7 +705,7 @@ namespace OverTheCounter.NPCs
 
                 if (_cachedCocaineDef == null)
                 {
-                    Logger.Warning("No cocaine definition found for consumption");
+                    OTCLog.Warning(OTCLog.Systems.NPC, "No cocaine definition found for consumption");
                     return;
                 }
 
@@ -722,7 +720,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Error($"TriggerCocaineConsumption failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"TriggerCocaineConsumption failed: {ex.Message}");
             }
         }
 
@@ -739,7 +737,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"OnCocaineConsumed failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"OnCocaineConsumed failed: {ex.Message}");
             }
         }
 
@@ -815,7 +813,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"CountWeedInInventory failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"CountWeedInInventory failed: {ex.Message}");
             }
             return totalGrams;
         }
@@ -837,7 +835,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"CountMethInInventory failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"CountMethInInventory failed: {ex.Message}");
             }
             return totalGrams;
         }
@@ -875,7 +873,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Error($"RemoveWeedFromInventory failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"RemoveWeedFromInventory failed: {ex.Message}");
                 return false;
             }
             return remaining <= 0;
@@ -914,7 +912,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Error($"RemoveMethFromInventory failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"RemoveMethFromInventory failed: {ex.Message}");
                 return false;
             }
             return remaining <= 0;

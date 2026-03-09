@@ -1,5 +1,5 @@
-using MelonLoader;
 using OverTheCounter.Logic.Placement;
+using OverTheCounter.Utilities;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -23,8 +23,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public static class CustomerSpawnPoints
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:CustomerSpawns");
-
         /// <summary>A named spawn/despawn position with facing rotation.</summary>
         public class SpawnPoint
         {
@@ -127,7 +125,7 @@ namespace OverTheCounter.Logic
             }
             catch (System.Exception ex)
             {
-                Logger.Warning($"Error scanning for storage entities: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"Error scanning for storage entities: {ex.Message}");
             }
 
             if (standPositions.Count == 0)
@@ -202,7 +200,7 @@ namespace OverTheCounter.Logic
             }
             catch (System.Exception ex)
             {
-                Logger.Warning($"Error scanning for packaged product: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"Error scanning for packaged product: {ex.Message}");
             }
             return false;
         }

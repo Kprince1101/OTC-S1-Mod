@@ -39,7 +39,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public static class ManagerSpawner
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerSpawner");
 
         private static NetworkObject _cachedBasePrefab;
         private static bool _prefabSearched;
@@ -77,14 +76,14 @@ namespace OverTheCounter.Logic
                 var networkManager = InstanceFinder.NetworkManager;
                 if (networkManager == null)
                 {
-                    Logger.Error("NetworkManager not found");
+                    OTCLog.Error(OTCLog.Systems.Manager, "NetworkManager not found");
                     return null;
                 }
 
                 var spawnablePrefabs = networkManager.SpawnablePrefabs;
                 if (spawnablePrefabs == null)
                 {
-                    Logger.Error("SpawnablePrefabs not available");
+                    OTCLog.Error(OTCLog.Systems.Manager, "SpawnablePrefabs not available");
                     return null;
                 }
 
@@ -100,7 +99,7 @@ namespace OverTheCounter.Logic
                     {
                         _cachedBasePrefab = obj;
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg("Found CivilianNPC prefab");
+                            OTCLog.Msg(OTCLog.Systems.Manager, "Found CivilianNPC prefab");
                         return _cachedBasePrefab;
                     }
                 }
@@ -113,17 +112,17 @@ namespace OverTheCounter.Logic
                     {
                         _cachedBasePrefab = obj;
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Using fallback NPC prefab: {obj.gameObject.name}");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"Using fallback NPC prefab: {obj.gameObject.name}");
                         return _cachedBasePrefab;
                     }
                 }
 
-                Logger.Error("No suitable NPC prefab found");
+                OTCLog.Error(OTCLog.Systems.Manager, "No suitable NPC prefab found");
                 return null;
             }
             catch (Exception ex)
             {
-                Logger.Error($"GetBasePrefab failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"GetBasePrefab failed: {ex.Message}");
                 return null;
             }
         }
@@ -205,7 +204,7 @@ namespace OverTheCounter.Logic
                 var basePrefab = GetBasePrefab();
                 if (basePrefab == null)
                 {
-                    Logger.Error($"Cannot spawn manager {id}: no base prefab");
+                    OTCLog.Error(OTCLog.Systems.Manager, $"Cannot spawn {id}: no base prefab");
                     return (null, null);
                 }
 
@@ -215,7 +214,7 @@ namespace OverTheCounter.Logic
                 var clone = UnityEngine.Object.Instantiate(basePrefab);
                 if (clone == null || clone.gameObject == null)
                 {
-                    Logger.Error($"Failed to instantiate prefab for manager {id}");
+                    OTCLog.Error(OTCLog.Systems.Manager, $"Failed to instantiate prefab for {id}");
                     return (null, null);
                 }
 
@@ -233,7 +232,7 @@ namespace OverTheCounter.Logic
                 var npc = clone.gameObject.GetComponent<NPC>();
                 if (npc == null)
                 {
-                    Logger.Error($"Cloned object missing NPC component for manager {id}");
+                    OTCLog.Error(OTCLog.Systems.Manager, $"Cloned object missing NPC component for {id}");
                     UnityEngine.Object.Destroy(clone.gameObject);
                     return (null, null);
                 }
@@ -288,16 +287,16 @@ namespace OverTheCounter.Logic
                     {
                         InstanceFinder.ServerManager.Spawn(clone);
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"ServerManager.Spawn completed for manager {id}");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"Server.Spawn completed for {id}");
                     }
                     else
                     {
-                        Logger.Warning($"ServerManager is null, manager {id} may not replicate");
+                        OTCLog.Warning(OTCLog.Systems.Manager, $"Server is null, {id} may not replicate");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"ServerManager.Spawn failed for manager {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"Server.Spawn failed for {id}: {ex.Message}");
                 }
 
                 // Apply appearance and capture settings for mugshot
@@ -316,7 +315,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Movement setup failed for manager {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"Movement setup failed for {id}: {ex.Message}");
                 }
 
                 // Base 1.6x walk speed (upgrades re-apply via ApplySpeedUpgrade after registration)
@@ -328,12 +327,12 @@ namespace OverTheCounter.Logic
                 }
                 catch { }
 
-                Logger.Msg($"Spawned manager {id} ({firstName} {lastName}) at {spawnPos}");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"Spawned {id} ({firstName} {lastName}) at {spawnPos}");
                 return (npc, avatarSettings);
             }
             catch (Exception ex)
             {
-                Logger.Error($"Spawn failed for manager {id}: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"Spawn failed for {id}: {ex.Message}\n{ex.StackTrace}");
                 return (null, null);
             }
         }
@@ -365,7 +364,7 @@ namespace OverTheCounter.Logic
         {
             if (npc?.Avatar == null)
             {
-                Logger.Warning("Cannot apply appearance: NPC or Avatar is null");
+                OTCLog.Warning(OTCLog.Systems.Manager, "Cannot apply appearance: NPC or Avatar is null");
                 return null;
             }
 
@@ -462,13 +461,13 @@ namespace OverTheCounter.Logic
                 UnityEngine.Random.state = state;
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Applied manager appearance for {npc.ID}");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"Applied appearance for {npc.ID}");
 
                 return settings;
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ApplyAppearance failed for manager {npc.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ApplyAppearance failed for {npc.ID}: {ex.Message}");
                 return null;
             }
         }
@@ -486,11 +485,11 @@ namespace OverTheCounter.Logic
                 npc.SetMSGConversation(conversation);
                 conversation.SetIsKnown(true);
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Initialized messaging for manager {npc.ID}");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"Initialized messaging for {npc.ID}");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"InitializeMessaging failed for manager {npc.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"InitializeMessaging failed for {npc.ID}: {ex.Message}");
             }
         }
 
@@ -514,14 +513,14 @@ namespace OverTheCounter.Logic
                     {
                         npc.VoiceOverEmitter.SetDatabase(other.VoiceOverEmitter.GetDatabase(), false);
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Borrowed voice database for manager {npc.ID}");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"Borrowed voice database for {npc.ID}");
                         return;
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"EnsureVoiceDatabase failed for manager {npc.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"EnsureVoiceDatabase failed for {npc.ID}: {ex.Message}");
             }
         }
 
@@ -562,7 +561,7 @@ namespace OverTheCounter.Logic
                 var dialogueController = mgr.GameNpc.DialogueHandler?.GetComponent<DialogueController>();
                 if (dialogueController == null)
                 {
-                    Logger.Warning($"DialogueController not found for manager {mgr.Id}");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"DialogueController not found for {mgr.Id}");
                     return;
                 }
 
@@ -586,7 +585,7 @@ namespace OverTheCounter.Logic
                         var inventory = m.GameNpc.GetComponent<ScheduleOne.NPCs.NPCInventory>();
                         if (inventory == null)
                         {
-                            Logger.Warning($"No inventory component on manager {managerId}");
+                            OTCLog.Warning(OTCLog.Systems.Manager, $"No inventory component on {managerId}");
                             return;
                         }
 
@@ -600,7 +599,7 @@ namespace OverTheCounter.Logic
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error($"Trade choice error for {managerId}: {ex.Message}");
+                        OTCLog.Error(OTCLog.Systems.Manager, $"Trade choice error for {managerId}: {ex.Message}");
                     }
                 }));
                 tradeChoice.SetShouldShowCheck((bool enabled) =>
@@ -703,11 +702,11 @@ namespace OverTheCounter.Logic
                         _isReopening = true;
                         MelonCoroutines.Start(ReopenDialogue(capturedDc));
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Opened transfer sub-menu for manager {managerId} ({bizChoices.Count - 1} businesses)");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"Opened transfer sub-menu for {managerId} ({bizChoices.Count - 1} businesses)");
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error($"Transfer menu setup failed for {managerId}: {ex.Message}");
+                        OTCLog.Error(OTCLog.Systems.Manager, $"Transfer menu setup failed for {managerId}: {ex.Message}");
                     }
                 }));
                 transferChoice.SetShouldShowCheck((bool enabled) =>
@@ -795,11 +794,11 @@ namespace OverTheCounter.Logic
                         _isReopening = true;
                         MelonCoroutines.Start(ReopenDialogue(capturedDc));
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"Opened fire confirmation for manager {managerId}");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"Opened fire confirmation for {managerId}");
                     }
                     catch (Exception ex)
                     {
-                        Logger.Error($"Fire confirm setup failed for {managerId}: {ex.Message}");
+                        OTCLog.Error(OTCLog.Systems.Manager, $"Fire confirm setup failed for {managerId}: {ex.Message}");
                     }
                 }));
                 fireChoice.SetShouldShowCheck((bool enabled) =>
@@ -810,11 +809,11 @@ namespace OverTheCounter.Logic
 
                 _dialogueChoices[mgr.Id] = choices;
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Set up dialogue choices for manager {mgr.Id}");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"Set up dialogue choices for {mgr.Id}");
             }
             catch (Exception ex)
             {
-                Logger.Error($"SetupDialogueChoices failed for {mgr.Id}: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"SetupDialogueChoices failed for {mgr.Id}: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -1041,7 +1040,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ReopenDialogue failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ReopenDialogue failed: {ex.Message}");
             }
             _isReopening = false;
         }
@@ -1085,7 +1084,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"OpenStorageDelayed failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"OpenStorageDelayed failed: {ex.Message}");
                 if (mgr != null)
                 {
                     mgr.IsPlayerInteracting = false;
@@ -1114,7 +1113,7 @@ namespace OverTheCounter.Logic
                     existing.SlotCount = 5;
 
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"Inventory already exists on manager {npc.ID}, configured (slots={existing.ItemSlots?.Count ?? existing.SlotCount})");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"Inventory already exists on {npc.ID}, configured (slots={existing.ItemSlots?.Count ?? existing.SlotCount})");
                     return;
                 }
 
@@ -1135,11 +1134,11 @@ namespace OverTheCounter.Logic
                 if (wasActive) npc.gameObject.SetActive(true);
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"Added inventory to manager {npc.ID} (slots={inventory.SlotCount})");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"Added inventory to {npc.ID} (slots={inventory.SlotCount})");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"SetupInventory failed for {npc.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"SetupInventory failed for {npc.ID}: {ex.Message}");
             }
         }
 
@@ -1187,6 +1186,8 @@ namespace OverTheCounter.Logic
                             _cachedEmployeeAreaMask = empAgent.areaMask;
                             agentTypeID = empAgent.agentTypeID;
                             areaMask = empAgent.areaMask;
+                            if (Config.ManagerVerboseLogging.Value)
+                                OTCLog.Msg(OTCLog.Systems.Manager, $"Cached employee NavMesh settings: agentTypeID={agentTypeID}, areaMask={areaMask}");
                             return true;
                         }
                     }
@@ -1194,7 +1195,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"TryGetEmployeeNavMeshSettings employee scan failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"TryGetEmployeeNavMeshSettings failed: {ex.Message}");
             }
 
             // Fallback: use the known "Employee" agent type (discovered from game NavMesh settings)
@@ -1263,7 +1264,7 @@ namespace OverTheCounter.Logic
                     {
                         InstanceFinder.ServerManager.Despawn(netObj);
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"ServerManager.Despawn completed for manager {id}");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"Server.Despawn completed for {id}");
                     }
                     else if (npc.gameObject != null)
                     {
@@ -1276,11 +1277,11 @@ namespace OverTheCounter.Logic
                         UnityEngine.Object.Destroy(npc.gameObject);
                 }
 
-                Logger.Msg($"Despawned manager {id}");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"Despawned {id}");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Despawn failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"Despawn failed: {ex.Message}");
             }
         }
 

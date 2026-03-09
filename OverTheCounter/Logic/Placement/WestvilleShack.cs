@@ -37,8 +37,6 @@ namespace OverTheCounter.Logic.Placement
     /// </summary>
     public static class WestvilleShack
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:WestvilleShack");
-
         // Room dimensions (smaller than B1's 8x9)
         private const float RoomWidth = 6f;
         private const float RoomHeight = 3.5f;
@@ -95,7 +93,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Error($"SpawnBuilding failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"SpawnBuilding failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -178,7 +176,7 @@ namespace OverTheCounter.Logic.Placement
             var prefabGo = prefab.Find();
             if (prefabGo == null)
             {
-                Logger.Warning($"SpawnNetworkedAt: prefab not found: {prefab.Name}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"SpawnNetworkedAt: prefab not found: {prefab.Name}");
                 return null;
             }
 
@@ -220,7 +218,7 @@ namespace OverTheCounter.Logic.Placement
                 }
                 else
                 {
-                    Logger.Warning($"[SpawnNetworkedAt] '{prefab.Name}': no NetworkObject on root — not spawned!");
+                    OTCLog.Warning(OTCLog.Systems.Patch,$"[SpawnNetworkedAt] '{prefab.Name}': no NetworkObject on root — not spawned!");
                     instance.transform.SetPositionAndRotation(worldPos, worldRot);
                 }
             }
@@ -293,7 +291,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Error($"Door spawn failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"Door spawn failed: {ex.Message}");
             }
 
             // Light switch
@@ -323,7 +321,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Error($"Light switch spawn failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"Light switch spawn failed: {ex.Message}");
             }
 
             // Open/Close switch
@@ -354,7 +352,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Error($"Open/Close switch spawn failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"Open/Close switch spawn failed: {ex.Message}");
             }
 
             // Trash can — HOST ONLY. BuildableItem, so FishNet delivers it to clients via the
@@ -383,7 +381,7 @@ namespace OverTheCounter.Logic.Placement
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"Trash can spawn failed: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.Patch,$"Trash can spawn failed: {ex.Message}");
                 }
             }
             else
@@ -427,7 +425,7 @@ namespace OverTheCounter.Logic.Placement
                     yield break;
                 }
             }
-            Logger.Warning("[WestvilleShack] FishNet door not found within 30s — using local clone, host→client door sync relies on Steam");
+            OTCLog.Warning(OTCLog.Systems.Patch,"[WestvilleShack] FishNet door not found within 30s — using local clone, host→client door sync relies on Steam");
         }
 
         /// <summary>
@@ -453,7 +451,7 @@ namespace OverTheCounter.Logic.Placement
                     }
                 }
             }
-            Logger.Warning("[WestvilleShack] TrashCan not found within 30s — lid not activated");
+            OTCLog.Warning(OTCLog.Systems.Patch,"[WestvilleShack] TrashCan not found within 30s — lid not activated");
         }
 
         /// <summary>
@@ -491,7 +489,7 @@ namespace OverTheCounter.Logic.Placement
                 catch { }
             }
             else
-                Logger.Warning($"Door '{doorGo.name}' has no DoorController");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"Door '{doorGo.name}' has no DoorController");
         }
 
         /// <summary>
@@ -631,7 +629,7 @@ namespace OverTheCounter.Logic.Placement
                     return;
                 }
             }
-            Logger.Warning($"Scene prop '{goName}' not found");
+            OTCLog.Warning(OTCLog.Systems.Patch,$"Scene prop '{goName}' not found");
         }
 
         private static void BuildRoom()
@@ -695,7 +693,7 @@ namespace OverTheCounter.Logic.Placement
             }
             else
             {
-                Logger.Warning("No employee NavMesh settings found — using default agentTypeID=0");
+                OTCLog.Warning(OTCLog.Systems.Patch,"No employee NavMesh settings found — using default agentTypeID=0");
             }
             _navMeshRepairer = builder.CreateNavMeshRepairer(navAgentType);
 
@@ -727,7 +725,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to register ShackGrid GUID: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"Failed to register ShackGrid GUID: {ex.Message}");
             }
 
             // Door and switches are spawned in SpawnNetworkedObjects() after onLoadComplete.
@@ -757,14 +755,14 @@ namespace OverTheCounter.Logic.Placement
                             r.material.color = green;
                     }
                     else
-                        Logger.Warning("GltfLoader returned null for ShackSign.glb");
+                        OTCLog.Warning(OTCLog.Systems.Patch,"GltfLoader returned null for ShackSign.glb");
                 }
                 else
-                    Logger.Warning("Could not load ShackSign.glb embedded resource");
+                    OTCLog.Warning(OTCLog.Systems.Patch,"Could not load ShackSign.glb embedded resource");
             }
             catch (Exception ex)
             {
-                Logger.Error($"ShackSign load failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"ShackSign load failed: {ex.Message}");
             }
 
             // TerrainClearer is deferred to OnGameLoaded — terrain tree instances are not
@@ -816,14 +814,14 @@ namespace OverTheCounter.Logic.Placement
                         }
                     }
                     else
-                        Logger.Warning("GltfLoader returned null for LeafSign.glb");
+                        OTCLog.Warning(OTCLog.Systems.Patch,"GltfLoader returned null for LeafSign.glb");
                 }
                 else
-                    Logger.Warning("Could not load LeafSign.glb embedded resource");
+                    OTCLog.Warning(OTCLog.Systems.Patch,"Could not load LeafSign.glb embedded resource");
             }
             catch (Exception ex)
             {
-                Logger.Error($"LeafSign load failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"LeafSign load failed: {ex.Message}");
             }
 
         }

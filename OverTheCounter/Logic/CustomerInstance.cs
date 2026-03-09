@@ -1,5 +1,5 @@
-using MelonLoader;
 using OverTheCounter.Logic.Placement;
+using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -32,8 +32,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class CustomerInstance
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:CustomerInstance");
-
         /// <summary>All active customer instances keyed by ID.</summary>
         public static readonly Dictionary<string, CustomerInstance> Active = new();
 
@@ -82,11 +80,11 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to load effect IDs from resources: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"Failed to load effect IDs from resources: {ex.Message}");
             }
 
             // Fallback — should never be needed, but just in case resources aren't ready
-            Logger.Warning("[PREF] Using hardcoded effect ID fallback");
+            OTCLog.Warning(OTCLog.Systems.Customer,"[PREF] Using hardcoded effect ID fallback");
             _allEffectIds = new[]
             {
                 "antigravity", "athletic", "balding", "brighteyed", "calming",
@@ -239,7 +237,7 @@ namespace OverTheCounter.Logic
 
                 if (npc == null)
                 {
-                    Logger.Error($"Failed to spawn customer NPC for {id}");
+                    OTCLog.Error(OTCLog.Systems.Customer,$"Failed to spawn customer NPC for {id}");
                     return null;
                 }
 
@@ -262,7 +260,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Error($"CustomerInstance.Create failed for {id}: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Customer,$"CustomerInstance.Create failed for {id}: {ex.Message}");
                 return null;
             }
         }
@@ -379,7 +377,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"WarpTo failed for {Id}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"WarpTo failed for {Id}: {ex.Message}");
             }
         }
 
@@ -528,7 +526,7 @@ namespace OverTheCounter.Logic
 
             if (!ManagerSpawner.TryGetEmployeeNavMeshSettings(out int empAgentType, out int empAreaMask))
             {
-                Logger.Warning($"{Id}: no employee NavMesh settings available");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"{Id}: no employee NavMesh settings available");
                 return false;
             }
 
@@ -551,7 +549,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"{Id}: SwitchToEmployeeNavMesh failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"{Id}: SwitchToEmployeeNavMesh failed: {ex.Message}");
                 return false;
             }
         }
@@ -577,7 +575,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"{Id}: RestoreCivilianNavMesh failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"{Id}: RestoreCivilianNavMesh failed: {ex.Message}");
                 _usingEmployeeNavMesh = false;
             }
         }
@@ -766,7 +764,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ObserveShelf failed for {Id}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"ObserveShelf failed for {Id}: {ex.Message}");
             }
         }
 
@@ -949,7 +947,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"SetVoiceDatabase failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer,$"SetVoiceDatabase failed: {ex.Message}");
             }
         }
 

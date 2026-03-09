@@ -1,14 +1,19 @@
 using MelonLoader;
+using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
 #if IL2CPP
+using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.EntityFramework;
 using Il2CppScheduleOne.ObjectScripts;
+using Il2CppScheduleOne.Storage;
 #else
+using ScheduleOne.Economy;
 using ScheduleOne.EntityFramework;
 using ScheduleOne.ObjectScripts;
+using ScheduleOne.Storage;
 #endif
 
 namespace OverTheCounter.Logic
@@ -19,7 +24,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class ManagerConfiguration
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerConfig");
 
         /// <summary>
         /// The locker entity where the manager draws wages from.
@@ -62,9 +66,43 @@ namespace OverTheCounter.Logic
         {
             public PlaceableStorageEntity Source { get; set; }
             public PlaceableStorageEntity Destination { get; set; }
+            public DeadDrop SourceDeadDrop { get; set; }
+            public DeadDrop DestDeadDrop { get; set; }
 
-            public bool IsConfigured => Source != null && Destination != null;
-            public bool IsEmpty => Source == null && Destination == null;
+            public bool HasSource => Source != null || SourceDeadDrop != null;
+            public bool HasDest => Destination != null || DestDeadDrop != null;
+            public bool IsSourceDeadDrop => SourceDeadDrop != null;
+            public bool IsDestDeadDrop => DestDeadDrop != null;
+            public bool IsConfigured => HasSource && HasDest;
+            public bool IsEmpty => !HasSource && !HasDest;
+
+            /// <summary>Sets the source to a storage container, clearing any dead drop.</summary>
+            public void SetSource(PlaceableStorageEntity pse) { Source = pse; SourceDeadDrop = null; }
+            /// <summary>Sets the source to a dead drop, clearing any storage container.</summary>
+            public void SetSource(DeadDrop dd) { SourceDeadDrop = dd; Source = null; }
+            /// <summary>Sets the destination to a storage container, clearing any dead drop.</summary>
+            public void SetDest(PlaceableStorageEntity pse) { Destination = pse; DestDeadDrop = null; }
+            /// <summary>Sets the destination to a dead drop, clearing any storage container.</summary>
+            public void SetDest(DeadDrop dd) { DestDeadDrop = dd; Destination = null; }
+
+            public void ClearSource() { Source = null; SourceDeadDrop = null; }
+            public void ClearDest() { Destination = null; DestDeadDrop = null; }
+
+            /// <summary>Gets the StorageEntity for the source (works for both PSE and dead drops).</summary>
+            public StorageEntity GetSourceStorage()
+                => IsSourceDeadDrop ? SourceDeadDrop?.Storage : Source?.StorageEntity;
+
+            /// <summary>Gets the StorageEntity for the destination (works for both PSE and dead drops).</summary>
+            public StorageEntity GetDestStorage()
+                => IsDestDeadDrop ? DestDeadDrop?.Storage : Destination?.StorageEntity;
+
+            /// <summary>Gets the transform for the source endpoint.</summary>
+            public UnityEngine.Transform GetSourceTransform()
+                => IsSourceDeadDrop ? SourceDeadDrop?.transform : Source?.transform;
+
+            /// <summary>Gets the transform for the destination endpoint.</summary>
+            public UnityEngine.Transform GetDestTransform()
+                => IsDestDeadDrop ? DestDeadDrop?.transform : Destination?.transform;
         }
 
         /// <summary>
@@ -77,7 +115,7 @@ namespace OverTheCounter.Logic
             if (container == null)
             {
                 reason = "";
-                return true; // clearing is always valid
+                return true;
             }
 
             if (routeIndex >= 0 && routeIndex < Routes.Length)
@@ -100,6 +138,39 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Validates that a dead drop can be assigned to a specific slot within a route.
+        /// Same dead drop cannot be both source AND destination within the same route.
+        /// </summary>
+        public bool ValidateAssignment(DeadDrop dd, int routeIndex, bool isSource, out string reason)
+        {
+            if (dd == null)
+            {
+                reason = "";
+                return true;
+            }
+
+            if (routeIndex >= 0 && routeIndex < Routes.Length)
+            {
+                var route = Routes[routeIndex];
+                string ddGuid = GetGuid(dd);
+
+                if (isSource && route.DestDeadDrop != null && GetGuid(route.DestDeadDrop) == ddGuid)
+                {
+                    reason = "Cannot use the same dead drop as both source and destination in the same route";
+                    return false;
+                }
+                if (!isSource && route.SourceDeadDrop != null && GetGuid(route.SourceDeadDrop) == ddGuid)
+                {
+                    reason = "Cannot use the same dead drop as both source and destination in the same route";
+                    return false;
+                }
+            }
+
+            reason = "";
+            return true;
+        }
+
+        /// <summary>
         /// Serializes config to a pipe-delimited string for save/sync.
         /// Format: "lockerGUID;supplyGUID|src1,dst1|src2,dst2|src3,dst3|id:thresh+id:thresh+..."
         /// Empty slots use empty string.
@@ -113,8 +184,8 @@ namespace OverTheCounter.Logic
 
             for (int i = 0; i < Routes.Length; i++)
             {
-                string src = GetGuid(Routes[i].Source);
-                string dst = GetGuid(Routes[i].Destination);
+                string src = GetRouteEndpointGuid(Routes[i], true);
+                string dst = GetRouteEndpointGuid(Routes[i], false);
                 // Compact: if src==dst, use "=" shorthand to save ~31 chars per route
                 if (!string.IsNullOrEmpty(src) && src == dst)
                     parts.Add($"{src},=");
@@ -168,8 +239,8 @@ namespace OverTheCounter.Logic
                         string srcStr = routeParts[0];
                         // "=" shorthand means dst == src
                         string dstStr = routeParts[1] == "=" ? srcStr : routeParts[1];
-                        Routes[i].Source = ResolveStorage(srcStr);
-                        Routes[i].Destination = ResolveStorage(dstStr);
+                        ResolveRouteEndpoint(srcStr, Routes[i], true);
+                        ResolveRouteEndpoint(dstStr, Routes[i], false);
                     }
                 }
 
@@ -198,7 +269,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Deserialize failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"Deserialize failed: {ex.Message}");
             }
         }
 
@@ -215,8 +286,8 @@ namespace OverTheCounter.Logic
                 StockedThresholds[i] = 20;
             for (int i = 0; i < Routes.Length; i++)
             {
-                Routes[i].Source = null;
-                Routes[i].Destination = null;
+                Routes[i].ClearSource();
+                Routes[i].ClearDest();
             }
         }
 
@@ -235,6 +306,8 @@ namespace OverTheCounter.Logic
             return false;
         }
 
+        internal const string DeadDropPrefix = "dd:";
+
         internal static string GetGuid(PlaceableStorageEntity entity)
         {
             if (entity == null) return "";
@@ -246,9 +319,34 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"GetGuid failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"GetGuid failed: {ex.Message}");
             }
             return "";
+        }
+
+        internal static string GetGuid(DeadDrop dd)
+        {
+            if (dd == null) return "";
+            try
+            {
+                return DeadDropPrefix + dd.GUID.ToString().Replace("-", "");
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Manager, $"GetGuid(DeadDrop) failed: {ex.Message}");
+            }
+            return "";
+        }
+
+        /// <summary>
+        /// Gets the serialization GUID for a route endpoint (source or destination),
+        /// handling both PlaceableStorageEntity and DeadDrop types.
+        /// </summary>
+        internal static string GetRouteEndpointGuid(DistributionRoute route, bool isSource)
+        {
+            if (isSource)
+                return route.IsSourceDeadDrop ? GetGuid(route.SourceDeadDrop) : GetGuid(route.Source);
+            return route.IsDestDeadDrop ? GetGuid(route.DestDeadDrop) : GetGuid(route.Destination);
         }
 
         internal static PlaceableStorageEntity ResolveStorage(string guidStr)
@@ -272,7 +370,6 @@ namespace OverTheCounter.Logic
                     if (storage != null)
                         return storage;
 
-                    // It might be a GridItem that has a PlaceableStorageEntity component
                     var storageComp = obj.GetComponent<PlaceableStorageEntity>();
                     if (storageComp != null)
                         return storageComp;
@@ -280,10 +377,69 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ResolveStorage failed for '{guidStr}': {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ResolveStorage failed for '{guidStr}': {ex.Message}");
             }
 
             return null;
+        }
+
+        internal static DeadDrop ResolveDeadDrop(string guidStr)
+        {
+            if (string.IsNullOrEmpty(guidStr)) return null;
+
+            try
+            {
+                var guid = new System.Guid(guidStr);
+#if IL2CPP
+                var obj = Il2Cpp.GUIDManager.GetObject<DeadDrop>(
+                    new GameSystem.Guid(guid.ToByteArray()));
+#else
+                var obj = GUIDManager.GetObject<DeadDrop>(
+                    new System.Guid(guid.ToByteArray()));
+#endif
+                if (obj != null) return obj;
+
+                // Fallback: iterate static list
+                foreach (var dd in DeadDrop.DeadDrops)
+                {
+                    if (dd != null && dd.GUID.Equals(guid))
+                        return dd;
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ResolveDeadDrop failed for '{guidStr}': {ex.Message}");
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves a route endpoint GUID string, detecting dd: prefix for dead drops.
+        /// Sets the appropriate field on the route.
+        /// </summary>
+        private static void ResolveRouteEndpoint(string guidStr, DistributionRoute route, bool isSource)
+        {
+            if (string.IsNullOrEmpty(guidStr)) return;
+
+            if (guidStr.StartsWith(DeadDropPrefix))
+            {
+                var dd = ResolveDeadDrop(guidStr.Substring(DeadDropPrefix.Length));
+                if (dd != null)
+                {
+                    if (isSource) route.SetSource(dd);
+                    else route.SetDest(dd);
+                }
+            }
+            else
+            {
+                var pse = ResolveStorage(guidStr);
+                if (pse != null)
+                {
+                    if (isSource) route.SetSource(pse);
+                    else route.SetDest(pse);
+                }
+            }
         }
     }
 }

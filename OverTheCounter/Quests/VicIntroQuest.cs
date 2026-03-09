@@ -1,6 +1,6 @@
-using MelonLoader;
 using MelonLoader.Utils;
 using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using S1API.Quests;
 using S1API.Saveables;
 using S1API.Utils;
@@ -12,8 +12,6 @@ namespace OverTheCounter.Quests
 {
     public class VicIntroQuest : Quest
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:VicIntroQuest");
-
         protected override string Title => "Rinse Cycle";
         protected override string Description => "Help Vic with his party supplies and he'll help you clean some cash.";
         protected override bool AutoBegin => false;
@@ -47,7 +45,7 @@ namespace OverTheCounter.Quests
             }
             catch (System.Exception ex)
             {
-                Logger.Error($"TriggerInternalInit failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"TriggerInternalInit failed: {ex.Message}");
             }
         }
 
@@ -62,7 +60,7 @@ namespace OverTheCounter.Quests
             }
             catch (System.Exception ex)
             {
-                Logger.Error($"Initialize failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"Initialize failed: {ex.Message}");
             }
         }
 
@@ -85,7 +83,7 @@ namespace OverTheCounter.Quests
             }
             catch (System.Exception ex)
             {
-                Logger.Error($"StartQuest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"StartQuest failed: {ex.Message}");
             }
         }
 
@@ -99,7 +97,7 @@ namespace OverTheCounter.Quests
             }
             catch (System.Exception ex)
             {
-                Logger.Error($"CompleteObj1 failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"CompleteObj1 failed: {ex.Message}");
             }
         }
 
@@ -112,7 +110,7 @@ namespace OverTheCounter.Quests
             }
             catch (System.Exception ex)
             {
-                Logger.Error($"CompleteObj2 failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"CompleteObj2 failed: {ex.Message}");
             }
         }
 
@@ -158,7 +156,7 @@ namespace OverTheCounter.Quests
             }
             catch (System.Exception ex)
             {
-                Logger.Warning($"OnLoaded rebuild failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"OnLoaded rebuild failed: {ex.Message}");
             }
         }
     }

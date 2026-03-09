@@ -6,17 +6,25 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 using OverTheCounter.Logic;
+using OverTheCounter.UI;
 using OverTheCounter.Utilities;
 using OverTheCounter.SaveData;
 
 #if IL2CPP
+using Il2Cpp;
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Map;
+using Il2CppScheduleOne.Cartel;
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppTMPro;
 #else
 using ScheduleOne.Economy;
 using ScheduleOne.NPCs;
 using ScheduleOne.Map;
+using ScheduleOne.Cartel;
+using ScheduleOne.DevUtilities;
+using TMPro;
 #endif
 
 namespace OverTheCounter.Apps
@@ -25,73 +33,18 @@ namespace OverTheCounter.Apps
     {
         private void BuildCustomersPage(Transform parent)
         {
-            // Legend bar (tier 2+)
-            var legendObj = UIFactory.Panel("Legend", parent, new Color(0.18f, 0.18f, 0.18f));
-            var legendRect = legendObj.GetComponent<RectTransform>();
-            legendRect.anchorMin = new Vector2(0, 1);
-            legendRect.anchorMax = new Vector2(1, 1);
-            legendRect.pivot = new Vector2(0.5f, 1);
-            legendRect.anchoredPosition = Vector2.zero;
-            legendRect.sizeDelta = new Vector2(0, 25);
-            _legendObj = legendObj;
-
-            // Legend content
-            var legendText = UIFactory.Text("LegendText", "Addiction:", legendObj.transform, 12, TextAnchor.MiddleLeft);
-            var legendTextRect = legendText.gameObject.GetComponent<RectTransform>();
-            legendTextRect.anchorMin = new Vector2(0, 0);
-            legendTextRect.anchorMax = new Vector2(0, 1);
-            legendTextRect.pivot = new Vector2(0, 0.5f);
-            legendTextRect.anchoredPosition = new Vector2(15, 0);
-            legendTextRect.sizeDelta = new Vector2(70, 0);
-            legendText.color = new Color(0.7f, 0.7f, 0.7f);
-
-            var greenSample = UIFactory.Panel("GreenSample", legendObj.transform, new Color(0.2f, 0.7f, 0.2f));
-            var greenRect = greenSample.GetComponent<RectTransform>();
-            greenRect.anchorMin = new Vector2(0, 0.3f);
-            greenRect.anchorMax = new Vector2(0, 0.7f);
-            greenRect.pivot = new Vector2(0, 0.5f);
-            greenRect.anchoredPosition = new Vector2(90, 0);
-            greenRect.sizeDelta = new Vector2(30, 0);
-
-            var highLabel = UIFactory.Text("HighLabel", "High", legendObj.transform, 10, TextAnchor.MiddleLeft);
-            var highRect = highLabel.gameObject.GetComponent<RectTransform>();
-            highRect.anchorMin = new Vector2(0, 0);
-            highRect.anchorMax = new Vector2(0, 1);
-            highRect.pivot = new Vector2(0, 0.5f);
-            highRect.anchoredPosition = new Vector2(125, 0);
-            highRect.sizeDelta = new Vector2(35, 0);
-            highLabel.color = new Color(0.6f, 0.6f, 0.6f);
-
-            var redSample = UIFactory.Panel("RedSample", legendObj.transform, new Color(0.5f, 0.2f, 0.2f));
-            var redRect = redSample.GetComponent<RectTransform>();
-            redRect.anchorMin = new Vector2(0, 0.3f);
-            redRect.anchorMax = new Vector2(0, 0.7f);
-            redRect.pivot = new Vector2(0, 0.5f);
-            redRect.anchoredPosition = new Vector2(165, 0);
-            redRect.sizeDelta = new Vector2(30, 0);
-
-            var lowLabel = UIFactory.Text("LowLabel", "Low", legendObj.transform, 10, TextAnchor.MiddleLeft);
-            var lowRect = lowLabel.gameObject.GetComponent<RectTransform>();
-            lowRect.anchorMin = new Vector2(0, 0);
-            lowRect.anchorMax = new Vector2(0, 1);
-            lowRect.pivot = new Vector2(0, 0.5f);
-            lowRect.anchoredPosition = new Vector2(200, 0);
-            lowRect.sizeDelta = new Vector2(35, 0);
-            lowLabel.color = new Color(0.6f, 0.6f, 0.6f);
-
-            // Billing bar
+            // ── Billing bar (full width, top) ──
             var billingBarObj = UIFactory.Panel("BillingBar", parent, new Color(0.15f, 0.15f, 0.15f));
             var billingBarRt = billingBarObj.GetComponent<RectTransform>();
             billingBarRt.anchorMin = new Vector2(0, 1);
             billingBarRt.anchorMax = new Vector2(1, 1);
             billingBarRt.pivot = new Vector2(0.5f, 1);
-            billingBarRt.anchoredPosition = new Vector2(0, -25); // below legend
+            billingBarRt.anchoredPosition = Vector2.zero;
             billingBarRt.sizeDelta = new Vector2(0, 32);
             _billingBar = billingBarObj;
 
-            var billingTextComp = UIFactory.Text("BillingText", "", billingBarObj.transform, 16, TextAnchor.MiddleLeft);
-            billingTextComp.supportRichText = true;
-            billingTextComp.horizontalOverflow = HorizontalWrapMode.Wrap;
+            var billingTextComp = TMPFactory.Text("BillingText", "", billingBarObj.transform, 16, TextAlignmentOptions.Left);
+            billingTextComp.richText = true;
             billingTextComp.color = new Color(0.85f, 0.85f, 0.85f);
             var btRect = billingTextComp.gameObject.GetComponent<RectTransform>();
             btRect.anchorMin = Vector2.zero;
@@ -100,14 +53,47 @@ namespace OverTheCounter.Apps
             btRect.offsetMax = new Vector2(-12, 0);
             _billingText = billingTextComp;
 
-            // Scroll view
-            var contentRect = UIFactory.ScrollableVerticalList("CustomerScroll", parent, out ScrollRect scrollRect);
+            // ── Split area (fills remainder below legend+billing) ──
+            var splitArea = UIFactory.Panel("SplitArea", parent, Color.clear);
+            _custSplitAreaRect = splitArea.GetComponent<RectTransform>();
+            _custSplitAreaRect.anchorMin = Vector2.zero;
+            _custSplitAreaRect.anchorMax = Vector2.one;
+            _custSplitAreaRect.offsetMin = Vector2.zero;
+            _custSplitAreaRect.offsetMax = new Vector2(0, -32); // billing(32)
 
+            // ── Left panel (grid) ──
+            var leftPanel = UIFactory.Panel("GridPanel", splitArea.transform, Color.clear);
+            var leftRect = leftPanel.GetComponent<RectTransform>();
+            leftRect.anchorMin = Vector2.zero;
+            leftRect.anchorMax = new Vector2(0.65f, 1);
+            leftRect.offsetMin = Vector2.zero;
+            leftRect.offsetMax = Vector2.zero;
+
+            // ── Vertical divider ──
+            var sep = UIFactory.Panel("Divider", splitArea.transform, new Color(0.22f, 0.22f, 0.22f));
+            var sepRect = sep.GetComponent<RectTransform>();
+            sepRect.anchorMin = new Vector2(0.65f, 0);
+            sepRect.anchorMax = new Vector2(0.65f, 1);
+            sepRect.pivot = new Vector2(0, 0.5f);
+            sepRect.offsetMin = Vector2.zero;
+            sepRect.offsetMax = new Vector2(1, 0);
+
+            // ── Right panel (detail) ──
+            _custDetailPanel = UIFactory.Panel("DetailPanel", splitArea.transform, new Color(0.13f, 0.13f, 0.13f));
+            var rightRect = _custDetailPanel.GetComponent<RectTransform>();
+            rightRect.anchorMin = new Vector2(0.65f, 0);
+            rightRect.anchorMax = Vector2.one;
+            rightRect.offsetMin = new Vector2(2, 0);
+            rightRect.offsetMax = Vector2.zero;
+
+            // ── Scroll view inside left panel ──
+            var contentRect = UIFactory.ScrollableVerticalList("CustomerScroll", leftPanel.transform, out ScrollRect scrollRect);
             _customersScrollRect = scrollRect.GetComponent<RectTransform>();
+            _customersScroll = scrollRect;
             _customersScrollRect.anchorMin = Vector2.zero;
             _customersScrollRect.anchorMax = Vector2.one;
             _customersScrollRect.offsetMin = Vector2.zero;
-            _customersScrollRect.offsetMax = new Vector2(0, -57); // legend(25) + billing(32)
+            _customersScrollRect.offsetMax = Vector2.zero;
 
             var contentLayout = contentRect.GetComponent<VerticalLayoutGroup>();
             if (contentLayout != null)
@@ -117,14 +103,17 @@ namespace OverTheCounter.Apps
                 contentLayout.childForceExpandHeight = false;
                 contentLayout.childForceExpandWidth = true;
                 contentLayout.childAlignment = TextAnchor.UpperCenter;
-                contentLayout.spacing = 15;
-                contentLayout.padding = new RectOffset(10, 10, 5, 15);
+                contentLayout.spacing = 10;
+                contentLayout.padding = new RectOffset(8, 8, 5, 10);
             }
 
             scrollRect.horizontal = false;
             scrollRect.scrollSensitivity = 20f;
-
             _customersContentParent = contentRect.transform;
+
+            // ── Detail panel placeholder ──
+            ShowDetailPlaceholder(_custDetailPanel.transform);
+
             PopulateCustomerList(_customersContentParent);
         }
 
@@ -133,11 +122,6 @@ namespace OverTheCounter.Apps
             if (_customersContentParent == null) return;
 
             int tier = GetEffectiveTier();
-
-            // Show/hide legend (tier 2+)
-            bool showLegend = tier >= 2;
-            if (_legendObj != null)
-                _legendObj.SetActive(showLegend);
 
             // Update billing bar
             bool showBilling = tier > 0;
@@ -157,22 +141,88 @@ namespace OverTheCounter.Apps
                     _billingText.text = $"<b>Subscription renews in {displayDays} days</b>  <color=#4CAF50><b>(${Config.SaasWeeklyCost.Value:N0})</b></color>";
             }
 
-            // Dynamically position billing bar and scroll view based on visible bars
-            float yOffset = 0f;
-            if (showLegend) yOffset -= 25f;
+            if (_custSplitAreaRect != null)
+                _custSplitAreaRect.offsetMax = new Vector2(0, showBilling ? -32f : 0f);
 
-            if (showBilling && _billingBar != null)
-            {
-                var billingRt = _billingBar.GetComponent<RectTransform>();
-                billingRt.anchoredPosition = new Vector2(0, yOffset);
-                yOffset -= 32f;
-            }
-
-            if (_customersScrollRect != null)
-                _customersScrollRect.offsetMax = new Vector2(0, yOffset);
-
+            // Rebuild grid
             ClearChildren(_customersContentParent);
             PopulateCustomerList(_customersContentParent);
+
+            // Rebuild detail panel
+            if (_custDetailPanel != null)
+            {
+                if (_selectedCustomer != null)
+                    PopulateCustomerDetail(_selectedCustomer, tier);
+                else
+                    ShowDetailPlaceholder(_custDetailPanel.transform);
+            }
+        }
+
+        // ==================================================================
+        // Customer selection
+        // ==================================================================
+
+        private void SelectCustomer(Customer customer, GameObject cellObj)
+        {
+            // Remove highlight from previous selection
+            if (_selectedCellObj != null)
+                RemoveCellHighlight(_selectedCellObj);
+
+            _selectedCustomer = customer;
+            _selectedCellObj = cellObj;
+
+            // Apply highlight to newly selected cell
+            if (cellObj != null)
+                ApplyCellHighlight(cellObj);
+
+            // Rebuild the detail panel
+            int tier = GetEffectiveTier();
+            if (_custDetailPanel != null)
+                PopulateCustomerDetail(customer, tier);
+        }
+
+        private void ApplyCellHighlight(GameObject cellObj)
+        {
+            var highlight = UIFactory.Panel("SelectHighlight", cellObj.transform, new Color(0.35f, 0.55f, 0.95f, 0.22f));
+            var rt = highlight.GetComponent<RectTransform>();
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+            var img = highlight.GetComponent<Image>();
+            if (img != null) img.raycastTarget = false;
+
+            // Add a border outline
+            var border = cellObj.GetComponent<Outline>() ?? cellObj.AddComponent<Outline>();
+            border.effectColor = new Color(0.4f, 0.65f, 1f, 1f);
+            border.effectDistance = new Vector2(2f, 2f);
+        }
+
+        private void RemoveCellHighlight(GameObject cellObj)
+        {
+            if (cellObj == null) return;
+            var highlight = cellObj.transform.Find("SelectHighlight");
+            if (highlight != null)
+                UnityEngine.Object.Destroy(highlight.gameObject);
+
+            // Only remove outline if not a desperate-cell outline (desperate uses red)
+            var outline = cellObj.GetComponent<Outline>();
+            if (outline != null && outline.effectColor.b > 0.5f) // blue = selection outline
+                UnityEngine.Object.Destroy(outline);
+        }
+
+        private void ShowDetailPlaceholder(Transform parent)
+        {
+            if (parent == null) return;
+            ClearChildren(parent);
+
+            var msg = TMPFactory.Text("Placeholder", "Select a customer\nto view details", parent, 16, TextAlignmentOptions.Center);
+            msg.color = new Color(0.4f, 0.4f, 0.4f);
+            var msgRect = msg.gameObject.GetComponent<RectTransform>();
+            msgRect.anchorMin = new Vector2(0, 0.4f);
+            msgRect.anchorMax = new Vector2(1, 0.6f);
+            msgRect.offsetMin = Vector2.zero;
+            msgRect.offsetMax = Vector2.zero;
         }
 
         // ==================================================================
@@ -185,15 +235,15 @@ namespace OverTheCounter.Apps
 
             if (hasMetStatic)
             {
-                var titleObj = UIFactory.Text("PaywallTitle", "<b>SERVICE OFFLINE</b>", contentParent, 22, TextAnchor.MiddleCenter);
+                var titleObj = TMPFactory.Text("PaywallTitle", "<b>SERVICE OFFLINE</b>", contentParent, 22, TextAlignmentOptions.Center);
                 titleObj.color = new Color(0.7f, 0.2f, 0.2f);
                 var titleLayout = titleObj.gameObject.AddComponent<LayoutElement>();
                 titleLayout.preferredHeight = 40;
                 titleLayout.flexibleWidth = 1;
 
-                var subtitleObj = UIFactory.Text("PaywallSubtitle",
+                var subtitleObj = TMPFactory.Text("PaywallSubtitle",
                     "Active subscription required.\nVisit Static at the Casino to renew.",
-                    contentParent, 14, TextAnchor.MiddleCenter);
+                    contentParent, 15, TextAlignmentOptions.Center);
                 subtitleObj.color = new Color(0.6f, 0.6f, 0.6f);
                 var subtitleLayout = subtitleObj.gameObject.AddComponent<LayoutElement>();
                 subtitleLayout.preferredHeight = 50;
@@ -201,15 +251,15 @@ namespace OverTheCounter.Apps
             }
             else
             {
-                var titleObj = UIFactory.Text("LicenseTitle", "<b>LICENSE INVALID</b>", contentParent, 22, TextAnchor.MiddleCenter);
+                var titleObj = TMPFactory.Text("LicenseTitle", "<b>LICENSE INVALID</b>", contentParent, 22, TextAlignmentOptions.Center);
                 titleObj.color = new Color(0.6f, 0.6f, 0.6f);
                 var titleLayout = titleObj.gameObject.AddComponent<LayoutElement>();
                 titleLayout.preferredHeight = 40;
                 titleLayout.flexibleWidth = 1;
 
-                var subtitleObj = UIFactory.Text("LicenseSubtitle",
+                var subtitleObj = TMPFactory.Text("LicenseSubtitle",
                     "Please wait for an authorized\nrepresentative to contact you.",
-                    contentParent, 14, TextAnchor.MiddleCenter);
+                    contentParent, 15, TextAlignmentOptions.Center);
                 subtitleObj.color = new Color(0.5f, 0.5f, 0.5f);
                 var subtitleLayout = subtitleObj.gameObject.AddComponent<LayoutElement>();
                 subtitleLayout.preferredHeight = 50;
@@ -232,7 +282,7 @@ namespace OverTheCounter.Apps
 
             if ((unlocked == null || unlocked.Count == 0) && (locked == null || locked.Count == 0))
             {
-                UIFactory.Text("Empty", "No Customers Known", contentParent, 20, TextAnchor.MiddleCenter);
+                TMPFactory.Text("Empty", "No Customers Known", contentParent, 20, TextAlignmentOptions.Center);
                 return;
             }
 
@@ -264,17 +314,29 @@ namespace OverTheCounter.Apps
 
             if (!regionUnlocked)
             {
-                var lockedHeader = UIFactory.Text($"Header_{regionName}",
-                    $"<b>{regionName}</b> <color=#666666>[NO SIGNAL]</color>",
-                    parent, 18, TextAnchor.MiddleCenter);
-                lockedHeader.color = new Color(0.5f, 0.5f, 0.5f);
+                // For Downtown+: only show progress if the previous region is already unlocked
+                if (region >= EMapRegion.Downtown && !IsRegionUnlocked(effectiveTier, region - 1))
+                    return;
+
+                var lockedHeader = TMPFactory.Text($"Header_{regionName}",
+                    $"<b>{regionName}</b>  <color=#555555>[LOCKED]</color>",
+                    parent, 16, TextAlignmentOptions.Center);
+                lockedHeader.color = new Color(0.45f, 0.45f, 0.45f);
                 var lockedLayout = lockedHeader.gameObject.AddComponent<LayoutElement>();
+                lockedLayout.preferredHeight = 28f;
                 lockedLayout.flexibleWidth = 1;
+
+                // Regions 3+ (Downtown onwards) unlock via cartel influence reduction
+                if (region >= EMapRegion.Downtown)
+                    CreateCartelInfluenceProgress(parent, region);
+                else if (region == EMapRegion.Westville)
+                    CreateWestvilleUnlockHint(parent);
+
                 return;
             }
 
             string headerText = $"<b>{regionName}</b>";
-            var headerObj = UIFactory.Text($"Header_{regionName}", headerText, parent, 18, TextAnchor.MiddleCenter);
+            var headerObj = TMPFactory.Text($"Header_{regionName}", headerText, parent, 18, TextAlignmentOptions.Center);
             headerObj.color = new Color(0.8f, 0.8f, 0.8f);
 
             var headerLayout = headerObj.gameObject.AddComponent<LayoutElement>();
@@ -335,15 +397,8 @@ namespace OverTheCounter.Apps
 
             CreateCustomerSprite(avatarPanel.transform, customer.NPC);
 
-            // Addiction bar (tier 2+)
-            if (effectiveTier >= 2)
-            {
-                var addiction = Mathf.Clamp01(customer.CurrentAddiction);
-                CreateAddictionBar(cellObj.transform, addiction);
-            }
-
             // Name label
-            var nameObj = UIFactory.Text("Name", customer.NPC.FirstName, cellObj.transform, 12, TextAnchor.UpperCenter);
+            var nameObj = TMPFactory.Text("Name", customer.NPC.FirstName, cellObj.transform, 15, TextAlignmentOptions.Top);
             nameObj.color = Color.white;
             var nameRect = nameObj.gameObject.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0, 0);
@@ -355,7 +410,7 @@ namespace OverTheCounter.Apps
             // Desperation indicator
             if (isDesperate)
             {
-                var urgentLabel = UIFactory.Text("UrgentLabel", "<b>URGENT!</b>", cellObj.transform, 10, TextAnchor.UpperCenter);
+                var urgentLabel = TMPFactory.Text("UrgentLabel", "<b>URGENT!</b>", cellObj.transform, 15, TextAlignmentOptions.Top);
                 var urgentRect = urgentLabel.gameObject.GetComponent<RectTransform>();
                 urgentRect.anchorMin = new Vector2(0, 1);
                 urgentRect.anchorMax = new Vector2(1, 1);
@@ -365,23 +420,11 @@ namespace OverTheCounter.Apps
                 urgentLabel.color = new Color(1f, 0.3f, 0.3f);
             }
 
-            // GPS button (tier 3)
-            if (effectiveTier >= 3 && !isLocked)
+            // Apply selection highlight if this is the currently selected customer
+            if (!isLocked && customer == _selectedCustomer)
             {
-                var (gpsMask, gpsBtn, gpsLabel) = UIFactory.RoundedButtonWithLabel(
-                    "GPSBtn", "GPS", cellObj.transform,
-                    new Color(0.15f, 0.35f, 0.45f), 50, 20, 10, Color.white);
-
-                var gpsRect = gpsMask.GetComponent<RectTransform>();
-                gpsRect.anchorMin = new Vector2(1, 1);
-                gpsRect.anchorMax = new Vector2(1, 1);
-                gpsRect.pivot = new Vector2(1, 1);
-                gpsRect.anchoredPosition = new Vector2(-4, -4);
-
-                gpsBtn.onClick.AddListener(new Action(() =>
-                {
-                    CustomerLocator.PinCustomerToMap(customer);
-                }));
+                ApplyCellHighlight(cellObj);
+                _selectedCellObj = cellObj;
             }
 
             // Interactivity
@@ -391,55 +434,13 @@ namespace OverTheCounter.Apps
                 cg.alpha = 0.5f;
                 btn.interactable = false;
             }
-            else if (effectiveTier >= 3)
+            else
             {
                 btn.onClick.AddListener(new Action(() =>
                 {
-                    CustomerLocator.PinCustomerToMap(customer);
+                    SelectCustomer(customer, cellObj);
                 }));
             }
-        }
-
-        private void CreateAddictionBar(Transform parent, float addictionLevel)
-        {
-            int percentage = Mathf.RoundToInt(addictionLevel * 100);
-
-            var barObj = new GameObject("AddictionBar");
-            barObj.transform.SetParent(parent, false);
-            var barRect = barObj.AddComponent<RectTransform>();
-            barRect.anchorMin = new Vector2(0.05f, 0);
-            barRect.anchorMax = new Vector2(0.95f, 0);
-            barRect.pivot = new Vector2(0.5f, 0);
-            barRect.anchoredPosition = new Vector2(0, 28);
-            barRect.sizeDelta = new Vector2(0, 16);
-
-            var bgObj = new GameObject("Background");
-            bgObj.transform.SetParent(barObj.transform, false);
-            var bgRect = bgObj.AddComponent<RectTransform>();
-            bgRect.anchorMin = Vector2.zero;
-            bgRect.anchorMax = Vector2.one;
-            bgRect.offsetMin = Vector2.zero;
-            bgRect.offsetMax = Vector2.zero;
-            var bgImage = bgObj.AddComponent<Image>();
-            bgImage.color = new Color(0.5f, 0.2f, 0.2f, 1f);
-
-            var fillObj = new GameObject("Fill");
-            fillObj.transform.SetParent(barObj.transform, false);
-            var fillRect = fillObj.AddComponent<RectTransform>();
-            fillRect.anchorMin = Vector2.zero;
-            fillRect.anchorMax = new Vector2(addictionLevel, 1);
-            fillRect.offsetMin = Vector2.zero;
-            fillRect.offsetMax = Vector2.zero;
-            var fillImage = fillObj.AddComponent<Image>();
-            fillImage.color = new Color(0.2f, 0.7f, 0.2f, 1f);
-
-            var labelObj = UIFactory.Text("Label", $"{percentage}%", barObj.transform, 11, TextAnchor.MiddleCenter);
-            var labelRect = labelObj.gameObject.GetComponent<RectTransform>();
-            labelRect.anchorMin = Vector2.zero;
-            labelRect.anchorMax = Vector2.one;
-            labelRect.offsetMin = Vector2.zero;
-            labelRect.offsetMax = Vector2.zero;
-            labelObj.color = Color.white;
         }
 
         private void CreateCustomerSprite(Transform parent, NPC customer)
@@ -461,8 +462,110 @@ namespace OverTheCounter.Apps
             }
             else
             {
-                MelonLogger.Warning($"MugshotSprite is null for NPC: {customer.fullName}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"MugshotSprite is null for NPC: {customer.fullName}");
             }
+        }
+
+        // Cartel influence progress bar shown beneath locked region headers (Downtown+)
+        private void CreateCartelInfluenceProgress(Transform parent, EMapRegion lockedRegion)
+        {
+            EMapRegion prevRegion = lockedRegion - 1;
+
+            // If cartel is truced, regions are unavailable regardless of influence
+            bool truced = false;
+            try
+            {
+                if (NetworkSingleton<Cartel>.InstanceExists)
+                    truced = NetworkSingleton<Cartel>.Instance.Status == ECartelStatus.Truced;
+            }
+            catch { }
+
+            if (truced)
+            {
+                var unavailText = TMPFactory.Text("UnavailHint",
+                    "Unavailable while cartel is truced",
+                    parent, 15, TextAlignmentOptions.Center);
+                unavailText.color = new Color(0.45f, 0.45f, 0.45f);
+                var unavailLe = unavailText.gameObject.AddComponent<LayoutElement>();
+                unavailLe.preferredHeight = 20f;
+                unavailLe.flexibleWidth = 1;
+                return;
+            }
+
+            float influence = 1f;
+            try
+            {
+                if (NetworkSingleton<Cartel>.InstanceExists)
+                    influence = NetworkSingleton<Cartel>.Instance.Influence.GetInfluence(prevRegion);
+            }
+            catch { }
+
+            // Progress: 0 when influence is at max (1.0), 1 when at/below threshold (0.3)
+            float progress = Mathf.InverseLerp(1f, 0.3f, influence);
+            int influencePts = Mathf.RoundToInt(influence * 1000f);
+
+            var hintText = TMPFactory.Text("InfluenceHint",
+                $"Reduce {prevRegion} cartel influence to unlock",
+                parent, 15, TextAlignmentOptions.Center);
+            hintText.color = new Color(0.45f, 0.45f, 0.45f);
+            var hintLe = hintText.gameObject.AddComponent<LayoutElement>();
+            hintLe.preferredHeight = 20f;
+            hintLe.flexibleWidth = 1;
+
+            var barContainer = UIFactory.Panel("InfluenceBar", parent, Color.clear);
+            var barLe = barContainer.AddComponent<LayoutElement>();
+            barLe.preferredHeight = 18f;
+            barLe.flexibleWidth = 1;
+
+            var barBg = UIFactory.Panel("Bg", barContainer.transform, new Color(0.15f, 0.15f, 0.15f));
+            var bgRt = barBg.GetComponent<RectTransform>();
+            bgRt.anchorMin = Vector2.zero;
+            bgRt.anchorMax = Vector2.one;
+            bgRt.offsetMin = Vector2.zero;
+            bgRt.offsetMax = Vector2.zero;
+
+            var barFill = UIFactory.Panel("Fill", barContainer.transform, new Color(0.65f, 0.28f, 0.28f));
+            var fillRt = barFill.GetComponent<RectTransform>();
+            fillRt.anchorMin = Vector2.zero;
+            fillRt.anchorMax = new Vector2(progress, 1f);
+            fillRt.offsetMin = Vector2.zero;
+            fillRt.offsetMax = Vector2.zero;
+
+            var barLabel = TMPFactory.Text("BarLabel", $"{influencePts} / 1000  (need ≤300)", barContainer.transform, 15, TextAlignmentOptions.Center);
+            var barLabelRt = barLabel.gameObject.GetComponent<RectTransform>();
+            barLabelRt.anchorMin = Vector2.zero;
+            barLabelRt.anchorMax = Vector2.one;
+            barLabelRt.offsetMin = Vector2.zero;
+            barLabelRt.offsetMax = Vector2.zero;
+            barLabel.color = Color.white;
+            var shadow = barLabel.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0, 0, 0, 0.7f);
+            shadow.effectDistance = new Vector2(1, -1);
+
+            var spacer = UIFactory.Panel("Spacer", parent, Color.clear);
+            var spacerLe = spacer.AddComponent<LayoutElement>();
+            spacerLe.preferredHeight = 8f;
+            spacerLe.flexibleWidth = 1;
+            var spacerImg = spacer.GetComponent<Image>();
+            if (spacerImg != null) spacerImg.raycastTarget = false;
+        }
+
+        private void CreateWestvilleUnlockHint(Transform parent)
+        {
+            var hintText = TMPFactory.Text("WestvilleHint",
+                "Reach rank Hoodlum I to unlock",
+                parent, 15, TextAlignmentOptions.Center);
+            hintText.color = new Color(0.45f, 0.45f, 0.45f);
+            var hintLe = hintText.gameObject.AddComponent<LayoutElement>();
+            hintLe.preferredHeight = 20f;
+            hintLe.flexibleWidth = 1;
+
+            var spacer = UIFactory.Panel("Spacer", parent, Color.clear);
+            var spacerLe = spacer.AddComponent<LayoutElement>();
+            spacerLe.preferredHeight = 8f;
+            spacerLe.flexibleWidth = 1;
+            var spacerImg = spacer.GetComponent<Image>();
+            if (spacerImg != null) spacerImg.raycastTarget = false;
         }
 
         private class CustomerDisplayData

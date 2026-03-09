@@ -35,8 +35,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class ManagerInstance
     {
-        internal static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:Manager");
-
         /// <summary>
         /// All active manager instances, keyed by ID.
         /// </summary>
@@ -132,6 +130,9 @@ namespace OverTheCounter.Logic
         internal ManagerLocations.BusinessLocation TargetLocation { get; set; }
         public bool ArrivedAtDestination { get; set; }
         private float _lastEnsureMovingLog;
+        private int _consecutiveWalkFailures;
+        private const int WALK_AVOIDANCE_PRIORITY = 5;
+        private const int IDLE_AVOIDANCE_PRIORITY = 50;
 
         // Job rotation: supply → route0 → route1 → route2 → supply → ...
         // Step 0 = supply, 1-3 = distribution routes 0-2
@@ -155,13 +156,13 @@ namespace OverTheCounter.Logic
 
         public void Log(string message)
         {
-            Logger.Msg($"Manager {Id}: {message}");
+            OTCLog.Msg(OTCLog.Systems.Manager, $"{Id}: {message}");
             AppendToBuffer($"[{DateTime.Now:HH:mm:ss}] {message}");
         }
 
         public void LogWarning(string message)
         {
-            Logger.Warning($"Manager {Id}: {message}");
+            OTCLog.Warning(OTCLog.Systems.Manager, $"{Id}: {message}");
             AppendToBuffer($"[{DateTime.Now:HH:mm:ss}] [!] {message}");
         }
 
@@ -444,7 +445,7 @@ namespace OverTheCounter.Logic
         {
             if (Active.ContainsKey(id))
             {
-                Logger.Warning($"Manager {id} already exists, returning existing instance");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"{id} already exists, returning existing instance");
                 return Active[id];
             }
 
@@ -454,14 +455,14 @@ namespace OverTheCounter.Logic
                 if (existing.State == ManagerState.Fired) continue;
                 if (existing.BusinessPropertyCode == business.PropertyCode)
                 {
-                    Logger.Warning($"Business {business.PropertyCode} already has a manager ({existing.Id})");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"Business {business.PropertyCode} already has a manager ({existing.Id})");
                     return null;
                 }
             }
 
             // Use ManagerLocations if available, otherwise fall back to business spawn point
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"Looking up ManagerLocation for PropertyCode=\"{business.PropertyCode}\"");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"Looking up ManagerLocation for PropertyCode=\"{business.PropertyCode}\"");
             var location = ManagerLocations.GetLocation(business.PropertyCode);
 
             Vector3 spawnPos;
@@ -480,13 +481,13 @@ namespace OverTheCounter.Logic
                 spawnRot = business.NPCSpawnPoint != null
                     ? business.NPCSpawnPoint.rotation
                     : business.transform.rotation;
-                Logger.Warning($"No ManagerLocation for {business.PropertyCode}, using business spawn point");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"No ManagerLocation for {business.PropertyCode}, using business spawn point");
             }
 
             var (npc, avatarSettings) = ManagerSpawner.Spawn(id, seed, spawnPos, spawnRot);
             if (npc == null)
             {
-                Logger.Error($"Failed to spawn manager NPC for {id}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"Failed to spawn manager NPC for {id}");
                 return null;
             }
 
@@ -499,7 +500,7 @@ namespace OverTheCounter.Logic
 
             // Capture FishNet ObjectId for client-side adoption
             try { instance.NetworkObjectId = npc.NetworkObject.ObjectId; }
-            catch { Logger.Warning($"Could not get NetworkObjectId for {id}"); }
+            catch { OTCLog.Warning(OTCLog.Systems.Manager, $"Could not get NetworkObjectId for {id}"); }
 
             Active[id] = instance;
 
@@ -522,7 +523,7 @@ namespace OverTheCounter.Logic
                 instance.WalkToDestination(location);
             }
 
-            Logger.Msg($"Created manager {id} at business {business.PropertyCode} (NetObjId={instance.NetworkObjectId})");
+            OTCLog.Msg(OTCLog.Systems.Manager, $"Created manager {id} at business {business.PropertyCode} (NetObjId={instance.NetworkObjectId})");
             return instance;
         }
 
@@ -533,7 +534,7 @@ namespace OverTheCounter.Logic
         {
             if (Active.ContainsKey(id))
             {
-                Logger.Warning($"Manager {id} already exists, returning existing instance");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"{id} already exists, returning existing instance");
                 return Active[id];
             }
 
@@ -576,7 +577,7 @@ namespace OverTheCounter.Logic
             // Always-on map marker (like dealers)
             instance.SetupMapMarker();
 
-            Logger.Msg($"Adopted FishNet NPC for manager {id} ({firstName} {lastName}) at {business.PropertyCode}");
+            OTCLog.Msg(OTCLog.Systems.Manager, $"Adopted FishNet NPC for manager {id} ({firstName} {lastName}) at {business.PropertyCode}");
             return instance;
         }
 
@@ -597,6 +598,7 @@ namespace OverTheCounter.Logic
 
                 TargetLocation = location;
                 ArrivedAtDestination = false;
+                _consecutiveWalkFailures = 0;
 
                 _destCallback = (GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult>)
                     new Action<ScheduleOne.NPCs.NPCMovement.WalkResult>(result =>
@@ -606,11 +608,28 @@ namespace OverTheCounter.Logic
                         {
                             ArrivedAtDestination = true;
                             TargetLocation = null;
+                            _consecutiveWalkFailures = 0;
+                            RestoreIdlePriority();
                             FaceDirection(location.DestRotation);
+                        }
+                        else if (result == ScheduleOne.NPCs.NPCMovement.WalkResult.Failed)
+                        {
+                            _consecutiveWalkFailures++;
+                            if (!TryWalkEscalation(location.Destination, _destCallback))
+                            {
+                                LogWarning("escalation exhausted, warping to destination");
+                                WarpToPosition(location.Destination);
+                                ArrivedAtDestination = true;
+                                TargetLocation = null;
+                                _consecutiveWalkFailures = 0;
+                                RestoreIdlePriority();
+                                FaceDirection(location.DestRotation);
+                            }
                         }
                         // On Stopped (e.g. dialogue interrupt), leave TargetLocation set so EnsureMoving can resume
                     });
 
+                SetWalkingPriority();
                 GameNpc.Movement.SetDestination(location.Destination, _destCallback, 3f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
                     Log($"walking to destination: {location.Destination}");
@@ -631,6 +650,82 @@ namespace OverTheCounter.Logic
                 GameNpc?.Movement?.FaceDirection(rotation * Vector3.forward);
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Cascading fallback chain for walk failures (hire walk).
+        /// Returns true if an escalation was attempted, false if all levels exhausted.
+        /// </summary>
+        private bool TryWalkEscalation(Vector3 target,
+            GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> callback)
+        {
+            var movement = GameNpc?.Movement;
+            if (movement == null) return false;
+
+            switch (_consecutiveWalkFailures)
+            {
+                case 1:
+                    if (Config.ManagerVerboseLogging.Value)
+                        Log("walk failed, retrying with IgnoreCosts");
+                    movement.SetAgentType(ScheduleOne.NPCs.NPCMovement.EAgentType.IgnoreCosts);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                case 2:
+                    if (Config.ManagerVerboseLogging.Value)
+                        Log("walk failed with IgnoreCosts, retrying on Humanoid");
+                    movement.SetAgentType(ScheduleOne.NPCs.NPCMovement.EAgentType.Humanoid);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                case 3:
+                    if (Config.ManagerVerboseLogging.Value)
+                        Log("walk failed, IgnoreCosts from current position");
+                    movement.SetAgentType(ScheduleOne.NPCs.NPCMovement.EAgentType.IgnoreCosts);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                default:
+                    if (Config.ManagerVerboseLogging.Value)
+                        Log("all walk escalation attempts exhausted");
+                    movement.SetAgentType(ScheduleOne.NPCs.NPCMovement.EAgentType.Humanoid);
+                    return false;
+            }
+        }
+
+        private void SetWalkingPriority()
+        {
+            try
+            {
+                var agent = GameNpc?.Movement?.Agent;
+                if (agent != null) agent.avoidancePriority = WALK_AVOIDANCE_PRIORITY;
+            }
+            catch { }
+        }
+
+        private void RestoreIdlePriority()
+        {
+            try
+            {
+                var agent = GameNpc?.Movement?.Agent;
+                if (agent != null) agent.avoidancePriority = IDLE_AVOIDANCE_PRIORITY;
+            }
+            catch { }
+        }
+
+        private void WarpToPosition(Vector3 position)
+        {
+            try
+            {
+                if (NavMeshUtility.SamplePosition(position, out UnityEngine.AI.NavMeshHit hit, 5f, -1))
+                    GameNpc?.Movement?.Warp(hit.position);
+                else
+                    GameNpc?.Movement?.Warp(position);
+            }
+            catch (Exception ex)
+            {
+                LogWarning($"WarpToPosition failed: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -1022,7 +1117,7 @@ namespace OverTheCounter.Logic
         {
             if (locker.EmployeeSpecificMeshes == null || locker.EmployeeSpecificMeshes.Length == 0)
             {
-                Logger.Warning("Locker band: EmployeeSpecificMeshes is null/empty");
+                OTCLog.Warning(OTCLog.Systems.Manager, "Locker band: EmployeeSpecificMeshes is null/empty");
                 return;
             }
 
@@ -1035,7 +1130,7 @@ namespace OverTheCounter.Logic
 
             if (bandMat == null)
             {
-                Logger.Warning("No employee-specific material found on locker");
+                OTCLog.Warning(OTCLog.Systems.Manager, "No employee-specific material found on locker");
                 return;
             }
 
@@ -1300,7 +1395,7 @@ namespace OverTheCounter.Logic
             }
             string result = string.Join(";", parts);
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"SerializeManagerState: {Active.Count} managers → '{result}'");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"SerializeManagerState: {Active.Count} managers → '{result}'");
             return result;
         }
 
@@ -1375,7 +1470,7 @@ namespace OverTheCounter.Logic
                     return i;
                 }
             }
-            Logger.Warning($"AllocateSlot: no free slots for {managerId} (all {_slotManagerId.Length} in use)");
+            OTCLog.Warning(OTCLog.Systems.Manager, $"AllocateSlot: no free slots for {managerId} (all {_slotManagerId.Length} in use)");
             return -1;
         }
 
@@ -1409,7 +1504,7 @@ namespace OverTheCounter.Logic
                 NetworkSyncBridge.PushManagerSlot(slot, payload);
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"PublishSlot[{slot}]: {mgr.Id} ({payload.Length} chars)");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"PublishSlot[{slot}]: {mgr.Id} ({payload.Length} chars)");
             }
 
             // Clear slots for managers that are no longer active
@@ -1418,7 +1513,7 @@ namespace OverTheCounter.Logic
                 if (_slotManagerId[i] != null && !activeIds.Contains(_slotManagerId[i]))
                 {
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"PublishSlot[{i}]: clearing (was {_slotManagerId[i]})");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"PublishSlot[{i}]: clearing (was {_slotManagerId[i]})");
                     NetworkSyncBridge.ClearManagerSlot(i);
                     _managerSlot.Remove(_slotManagerId[i]);
                     _slotManagerId[i] = null;
@@ -1481,7 +1576,7 @@ namespace OverTheCounter.Logic
         public static void ApplyManagerSlot(int slot, string data)
         {
             if (Config.ManagerVerboseLogging.Value)
-                Logger.Msg($"ApplyManagerSlot[{slot}]: '{data}' (Active={Active.Count}, Pending={_pendingAdoptions.Count})");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"ApplyManagerSlot[{slot}]: '{data}' (Active={Active.Count}, Pending={_pendingAdoptions.Count})");
 
             // Empty slot → manager was removed/fired
             if (string.IsNullOrEmpty(data))
@@ -1495,7 +1590,7 @@ namespace OverTheCounter.Logic
                     // Despawn if active
                     if (Active.TryGetValue(oldId, out var stale))
                     {
-                        Logger.Msg($"ApplyManagerSlot[{slot}]: despawning {oldId} (slot cleared by host)");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"ApplyManagerSlot[{slot}]: despawning {oldId} (slot cleared by host)");
                         stale.ClearMessages();
                         stale.Despawn();
                     }
@@ -1513,20 +1608,20 @@ namespace OverTheCounter.Logic
             var parts = data.Split(':');
             if (parts.Length < 5)
             {
-                Logger.Warning($"ApplyManagerSlot[{slot}]: malformed data '{data}' (parts={parts.Length})");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ApplyManagerSlot[{slot}]: malformed data '{data}' (parts={parts.Length})");
                 return;
             }
 
             string id = parts[0];
             if (!int.TryParse(parts[1], out int seed))
             {
-                Logger.Warning($"ApplyManagerSlot[{slot}]: bad seed in '{data}'");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ApplyManagerSlot[{slot}]: bad seed in '{data}'");
                 return;
             }
             string bizCode = parts[2];
             if (!int.TryParse(parts[3], out int netObjId))
             {
-                Logger.Warning($"ApplyManagerSlot[{slot}]: bad netObjId in '{data}'");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"ApplyManagerSlot[{slot}]: bad netObjId in '{data}'");
                 return;
             }
             int.TryParse(parts[4], out int stateCode);
@@ -1556,7 +1651,7 @@ namespace OverTheCounter.Logic
                     && string.Equals(UI.ManagerConfigPanel.CurrentManagerId, id))
                 {
                     if (Config.ManagerVerboseLogging.Value)
-                        Logger.Msg($"ApplyManagerSlot[{slot}]: {id} skipped config update (clipboard open on client)");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"ApplyManagerSlot[{slot}]: {id} skipped config update (clipboard open on client)");
                     RebuildSyncedBusinesses();
                     return;
                 }
@@ -1572,7 +1667,7 @@ namespace OverTheCounter.Logic
                         {
                             existing.AssignedBusiness = biz;
                             existing.BusinessPropertyCode = bizCode;
-                            Logger.Msg($"ApplyManagerSlot[{slot}]: {id} transferred to {bizCode}");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"ApplyManagerSlot[{slot}]: {id} transferred to {bizCode}");
                             break;
                         }
                     }
@@ -1591,7 +1686,7 @@ namespace OverTheCounter.Logic
                 ApplyStateCode(existing, stateCode);
 
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"ApplyManagerSlot[{slot}]: {id} already in Active, updated config+state");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"ApplyManagerSlot[{slot}]: {id} already in Active, updated config+state");
                 RebuildSyncedBusinesses();
                 return;
             }
@@ -1602,7 +1697,7 @@ namespace OverTheCounter.Logic
                 _pendingAdoptions[id].ConfigStr = configStr;
                 _pendingAdoptions[id].StateCode = stateCode;
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"ApplyManagerSlot[{slot}]: {id} already pending, updated config");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"ApplyManagerSlot[{slot}]: {id} already pending, updated config");
                 RebuildSyncedBusinesses();
                 return;
             }
@@ -1618,7 +1713,7 @@ namespace OverTheCounter.Logic
                     ConfigStr = configStr, StateCode = stateCode
                 };
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"ApplyManagerSlot[{slot}]: NPC ObjectId {netObjId} not found yet, queued adoption for {id}");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"ApplyManagerSlot[{slot}]: NPC ObjectId {netObjId} not found yet, queued adoption for {id}");
                 RebuildSyncedBusinesses();
                 return;
             }
@@ -1657,7 +1752,7 @@ namespace OverTheCounter.Logic
 
             if (business == null)
             {
-                Logger.Warning($"TryAdopt: business '{bizCode}' not found for manager {id}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"TryAdopt: business '{bizCode}' not found for manager {id}");
                 return;
             }
 
@@ -1681,7 +1776,7 @@ namespace OverTheCounter.Logic
                 // Send greeting text locally (host sends its own during HireManager)
                 instance.SendGreeting($"Hey boss! I'm your new manager at {business.PropertyName}. Use the clipboard to assign me a locker and I'll get to work.");
 
-                Logger.Msg($"Adopted manager {id} at {bizCode} (NetObjId={netObjId}, config={!string.IsNullOrEmpty(configStr)})");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"Adopted manager {id} at {bizCode} (NetObjId={netObjId}, config={!string.IsNullOrEmpty(configStr)})");
             }
         }
 
@@ -1705,7 +1800,7 @@ namespace OverTheCounter.Logic
                 // Give up after 15 seconds
                 if (now - pa.CreatedTime > 15f)
                 {
-                    Logger.Warning($"Giving up adoption for manager {pa.Id} (timeout)");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"Giving up adoption for manager {pa.Id} (timeout)");
                     completed.Add(kv.Key);
                     continue;
                 }
@@ -1773,7 +1868,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Failed to cleanup manager {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"Failed to cleanup manager {id}: {ex.Message}");
                 }
             }
             Active.Clear();

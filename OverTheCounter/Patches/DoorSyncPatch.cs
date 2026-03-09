@@ -1,5 +1,4 @@
 using HarmonyLib;
-using MelonLoader;
 using OverTheCounter.Logic.Placement;
 using OverTheCounter.Utilities;
 using OverTheCounter.SaveData;
@@ -27,7 +26,6 @@ namespace OverTheCounter.Patches
     /// </summary>
     public static class DoorSyncPatch
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:DoorSyncPatch");
 
         public static void TryApply(HarmonyLib.Harmony harmony)
         {
@@ -37,15 +35,15 @@ namespace OverTheCounter.Patches
                     new[] { typeof(bool), typeof(EDoorSide) });
                 if (method == null)
                 {
-                    Logger.Warning("DoorController.SetIsOpen(bool, EDoorSide) not found — door sync skipped.");
+                    OTCLog.Warning(OTCLog.Systems.Network,"DoorController.SetIsOpen(bool, EDoorSide) not found — door sync skipped.");
                     return;
                 }
                 harmony.Patch(method, postfix: new HarmonyMethod(typeof(DoorSyncPatch), nameof(Postfix)));
-                Logger.Msg("DoorSync patch applied.");
+                OTCLog.Msg(OTCLog.Systems.Network,"DoorSync patch applied.");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"DoorSync patch failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network,$"DoorSync patch failed: {ex.Message}");
             }
         }
 
@@ -60,7 +58,7 @@ namespace OverTheCounter.Patches
             WestvilleShack.CachedDoorSide = openSide;
 
             if (Config.VerboseLogging.Value)
-                Logger.Msg($"[DoorSyncPatch] open={open} side={openSide} isHost={NetworkHelper.IsHost}");
+                OTCLog.Msg(OTCLog.Systems.Network,$"[DoorSyncPatch] open={open} side={openSide} isHost={NetworkHelper.IsHost}");
 
             if (NetworkHelper.IsHost)
             {

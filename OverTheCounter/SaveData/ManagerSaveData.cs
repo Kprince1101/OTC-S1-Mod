@@ -23,7 +23,6 @@ namespace OverTheCounter.SaveData
 {
     public class ManagerSaveData : Saveable
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ManagerSaveData");
 
         [SaveableField("manager_state")]
         private string _managerState;
@@ -70,7 +69,7 @@ namespace OverTheCounter.SaveData
             if (!string.IsNullOrEmpty(_managerState))
             {
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"OnLoaded: manager state found ({_managerState.Length} chars), deferring respawn");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"OnLoaded: state found ({_managerState.Length} chars), deferring respawn");
                 _needsRespawn = true;
                 _respawnStartTime = UnityEngine.Time.time;
             }
@@ -114,7 +113,7 @@ namespace OverTheCounter.SaveData
                 {
                     if (UnityEngine.Time.time - _respawnStartTime > 30f)
                     {
-                        Logger.Warning("TryRespawn: timed out waiting for game load");
+                        OTCLog.Warning(OTCLog.Systems.Manager, "TryRespawn: timed out waiting for game load");
                         _needsRespawn = false;
                     }
                     return;
@@ -124,7 +123,7 @@ namespace OverTheCounter.SaveData
             {
                 if (UnityEngine.Time.time - _respawnStartTime > 30f)
                 {
-                    Logger.Warning("TryRespawn: timed out (LoadManager unavailable)");
+                    OTCLog.Warning(OTCLog.Systems.Manager, "TryRespawn: timed out (Load unavailable)");
                     _needsRespawn = false;
                 }
                 return;
@@ -135,7 +134,7 @@ namespace OverTheCounter.SaveData
             {
                 if (UnityEngine.Time.time - _respawnStartTime > 30f)
                 {
-                    Logger.Warning("TryRespawn: timed out waiting for businesses");
+                    OTCLog.Warning(OTCLog.Systems.Manager, "TryRespawn: timed out waiting for businesses");
                     _needsRespawn = false;
                 }
                 return;
@@ -147,7 +146,7 @@ namespace OverTheCounter.SaveData
             if (ManagerController.Instance != null)
                 ManagerController.Instance.RestoreIdCounter(_idCounter);
 
-            Logger.Msg($"TryRespawn: restoring managers from saved state");
+            OTCLog.Msg(OTCLog.Systems.Manager, "TryRespawn: restoring from saved state");
 
             var entries = _managerState.Split(';');
             foreach (var entry in entries)
@@ -160,7 +159,7 @@ namespace OverTheCounter.SaveData
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"TryRespawn: failed to restore entry '{entry}': {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.Manager, $"TryRespawn: failed to restore entry '{entry}': {ex.Message}");
                 }
             }
 
@@ -182,7 +181,7 @@ namespace OverTheCounter.SaveData
             if (!string.IsNullOrEmpty(_npcInventories))
             {
                 if (Config.ManagerVerboseLogging.Value)
-                    Logger.Msg($"TryRespawn: queuing NPC inventory restore ({_npcInventories.Length} chars): {_npcInventories}");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"TryRespawn: queuing NPC inventory restore ({_npcInventories.Length} chars): {_npcInventories}");
                 ParsePendingNpcInventories(_npcInventories);
             }
 
@@ -196,14 +195,14 @@ namespace OverTheCounter.SaveData
             var parts = entry.Split(':');
             if (parts.Length < 4)
             {
-                Logger.Warning($"RespawnManager: malformed entry '{entry}'");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"Respawn: malformed entry '{entry}'");
                 return;
             }
 
             string id = parts[0];
             if (!int.TryParse(parts[1], out int seed))
             {
-                Logger.Warning($"RespawnManager: bad seed in '{entry}'");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"Respawn: bad seed in '{entry}'");
                 return;
             }
             string bizCode = parts[2];
@@ -217,7 +216,7 @@ namespace OverTheCounter.SaveData
             // Skip if already active
             if (ManagerInstance.Active.ContainsKey(id))
             {
-                Logger.Warning($"RespawnManager: {id} already active, skipping");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"Respawn: {id} already active, skipping");
                 return;
             }
 
@@ -234,14 +233,14 @@ namespace OverTheCounter.SaveData
 
             if (business == null)
             {
-                Logger.Warning($"RespawnManager: business '{bizCode}' not found for {id}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"Respawn: business '{bizCode}' not found for {id}");
                 return;
             }
 
             var instance = ManagerInstance.Create(id, seed, business);
             if (instance == null)
             {
-                Logger.Error($"RespawnManager: Create failed for {id}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"Respawn: Create failed for {id}");
                 return;
             }
 
@@ -265,7 +264,7 @@ namespace OverTheCounter.SaveData
                 }
             }
 
-            Logger.Msg($"RespawnManager: restored {id} at {bizCode} (seed={seed})");
+            OTCLog.Msg(OTCLog.Systems.Manager, $"Respawn: restored {id} at {bizCode} (seed={seed})");
         }
 
         /// <summary>
@@ -286,7 +285,7 @@ namespace OverTheCounter.SaveData
         {
             if (UnityEngine.Time.time - _pendingConfigStartTime > 30f)
             {
-                Logger.Warning($"RetryPendingConfigs: timed out, clearing {_pendingConfigs.Count} pending");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"RetryPendingConfigs: timed out, clearing {_pendingConfigs.Count} pending");
                 _pendingConfigs.Clear();
                 return;
             }
@@ -302,13 +301,13 @@ namespace OverTheCounter.SaveData
                     if (mgr.HasLocker)
                     {
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"RetryPendingConfigs: {mgr.Id} locker resolved");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"RetryPendingConfigs: {mgr.Id} locker resolved");
                         _pendingConfigs.RemoveAt(i);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"RetryPendingConfigs: {mgr.Id} retry failed: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"RetryPendingConfigs: {mgr.Id} retry failed: {ex.Message}");
                 }
             }
         }
@@ -336,20 +335,20 @@ namespace OverTheCounter.SaveData
 
                     if (mgr.GameNpc == null)
                     {
-                        Logger.Warning($"SerializeNpcInv: {mgr.Id} GameNpc is null");
+                        OTCLog.Warning(OTCLog.Systems.Manager, $"SerializeNpcInv: {mgr.Id} GameNpc is null");
                         continue;
                     }
 
                     var npcInv = mgr.GameNpc.GetComponent<ScheduleOne.NPCs.NPCInventory>();
                     if (npcInv == null)
                     {
-                        Logger.Warning($"SerializeNpcInv: {mgr.Id} NPCInventory component not found");
+                        OTCLog.Warning(OTCLog.Systems.Manager, $"SerializeNpcInv: {mgr.Id} NPCInventory component not found");
                         continue;
                     }
 
                     if (npcInv.ItemSlots == null)
                     {
-                        Logger.Warning($"SerializeNpcInv: {mgr.Id} ItemSlots is null");
+                        OTCLog.Warning(OTCLog.Systems.Manager, $"SerializeNpcInv: {mgr.Id} ItemSlots is null");
                         continue;
                     }
 
@@ -406,7 +405,7 @@ namespace OverTheCounter.SaveData
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"SerializeNpcInv: {mgr.Id} failed: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"SerializeNpcInv: {mgr.Id} failed: {ex.Message}");
                 }
             }
 
@@ -470,12 +469,12 @@ namespace OverTheCounter.SaveData
                     {
                         _pendingNpcRestores.Add(pending);
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"ParsePendingNpcInv: {mgrId} queued cash=${cash:F0}, {pending.Items.Count} item types");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"ParsePendingNpcInv: {mgrId} queued cash=${cash:F0}, {pending.Items.Count} item types");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"ParsePendingNpcInv: failed on '{entry}': {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"ParsePendingNpcInv: failed on '{entry}': {ex.Message}");
                 }
             }
 
@@ -491,7 +490,7 @@ namespace OverTheCounter.SaveData
         {
             if (UnityEngine.Time.time - _pendingNpcRestoreStartTime > 30f)
             {
-                Logger.Warning($"RetryPendingNpcRestores: timed out, {_pendingNpcRestores.Count} entries lost");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"RetryPendingNpcRestores: timed out, {_pendingNpcRestores.Count} entries lost");
                 _pendingNpcRestores.Clear();
                 return;
             }
@@ -517,7 +516,7 @@ namespace OverTheCounter.SaveData
                     {
                         npcInv.AddCash(p.Cash);
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"RestoreNpcInv: {p.ManagerId} restored ${p.Cash:F0} cash to NPC");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"RestoreNpcInv: {p.ManagerId} restored ${p.Cash:F0} cash to NPC");
                         p.Cash = 0f;
                     }
 
@@ -547,12 +546,12 @@ namespace OverTheCounter.SaveData
                                     mgr.DistributionBehaviour?.SetSlotDestination(slotIdx, destGuid);
                             }
                             if (Config.ManagerVerboseLogging.Value)
-                                Logger.Msg($"RestoreNpcInv: {p.ManagerId} restored {qty}x {itemId}{(string.IsNullOrEmpty(destGuid) ? "" : $" → dest {destGuid}")} to NPC");
+                                OTCLog.Msg(OTCLog.Systems.Manager, $"RestoreNpcInv: {p.ManagerId} restored {qty}x {itemId}{(string.IsNullOrEmpty(destGuid) ? "" : $" → dest {destGuid}")} to NPC");
                             p.Items.RemoveAt(j);
                         }
                         catch (Exception ex)
                         {
-                            Logger.Warning($"RestoreNpcInv: {p.ManagerId} item '{itemId}' failed: {ex.Message}");
+                            OTCLog.Warning(OTCLog.Systems.Manager, $"RestoreNpcInv: {p.ManagerId} item '{itemId}' failed: {ex.Message}");
                             p.Items.RemoveAt(j);
                         }
                     }
@@ -562,12 +561,12 @@ namespace OverTheCounter.SaveData
                     {
                         _pendingNpcRestores.RemoveAt(i);
                         if (Config.ManagerVerboseLogging.Value)
-                            Logger.Msg($"RestoreNpcInv: {p.ManagerId} fully restored");
+                            OTCLog.Msg(OTCLog.Systems.Manager, $"RestoreNpcInv: {p.ManagerId} fully restored");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"RetryPendingNpcRestores: {p.ManagerId} error: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"RetryPendingNpcRestores: {p.ManagerId} error: {ex.Message}");
                 }
             }
         }
@@ -580,13 +579,13 @@ namespace OverTheCounter.SaveData
         private static int RestoreToEmptySlot(ScheduleOne.NPCs.NPCInventory inventory, string itemId, int quantity, string mgrId)
         {
             var itemDef = ScheduleOne.Registry.GetItem(itemId);
-            if (itemDef == null) { Logger.Warning($"RestoreToEmptySlot: {mgrId} Registry.GetItem('{itemId}') returned null"); return -1; }
+            if (itemDef == null) { OTCLog.Warning(OTCLog.Systems.Manager, $"RestoreToEmptySlot: {mgrId} Registry.GetItem('{itemId}') returned null"); return -1; }
 
             var storableDef = itemDef.TryCast<ScheduleOne.ItemFramework.StorableItemDefinition>();
-            if (storableDef == null) { Logger.Warning($"RestoreToEmptySlot: {mgrId} item '{itemId}' not StorableItemDefinition"); return -1; }
+            if (storableDef == null) { OTCLog.Warning(OTCLog.Systems.Manager, $"RestoreToEmptySlot: {mgrId} item '{itemId}' not StorableItemDefinition"); return -1; }
 
             var instance = storableDef.GetDefaultInstance(quantity);
-            if (instance == null) { Logger.Warning($"RestoreToEmptySlot: {mgrId} GetDefaultInstance null for '{itemId}'"); return -1; }
+            if (instance == null) { OTCLog.Warning(OTCLog.Systems.Manager, $"RestoreToEmptySlot: {mgrId} GetDefaultInstance null for '{itemId}'"); return -1; }
 
             for (int i = 0; i < inventory.ItemSlots.Count; i++)
             {
@@ -598,7 +597,7 @@ namespace OverTheCounter.SaveData
                 }
             }
 
-            Logger.Warning($"RestoreToEmptySlot: {mgrId} no empty slot for '{itemId}'");
+            OTCLog.Warning(OTCLog.Systems.Manager, $"RestoreToEmptySlot: {mgrId} no empty slot for '{itemId}'");
             return -1;
         }
 
@@ -613,7 +612,7 @@ namespace OverTheCounter.SaveData
             {
                 var cashInstance = NetworkSingleton<ScheduleOne.Money.MoneyManager>.Instance
                     .GetCashInstance(balance);
-                if (cashInstance == null) { Logger.Warning($"RestoreCashToEmptySlot: {mgrId} GetCashInstance returned null"); return -1; }
+                if (cashInstance == null) { OTCLog.Warning(OTCLog.Systems.Manager, $"RestoreCashToEmptySlot: {mgrId} GetCashInstance returned null"); return -1; }
 
                 for (int i = 0; i < inventory.ItemSlots.Count; i++)
                 {
@@ -627,11 +626,11 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"RestoreCashToEmptySlot: {mgrId} failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"RestoreCashToEmptySlot: {mgrId} failed: {ex.Message}");
                 return -1;
             }
 
-            Logger.Warning($"RestoreCashToEmptySlot: {mgrId} no empty slot for ${balance:F0} cash");
+            OTCLog.Warning(OTCLog.Systems.Manager, $"RestoreCashToEmptySlot: {mgrId} no empty slot for ${balance:F0} cash");
             return -1;
         }
 
@@ -659,7 +658,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Warning($"CaptureState failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"CaptureState failed: {ex.Message}");
             }
         }
     }

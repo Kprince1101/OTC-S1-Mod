@@ -10,10 +10,12 @@ using UnityEngine.AI;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.Storage;
 #else
 using ScheduleOne.DevUtilities;
 using ScheduleOne.ItemFramework;
 using ScheduleOne.NPCs;
+using ScheduleOne.Storage;
 #endif
 
 namespace OverTheCounter.Logic
@@ -49,7 +51,14 @@ namespace OverTheCounter.Logic
             get => _state;
             private set
             {
-                if (_state != value) { _state = value; ManagerInstance.StatePublishNeeded = true; }
+                if (_state == value) return;
+                _state = value;
+                ManagerInstance.StatePublishNeeded = true;
+                // Restore idle avoidance priority when no longer actively walking
+                if (value == DistributionState.Idle ||
+                    value == DistributionState.AtSource ||
+                    value == DistributionState.AtDest)
+                    RestoreIdlePriority();
             }
         }
         public int CurrentRouteDisplay => Math.Max(1, _currentRouteIndex + 1); // 1-indexed for UI, clamped during resume runs
@@ -64,9 +73,10 @@ namespace OverTheCounter.Logic
         private float _sourceArrivalTime;
         private float _destArrivalTime;
 
-        // Walk failure tracking (warp after 5 consecutive failures, vanilla pattern)
+        // Walk failure tracking — cascading fallback chain replaces hard warp after N failures
         private int _consecutiveWalkFailures;
-        private const int MAX_WALK_FAILURES = 5;
+        private const int WALK_AVOIDANCE_PRIORITY = 5;   // high priority while walking (pushes through crowds)
+        private const int IDLE_AVOIDANCE_PRIORITY = 50;   // default when idle (yields to others)
 
         // Walk resume state
         private Vector3 _currentWalkTarget;
@@ -161,8 +171,8 @@ namespace OverTheCounter.Logic
 
             var route = routes[routeIndex];
             if (!route.IsConfigured) return false;
-            if (!SourceHasItems(route.Source)) return false;
-            if (!DestinationCanAcceptSourceItems(route.Source, route.Destination)) return false;
+            if (!SourceHasItems(route)) return false;
+            if (!DestinationCanAcceptSourceItems(route)) return false;
 
             _routePlan = new List<int> { routeIndex };
             _routePlanStep = 0;
@@ -216,8 +226,32 @@ namespace OverTheCounter.Logic
             while (_resumeDestQueue != null && _resumeDestQueue.Count > 0)
             {
                 string destGuid = _resumeDestQueue.Dequeue();
-                var storage = ManagerConfiguration.ResolveStorage(destGuid);
-                if (storage?.StorageEntity == null)
+
+                // Resolve destination — could be a PSE or a DeadDrop (dd: prefix)
+                var resumeRoute = new ManagerConfiguration.DistributionRoute();
+                bool resolved = false;
+
+                if (destGuid.StartsWith(ManagerConfiguration.DeadDropPrefix))
+                {
+                    var dd = ManagerConfiguration.ResolveDeadDrop(
+                        destGuid.Substring(ManagerConfiguration.DeadDropPrefix.Length));
+                    if (dd?.Storage != null)
+                    {
+                        resumeRoute.SetDest(dd);
+                        resolved = true;
+                    }
+                }
+                else
+                {
+                    var storage = ManagerConfiguration.ResolveStorage(destGuid);
+                    if (storage?.StorageEntity != null)
+                    {
+                        resumeRoute.SetDest(storage);
+                        resolved = true;
+                    }
+                }
+
+                if (!resolved)
                 {
                     _manager.LogWarning($"resume dest GUID '{destGuid}' not found, dropping items");
                     // Remove entries for this unreachable destination
@@ -231,7 +265,7 @@ namespace OverTheCounter.Logic
 
                 // Use a synthetic route with just the destination (no source — items already in NPC)
                 _resumeDestGuid = destGuid;
-                _currentRoute = new ManagerConfiguration.DistributionRoute { Destination = storage };
+                _currentRoute = resumeRoute;
                 _currentRouteIndex = -1;
 
                 // Walk to destination using existing infrastructure
@@ -257,8 +291,8 @@ namespace OverTheCounter.Logic
                     foreach (var route in routes)
                     {
                         if (!route.IsConfigured) continue;
-                        string dstGuid = ManagerConfiguration.GetGuid(route.Destination);
-                        string srcGuid = ManagerConfiguration.GetGuid(route.Source);
+                        string dstGuid = ManagerConfiguration.GetRouteEndpointGuid(route, false);
+                        string srcGuid = ManagerConfiguration.GetRouteEndpointGuid(route, true);
                         if (!string.IsNullOrEmpty(dstGuid) && !string.IsNullOrEmpty(srcGuid))
                             destToSource[dstGuid] = srcGuid;
                     }
@@ -323,8 +357,8 @@ namespace OverTheCounter.Logic
                 _currentRoute = routes[_currentRouteIndex];
 
                 // Re-validate: config may have changed during the run
-                if (!_currentRoute.IsConfigured || !SourceHasItems(_currentRoute.Source)
-                    || !DestinationCanAcceptSourceItems(_currentRoute.Source, _currentRoute.Destination))
+                if (!_currentRoute.IsConfigured || !SourceHasItems(_currentRoute)
+                    || !DestinationCanAcceptSourceItems(_currentRoute))
                 {
                     if (Config.ManagerVerboseLogging.Value)
                         _manager.Log($"distribution route {CurrentRouteDisplay} skipped (no longer valid/has items/dest full)");
@@ -361,7 +395,7 @@ namespace OverTheCounter.Logic
         {
             _consecutiveWalkFailures = 0;
 
-            var accessPos = GetStorageAccessPosition(_currentRoute.Source, out bool isReachable);
+            var accessPos = GetRouteEndpointPosition(_currentRoute, true, out bool isReachable);
             if (accessPos == null)
             {
                 _manager.LogWarning($"can't find source position for route {CurrentRouteDisplay}");
@@ -374,7 +408,7 @@ namespace OverTheCounter.Logic
 
             if (isReachable)
             {
-                // Direct walk — storage is reachable on current NavMesh
+                // Direct walk — storage is reachable on current NavMesh (or dead drop, always outdoor)
                 State = DistributionState.WalkingToSource;
                 IssueWalkToSource(accessPos.Value);
             }
@@ -427,18 +461,28 @@ namespace OverTheCounter.Logic
                             else if (result == NPCMovement.WalkResult.Failed)
                             {
                                 _consecutiveWalkFailures++;
-                                _manager.LogWarning($"source property walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
-                                if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                                if (!TryWalkEscalation(propertyPos.Value, _sourcePropertyWalkCallback))
                                 {
-                                    _manager.LogWarning($"warping to source storage after {MAX_WALK_FAILURES} failures");
-                                    WarpToPosition(capturedAccessPos);
+                                    // All escalation exhausted — warp to property exterior (NOT into building)
+                                    _manager.LogWarning("escalation exhausted, warping to property exterior");
+                                    WarpToPosition(propertyPos.Value);
                                     _consecutiveWalkFailures = 0;
-                                    State = DistributionState.AtSource;
-                                    _sourceArrivalTime = UnityEngine.Time.time;
+                                    if (SwitchToEmployeeNavMesh())
+                                    {
+                                        State = DistributionState.WalkingToSource;
+                                        IssueWalkToSource(capturedAccessPos);
+                                    }
+                                    else
+                                    {
+                                        WarpToPosition(capturedAccessPos);
+                                        State = DistributionState.AtSource;
+                                        _sourceArrivalTime = UnityEngine.Time.time;
+                                    }
                                 }
                             }
                         });
 
+                    SetWalkingPriority();
                     _manager.GameNpc.Movement.SetDestination(propertyPos.Value, _sourcePropertyWalkCallback, 3f, 1f);
                 }
                 catch (Exception ex)
@@ -473,10 +517,9 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            _manager.LogWarning($"source walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
-                            if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                            if (!TryWalkEscalation(target, _sourceWalkCallback))
                             {
-                                _manager.LogWarning($"warping to source after {MAX_WALK_FAILURES} failures");
+                                _manager.LogWarning("escalation exhausted, warping to source");
                                 WarpToPosition(target);
                                 State = DistributionState.AtSource;
                                 _sourceArrivalTime = UnityEngine.Time.time;
@@ -485,6 +528,7 @@ namespace OverTheCounter.Logic
                         }
                     });
 
+                SetWalkingPriority();
                 _manager.GameNpc.Movement.SetDestination(target, _sourceWalkCallback, 2f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
                     _manager.Log($"walking to source for route {CurrentRouteDisplay} | inventory: [{_manager.GetInventorySummary()}]");
@@ -510,7 +554,7 @@ namespace OverTheCounter.Logic
             // Face toward the source
             try
             {
-                var sourceTransform = _currentRoute.Source?.transform;
+                var sourceTransform = _currentRoute.GetSourceTransform();
                 if (sourceTransform != null)
                 {
                     var npcPos = _manager.Position ?? Vector3.zero;
@@ -528,13 +572,13 @@ namespace OverTheCounter.Logic
             }
             catch { }
 
-            var source = _currentRoute.Source;
-            var destination = _currentRoute.Destination;
+            var sourceStorage = _currentRoute.GetSourceStorage();
+            var destStorage = _currentRoute.GetDestStorage();
             var npcInventory = GetNpcInventory();
             int totalPickedUp = 0;
-            string destGuid = ManagerConfiguration.GetGuid(destination);
+            string destGuid = ManagerConfiguration.GetRouteEndpointGuid(_currentRoute, false);
 
-            if (source?.StorageEntity != null && npcInventory != null)
+            if (sourceStorage != null && npcInventory != null)
             {
                 int freeSlots = GetFreeNpcSlots(npcInventory);
                 int totalNpcSlots = npcInventory.ItemSlots?.Count ?? 0;
@@ -542,14 +586,14 @@ namespace OverTheCounter.Logic
                 // Check how many items the destination can actually hold so we don't
                 // pick up more than it can accept (avoids overflow → return → repeat loop)
                 int destCapacity = int.MaxValue;
-                if (destination?.StorageEntity != null)
+                if (destStorage != null)
                 {
-                    for (int s = 0; s < source.StorageEntity.ItemSlots.Count; s++)
+                    for (int s = 0; s < sourceStorage.ItemSlots.Count; s++)
                     {
-                        var si = source.StorageEntity.ItemSlots[s]?.ItemInstance;
+                        var si = sourceStorage.ItemSlots[s]?.ItemInstance;
                         if (si != null)
                         {
-                            destCapacity = StorageFilterHelper.HowManyCanFitFiltered(destination.StorageEntity, si);
+                            destCapacity = StorageFilterHelper.HowManyCanFitFiltered(destStorage, si);
                             break;
                         }
                     }
@@ -558,24 +602,24 @@ namespace OverTheCounter.Logic
                 if (Config.ManagerVerboseLogging.Value)
                 {
                     int sourceOccupied = 0;
-                    for (int s = 0; s < source.StorageEntity.ItemSlots.Count; s++)
-                        if (source.StorageEntity.ItemSlots[s]?.ItemInstance != null) sourceOccupied++;
+                    for (int s = 0; s < sourceStorage.ItemSlots.Count; s++)
+                        if (sourceStorage.ItemSlots[s]?.ItemInstance != null) sourceOccupied++;
                     _manager.Log($"[PickUp] npcSlots={totalNpcSlots} free={freeSlots} destCapacity={destCapacity} sourceOccupied={sourceOccupied}");
                 }
 
-                for (int i = 0; i < source.StorageEntity.ItemSlots.Count; i++)
+                for (int i = 0; i < sourceStorage.ItemSlots.Count; i++)
                 {
                     if (freeSlots <= 0 || destCapacity <= 0) break;
 
                     try
                     {
-                        var slot = source.StorageEntity.ItemSlots[i];
+                        var slot = sourceStorage.ItemSlots[i];
                         if (slot?.ItemInstance == null) continue;
 
                         // Skip items the destination won't accept (filter pre-check)
-                        if (destination?.StorageEntity != null &&
+                        if (destStorage != null &&
                             StorageFilterHelper.HowManyCanFitFiltered(
-                                destination.StorageEntity, slot.ItemInstance) <= 0)
+                                destStorage, slot.ItemInstance) <= 0)
                             continue;
 
                         int npcSlotIdx = FindEmptyNpcSlot(npcInventory);
@@ -647,7 +691,7 @@ namespace OverTheCounter.Logic
         {
             _consecutiveWalkFailures = 0;
 
-            var accessPos = GetStorageAccessPosition(_currentRoute.Destination, out bool isReachable);
+            var accessPos = GetRouteEndpointPosition(_currentRoute, false, out bool isReachable);
             if (accessPos == null)
             {
                 _manager.LogWarning($"can't find dest position for route {CurrentRouteDisplay}, items retained for retry");
@@ -659,7 +703,7 @@ namespace OverTheCounter.Logic
 
             if (isReachable)
             {
-                // Direct walk
+                // Direct walk (or dead drop — always outdoor)
                 State = DistributionState.WalkingToDest;
                 IssueWalkToDest(accessPos.Value);
             }
@@ -711,18 +755,27 @@ namespace OverTheCounter.Logic
                             else if (result == NPCMovement.WalkResult.Failed)
                             {
                                 _consecutiveWalkFailures++;
-                                _manager.LogWarning($"dest property walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
-                                if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                                if (!TryWalkEscalation(propertyPos.Value, _destPropertyWalkCallback))
                                 {
-                                    _manager.LogWarning($"warping to dest storage after {MAX_WALK_FAILURES} failures");
-                                    WarpToPosition(capturedAccessPos);
+                                    _manager.LogWarning("escalation exhausted, warping to property exterior for dest");
+                                    WarpToPosition(propertyPos.Value);
                                     _consecutiveWalkFailures = 0;
-                                    State = DistributionState.AtDest;
-                                    _destArrivalTime = UnityEngine.Time.time;
+                                    if (SwitchToEmployeeNavMesh())
+                                    {
+                                        State = DistributionState.WalkingToDest;
+                                        IssueWalkToDest(capturedAccessPos);
+                                    }
+                                    else
+                                    {
+                                        WarpToPosition(capturedAccessPos);
+                                        State = DistributionState.AtDest;
+                                        _destArrivalTime = UnityEngine.Time.time;
+                                    }
                                 }
                             }
                         });
 
+                    SetWalkingPriority();
                     _manager.GameNpc.Movement.SetDestination(propertyPos.Value, _destPropertyWalkCallback, 3f, 1f);
                 }
                 catch (Exception ex)
@@ -756,10 +809,9 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            _manager.LogWarning($"dest walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
-                            if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                            if (!TryWalkEscalation(target, _destWalkCallback))
                             {
-                                _manager.LogWarning($"warping to dest after {MAX_WALK_FAILURES} failures");
+                                _manager.LogWarning("escalation exhausted, warping to dest");
                                 WarpToPosition(target);
                                 State = DistributionState.AtDest;
                                 _destArrivalTime = UnityEngine.Time.time;
@@ -768,6 +820,7 @@ namespace OverTheCounter.Logic
                         }
                     });
 
+                SetWalkingPriority();
                 _manager.GameNpc.Movement.SetDestination(target, _destWalkCallback, 2f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
                     _manager.Log($"walking to destination for route {CurrentRouteDisplay} | inventory: [{_manager.GetInventorySummary()}]");
@@ -807,7 +860,7 @@ namespace OverTheCounter.Logic
             // Face toward the destination
             try
             {
-                var destTransform = _currentRoute.Destination?.transform;
+                var destTransform = _currentRoute.GetDestTransform();
                 if (destTransform != null)
                 {
                     var npcPos = _manager.Position ?? Vector3.zero;
@@ -825,13 +878,15 @@ namespace OverTheCounter.Logic
             }
             catch { }
 
-            var destination = _currentRoute.Destination;
+            var destStorage = _currentRoute.GetDestStorage();
             var npcInventory = GetNpcInventory();
             int totalDeposited = 0;
             int totalOverflow = 0;
-            string currentDestGuid = _isResuming ? _resumeDestGuid : ManagerConfiguration.GetGuid(destination);
+            string currentDestGuid = _isResuming
+                ? _resumeDestGuid
+                : ManagerConfiguration.GetRouteEndpointGuid(_currentRoute, false);
 
-            if (destination?.StorageEntity != null && npcInventory != null)
+            if (destStorage != null && npcInventory != null)
             {
                 // Only deposit items whose destination matches the current target.
                 // Leftover items for other destinations stay untouched in their slots.
@@ -856,7 +911,7 @@ namespace OverTheCounter.Logic
                             float balance = cashItem.Balance;
                             if (balance <= 0f) { _slotDestinations.Remove(i); continue; }
 
-                            float placed = DepositCash(destination.StorageEntity, balance);
+                            float placed = DepositCash(destStorage, balance);
                             if (placed >= balance)
                             {
                                 slot.ChangeQuantity(-slot.Quantity);
@@ -879,7 +934,7 @@ namespace OverTheCounter.Logic
                         int qty = slot.Quantity;
 
                         // Use GetCopy to preserve actual product type (jar, brick, etc.)
-                        int canFit = StorageFilterHelper.HowManyCanFitFiltered(destination.StorageEntity, slot.ItemInstance);
+                        int canFit = StorageFilterHelper.HowManyCanFitFiltered(destStorage, slot.ItemInstance);
                         if (canFit <= 0)
                         {
                             // Items stay in NPC inventory — will be retried on the next cycle
@@ -891,7 +946,7 @@ namespace OverTheCounter.Logic
                         {
                             // Partial deposit — only remove what was actually placed
                             var partialCopy = slot.ItemInstance.GetCopy(canFit);
-                            StorageFilterHelper.InsertItemFiltered(destination.StorageEntity, partialCopy);
+                            StorageFilterHelper.InsertItemFiltered(destStorage, partialCopy);
                             totalDeposited += canFit;
                             totalOverflow += (qty - canFit);
                             slot.ChangeQuantity(-canFit);
@@ -901,7 +956,7 @@ namespace OverTheCounter.Logic
                         {
                             var copy = slot.ItemInstance.GetCopy(qty);
                             slot.ChangeQuantity(-qty);
-                            StorageFilterHelper.InsertItemFiltered(destination.StorageEntity, copy);
+                            StorageFilterHelper.InsertItemFiltered(destStorage, copy);
                             totalDeposited += qty;
                             _slotDestinations.Remove(i); // slot fully emptied
                         }
@@ -925,7 +980,7 @@ namespace OverTheCounter.Logic
                 // Diagnostic: log destination slot breakdown to help debug capacity issues
                 try
                 {
-                    var destSlots = destination.StorageEntity?.ItemSlots;
+                    var destSlots = destStorage?.ItemSlots;
                     if (destSlots != null)
                     {
                         int total = destSlots.Count;
@@ -993,9 +1048,9 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                            if (!TryWalkEscalation(location.Destination, _idleWalkCallback))
                             {
-                                _manager.LogWarning($"warping to idle point");
+                                _manager.LogWarning("escalation exhausted, warping to idle point");
                                 WarpToPosition(location.Destination);
                                 try { _manager.GameNpc?.Movement?.FaceDirection(location.DestRotation * Vector3.forward); }
                                 catch { }
@@ -1004,6 +1059,7 @@ namespace OverTheCounter.Logic
                         }
                     });
 
+                SetWalkingPriority();
                 _manager.GameNpc.Movement.SetDestination(location.Destination, _idleWalkCallback, 3f, 1f);
                 if (Config.ManagerVerboseLogging.Value)
                     _manager.Log($"walking to idle point after distribution | inventory: [{_manager.GetInventorySummary()}]");
@@ -1148,8 +1204,8 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Detects if the manager is stuck (hasn't moved for STUCK_WARP_TIMEOUT seconds)
-        /// and warps to the appropriate target, transitioning state to match
-        /// the existing MAX_WALK_FAILURES warp patterns.
+        /// and attempts escalation before warping. Warps only to the current walk target
+        /// (property exterior for outdoor walks, not directly into buildings).
         /// </summary>
         private void CheckStuckDuringWalk()
         {
@@ -1176,27 +1232,55 @@ namespace OverTheCounter.Logic
             if (_lastMovedTime <= 0f || UnityEngine.Time.time - _lastMovedTime < STUCK_WARP_TIMEOUT)
                 return;
 
-            _manager.LogWarning($"stuck for {STUCK_WARP_TIMEOUT}s during {State}, warping");
+            _manager.LogWarning($"stuck for {STUCK_WARP_TIMEOUT}s during {State}, warping to walk target");
+
+            // Warp to current walk target (NOT the inner access point for property walks).
+            // For WalkingToSourceProperty/WalkingToDestProperty this is the property exterior.
+            WarpToPosition(_currentWalkTarget);
             _consecutiveWalkFailures = 0;
 
             switch (State)
             {
                 case DistributionState.WalkingToSourceProperty:
+                    // Warped to property exterior — switch NavMesh and walk inside
+                    if (SwitchToEmployeeNavMesh())
+                    {
+                        State = DistributionState.WalkingToSource;
+                        IssueWalkToSource(_currentAccessTarget);
+                    }
+                    else
+                    {
+                        WarpToPosition(_currentAccessTarget);
+                        State = DistributionState.AtSource;
+                        _sourceArrivalTime = UnityEngine.Time.time;
+                    }
+                    break;
+
                 case DistributionState.WalkingToSource:
-                    WarpToPosition(_currentAccessTarget);
                     State = DistributionState.AtSource;
                     _sourceArrivalTime = UnityEngine.Time.time;
                     break;
 
                 case DistributionState.WalkingToDestProperty:
+                    if (SwitchToEmployeeNavMesh())
+                    {
+                        State = DistributionState.WalkingToDest;
+                        IssueWalkToDest(_currentAccessTarget);
+                    }
+                    else
+                    {
+                        WarpToPosition(_currentAccessTarget);
+                        State = DistributionState.AtDest;
+                        _destArrivalTime = UnityEngine.Time.time;
+                    }
+                    break;
+
                 case DistributionState.WalkingToDest:
-                    WarpToPosition(_currentAccessTarget);
                     State = DistributionState.AtDest;
                     _destArrivalTime = UnityEngine.Time.time;
                     break;
 
                 case DistributionState.WalkingToPropertyExit:
-                    WarpToPosition(_currentWalkTarget);
                     RestoreCivilianNavMesh();
                     _currentPropertyExterior = null;
                     _exitBuildingContinuation?.Invoke();
@@ -1362,10 +1446,9 @@ namespace OverTheCounter.Logic
                         else if (result == NPCMovement.WalkResult.Failed)
                         {
                             _consecutiveWalkFailures++;
-                            _manager.LogWarning($"property exit walk failed ({_consecutiveWalkFailures}/{MAX_WALK_FAILURES})");
-                            if (_consecutiveWalkFailures >= MAX_WALK_FAILURES)
+                            if (!TryWalkEscalation(_currentPropertyExterior.Value, _propertyExitWalkCallback))
                             {
-                                _manager.LogWarning($"warping to property exterior");
+                                _manager.LogWarning("escalation exhausted, warping to property exterior");
                                 WarpToPosition(_currentPropertyExterior.Value);
                                 _consecutiveWalkFailures = 0;
                                 RestoreCivilianNavMesh();
@@ -1376,6 +1459,7 @@ namespace OverTheCounter.Logic
                         }
                     });
 
+                SetWalkingPriority();
                 _manager.GameNpc.Movement.SetDestination(_currentPropertyExterior.Value, _propertyExitWalkCallback, 3f, 1f);
             }
             catch (Exception ex)
@@ -1393,9 +1477,40 @@ namespace OverTheCounter.Logic
         // ==================================================================
 
         /// <summary>
-        /// Gets the position to walk to for accessing a storage entity.
+        /// Gets the position to walk to for a route endpoint (source or destination).
+        /// Dead drops are outdoor — always reachable on civilian NavMesh.
+        /// PSEs use NavMeshUtility.GetReachableAccessPoint to check pathability.
+        /// </summary>
+        private Vector3? GetRouteEndpointPosition(
+            ManagerConfiguration.DistributionRoute route, bool isSource, out bool isReachable)
+        {
+            isReachable = false;
+            if (route == null) return null;
+
+            // Dead drops are outdoor — always reachable, use transform position directly
+            if (isSource && route.IsSourceDeadDrop)
+            {
+                var t = route.SourceDeadDrop?.transform;
+                if (t == null) return null;
+                isReachable = true;
+                return t.position;
+            }
+            if (!isSource && route.IsDestDeadDrop)
+            {
+                var t = route.DestDeadDrop?.transform;
+                if (t == null) return null;
+                isReachable = true;
+                return t.position;
+            }
+
+            // PSE — use ITransitEntity access points
+            var storage = isSource ? route.Source : route.Destination;
+            return GetStorageAccessPosition(storage, out isReachable);
+        }
+
+        /// <summary>
+        /// Gets the position to walk to for accessing a PlaceableStorageEntity.
         /// Uses NavMeshUtility.GetReachableAccessPoint to check pathability on the current NavMesh.
-        /// Sets isReachable=true if NavMesh pathfinding found a route, false if falling back.
         /// </summary>
         private Vector3? GetStorageAccessPosition(
             ScheduleOne.ObjectScripts.PlaceableStorageEntity storage, out bool isReachable)
@@ -1461,17 +1576,19 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Checks if a storage entity has any items (including cash).
+        /// Checks if a route's source storage has any items (including cash).
+        /// Works with both PlaceableStorageEntity and DeadDrop sources.
         /// </summary>
-        private static bool SourceHasItems(ScheduleOne.ObjectScripts.PlaceableStorageEntity storage)
+        private static bool SourceHasItems(ManagerConfiguration.DistributionRoute route)
         {
-            if (storage?.StorageEntity?.ItemSlots == null) return false;
+            var storage = route?.GetSourceStorage();
+            if (storage?.ItemSlots == null) return false;
 
             try
             {
-                for (int i = 0; i < storage.StorageEntity.ItemSlots.Count; i++)
+                for (int i = 0; i < storage.ItemSlots.Count; i++)
                 {
-                    var slot = storage.StorageEntity.ItemSlots[i];
+                    var slot = storage.ItemSlots[i];
                     if (slot?.ItemInstance == null) continue;
                     return true;
                 }
@@ -1481,24 +1598,24 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Checks if the destination can accept at least one item from the source (including cash).
-        /// Prevents wasted trips where the manager picks up items only to find the destination full.
+        /// Checks if a route's destination can accept at least one item from the source (including cash).
+        /// Prevents wasted trips. Works with both PlaceableStorageEntity and DeadDrop endpoints.
         /// </summary>
-        private static bool DestinationCanAcceptSourceItems(
-            ScheduleOne.ObjectScripts.PlaceableStorageEntity source,
-            ScheduleOne.ObjectScripts.PlaceableStorageEntity destination)
+        private static bool DestinationCanAcceptSourceItems(ManagerConfiguration.DistributionRoute route)
         {
-            if (source?.StorageEntity?.ItemSlots == null) return false;
-            if (destination?.StorageEntity == null) return false;
+            var source = route?.GetSourceStorage();
+            var destination = route?.GetDestStorage();
+            if (source?.ItemSlots == null) return false;
+            if (destination == null) return false;
 
             try
             {
-                for (int i = 0; i < source.StorageEntity.ItemSlots.Count; i++)
+                for (int i = 0; i < source.ItemSlots.Count; i++)
                 {
-                    var slot = source.StorageEntity.ItemSlots[i];
+                    var slot = source.ItemSlots[i];
                     if (slot?.ItemInstance == null) continue;
 
-                    if (StorageFilterHelper.HowManyCanFitFiltered(destination.StorageEntity, slot.ItemInstance) > 0)
+                    if (StorageFilterHelper.HowManyCanFitFiltered(destination, slot.ItemInstance) > 0)
                         return true;
                 }
             }
@@ -1642,6 +1759,110 @@ namespace OverTheCounter.Logic
             }
             catch { }
             return -1;
+        }
+
+        // ==================================================================
+        // Walk escalation — cascading fallback chain
+        // ==================================================================
+
+        /// <summary>
+        /// Attempts to escalate a failed walk through the fallback chain.
+        /// Returns true if a retry was issued (caller should wait for next callback).
+        /// Returns false if all attempts exhausted (caller should handle final warp).
+        ///
+        /// Chain: Humanoid → IgnoreCosts → Humanoid retry → employee NavMesh → IgnoreCosts → exhausted.
+        /// </summary>
+        private bool TryWalkEscalation(Vector3 target,
+            GameSystem.Action<NPCMovement.WalkResult> callback)
+        {
+            var movement = _manager.GameNpc?.Movement;
+            if (movement == null) return false;
+
+            switch (_consecutiveWalkFailures)
+            {
+                case 1:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("walk failed, retrying with IgnoreCosts");
+                    movement.SetAgentType(NPCMovement.EAgentType.IgnoreCosts);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                case 2:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("walk failed with IgnoreCosts, retrying on Humanoid");
+                    movement.SetAgentType(NPCMovement.EAgentType.Humanoid);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                case 3:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("walk failed, trying employee NavMesh");
+                    if (SwitchToEmployeeNavMesh())
+                    {
+                        movement.SetDestination(target, callback, 3f, 1f);
+                        return true;
+                    }
+                    // Can't switch — skip to next level
+                    _consecutiveWalkFailures++;
+                    goto case 4;
+
+                case 4:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("walk failed, IgnoreCosts from current position");
+                    movement.SetAgentType(NPCMovement.EAgentType.IgnoreCosts);
+                    movement.SetDestination(target, callback, 3f, 1f);
+                    return true;
+
+                default:
+                    if (Config.ManagerVerboseLogging.Value)
+                        _manager.Log("all walk escalation attempts exhausted");
+                    // Restore clean state for the warp
+                    movement.SetAgentType(NPCMovement.EAgentType.Humanoid);
+                    if (_usingEmployeeNavMesh)
+                        RestoreCivilianNavMesh();
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Sets high avoidance priority so the manager pushes through NPC crowds while walking.
+        /// </summary>
+        private void SetWalkingPriority()
+        {
+            try
+            {
+                var agent = _manager.GameNpc?.Movement?.Agent;
+                if (agent != null) agent.avoidancePriority = WALK_AVOIDANCE_PRIORITY;
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Restores default avoidance priority when idle (yields to other NPCs).
+        /// </summary>
+        private void RestoreIdlePriority()
+        {
+            try
+            {
+                var agent = _manager.GameNpc?.Movement?.Agent;
+                if (agent != null) agent.avoidancePriority = IDLE_AVOIDANCE_PRIORITY;
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Ensures the manager is on civilian NavMesh for outdoor travel.
+        /// Safe to call at any time — no-ops if already on civilian.
+        /// </summary>
+        public void EnsureCivilianNavMesh()
+        {
+            if (_usingEmployeeNavMesh)
+                RestoreCivilianNavMesh();
+            try
+            {
+                _manager.GameNpc?.Movement?.SetAgentType(NPCMovement.EAgentType.Humanoid);
+            }
+            catch { }
         }
 
         private void WarpToPosition(Vector3 position)

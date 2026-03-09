@@ -19,8 +19,6 @@ namespace OverTheCounter.SaveData
 {
     public class BellaSaveData : Saveable
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:BellaSaveData");
-
         [SaveableField("bella_stage")]
         private int _stage;
 
@@ -55,8 +53,7 @@ namespace OverTheCounter.SaveData
         {
             Instance = this;
 
-            if (Config.VerboseLogging.Value)
-                Logger.Msg($"OnLoaded: _stage={_stage} (from save), quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
+            OTCLog.Msg(OTCLog.Systems.NPC, $"OnLoaded: _stage={_stage} (from save), quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
 
             if (_stage > 0)
                 _questCreated = true;
@@ -76,8 +73,7 @@ namespace OverTheCounter.SaveData
             // Also reconciles the quest if it loaded before us with a stale stage.
             ConfigSyncData.ApplyPendingGameState();
 
-            if (Config.VerboseLogging.Value)
-                Logger.Msg($"OnLoaded after pending apply: _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
+            OTCLog.Msg(OTCLog.Systems.NPC, $"OnLoaded after pending apply: _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
 
             ReconcileQuest();
         }
@@ -112,8 +108,7 @@ namespace OverTheCounter.SaveData
                 _questReconciled = true;
                 if (BellaProtocolQuest.Instance.Stage < _stage)
                 {
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Tick reconciliation: quest stage {BellaProtocolQuest.Instance.Stage} → {_stage}");
+                    OTCLog.Msg(OTCLog.Systems.NPC, $"Tick reconciliation: quest stage {BellaProtocolQuest.Instance.Stage} → {_stage}");
                     ReconcileQuest();
                 }
             }
@@ -127,7 +122,7 @@ namespace OverTheCounter.SaveData
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Deferred Bella spawn failed: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.NPC, $"Deferred Bella spawn failed: {ex.Message}");
                     _needsSpawn = true; // retry next tick
                 }
             }
@@ -196,7 +191,7 @@ namespace OverTheCounter.SaveData
             BellaNPC.Instance.EnableSummoning();
             if (BellaNPC.Instance.DialogueReady)
                 BellaNPC.Instance.RefreshDialogue();
-            Logger.Msg("Bella enabled for summoning.");
+            OTCLog.Msg(OTCLog.Systems.NPC, "Bella enabled for summoning.");
         }
 
         /// <summary>
@@ -215,11 +210,11 @@ namespace OverTheCounter.SaveData
                 darkMarket.AccessZone.OpenTime = 0;
                 darkMarket.AccessZone.CloseTime = 2400;
                 _warehouseHoursApplied = true;
-                Logger.Msg("Warehouse hours set to 24/7 (Bella quest complete).");
+                OTCLog.Msg(OTCLog.Systems.NPC, "Warehouse hours set to 24/7 (Bella quest complete).");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ApplyWarehouseHours failed (will retry): {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"ApplyWarehouseHours failed (will retry): {ex.Message}");
             }
         }
 
@@ -237,12 +232,12 @@ namespace OverTheCounter.SaveData
                 }
                 else
                 {
-                    Logger.Error("QuestManager.CreateQuest<BellaProtocolQuest> returned null.");
+                    OTCLog.Error(OTCLog.Systems.NPC, "QuestManager.CreateQuest<BellaProtocolQuest> returned null.");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"CreateQuest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"CreateQuest failed: {ex.Message}");
             }
         }
 
@@ -292,7 +287,7 @@ namespace OverTheCounter.SaveData
                     break;
 
                 default:
-                    Logger.Warning($"BellaSaveData: unknown remote action '{action}'");
+                    OTCLog.Warning(OTCLog.Systems.NPC, $"BellaSaveData: unknown remote action '{action}'");
                     return;
             }
         }
@@ -304,8 +299,7 @@ namespace OverTheCounter.SaveData
         {
             bool changed = false;
 
-            if (Config.VerboseLogging.Value)
-                Logger.Msg($"ApplyHostState: host stage={stage}, local _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
+            OTCLog.Msg(OTCLog.Systems.NPC, $"ApplyHostState: host stage={stage}, local _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
 
             if (stage > _stage)
             {

@@ -35,8 +35,6 @@ namespace OverTheCounter.NPCs
 {
     public sealed class BellaNPC : NPC
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:BellaNPC");
-
         private static readonly Vector3 SpawnPosition = new Vector3(74.1f, 1.0f, 57.2f);
         private static readonly Quaternion SpawnRotation = Quaternion.Euler(0f, 180f, 0f);
 
@@ -73,7 +71,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"WarpToSpawn failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"WarpToSpawn failed: {ex.Message}");
             }
         }
 
@@ -94,11 +92,8 @@ namespace OverTheCounter.NPCs
                     av.WithBodyLayer(Shirts.VNeck, new Color(0.2f, 0.15f, 0.3f)); // dark purple hoodie-like
                     av.WithBodyLayer(Pants.CargoPants, new Color(0.25f, 0.25f, 0.28f)); // dark casual pants
                     av.WithAccessoryLayer(Feet.Sneakers, new Color(0.9f, 0.9f, 0.92f));
-                })
-                .WithSchedule(plan =>
-                {
-                    plan.WalkTo(SpawnPosition, 10, true, 1f, true);
                 });
+            // No schedule — InjectIntoBuilding() handles placement.
         }
 
         protected override void OnCreated()
@@ -114,17 +109,16 @@ namespace OverTheCounter.NPCs
                 _customerComponent = DrifterSpawner.AddCustomerComponentToActive(_gameNpc);
                 if (_customerComponent != null)
                 {
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg("Customer component added to Bella for HandoverScreen support");
+                    OTCLog.Msg(OTCLog.Systems.NPC, "Customer component added to Bella for HandoverScreen support");
                 }
                 else
                 {
-                    Logger.Warning("Failed to add Customer component — HandoverScreen will not be available");
+                    OTCLog.Warning(OTCLog.Systems.NPC, "Failed to add Customer component — HandoverScreen will not be available");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Customer component setup failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"Customer component setup failed: {ex.Message}");
             }
 
             try
@@ -145,7 +139,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to set Bella's appearance: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"Failed to set Bella's appearance: {ex.Message}");
                 Appearance.GenerateRandomAppearance();
                 Appearance.Build();
             }
@@ -169,7 +163,7 @@ namespace OverTheCounter.NPCs
                     new BellaSaveData();
                     ConfigSyncData.ApplyPendingGameState();
                 }
-                catch (Exception ex) { Logger.Warning($"BellaSaveData fallback creation failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"BellaSaveData fallback creation failed: {ex.Message}"); }
             }
         }
 
@@ -203,7 +197,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to initialize voice: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"Failed to initialize voice: {ex.Message}");
             }
         }
 
@@ -228,7 +222,7 @@ namespace OverTheCounter.NPCs
                 var buildings = UnityEngine.Object.FindObjectsOfType<NPCEnterableBuilding>();
                 if (buildings == null || buildings.Length == 0)
                 {
-                    Logger.Warning("No NPCEnterableBuilding instances found.");
+                    OTCLog.Warning(OTCLog.Systems.NPC, "No NPCEnterableBuilding instances found.");
                     return;
                 }
 
@@ -263,11 +257,11 @@ namespace OverTheCounter.NPCs
 
                     if (nearest == null || nearestDist > 25f)
                     {
-                        Logger.Warning($"No building found within 25m of Bella's position. Nearest: {nearestDist:F1}m");
+                        OTCLog.Warning(OTCLog.Systems.NPC, $"No building found within 25m of Bella's position. Nearest: {nearestDist:F1}m");
                         return;
                     }
 
-                    Logger.Warning($"'Tall Tower' not found by name, using nearest building: {nearest.BuildingName} ({nearestDist:F1}m)");
+                    OTCLog.Warning(OTCLog.Systems.NPC, $"'Tall Tower' not found by name, using nearest building: {nearest.BuildingName} ({nearestDist:F1}m)");
                 }
 
                 // Use the game's proper EnterBuilding flow:
@@ -288,7 +282,7 @@ namespace OverTheCounter.NPCs
 
                 // 5. Disable schedule so WalkTo action doesn't pull Bella outside
                 try { Schedule.Disable(); }
-                catch (Exception ex) { Logger.Warning($"Schedule disable failed (non-fatal): {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Schedule disable failed (non-fatal): {ex.Message}"); }
 
                 // 6. Stop movement and warp to door access point
                 try
@@ -304,7 +298,7 @@ namespace OverTheCounter.NPCs
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Movement warp failed (non-fatal): {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.NPC, $"Movement warp failed (non-fatal): {ex.Message}");
                 }
 
                 // Only summonable while quest is active (stages 1-4)
@@ -313,15 +307,14 @@ namespace OverTheCounter.NPCs
 
                 // Verify injection
                 int occupantCount = nearest.OccupantCount;
-                if (Config.VerboseLogging.Value)
-                    Logger.Msg($"Bella injected into building '{nearest.BuildingName}' (distance: {nearestDist:F1}m, " +
+                OTCLog.Msg(OTCLog.Systems.NPC, $"Bella injected into building '{nearest.BuildingName}' (distance: {nearestDist:F1}m, " +
                                $"occupants={occupantCount}, CanBeSummoned={_gameNpc.CanBeSummoned}, " +
                                $"CurrentBuilding={((_gameNpc.CurrentBuilding != null) ? "set" : "null")}, " +
                                $"isVisible={_gameNpc.isVisible})");
             }
             catch (Exception ex)
             {
-                Logger.Error($"InjectIntoBuilding failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"InjectIntoBuilding failed: {ex.Message}");
             }
         }
 
@@ -342,12 +335,11 @@ namespace OverTheCounter.NPCs
         {
             if (_gameNpc == null)
             {
-                Logger.Warning("ReInjectIntoBuilding: _gameNpc is null");
+                OTCLog.Warning(OTCLog.Systems.NPC, "ReInjectIntoBuilding: _gameNpc is null");
                 return;
             }
 
-            if (Config.VerboseLogging.Value)
-                Logger.Msg("Re-injecting Bella into building after summon");
+            OTCLog.Msg(OTCLog.Systems.NPC, "Re-injecting Bella into building after summon");
             InjectIntoBuilding();
         }
 
@@ -459,33 +451,33 @@ namespace OverTheCounter.NPCs
             Dialogue.OnChoiceSelected("ACCEPT_WEED", () =>
             {
                 try { AdvanceStage(); }
-                catch (Exception ex) { Logger.Error($"ACCEPT_WEED callback failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Error(OTCLog.Systems.NPC, $"ACCEPT_WEED callback failed: {ex.Message}"); }
             });
 
             // Sarcastic decline still advances (Bella doesn't care about your opinion)
             Dialogue.OnChoiceSelected("DECLINE_WEED", () =>
             {
                 try { AdvanceStage(); }
-                catch (Exception ex) { Logger.Error($"DECLINE_WEED callback failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Error(OTCLog.Systems.NPC, $"DECLINE_WEED callback failed: {ex.Message}"); }
             });
 
             // Handovers — close dialogue and open HandoverScreen
             Dialogue.OnChoiceSelected("HANDOVER_WEED", () =>
             {
                 try { OpenHandoverForDrug(EDrugType.Marijuana, Config.BellaWeedValue.Value); }
-                catch (Exception ex) { Logger.Error($"HANDOVER_WEED callback failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Error(OTCLog.Systems.NPC, $"HANDOVER_WEED callback failed: {ex.Message}"); }
             });
 
             Dialogue.OnChoiceSelected("HANDOVER_METH", () =>
             {
                 try { OpenHandoverForDrug(EDrugType.Methamphetamine, Config.BellaMethValue.Value); }
-                catch (Exception ex) { Logger.Error($"HANDOVER_METH callback failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Error(OTCLog.Systems.NPC, $"HANDOVER_METH callback failed: {ex.Message}"); }
             });
 
             Dialogue.OnChoiceSelected("HANDOVER_COKE", () =>
             {
                 try { OpenHandoverForDrug(EDrugType.Cocaine, Config.BellaCokeValue.Value); }
-                catch (Exception ex) { Logger.Error($"HANDOVER_COKE callback failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Error(OTCLog.Systems.NPC, $"HANDOVER_COKE callback failed: {ex.Message}"); }
             });
         }
 
@@ -500,7 +492,7 @@ namespace OverTheCounter.NPCs
             var handoverScreen = Singleton<HandoverScreen>.Instance;
             if (handoverScreen == null || _customerComponent == null)
             {
-                Logger.Error("Cannot open HandoverScreen — singleton or Customer component missing");
+                OTCLog.Error(OTCLog.Systems.NPC, "Cannot open HandoverScreen — singleton or Customer component missing");
                 return;
             }
 
@@ -532,7 +524,7 @@ namespace OverTheCounter.NPCs
                     float, float>((items, price) => 1.0f);
 
             handoverScreen.Open(null, _customerComponent, HandoverScreen.EMode.Offer, callback, successChance, false);
-            Logger.Msg($"HandoverScreen opened for {drugType} (min ${minPrice:N0})");
+            OTCLog.Msg(OTCLog.Systems.NPC, $"HandoverScreen opened for {drugType} (min ${minPrice:N0})");
         }
 
         /// <summary>
@@ -543,8 +535,7 @@ namespace OverTheCounter.NPCs
             GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance> items,
             float askingPrice)
         {
-            if (Config.VerboseLogging.Value)
-                Logger.Msg($"Handover closed: outcome={outcome}, pendingDrug={_pendingDrugType}, pendingMinPrice=${_pendingMinPrice:F2}");
+            OTCLog.Msg(OTCLog.Systems.NPC, $"Handover closed: outcome={outcome}, pendingDrug={_pendingDrugType}, pendingMinPrice=${_pendingMinPrice:F2}");
 
             if (outcome == HandoverScreen.EHandoverOutcome.Cancelled)
             {
@@ -581,10 +572,9 @@ namespace OverTheCounter.NPCs
                 try
                 {
                     _gameNpc?.Behaviour?.ConsumeProduct(acceptedProduct);
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Bella consuming product: {acceptedProduct.ID}");
+                    OTCLog.Msg(OTCLog.Systems.NPC, $"Bella consuming product: {acceptedProduct.ID}");
                 }
-                catch (Exception ex) { Logger.Warning($"ConsumeProduct failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ConsumeProduct failed: {ex.Message}"); }
 
                 // Play the deal completion sound
                 try
@@ -593,7 +583,7 @@ namespace OverTheCounter.NPCs
                     if (popup?.SoundEffect != null)
                         popup.SoundEffect.Play();
                 }
-                catch (Exception ex) { Logger.Warning($"Deal sound failed: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Deal sound failed: {ex.Message}"); }
 
                 // Bella reacts positively via world dialogue
                 string[] successLines = _pendingDrugType switch
@@ -607,7 +597,7 @@ namespace OverTheCounter.NPCs
                 try { _gameNpc?.SendWorldSpaceDialogue(successLines[0], 6f); }
                 catch { }
 
-                Logger.Msg($"Handover ACCEPTED for {_pendingDrugType}");
+                OTCLog.Msg(OTCLog.Systems.NPC, $"Handover ACCEPTED for {_pendingDrugType}");
             }
             else
             {
@@ -619,7 +609,7 @@ namespace OverTheCounter.NPCs
                 try { _gameNpc?.SendWorldSpaceDialogue("That's not what I asked for. Try again.", 5f); }
                 catch { }
 
-                Logger.Msg($"Handover REJECTED for {_pendingDrugType} (didn't meet requirements)");
+                OTCLog.Msg(OTCLog.Systems.NPC, $"Handover REJECTED for {_pendingDrugType} (didn't meet requirements)");
             }
         }
 
@@ -664,7 +654,7 @@ namespace OverTheCounter.NPCs
             }
             catch (Exception ex)
             {
-                Logger.Error($"[IsValidMix] Exception: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"[IsValidMix] Exception: {ex.Message}");
                 return false;
             }
         }

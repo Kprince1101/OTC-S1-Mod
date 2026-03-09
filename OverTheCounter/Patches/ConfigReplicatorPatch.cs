@@ -1,5 +1,6 @@
 using HarmonyLib;
 using MelonLoader;
+using OverTheCounter.Utilities;
 using System;
 using System.Collections;
 using System.Reflection;
@@ -30,7 +31,6 @@ namespace OverTheCounter.Patches
     /// </summary>
     public static class ConfigReplicatorPatch
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:ConfigReplicatorFix");
 
         /// <summary>Max frames to retry before dropping (~2s at 60fps).</summary>
         private const int MaxRetries = 120;
@@ -68,16 +68,16 @@ namespace OverTheCounter.Patches
                     }
                     else
                     {
-                        Logger.Warning($"RpcLogic method not found: {name}");
+                        OTCLog.Warning(OTCLog.Systems.Patch,$"RpcLogic method not found: {name}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Failed to patch {name}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Patch,$"Failed to patch {name}: {ex.Message}");
                 }
             }
 
-            Logger.Msg($"Patched {prefixCount}/{RpcLogicMethods.Length} RpcLogic methods (retry-on-null-Configuration).");
+            OTCLog.Msg(OTCLog.Systems.Patch,$"Patched {prefixCount}/{RpcLogicMethods.Length} RpcLogic methods (retry-on-null-Configuration).");
 
             // --- Defense-in-depth: Finalizer on Do() lambdas (Mono only) ---
 #if !IL2CPP
@@ -101,14 +101,14 @@ namespace OverTheCounter.Patches
                         }
                         catch (Exception ex)
                         {
-                            Logger.Warning($"Failed to patch finalizer {nestedType.Name}.{method.Name}: {ex.Message}");
+                            OTCLog.Warning(OTCLog.Systems.Patch,$"Failed to patch finalizer {nestedType.Name}.{method.Name}: {ex.Message}");
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Finalizer reflection failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"Finalizer reflection failed: {ex.Message}");
             }
 
 #endif
@@ -160,7 +160,7 @@ namespace OverTheCounter.Patches
                     }
                     catch (Exception ex)
                     {
-                        Logger.Warning($"Deferred RPC failed on '{instance.gameObject.name}': {ex.Message}");
+                        OTCLog.Warning(OTCLog.Systems.Patch,$"Deferred RPC failed on '{instance.gameObject.name}': {ex.Message}");
                     }
                     yield break;
                 }
@@ -170,7 +170,7 @@ namespace OverTheCounter.Patches
             // Safe to drop: OTC items don't need config replication.
             try
             {
-                Logger.Warning($"Dropped config RPC on '{instance.gameObject.name}' after {MaxRetries} retries ({method.Name})");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"Dropped config RPC on '{instance.gameObject.name}' after {MaxRetries} retries ({method.Name})");
             }
             catch { }
         }
@@ -183,7 +183,7 @@ namespace OverTheCounter.Patches
         {
             if (__exception != null)
             {
-                Logger.Warning($"[Finalizer] Caught exception in deferred handler: {__exception.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"[Finalizer] Caught exception in deferred handler: {__exception.Message}");
             }
             return null; // swallow
         }

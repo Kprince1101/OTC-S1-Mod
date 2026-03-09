@@ -1,5 +1,5 @@
-using MelonLoader;
 using MelonLoader.Utils;
+using OverTheCounter.Utilities;
 using S1API.Quests;
 using S1API.GameTime;
 using S1API.Utils;
@@ -13,8 +13,6 @@ namespace OverTheCounter.Quests
 {
     public class DrifterDealQuest : Quest
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:DrifterDealQuest");
-
         protected override string Title => _title ?? "Drifter Deal";
         protected override string Description => _description ?? "Complete a deal with a drifter.";
         protected override bool AutoBegin => false;
@@ -50,7 +48,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"TriggerInternalInit failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"TriggerInternalInit failed: {ex.Message}");
             }
         }
 
@@ -79,7 +77,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"StartQuest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"StartQuest failed: {ex.Message}");
             }
         }
 
@@ -120,7 +118,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Warning($"UpdateTiming failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"UpdateTiming failed: {ex.Message}");
             }
         }
 
@@ -138,7 +136,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Warning($"SetSubtitleViaReflection failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"SetSubtitleViaReflection failed: {ex.Message}");
             }
         }
 
@@ -164,7 +162,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"CompleteDeal failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"CompleteDeal failed: {ex.Message}");
             }
         }
 
@@ -178,7 +176,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"FailDeal failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"FailDeal failed: {ex.Message}");
             }
         }
 
@@ -191,7 +189,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                Logger.Error($"CancelDeal failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"CancelDeal failed: {ex.Message}");
             }
         }
 

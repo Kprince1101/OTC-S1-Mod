@@ -1,5 +1,6 @@
 using HarmonyLib;
 using MelonLoader;
+using OverTheCounter.Utilities;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -40,8 +41,6 @@ namespace OverTheCounter.Patches
     /// </summary>
     public static class ContactsAppFix
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:ContactsAppFix");
-
         /// <summary>Instance IDs for which a Fix 1 retry coroutine is in-flight.</summary>
         private static readonly HashSet<int> _fix1Pending = new();
 
@@ -84,7 +83,7 @@ namespace OverTheCounter.Patches
 
                 if (startMethod == null)
                 {
-                    Logger.Warning("ContactsApp.Start not found — patch skipped.");
+                    OTCLog.Warning(OTCLog.Systems.Patch, "ContactsApp.Start not found — patch skipped.");
                     return;
                 }
 
@@ -113,11 +112,11 @@ namespace OverTheCounter.Patches
                         postfix: new HarmonyMethod(typeof(ContactsAppFix), nameof(NPC_Awake_Postfix)));
                 }
 
-                Logger.Msg("ContactsApp multiplayer fix applied.");
+                OTCLog.Msg(OTCLog.Systems.Patch, "ContactsApp multiplayer fix applied.");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"ContactsAppFix.Apply failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"ContactsAppFix.Apply failed: {ex.Message}");
             }
         }
 
@@ -310,7 +309,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Logger.Warning($"[Fix2] CreateConnectionLines threw: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"CreateConnectionLines threw: {ex.Message}");
                 return 0;
             }
         }
@@ -354,7 +353,7 @@ namespace OverTheCounter.Patches
 
             if (!IsGameManagerReady())
             {
-                Logger.Warning($"[Fix1] GameManager timed out (inst={id}) — aborting retry.");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"GameManager timed out (inst={id}) — aborting retry.");
                 _fix1Pending.Remove(id);
                 yield break;
             }
@@ -371,7 +370,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Logger.Warning($"[Fix1] Start() retry threw: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Start() retry threw: {ex.Message}");
                 _fix1Pending.Remove(id);
             }
         }
@@ -402,7 +401,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Logger.Warning($"[Fix2] StartPostfix threw: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"StartPostfix threw: {ex.Message}");
             }
         }
 
@@ -467,7 +466,7 @@ namespace OverTheCounter.Patches
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"[Fix2] Repair pass {pass + 1} threw: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Patch, $"Repair pass {pass + 1} threw: {ex.Message}");
                     break;
                 }
             }
@@ -484,7 +483,7 @@ namespace OverTheCounter.Patches
                 if (cc != null && !cc.gameObject.activeSelf)
                     cc.gameObject.SetActive(true);
             }
-            catch (Exception ex) { Logger.Warning($"[Fix2] Activate CirclesContainer threw: {ex.Message}"); }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Patch, $"Activate CirclesContainer threw: {ex.Message}"); }
 
             // Let Unity recalculate ContentRect layout before ZoomToRect reads sizeDelta.
             yield return null;
@@ -498,9 +497,9 @@ namespace OverTheCounter.Patches
                 if (IsGameManagerReady())
                     instance.SetSelectedRegion(instance.SelectedRegion, true);
                 else
-                    Logger.Warning($"[Fix2] GameManager not ready — skipping SetSelectedRegion (inst={instId}).");
+                    OTCLog.Warning(OTCLog.Systems.Patch, $"GameManager not ready — skipping SetSelectedRegion (inst={instId}).");
             }
-            catch (Exception ex) { Logger.Warning($"[Fix2] SetSelectedRegion threw: {ex.Message}"); }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Patch, $"SetSelectedRegion threw: {ex.Message}"); }
 
             // ── Select first valid circle to initialize DetailPanel ───────────────
             if (instance == null) { _repairRunning.Remove(instId); yield break; }
@@ -523,7 +522,7 @@ namespace OverTheCounter.Patches
                     }
                 }
             }
-            catch (Exception ex) { Logger.Warning($"[Fix2] Select threw: {ex.Message}"); }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Patch, $"Select threw: {ex.Message}"); }
 
             // ── Wire Button.onClick directly for all production circles ───────────
             // Safety net: if Start() threw before the onClicked wiring loop
@@ -553,15 +552,14 @@ namespace OverTheCounter.Patches
                         }
                     }
                 }
-                catch (Exception ex) { Logger.Warning($"[Fix2] Click-wiring threw: {ex.Message}"); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Patch, $"Click-wiring threw: {ex.Message}"); }
             }
 
             // Safety net: if Start() threw before SetOpen(false), appContainer stays active
             // and ContactsApp renders on top of other apps. Deactivate it if not open.
             EnsureAppContainerHidden(instance);
 
-            if (Config.VerboseLogging.Value)
-                Logger.Msg($"ContactsApp repaired: {repaired} portraits, {linesCreated} connection lines, {wired} clicks wired.");
+            OTCLog.Msg(OTCLog.Systems.Patch, $"ContactsApp repaired: {repaired} portraits, {linesCreated} connection lines, {wired} clicks wired.");
 
             _repairRunning.Remove(instId);
         }

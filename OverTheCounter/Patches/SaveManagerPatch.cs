@@ -1,6 +1,6 @@
 using HarmonyLib;
-using MelonLoader;
 using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using System;
 
 #if IL2CPP
@@ -17,7 +17,6 @@ namespace OverTheCounter.Patches
     /// </summary>
     public static class SaveManagerPatch
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:SavePatch");
 
         public static void Apply(HarmonyLib.Harmony harmony)
         {
@@ -31,12 +30,12 @@ namespace OverTheCounter.Patches
                 }
                 else
                 {
-                    Logger.Warning("SaveManager.Save(string) not found — save capture disabled");
+                    OTCLog.Warning(OTCLog.Systems.Patch,"SaveManager.Save(string) not found — save capture disabled");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to apply SaveManager patch: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"Failed to apply SaveManager patch: {ex.Message}");
             }
         }
 

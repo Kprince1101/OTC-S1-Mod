@@ -22,8 +22,6 @@ namespace OverTheCounter.SaveData
 {
     public class StaticSaveData : Saveable
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:StaticSaveData");
-
         [SaveableField("static_intro_completed")]
         private bool _introCompleted;
 
@@ -152,8 +150,7 @@ namespace OverTheCounter.SaveData
                 int effectiveStage = _crmTier >= 1 ? 3 : _introCompleted ? 2 : 1;
                 if (StaticIntroQuest.Instance.Stage < effectiveStage)
                 {
-                    if (Config.VerboseLogging.Value)
-                        Logger.Msg($"Tick reconciliation: quest stage {StaticIntroQuest.Instance.Stage} → {effectiveStage}");
+                    OTCLog.Msg(OTCLog.Systems.NPC, $"Tick reconciliation: quest stage {StaticIntroQuest.Instance.Stage} → {effectiveStage}");
                     ReconcileQuest();
                 }
             }
@@ -193,6 +190,34 @@ namespace OverTheCounter.SaveData
                 catch (Exception) { }
             }
 
+            // Check ATM trigger (either peer can hit the deposit threshold)
+            if (!_questTriggered)
+            {
+                try
+                {
+                    if (ScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value)
+                    {
+                        _questTriggered = true;
+                        CreateOrResumeQuest();
+
+                        if (NetworkHelper.IsHost)
+                        {
+                            TrySendIntroText();
+                            ConfigSyncData.Instance?.PublishGameState();
+                        }
+                        else
+                        {
+                            ConfigSyncData.SendQuestAction("STATIC_ATM_TRIGGERED");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.NPC, $"ATM check failed: {ex.Message}");
+                }
+                return;
+            }
+
             // Keep dialogue fresh once triggered
             try
             {
@@ -224,12 +249,12 @@ namespace OverTheCounter.SaveData
                 }
                 else
                 {
-                    Logger.Error("QuestManager.CreateQuest<StaticIntroQuest> returned null.");
+                    OTCLog.Error(OTCLog.Systems.NPC, "QuestManager.CreateQuest<StaticIntroQuest> returned null.");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"CreateOrResumeQuest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"CreateOrResumeQuest failed: {ex.Message}");
             }
         }
 
@@ -266,7 +291,7 @@ namespace OverTheCounter.SaveData
                 if (!questAlreadyDone)
                 {
                     try { StaticIntroQuest.Instance?.CompleteObj1(); }
-                    catch (Exception ex) { Logger.Warning($"Client CompleteObj1 failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Client CompleteObj1 failed: {ex.Message}"); }
                 }
                 changed = true;
             }
@@ -281,17 +306,17 @@ namespace OverTheCounter.SaveData
                 if (previousTier == 0 && crmTier == 1)
                 {
                     try { StaticIntroQuest.Instance?.CompleteObj2(); }
-                    catch (Exception ex) { Logger.Warning($"Client CompleteObj2 failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Client CompleteObj2 failed: {ex.Message}"); }
                 }
                 if (previousTier == 1 && crmTier == 2)
                 {
                     try { StaticUpgrade1Quest.Instance?.CompleteObj1(); }
-                    catch (Exception ex) { Logger.Warning($"Client Upgrade1 CompleteObj1 failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Client Upgrade1 CompleteObj1 failed: {ex.Message}"); }
                 }
                 if (previousTier == 2 && crmTier == 3)
                 {
                     try { StaticUpgrade2Quest.Instance?.CompleteObj1(); }
-                    catch (Exception ex) { Logger.Warning($"Client Upgrade2 CompleteObj1 failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Client Upgrade2 CompleteObj1 failed: {ex.Message}"); }
                 }
 
                 changed = true;
@@ -356,13 +381,13 @@ namespace OverTheCounter.SaveData
                 }
                 else
                 {
-                    Logger.Warning("Static NPC not found \u2014 deferring intro text until spawn.");
+                    OTCLog.Warning(OTCLog.Systems.NPC, "Static NPC not found \u2014 deferring intro text until spawn.");
                     _needsIntroText = true;
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"TrySendIntroText failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"TrySendIntroText failed: {ex.Message}");
                 _needsIntroText = true;
             }
         }
@@ -387,7 +412,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Error($"OnIntroCompleted quest completion failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"OnIntroCompleted quest completion failed: {ex.Message}");
             }
 
             StaticThreadSaveData.Instance?.AddEmbed(new OtcPropertyMessage
@@ -423,7 +448,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Error($"PurchaseInitial quest completion failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"PurchaseInitial quest completion failed: {ex.Message}");
             }
 
             StaticThreadSaveData.Instance?.SetEmbedStatus("software_offer", "PURCHASED");
@@ -452,7 +477,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Error($"PurchaseUpgrade quest completion failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"PurchaseUpgrade quest completion failed: {ex.Message}");
             }
 
             StaticThreadSaveData.Instance?.SetEmbedStatus("upgrade_offer", "PURCHASED");
@@ -476,7 +501,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Error($"ReactivateSubscription failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"ReactivateSubscription failed: {ex.Message}");
                 return false;
             }
         }
@@ -501,7 +526,7 @@ namespace OverTheCounter.SaveData
                 case "STATIC_INTRO_COMPLETED":
                     _introCompleted = true;
                     try { StaticIntroQuest.Instance?.CompleteObj1(); }
-                    catch (Exception ex) { Logger.Warning($"Remote CompleteObj1 failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Remote CompleteObj1 failed: {ex.Message}"); }
                     break;
 
                 case "STATIC_PURCHASE_INITIAL":
@@ -509,7 +534,7 @@ namespace OverTheCounter.SaveData
                     _saasActive = true;
                     _saasNextPaymentDay = _dayPassCount + Config.SaasCycleDays.Value;
                     try { StaticIntroQuest.Instance?.CompleteObj2(); }
-                    catch (Exception ex) { Logger.Warning($"Remote CompleteObj2 failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Remote CompleteObj2 failed: {ex.Message}"); }
                     break;
 
                 case "STATIC_PURCHASE_UPGRADE":
@@ -524,7 +549,7 @@ namespace OverTheCounter.SaveData
                         else if (previousTier == 2)
                             StaticUpgrade2Quest.Instance?.CompleteObj1();
                     }
-                    catch (Exception ex) { Logger.Warning($"Remote PurchaseUpgrade quest failed: {ex.Message}"); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Remote PurchaseUpgrade quest failed: {ex.Message}"); }
                     break;
 
                 case "STATIC_REACTIVATE":
@@ -538,7 +563,7 @@ namespace OverTheCounter.SaveData
                     break;
 
                 default:
-                    Logger.Warning($"StaticSaveData: unknown remote action '{action}'");
+                    OTCLog.Warning(OTCLog.Systems.NPC, $"StaticSaveData: unknown remote action '{action}'");
                     return;
             }
 
@@ -620,7 +645,7 @@ namespace OverTheCounter.SaveData
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"CheckSubscriptionStatus failed: {ex.Message}");
+                    OTCLog.Error(OTCLog.Systems.NPC, $"CheckSubscriptionStatus failed: {ex.Message}");
                 }
             }
         }
@@ -641,7 +666,7 @@ namespace OverTheCounter.SaveData
                     }
                     else
                     {
-                        Logger.Error("CreateQuest<StaticUpgrade1Quest> returned null.");
+                        OTCLog.Error(OTCLog.Systems.NPC, "CreateQuest<StaticUpgrade1Quest> returned null.");
                     }
                 }
                 else if (_crmTier == 2)
@@ -656,13 +681,13 @@ namespace OverTheCounter.SaveData
                     }
                     else
                     {
-                        Logger.Error("CreateQuest<StaticUpgrade2Quest> returned null.");
+                        OTCLog.Error(OTCLog.Systems.NPC, "CreateQuest<StaticUpgrade2Quest> returned null.");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"CreateUpgradeQuest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"CreateUpgradeQuest failed: {ex.Message}");
             }
         }
 
@@ -685,7 +710,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex)
             {
-                Logger.Error($"SendOtcToast failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"SendStaticText failed: {ex.Message}");
             }
         }
     }

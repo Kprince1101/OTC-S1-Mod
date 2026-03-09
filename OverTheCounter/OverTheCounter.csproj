@@ -13,6 +13,7 @@
 		<NeutralLanguage>en-US</NeutralLanguage>
 		<AssemblyName>OverTheCounter</AssemblyName> <!-- overridden per-config below -->
 		<AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+		<NoWarn>$(NoWarn);MSB3277</NoWarn>
 		<EnableDefaultCompileItems>false</EnableDefaultCompileItems>
 	</PropertyGroup>
 
@@ -268,6 +269,10 @@
 		<Compile Include="Apps\CustomersApp.ManagerLog.cs" />
 		<Compile Include="Apps\CustomersApp.Customers.cs" />
 		<Compile Include="Apps\CustomersApp.Messages.cs" />
+		<Compile Include="Apps\CustomersApp.Employees.cs" />
+		<Compile Include="Apps\CustomersApp.EmployeeDetail.cs" />
+		<Compile Include="Apps\CustomersApp.CustomerDetail.cs" />
+		<Compile Include="Apps\CustomersApp.HireMeIntegration.cs" />
 		<Compile Include="Core.cs" />
 		<Compile Include="DebugHelpers.cs" />
 		<Compile Include="NPCs\VicNPC.cs" />
@@ -317,6 +322,7 @@
 		<Compile Include="Utilities\ConfigEntry.cs" />
 		<Compile Include="Utilities\StorageFilterHelper.cs" />
 		<Compile Include="Utilities\MugshotUtility.cs" />
+		<Compile Include="Utilities\OTCLog.cs" />
 		<Compile Include="SaveData\ConfigSyncData.cs" />
 		<Compile Include="SaveData\NetworkSyncBridge.cs" />
 		<Compile Include="Patches\ConfigReplicatorPatch.cs" />
@@ -325,6 +331,8 @@
 		<Compile Include="Patches\ContactsAppPatch.cs" />
 		<Compile Include="Patches\FixerDialoguePatch.cs" />
 		<Compile Include="Patches\ManagerClipboardPatch.cs" />
+		<Compile Include="Patches\StackSizePatch.cs" />
+		<Compile Include="Patches\GraffitiPatch.cs" />
 		<Compile Include="Patches\SaveManagerPatch.cs" />
 		<Compile Include="Logic\ManagerConfiguration.cs" />
 		<Compile Include="Logic\ManagerUpgrades.cs" />
@@ -332,6 +340,7 @@
 		<Compile Include="Logic\ManagerSupplyBehaviour.cs" />
 		<Compile Include="Logic\ManagerDistributionBehaviour.cs" />
 		<Compile Include="UI\ManagerConfigPanel.cs" />
+		<Compile Include="UI\RouteEntitySelector.cs" />
 		<Compile Include="SaveData\ManagerSaveData.cs" />
 		<Compile Include="NPCs\BellaNPC.cs" />
 		<Compile Include="Quests\BellaProtocolQuest.cs" />
@@ -339,6 +348,7 @@
 		<Compile Include="Patches\BellaSummonPatch.cs" />
 		<Compile Include="Patches\QuestInitPatch.cs" />
 		<Compile Include="Patches\NpcTypeDiscoveryPatch.cs" />
+		<Compile Include="Patches\SafeTypeLoadPatch.cs" />
 		<Compile Include="UI\MinimapOverlay.cs" />
 		<Compile Include="Logic\Placement\BuildingGridFactory.cs" />
 		<Compile Include="Logic\Placement\BuildingPlacementPatch.cs" />
@@ -346,6 +356,9 @@
 		<Compile Include="Logic\Placement\CheckoutCounter.cs" />
 		<Compile Include="Logic\Placement\ComputerScreen.cs" />
 		<Compile Include="Logic\Placement\WestvilleShack.cs" />
+		<Compile Include="UI\RecipeOverlay.cs" />
+		<Compile Include="UI\TMPFactory.cs" />
+		<Compile Include="Patches\RecipePinPatch.cs" />
 	</ItemGroup>
 
 	<!-- Embedded resources -->

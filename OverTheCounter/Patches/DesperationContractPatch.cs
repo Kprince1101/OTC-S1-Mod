@@ -105,7 +105,7 @@ namespace OverTheCounter.Patches
                 }
             }
 
-            Melon<Core>.Logger.Warning($"[AcceptContractClickedPatch] Remote accept: customer {customerId} not found");
+            OTCLog.Warning(OTCLog.Systems.Desperation, $"Remote accept: customer {customerId} not found");
         }
 
         private static void FinalizeDesperationDeal(Customer customer, string locationGuid)
@@ -114,7 +114,7 @@ namespace OverTheCounter.Patches
             {
                 if (customer.GetOfferedContractInfo() == null)
                 {
-                    Melon<Core>.Logger.Error("[AcceptContractClickedPatch] No offered contract to finalize");
+                    OTCLog.Error(OTCLog.Systems.Desperation, "No offered contract to finalize");
                     return;
                 }
 
@@ -133,7 +133,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Error($"[AcceptContractClickedPatch] FinalizeDesperationDeal failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"FinalizeDesperationDeal failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -158,7 +158,7 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                Melon<Core>.Logger.Warning($"[AcceptContractClickedPatch] Failed to send confirmation text: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Desperation, $"Failed to send confirmation text: {ex.Message}");
             }
         }
     }
@@ -200,7 +200,7 @@ namespace OverTheCounter.Patches
             {
                 if (!_errorLogged)
                 {
-                    Melon<Core>.Logger.Warning($"[ContractUpdateTimingPatch] Error: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Desperation, $"ContractUpdateTiming error: {ex.Message}");
                     _errorLogged = true;
                 }
             }

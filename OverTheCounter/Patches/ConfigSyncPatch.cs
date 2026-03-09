@@ -1,5 +1,4 @@
 using HarmonyLib;
-using MelonLoader;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using System;
@@ -20,7 +19,6 @@ namespace OverTheCounter.Patches
     /// </summary>
     public static class ConfigSyncPatch
     {
-        private static readonly MelonLogger.Instance Logger = new MelonLogger.Instance("OTC:ConfigSyncPatch");
 
         /// <summary>
         /// Call during mod initialization to apply patches if ModsApp is present.
@@ -32,25 +30,25 @@ namespace OverTheCounter.Patches
                 var targetType = AccessTools.TypeByName("ModsApp.UI.Panels.ModDetailsPanel");
                 if (targetType == null)
                 {
-                    Logger.Msg("ModsApp not found — ConfigSync patches skipped.");
+                    OTCLog.Msg(OTCLog.Systems.Network,"ModsApp not found — ConfigSync patches skipped.");
                     return;
                 }
 
                 var targetMethod = AccessTools.Method(targetType, "ApplyPreferenceChanges", new[] { typeof(string) });
                 if (targetMethod == null)
                 {
-                    Logger.Warning("ModDetailsPanel.ApplyPreferenceChanges not found — ConfigSync patches skipped.");
+                    OTCLog.Warning(OTCLog.Systems.Network,"ModDetailsPanel.ApplyPreferenceChanges not found — ConfigSync patches skipped.");
                     return;
                 }
 
                 var postfix = new HarmonyMethod(typeof(ConfigSyncPatch), nameof(Postfix));
                 harmony.Patch(targetMethod, postfix: postfix);
 
-                Logger.Msg("ModsApp ConfigSync patches applied.");
+                OTCLog.Msg(OTCLog.Systems.Network,"ModsApp ConfigSync patches applied.");
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Failed to apply ConfigSync patches: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Network,$"Failed to apply ConfigSync patches: {ex.Message}");
             }
         }
 
@@ -65,7 +63,7 @@ namespace OverTheCounter.Patches
             ConfigSyncData.Instance?.RefreshFromConfig();
 
             if (InstanceFinder.NetworkManager != null && InstanceFinder.IsServer && Config.VerboseLogging.Value)
-                Logger.Msg("[ConfigSync] Host config updated and published via SyncVar.");
+                OTCLog.Msg(OTCLog.Systems.Network,"[ConfigSync] Host config updated and published via SyncVar.");
         }
     }
 }

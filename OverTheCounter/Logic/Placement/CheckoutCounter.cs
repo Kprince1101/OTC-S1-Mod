@@ -46,8 +46,6 @@ namespace OverTheCounter.Logic.Placement
     /// </summary>
     public static class CheckoutCounter
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:CheckoutCounter");
-
         private const string SourceItemId = "plastictable";
         private const string CustomItemId = "otc_checkout_counter";
 
@@ -206,7 +204,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Error($"Register failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"Register failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -226,12 +224,12 @@ namespace OverTheCounter.Logic.Placement
             if (!NetworkHelper.IsHost) return;
             if (_counterInstance != null)
             {
-                Logger.Warning("Counter already exists — skipping duplicate spawn");
+                OTCLog.Warning(OTCLog.Systems.Patch,"Counter already exists — skipping duplicate spawn");
                 return;
             }
             if (_counterDef == null)
             {
-                Logger.Error("Counter definition not registered — call Register() first");
+                OTCLog.Error(OTCLog.Systems.Patch,"Counter definition not registered — call Register() first");
                 return;
             }
 
@@ -241,13 +239,13 @@ namespace OverTheCounter.Logic.Placement
                 var nativeInstance = CreateInstanceFromRegistry(CustomItemId);
                 if (nativeInstance == null)
                 {
-                    Logger.Error("Failed to create ItemInstance from custom definition");
+                    OTCLog.Error(OTCLog.Systems.Patch,"Failed to create ItemInstance from custom definition");
                     return;
                 }
                 var bm = Singleton<BuildManager>.Instance;
                 if (bm == null)
                 {
-                    Logger.Error("BuildManager singleton not available");
+                    OTCLog.Error(OTCLog.Systems.Patch,"BuildManager singleton not available");
                     return;
                 }
 
@@ -260,12 +258,12 @@ namespace OverTheCounter.Logic.Placement
                 }
                 else
                 {
-                    Logger.Error("CreateGridItem returned null");
+                    OTCLog.Error(OTCLog.Systems.Patch,"CreateGridItem returned null");
                 }
             }
             catch (Exception ex)
             {
-                Logger.Error($"SpawnOnGrid failed: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"SpawnOnGrid failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -278,13 +276,13 @@ namespace OverTheCounter.Logic.Placement
             var def = Registry.GetItem(itemId);
             if (def == null)
             {
-                Logger.Error($"Registry.GetItem('{itemId}') returned null");
+                OTCLog.Error(OTCLog.Systems.Patch,$"Registry.GetItem('{itemId}') returned null");
                 return null;
             }
             var storableDef = def.TryCast<NativeStorableItemDef>();
             if (storableDef == null)
             {
-                Logger.Error($"'{itemId}' is not a StorableItemDefinition (type={def.GetType().Name})");
+                OTCLog.Error(OTCLog.Systems.Patch,$"'{itemId}' is not a StorableItemDefinition (type={def.GetType().Name})");
                 return null;
             }
             return storableDef.GetDefaultInstance(1);
@@ -295,19 +293,19 @@ namespace OverTheCounter.Logic.Placement
                 .GetProperty("S1BuildableItemDefinition", BindingFlags.NonPublic | BindingFlags.Instance);
             if (nativeDefProp == null)
             {
-                Logger.Error("S1BuildableItemDefinition property not found on S1API wrapper");
+                OTCLog.Error(OTCLog.Systems.Patch,"S1BuildableItemDefinition property not found on S1API wrapper");
                 return null;
             }
             var nativeDef = nativeDefProp.GetValue(_counterDef);
             if (nativeDef == null)
             {
-                Logger.Error("Native definition is null");
+                OTCLog.Error(OTCLog.Systems.Patch,"Native definition is null");
                 return null;
             }
             var getDefaultInstance = nativeDef.GetType().GetMethod("GetDefaultInstance", new[] { typeof(int) });
             if (getDefaultInstance == null)
             {
-                Logger.Error("GetDefaultInstance not found on native definition");
+                OTCLog.Error(OTCLog.Systems.Patch,"GetDefaultInstance not found on native definition");
                 return null;
             }
             return getDefaultInstance.Invoke(nativeDef, new object[] { 1 }) as NativeItemInstance;
@@ -329,7 +327,7 @@ namespace OverTheCounter.Logic.Placement
                 if (go == null)
                 {
                     float elapsed = Time.time - spawnTime;
-                    Logger.Error($"Counter DESTROYED at {elapsed:F2}s after spawn — FishNet killed it");
+                    OTCLog.Error(OTCLog.Systems.Patch,$"Counter DESTROYED at {elapsed:F2}s after spawn — FishNet killed it");
                     _counterInstance = null;
                     yield break;
                 }
@@ -484,7 +482,7 @@ namespace OverTheCounter.Logic.Placement
             }
             else
             {
-                Logger.Warning("Ornate desk mesh not found — counter shows plastic table visual");
+                OTCLog.Warning(OTCLog.Systems.Patch,"Ornate desk mesh not found — counter shows plastic table visual");
             }
         }
 
@@ -500,14 +498,14 @@ namespace OverTheCounter.Logic.Placement
                     Assembly.GetExecutingAssembly());
                 if (glbData == null)
                 {
-                    Logger.Warning("Could not load CashRegister.glb embedded resource");
+                    OTCLog.Warning(OTCLog.Systems.Patch,"Could not load CashRegister.glb embedded resource");
                     return;
                 }
 
                 var register = GltfLoader.LoadGlb(glbData);
                 if (register == null)
                 {
-                    Logger.Warning("GltfLoader returned null for CashRegister.glb");
+                    OTCLog.Warning(OTCLog.Systems.Patch,"GltfLoader returned null for CashRegister.glb");
                     return;
                 }
 
@@ -542,7 +540,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Error($"SpawnCashRegister failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch,$"SpawnCashRegister failed: {ex.Message}");
             }
         }
 
@@ -596,14 +594,14 @@ namespace OverTheCounter.Logic.Placement
                     }
                     catch (Exception ex2)
                     {
-                        Logger.Warning($"Clearing activeStoredItems failed: {ex2.Message}");
+                        OTCLog.Warning(OTCLog.Systems.Patch,$"Clearing activeStoredItems failed: {ex2.Message}");
                     }
 
                 }
             }
             catch (Exception ex)
             {
-                Logger.Warning($"DisableStorageVisualizer failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"DisableStorageVisualizer failed: {ex.Message}");
             }
         }
 
@@ -632,7 +630,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Warning($"HookStorageDisplay failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"HookStorageDisplay failed: {ex.Message}");
             }
         }
 
@@ -734,7 +732,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Warning($"RefreshDeskDisplay failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"RefreshDeskDisplay failed: {ex.Message}");
             }
         }
 
@@ -751,14 +749,14 @@ namespace OverTheCounter.Logic.Placement
                 var nativeInstance = CreateVanillaInstance(itemId);
                 if (nativeInstance == null)
                 {
-                    Logger.Warning($"Could not create instance for '{itemId}' — skipping restore");
+                    OTCLog.Warning(OTCLog.Systems.Patch,$"Could not create instance for '{itemId}' — skipping restore");
                     return;
                 }
 
                 var bm = Singleton<BuildManager>.Instance;
                 if (bm == null)
                 {
-                    Logger.Error("BuildManager not available for vanilla item restore");
+                    OTCLog.Error(OTCLog.Systems.Patch,"BuildManager not available for vanilla item restore");
                     return;
                 }
 
@@ -766,7 +764,7 @@ namespace OverTheCounter.Logic.Placement
             }
             catch (Exception ex)
             {
-                Logger.Warning($"SpawnVanillaGridItem failed for '{itemId}': {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"SpawnVanillaGridItem failed for '{itemId}': {ex.Message}");
             }
         }
 
@@ -779,13 +777,13 @@ namespace OverTheCounter.Logic.Placement
             var def = Registry.GetItem(itemId);
             if (def == null)
             {
-                Logger.Warning($"Registry.GetItem('{itemId}') returned null");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"Registry.GetItem('{itemId}') returned null");
                 return null;
             }
             var storableDef = def.TryCast<NativeStorableItemDef>();
             if (storableDef == null)
             {
-                Logger.Warning($"'{itemId}' is not a StorableItemDefinition");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"'{itemId}' is not a StorableItemDefinition");
                 return null;
             }
             return storableDef.GetDefaultInstance(1);
@@ -794,7 +792,7 @@ namespace OverTheCounter.Logic.Placement
             var registryType = typeof(NativeItemInstance).Assembly.GetType("ScheduleOne.Registry");
             if (registryType == null)
             {
-                Logger.Error("Registry type not found");
+                OTCLog.Error(OTCLog.Systems.Patch,"Registry type not found");
                 return null;
             }
             // Filter to non-generic overload to avoid AmbiguousMatchException
@@ -811,19 +809,19 @@ namespace OverTheCounter.Logic.Placement
             }
             if (getItem == null)
             {
-                Logger.Error("Registry.GetItem(string) not found");
+                OTCLog.Error(OTCLog.Systems.Patch,"Registry.GetItem(string) not found");
                 return null;
             }
             var def = getItem.Invoke(null, new object[] { itemId });
             if (def == null)
             {
-                Logger.Warning($"Registry.GetItem('{itemId}') returned null");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"Registry.GetItem('{itemId}') returned null");
                 return null;
             }
             var getDefaultInstance = def.GetType().GetMethod("GetDefaultInstance", new[] { typeof(int) });
             if (getDefaultInstance == null)
             {
-                Logger.Warning($"GetDefaultInstance not found on {def.GetType().Name}");
+                OTCLog.Warning(OTCLog.Systems.Patch,$"GetDefaultInstance not found on {def.GetType().Name}");
                 return null;
             }
             return getDefaultInstance.Invoke(def, new object[] { 1 }) as NativeItemInstance;

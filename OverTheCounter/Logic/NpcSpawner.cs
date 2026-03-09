@@ -1,4 +1,4 @@
-using MelonLoader;
+using OverTheCounter.Utilities;
 using UnityEngine;
 using UnityEngine.AI;
 using System;
@@ -30,8 +30,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public static class NpcSpawner
     {
-        private static readonly MelonLogger.Instance Logger = new("OTC:NpcSpawner");
-
         private static NetworkObject _cachedBasePrefab;
         private static bool _prefabSearched;
 
@@ -57,14 +55,14 @@ namespace OverTheCounter.Logic
                 var networkManager = InstanceFinder.NetworkManager;
                 if (networkManager == null)
                 {
-                    Logger.Error("NetworkManager not found");
+                    OTCLog.Error(OTCLog.Systems.Drifter,"NetworkManager not found");
                     return null;
                 }
 
                 var spawnablePrefabs = networkManager.SpawnablePrefabs;
                 if (spawnablePrefabs == null)
                 {
-                    Logger.Error("SpawnablePrefabs not available");
+                    OTCLog.Error(OTCLog.Systems.Drifter,"SpawnablePrefabs not available");
                     return null;
                 }
 
@@ -94,12 +92,12 @@ namespace OverTheCounter.Logic
                     }
                 }
 
-                Logger.Error("No suitable NPC prefab found");
+                OTCLog.Error(OTCLog.Systems.Drifter,"No suitable NPC prefab found");
                 return null;
             }
             catch (Exception ex)
             {
-                Logger.Error($"GetBasePrefab failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter,$"GetBasePrefab failed: {ex.Message}");
                 return null;
             }
         }
@@ -128,7 +126,7 @@ namespace OverTheCounter.Logic
                 var basePrefab = GetBasePrefab();
                 if (basePrefab == null)
                 {
-                    Logger.Error($"Cannot spawn {id}: no base prefab");
+                    OTCLog.Error(OTCLog.Systems.Drifter,$"Cannot spawn {id}: no base prefab");
                     return null;
                 }
 
@@ -136,7 +134,7 @@ namespace OverTheCounter.Logic
                 var clone = UnityEngine.Object.Instantiate(basePrefab);
                 if (clone == null || clone.gameObject == null)
                 {
-                    Logger.Error($"Failed to instantiate prefab for {id}");
+                    OTCLog.Error(OTCLog.Systems.Drifter,$"Failed to instantiate prefab for {id}");
                     return null;
                 }
 
@@ -152,7 +150,7 @@ namespace OverTheCounter.Logic
                 var npc = clone.gameObject.GetComponent<NPC>();
                 if (npc == null)
                 {
-                    Logger.Error($"Cloned object missing NPC component for {id}");
+                    OTCLog.Error(OTCLog.Systems.Drifter,$"Cloned object missing NPC component for {id}");
                     UnityEngine.Object.Destroy(clone.gameObject);
                     return null;
                 }
@@ -185,7 +183,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Failed to add Customer component for {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter,$"Failed to add Customer component for {id}: {ex.Message}");
                 }
 
                 // Activate (triggers Awake + Start on all components)
@@ -209,11 +207,11 @@ namespace OverTheCounter.Logic
                     if (InstanceFinder.ServerManager != null)
                         InstanceFinder.ServerManager.Spawn(clone);
                     else
-                        Logger.Warning($"ServerManager is null, {id} may not function correctly");
+                        OTCLog.Warning(OTCLog.Systems.Drifter,$"ServerManager is null, {id} may not function correctly");
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"ServerManager.Spawn failed for {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter,$"ServerManager.Spawn failed for {id}: {ex.Message}");
                 }
 
                 // Warp to position
@@ -225,7 +223,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Movement setup failed for {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter,$"Movement setup failed for {id}: {ex.Message}");
                 }
 
                 // Set agent type to Humanoid — cloned prefab starts at agentTypeID=0 (Unity default)
@@ -236,7 +234,7 @@ namespace OverTheCounter.Logic
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"SetAgentType failed for {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter,$"SetAgentType failed for {id}: {ex.Message}");
                 }
 
                 // Enable off-mesh link traversal (game prefab ships with it disabled)
@@ -246,25 +244,25 @@ namespace OverTheCounter.Logic
                     if (agent != null)
                     {
                         if (Config.VerboseLogging.Value)
-                            Logger.Msg($"[NavDebug] {id} agentTypeID={agent.agentTypeID} autoTraverseOffMeshLink={agent.autoTraverseOffMeshLink} isOnNavMesh={agent.isOnNavMesh} areaMask={agent.areaMask}");
+                            OTCLog.Msg(OTCLog.Systems.Drifter,$"[NavDebug] {id} agentTypeID={agent.agentTypeID} autoTraverseOffMeshLink={agent.autoTraverseOffMeshLink} isOnNavMesh={agent.isOnNavMesh} areaMask={agent.areaMask}");
                         if (!agent.autoTraverseOffMeshLink)
                         {
                             agent.autoTraverseOffMeshLink = true;
                             if (Config.VerboseLogging.Value)
-                                Logger.Msg($"[NavDebug] {id} set autoTraverseOffMeshLink=true");
+                                OTCLog.Msg(OTCLog.Systems.Drifter,$"[NavDebug] {id} set autoTraverseOffMeshLink=true");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"NavMeshAgent debug log failed for {id}: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter,$"NavMeshAgent debug log failed for {id}: {ex.Message}");
                 }
 
                 return npc;
             }
             catch (Exception ex)
             {
-                Logger.Error($"Spawn failed for {id}: {ex.Message}\n{ex.StackTrace}");
+                OTCLog.Error(OTCLog.Systems.Drifter,$"Spawn failed for {id}: {ex.Message}\n{ex.StackTrace}");
                 return null;
             }
         }
@@ -299,7 +297,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Error($"Despawn failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter,$"Despawn failed: {ex.Message}");
             }
         }
 
@@ -341,7 +339,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to create CustomerData: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter,$"Failed to create CustomerData: {ex.Message}");
                 return null;
             }
         }
@@ -359,7 +357,7 @@ namespace OverTheCounter.Logic
             {
                 if (npc.gameObject.activeSelf)
                 {
-                    Logger.Warning($"Cannot add Customer to active GameObject for {npc.ID}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter,$"Cannot add Customer to active GameObject for {npc.ID}");
                     return null;
                 }
 
@@ -370,7 +368,7 @@ namespace OverTheCounter.Logic
                 var customerData = GetOrCreateCustomerData();
                 if (customerData == null)
                 {
-                    Logger.Error("Cannot add Customer — no CustomerData available");
+                    OTCLog.Error(OTCLog.Systems.Drifter,"Cannot add Customer — no CustomerData available");
                     return null;
                 }
 
@@ -380,7 +378,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Error($"AddCustomerComponent failed for {npc?.ID}: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter,$"AddCustomerComponent failed for {npc?.ID}: {ex.Message}");
                 return null;
             }
         }
@@ -403,7 +401,7 @@ namespace OverTheCounter.Logic
                 var customerData = GetOrCreateCustomerData();
                 if (customerData == null)
                 {
-                    Logger.Error("Cannot add Customer to active NPC — no CustomerData available");
+                    OTCLog.Error(OTCLog.Systems.Drifter,"Cannot add Customer to active NPC — no CustomerData available");
                     return null;
                 }
 
@@ -419,7 +417,7 @@ namespace OverTheCounter.Logic
             {
                 try { if (npc?.gameObject != null && !npc.gameObject.activeSelf) npc.gameObject.SetActive(true); }
                 catch { }
-                Logger.Error($"AddCustomerComponentToActive failed for {npc?.ID}: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter,$"AddCustomerComponentToActive failed for {npc?.ID}: {ex.Message}");
                 return null;
             }
         }
@@ -455,7 +453,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"IsolateCustomerComponent failed for {npc?.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter,$"IsolateCustomerComponent failed for {npc?.ID}: {ex.Message}");
             }
         }
 
@@ -490,7 +488,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"RemoveActionsForTarget failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter,$"RemoveActionsForTarget failed: {ex.Message}");
             }
         }
 
@@ -589,7 +587,7 @@ namespace OverTheCounter.Logic
         {
             if (npc?.Avatar == null)
             {
-                Logger.Warning("Cannot generate appearance: NPC or Avatar is null");
+                OTCLog.Warning(OTCLog.Systems.Drifter,"Cannot generate appearance: NPC or Avatar is null");
                 return;
             }
 
@@ -704,7 +702,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                Logger.Warning($"GenerateRandomAppearance failed for {npc.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter,$"GenerateRandomAppearance failed for {npc.ID}: {ex.Message}");
             }
         }
 

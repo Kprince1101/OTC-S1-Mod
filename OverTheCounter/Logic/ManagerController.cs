@@ -27,8 +27,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class ManagerController
     {
-        private readonly MelonLogger.Instance _logger;
-
         private int _managerIdCounter;
 
         public int GetIdCounter() => _managerIdCounter;
@@ -43,9 +41,8 @@ namespace OverTheCounter.Logic
 
         private int _lastSupplyCheckMinute = -1;
 
-        public ManagerController(MelonLogger.Instance logger)
+        public ManagerController()
         {
-            _logger = logger;
             Instance = this;
 
             TimeManager.OnSleepEnd += OnSleepEnd;
@@ -80,7 +77,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[ManagerController] OnTimeTick error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"OnTimeTick error: {ex.Message}");
             }
         }
 
@@ -94,7 +91,7 @@ namespace OverTheCounter.Logic
 
             _lastSupplyCheckMinute = -1;
 
-            _logger.Msg($"[OnSleepEnd] Processing wages for {ManagerInstance.Active.Count} managers");
+            OTCLog.Msg(OTCLog.Systems.Manager, $"[OnSleepEnd] Processing wages for {ManagerInstance.Active.Count} managers");
 
             try
             {
@@ -113,7 +110,7 @@ namespace OverTheCounter.Logic
                     if (!mgr.HasLocker)
                     {
                         if (!midRun) mgr.State = ManagerState.NoFunds;
-                        _logger.Msg($"Manager {mgr.Id}: no locker assigned, cannot pay wage");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"{mgr.Id}: no locker assigned, cannot pay wage");
                         if (!mgr.NoLockerTextSent)
                         {
                             mgr.NoLockerTextSent = true;
@@ -145,7 +142,7 @@ namespace OverTheCounter.Logic
                         mgr.PaidForToday = true;
                         mgr.NoFundsTextSent = false;
                         if (!midRun) mgr.State = ManagerState.Idle;
-                        _logger.Msg($"Manager {mgr.Id}: paid ${wage} wage from locker (remaining: ${available - wage:F0})");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"{mgr.Id}: paid ${wage} wage from locker (remaining: ${available - wage:F0})");
 
                         // Case 3: Wages paid — check which Night Market items we can't afford
                         if (!mgr.NoNightMarketCashTextSent)
@@ -166,7 +163,7 @@ namespace OverTheCounter.Logic
                     else
                     {
                         if (!midRun) mgr.State = ManagerState.NoFunds;
-                        _logger.Msg($"Manager {mgr.Id}: insufficient funds in locker (has: ${available:F0}, need: ${wage})");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"{mgr.Id}: insufficient funds in locker (has: ${available:F0}, need: ${wage})");
                         if (!mgr.NoFundsTextSent && !mgr.NoNightMarketCashTextSent)
                         {
                             mgr.NoFundsTextSent = true;
@@ -195,7 +192,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[ManagerController] OnDayPass error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"OnDayPass error: {ex.Message}");
             }
         }
 
@@ -206,13 +203,13 @@ namespace OverTheCounter.Logic
         {
             if (business == null)
             {
-                _logger.Warning("HireManager: business is null");
+                OTCLog.Warning(OTCLog.Systems.Manager, "HireManager: business is null");
                 return null;
             }
 
             if (ManagerInstance.HasManager(business.PropertyCode))
             {
-                _logger.Warning($"HireManager: {business.PropertyCode} already has a manager");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"HireManager: {business.PropertyCode} already has a manager");
                 return null;
             }
 
@@ -223,7 +220,7 @@ namespace OverTheCounter.Logic
             var instance = ManagerInstance.Create(id, seed, business);
             if (instance == null)
             {
-                _logger.Error($"HireManager: failed to create manager for {business.PropertyCode}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"HireManager: failed to create manager for {business.PropertyCode}");
                 return null;
             }
 
@@ -237,18 +234,18 @@ namespace OverTheCounter.Logic
                 if (moneyManager != null && moneyManager.cashBalance >= signingFee)
                 {
                     moneyManager.ChangeCashBalance(-signingFee, true, true);
-                    _logger.Msg($"Deducted ${signingFee} signing fee for manager {id}");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"Deducted ${signingFee} signing fee for manager {id}");
                 }
                 else
                 {
-                    _logger.Warning($"HireManager: insufficient cash for signing fee (${signingFee})");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"HireManager: insufficient cash for signing fee (${signingFee})");
                     instance.Despawn();
                     return null;
                 }
             }
             catch (Exception ex)
             {
-                _logger.Error($"HireManager: signing fee deduction failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"HireManager: signing fee deduction failed: {ex.Message}");
                 instance.Despawn();
                 return null;
             }
@@ -264,7 +261,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                _logger.Warning($"HireManager: clipboard grant check failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"HireManager: clipboard grant check failed: {ex.Message}");
             }
 
             // Sync manager state to clients via dedicated SyncVar
@@ -301,12 +298,12 @@ namespace OverTheCounter.Logic
             {
                 if (biz != null && string.Equals(biz.PropertyCode, propertyCode, StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.Msg($"HireManagerRemote: hiring at {propertyCode} (client request)");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"HireManagerRemote: hiring at {propertyCode} (client request)");
                     HireManager(biz);
                     return;
                 }
             }
-            _logger.Warning($"HireManagerRemote: business '{propertyCode}' not found in OwnedBusinesses");
+            OTCLog.Warning(OTCLog.Systems.Manager, $"HireManagerRemote: business '{propertyCode}' not found in OwnedBusinesses");
         }
 
         /// <summary>
@@ -316,7 +313,7 @@ namespace OverTheCounter.Logic
         {
             if (!ManagerInstance.Active.TryGetValue(managerId, out var instance))
             {
-                _logger.Warning($"FireManager: no manager with id {managerId}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"FireManager: no manager with id {managerId}");
                 return;
             }
 
@@ -344,7 +341,7 @@ namespace OverTheCounter.Logic
             // Sync manager state to clients via dedicated SyncVar
             ConfigSyncData.Instance?.PublishManagerState();
 
-            _logger.Msg($"Fired manager {managerId}");
+            OTCLog.Msg(OTCLog.Systems.Manager, $"Fired manager {managerId}");
         }
 
         /// <summary>
@@ -354,7 +351,7 @@ namespace OverTheCounter.Logic
         {
             if (!ManagerInstance.Active.TryGetValue(managerId, out var instance))
             {
-                _logger.Warning($"TransferManager: no manager with id {managerId}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"TransferManager: no manager with id {managerId}");
                 return;
             }
 
@@ -371,14 +368,14 @@ namespace OverTheCounter.Logic
 
             if (targetBusiness == null)
             {
-                _logger.Warning($"TransferManager: target business '{targetPropertyCode}' not found");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"TransferManager: target business '{targetPropertyCode}' not found");
                 return;
             }
 
             // Check target doesn't already have a manager
             if (ManagerInstance.HasManager(targetPropertyCode))
             {
-                _logger.Warning($"TransferManager: {targetPropertyCode} already has a manager");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"TransferManager: {targetPropertyCode} already has a manager");
                 return;
             }
 
@@ -414,14 +411,14 @@ namespace OverTheCounter.Logic
             else
             {
                 // No registered location — just teleport
-                _logger.Warning($"No ManagerLocation for {targetPropertyCode}, teleporting manager");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"No ManagerLocation for {targetPropertyCode}, teleporting manager");
                 CompleteTransfer(instance, targetBusiness);
             }
 
             // Sync state to clients
             ConfigSyncData.Instance?.PublishManagerState();
 
-            _logger.Msg($"Manager {managerId} transferring from {oldBizCode} to {targetPropertyCode}");
+            OTCLog.Msg(OTCLog.Systems.Manager, $"{managerId} transferring from {oldBizCode} to {targetPropertyCode}");
         }
 
         /// <summary>
@@ -437,6 +434,10 @@ namespace OverTheCounter.Logic
                     return;
                 }
 
+                // Ensure manager is on civilian NavMesh before cross-town walk
+                instance.DistributionBehaviour?.EnsureCivilianNavMesh();
+                instance.SupplyBehaviour?.EnsureCivilianNavMesh();
+
                 // Track target location for EnsureMoving resume
                 instance.TargetLocation = location;
                 instance.ArrivedAtDestination = false;
@@ -445,7 +446,7 @@ namespace OverTheCounter.Logic
                 instance._destCallback = (GameSystem.Action<NPCMovement.WalkResult>)
                     new Action<NPCMovement.WalkResult>(result =>
                     {
-                        _logger.Msg($"Manager {instance.Id} transfer walk callback (result={result})");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"{instance.Id} transfer walk callback (result={result})");
                         if (result == NPCMovement.WalkResult.Success ||
                             result == NPCMovement.WalkResult.Partial)
                         {
@@ -463,11 +464,11 @@ namespace OverTheCounter.Logic
                 instance._transferCallback = instance._destCallback;
 
                 instance.GameNpc.Movement.SetDestination(location.Destination, instance._destCallback, 3f, 1f);
-                _logger.Msg($"Manager {instance.Id} walking to {targetBusiness.PropertyCode}");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"{instance.Id} walking to {targetBusiness.PropertyCode}");
             }
             catch (Exception ex)
             {
-                _logger.Error($"WalkToNewBusiness failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"WalkToNewBusiness failed: {ex.Message}");
                 CompleteTransfer(instance, targetBusiness);
             }
         }
@@ -493,11 +494,11 @@ namespace OverTheCounter.Logic
                 // Sync updated state
                 ConfigSyncData.Instance?.PublishManagerState();
 
-                _logger.Msg($"Manager {instance.Id} transfer to {targetBusiness.PropertyCode} complete");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"{instance.Id} transfer to {targetBusiness.PropertyCode} complete");
             }
             catch (Exception ex)
             {
-                _logger.Error($"CompleteTransfer failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"CompleteTransfer failed: {ex.Message}");
             }
         }
 
@@ -506,7 +507,7 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void TransferManagerRemote(string managerId, string targetPropertyCode)
         {
-            _logger.Msg($"TransferManagerRemote: {managerId} to {targetPropertyCode}");
+            OTCLog.Msg(OTCLog.Systems.Manager, $"TransferManagerRemote: {managerId} to {targetPropertyCode}");
             TransferManager(managerId, targetPropertyCode);
         }
 
@@ -515,7 +516,7 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void FireManagerRemote(string managerId)
         {
-            _logger.Msg($"FireManagerRemote: {managerId}");
+            OTCLog.Msg(OTCLog.Systems.Manager, $"FireManagerRemote: {managerId}");
             FireManager(managerId);
         }
 
@@ -599,13 +600,13 @@ namespace OverTheCounter.Logic
                         mgr.LockerCashAtWarning = -1f;
                         mgr.SupplyBehaviour?.ClearUnaffordableItems();
                         mgr.State = ManagerState.Idle;
-                        _logger.Msg($"Manager {mgr.Id}: immediate wage payment ${wage} (remaining: ${available - wage:F0})");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"{mgr.Id}: immediate wage payment ${wage} (remaining: ${available - wage:F0})");
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.Error($"[ManagerController] CheckImmediateWages error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Manager, $"CheckImmediateWages error: {ex.Message}");
             }
         }
 
@@ -657,13 +658,13 @@ namespace OverTheCounter.Logic
             var business = FindNearestOwnedBusiness();
             if (business == null)
             {
-                Instance._logger.Warning("[Debug] No owned businesses found");
+                OTCLog.Warning(OTCLog.Systems.Manager, "[Debug] No owned businesses found");
                 return;
             }
 
             if (ManagerInstance.HasManager(business.PropertyCode))
             {
-                Instance._logger.Warning($"[Debug] {business.PropertyCode} already has a manager");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"[Debug] {business.PropertyCode} already has a manager");
                 return;
             }
 
@@ -675,7 +676,7 @@ namespace OverTheCounter.Logic
             var instance = ManagerInstance.Create(id, seed, business);
             if (instance != null)
             {
-                Instance._logger.Msg($"Spawned manager {id} at {business.PropertyCode}");
+                OTCLog.Msg(OTCLog.Systems.Manager, $"Spawned manager {id} at {business.PropertyCode}");
             }
         }
 
