@@ -1,6 +1,6 @@
 # OverTheCounter for Schedule I
 
-**OverTheCounter** is a comprehensive logistics expansion for Schedule I, compatible with both **IL2CPP and Mono** branches. Features physical Manager automation, 24/7 market access via "Executive Privilege," high-stakes "Desperation" daytime deals, a tiered OTC customer app SaaS scam, and manual cash-laundering via the "Rinse Cycle" questline.
+**OverTheCounter** is the endgame expansion for Schedule I. Automate your empire with Manager NPCs that physically run supply routes, handle contracts in one click with Smart Fill, and manage it all from a custom phone app — balanced and built for co-op. Field daytime deals from desperate fiends and random encounters with whales, robbers, and narcs.
 
 > **DUAL BUILD:** This mod ships both `OverTheCounter.Il2Cpp.dll` and `OverTheCounter.Mono.dll`.
 > The bundled **OTC Loader** plugin automatically detects your game branch and loads the correct DLL — no setup required.
@@ -14,16 +14,20 @@ A complete, simulation-based automation system built on **S1API** for maximum co
 
 * **True Logistics:** Hire physical **Manager NPCs** at your Laundromat, Post Office, Car Wash, or Taco Ticklers.
 * **Supply Routes:** Managers automatically physically visit stores to keep your shelves stocked with essential ingredients (fertilizer, chemicals, etc.).
-* **Distribution Routes:** Assign up to **3 custom logic routes** per manager. They move product from Container A to Container B, allowing you to chain storage containers across the map.
+* **Distribution Routes:** Assign up to **3 custom logic routes** per manager. They move product between storage containers — or to and from **dead drop locations** — allowing you to chain logistics across the map.
+* **Manager Upgrades:** Purchase **walk speed** and **carry capacity** tiers from the manager detail page. Faster managers = more runs per day. Higher capacity = fewer trips per route.
 * **The Cost of Business:** Managers cost **$350/day** (paid from their locker's petty cash) and report their status via a daily summary text.
+* **Cascading Pathfinding:** Managers use a multi-stage walk fallback chain, reducing teleports when NavMesh pathfinding fails.
 * **"Executive Privilege" Quest:** A new endgame questline. Prove your worth to the **Night Market Boss** in the downtown high-rises by crafting high-value Weed ($105+), Meth ($200+), and Cocaine ($400+) mixes. Success unlocks 24/7 Night Market access for your automation network.
 
 ## 2. Smart Logistics UI (Quality of Life)
 *No more mental math. No more clicking back and forth.*
 
+* **Recipe Pin Overlay:** Pin any product from the Product Manager app to see its full mixing chain on screen — every ingredient and step at a glance while you work.
 * **The Contract Aggregator:** Merges all active orders into a single "Pending Deliveries" list, grouped by time window. See exactly what you need for the next run at a glance.
 * **Smart Fill — Storage:** Open any container to see a live manifest of what you need vs. what you have. One click pulls the exact product into your inventory, prioritizing jars over baggies.
 * **Smart Fill — Handover:** During a contract handover, click once to fill the bare minimum (quality-aware, smallest packaging first). Click again to boost until acceptance hits 95%+.
+* **Stack Size Multiplier:** Configurable scaling for item stacks, manager thresholds, and supply picker quantities — carry more per trip.
 
 ## 3. Dynamic World Events
 *The city feels alive, and the market is volatile.*
@@ -34,6 +38,7 @@ A complete, simulation-based automation system built on **S1API** for maximum co
 * **Drifter Encounters:** Random NPCs spawn throughout the city offering one-time deals via text.
     * **The Risks:** Encounter **Whales** (bulk buyers), **Robbers** (ambushes), or **Narcs** (police stings).
     * **Scaling:** Spawn rates increase as you unlock more regions.
+* **Graffiti Re-Edit:** Re-edit placed graffiti while preserving your spray cans, with a config toggle to enable/disable.
 
 ## 4. Progression & Economy
 *You have to earn your tools.*
@@ -50,7 +55,9 @@ A complete, simulation-based automation system built on **S1API** for maximum co
 ## 5. Customizable Minimap (UI & Navigation)
 
 * **Opt-In UI:** The minimap is turned **OFF** out of the box. You must enable it first (see the Configuration section below).
-* **Total Control:** Choose between a circular or square map, adjust the size, set your screen anchor, and use a custom zoom cycle hotkey (Default: N).
+* **Total Control:** Choose between a circular or square map, adjust the size, and use a custom zoom cycle hotkey (Default: N).
+* **Free-Form Positioning:** Place the minimap anywhere on screen with X/Y offset sliders — not locked to a corner.
+* **Compass & Edge Indicators:** Optional compass labels (N/S/E/W) and off-screen POI arrows that point toward objectives outside the current map view.
 * **Icon Filtering:** Keep your screen clean by toggling exactly which POIs show up, from active customers to your newly hired Managers.
 * **Rank & XP Bar (opt-in):** An optional panel below the minimap shows your current rank and tier (e.g. *Hoodlum IV*) with a live XP progress bar and numeric readout. Every time you earn XP a **+X XP** label floats up from the bar and fades out. On tier advancement the label also shows **+1 Level** in a distinct royal color. Enable via the *Show Rank/XP* config option (off by default).
 
@@ -85,17 +92,19 @@ If you prefer not to use a mod manager, you'll need to install each dependency y
 7.  Launch the game.
 
 ## Configuration
-Settings are stored in MelonLoader's config file and organized into nine categories:
+Settings are stored in MelonLoader's config file and organized into the following categories:
 
 * **Desperation System** — Enable/disable toggle, fiend addiction threshold, trigger chance per hour, max daily events, response/delivery deadlines, bonus multiplier, relationship penalty, cooldown, and active hours.
 * **Vic Laundering** — Tier costs, returns, trust unlock threshold, and intro quest requirements.
 * **Static Subscription** — Weekly billing cost, cycle length, ATM deposit trigger, and tier upgrade costs/requirements.
 * **Contract Notifications** — Enable/disable toggle, consolidation threshold (minimum contracts before grouping kicks in).
-* **Manager System** — Daily wage and signing fee.
+* **Manager System** — Daily wage, signing fee, and alternate hire mode toggle.
 * **Executive Privilege (Bella)** — Minimum weed, meth, and cocaine mix value thresholds for the quest.
 * **Drifter System** — Enable/disable toggle, spawn chance per hour, max active drifters, active hours, offer window, delivery deadline, linger duration, and minimum deal value.
-* **Minimap** — Enable/disable toggle (off by default), size, zoom level, toggle key (default: N), screen position, circle/square shape, rotate-with-player, border color/width, icon scale, and Show Rank/XP bar (off by default). Invalid values are automatically corrected.
+* **World** — Stack size multiplier, graffiti re-edit toggle, and recipe pin toggle.
+* **Minimap** — Enable/disable toggle (off by default), size, zoom level, toggle key (default: N), X/Y position offsets, circle/square shape, rotate-with-player, compass labels, edge indicators, border color/width, icon scale, time/day display, 24-hour clock, and Rank/XP bar (off by default). Invalid values are automatically corrected.
 * **Minimap POIs** — Per-category toggles for potential customers, unlocked customers (off by default), dealers, dead drops, contracts, quests, properties, and managers.
+* **Debug** — Per-system verbose logging toggles (Manager, Drifter, Desperation, NPC, Network, Quest, Notification, Patch) and a general verbose catch-all.
 
 Every setting includes a full description visible in ModsApp by k0mods [Thunderstore](https://thunderstore.io/c/schedule-i/p/k0Mods/ModsApp/)/[Nexus](https://www.nexusmods.com/schedule1/mods/1222) (recommended, open-source, recently updated). Also compatible with other config editors. You can always edit the config file directly if you prefer.
 
