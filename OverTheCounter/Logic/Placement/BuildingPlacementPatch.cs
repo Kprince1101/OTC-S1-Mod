@@ -52,6 +52,21 @@ namespace OverTheCounter.Logic.Placement
 #endif
 
         /// <summary>
+        /// Resolves a game type by name, trying the correct prefix for the current build first
+        /// to avoid noisy warnings from AccessTools when the wrong-prefix lookup fails.
+        /// </summary>
+        private static Type FindGameType(string monoName)
+        {
+#if IL2CPP
+            return AccessTools.TypeByName("Il2Cpp" + monoName)
+                ?? AccessTools.TypeByName(monoName);
+#else
+            return AccessTools.TypeByName(monoName)
+                ?? AccessTools.TypeByName("Il2Cpp" + monoName);
+#endif
+        }
+
+        /// <summary>
         /// Registers all Harmony patches for OTC grid placement support.
         /// </summary>
         public static void Apply(HarmonyLib.Harmony harmony)
@@ -103,8 +118,7 @@ namespace OverTheCounter.Logic.Placement
                     OTCLog.Warning(OTCLog.Systems.Patch,"Grid.Container getter not found — placed items will crash");
 
                 // Patch GridItem.InitializeGridItem — bypass GetProperty for OTC grids
-                _gridItemType = AccessTools.TypeByName("ScheduleOne.EntityFramework.GridItem")
-                    ?? AccessTools.TypeByName("Il2CppScheduleOne.EntityFramework.GridItem");
+                _gridItemType = FindGameType("ScheduleOne.EntityFramework.GridItem");
                 if (_gridItemType != null)
                 {
                     var initGridItem = AccessTools.Method(_gridItemType, "InitializeGridItem");
@@ -117,8 +131,7 @@ namespace OverTheCounter.Logic.Placement
                         OTCLog.Warning(OTCLog.Systems.Patch,"GridItem.InitializeGridItem not found — placement will crash");
 
                     // Cache InitializeBuildableItem for the prefix
-                    var buildableType = AccessTools.TypeByName("ScheduleOne.EntityFramework.BuildableItem")
-                        ?? AccessTools.TypeByName("Il2CppScheduleOne.EntityFramework.BuildableItem");
+                    var buildableType = FindGameType("ScheduleOne.EntityFramework.BuildableItem");
                     if (buildableType != null)
                     {
                         _initBuildableItem = AccessTools.Method(buildableType, "InitializeBuildableItem");
@@ -139,8 +152,7 @@ namespace OverTheCounter.Logic.Placement
                     OTCLog.Warning(OTCLog.Systems.Patch,"GridItem type not found — placement patches skipped");
 
                 // Patch BuildManager.CreateGridItem — apply desk visual when counter is placed
-                var buildManagerType = AccessTools.TypeByName("ScheduleOne.Building.BuildManager")
-                    ?? AccessTools.TypeByName("Il2CppScheduleOne.Building.BuildManager");
+                var buildManagerType = FindGameType("ScheduleOne.Building.BuildManager");
                 if (buildManagerType != null)
                 {
                     var createGridItem = AccessTools.Method(buildManagerType, "CreateGridItem");
@@ -154,8 +166,7 @@ namespace OverTheCounter.Logic.Placement
                 }
 
                 // Patch BuildStart_Grid.CreateGhostModel — swap ghost visual from plastic table to desk
-                var buildStartGridType = AccessTools.TypeByName("ScheduleOne.Building.BuildStart_Grid")
-                    ?? AccessTools.TypeByName("Il2CppScheduleOne.Building.BuildStart_Grid");
+                var buildStartGridType = FindGameType("ScheduleOne.Building.BuildStart_Grid");
                 if (buildStartGridType != null)
                 {
                     var createGhostModel = buildStartGridType.GetMethod("CreateGhostModel",
@@ -172,16 +183,14 @@ namespace OverTheCounter.Logic.Placement
                     OTCLog.Warning(OTCLog.Systems.Patch,"BuildStart_Grid type not found");
 
                 // --- BuildUpdate_Grid patches ---
-                var buildUpdateGridType = AccessTools.TypeByName("ScheduleOne.Building.BuildUpdate_Grid")
-                    ?? AccessTools.TypeByName("Il2CppScheduleOne.Building.BuildUpdate_Grid");
+                var buildUpdateGridType = FindGameType("ScheduleOne.Building.BuildUpdate_Grid");
                 if (buildUpdateGridType != null)
                 {
                     // Patch OnClosestIntersectionChanged — prevent NullRef from
                     // ParentProperty being null on OTC grids (no Property component).
                     // Without this, the closestIntersection setter crashes every frame
                     // the ghost tries to change tiles, locking it to one position.
-                    var tileIntersectionType = AccessTools.TypeByName("ScheduleOne.Building.TileIntersection")
-                        ?? AccessTools.TypeByName("Il2CppScheduleOne.Building.TileIntersection");
+                    var tileIntersectionType = FindGameType("ScheduleOne.Building.TileIntersection");
                     if (tileIntersectionType != null)
                         _tileIntersectionTileField = AccessTools.Field(tileIntersectionType, "tile");
 
