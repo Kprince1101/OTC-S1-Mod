@@ -92,6 +92,7 @@ namespace OverTheCounter.Quests
             try
             {
                 _stage = 2;
+                _meetVicEntry?.Begin();
                 _meetVicEntry?.Complete();
                 _bringWeedEntry?.Begin();
             }
@@ -106,7 +107,9 @@ namespace OverTheCounter.Quests
             try
             {
                 _stage = 3;
+                _bringWeedEntry?.Begin();
                 _bringWeedEntry?.Complete();
+                Complete();
             }
             catch (System.Exception ex)
             {
@@ -152,7 +155,10 @@ namespace OverTheCounter.Quests
                     _bringWeedEntry?.Begin();
                 }
                 if (_stage >= 3)
+                {
                     _bringWeedEntry?.Complete();
+                    Complete();
+                }
             }
             catch (System.Exception ex)
             {

@@ -94,6 +94,12 @@ namespace OverTheCounter.SaveData
         {
             Instance = this;
 
+            // Heal stale flags: derive earlier state from later progression.
+            if (!_introCompleted && _crmTier >= 1)
+                _introCompleted = true;
+            if (!_questTriggered && (_introCompleted || _crmTier >= 1))
+                _questTriggered = true;
+
             if (_questTriggered)
             {
                 _questCreated = true;
@@ -104,23 +110,70 @@ namespace OverTheCounter.SaveData
             _dialogueStale = true;
 
             ConfigSyncData.ApplyPendingGameState();
-            ReconcileQuest();
+            // ReconcileQuest deferred to Tick safety net — OnLoaded fires before
+            // the game finishes loading its own quest persistence (Quests.json),
+            // so creating quests here races with the game's own quest loading.
         }
 
         /// <summary>
-        /// Advances StaticIntroQuest to match this SaveData's effective stage.
-        /// Covers the case where the quest loaded before this Saveable received host state.
+        /// Reconciles all quest states to match SaveData.
+        /// Covers intro quest, upgrade quests, and force-creates missing quest instances.
+        /// Returns true if any quest was created (caller should defer advancement
+        /// to the next frame so Unity's Start() can initialize entry components).
         /// </summary>
-        private void ReconcileQuest()
+        private bool ReconcileQuest()
         {
-            if (StaticIntroQuest.Instance == null) return;
-            int effectiveStage = _crmTier >= 1 ? 3 : _introCompleted ? 2 : _questTriggered ? 1 : 0;
-            if (effectiveStage <= StaticIntroQuest.Instance.Stage) return;
+            bool created = false;
 
-            if (effectiveStage >= 2 && StaticIntroQuest.Instance.Stage < 2)
-                StaticIntroQuest.Instance.CompleteObj1();
-            if (effectiveStage >= 3 && StaticIntroQuest.Instance.Stage < 3)
-                StaticIntroQuest.Instance.CompleteObj2();
+            // ── Intro quest ──
+            int effectiveStage = _crmTier >= 1 ? 3 : _introCompleted ? 2 : _questTriggered ? 1 : 0;
+
+            // Don't create quests that are already fully complete — no UI to show.
+            if (effectiveStage > 0 && effectiveStage < 3 && StaticIntroQuest.Instance == null)
+            {
+                try
+                {
+                    var quest = (StaticIntroQuest)QuestManager.CreateQuest<StaticIntroQuest>();
+                    if (quest != null) { quest.Initialize(); quest.StartQuest(); created = true; }
+                }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: intro quest creation failed: {ex.Message}"); }
+            }
+
+            // Skip advancement on the same frame as creation — Unity's Start()
+            // hasn't run on the entry components yet, so state changes don't stick.
+            if (!created && StaticIntroQuest.Instance != null && effectiveStage > StaticIntroQuest.Instance.Stage)
+            {
+                if (effectiveStage >= 2 && StaticIntroQuest.Instance.Stage < 2)
+                    StaticIntroQuest.Instance.CompleteObj1();
+                if (effectiveStage >= 3 && StaticIntroQuest.Instance.Stage < 3)
+                    StaticIntroQuest.Instance.CompleteObj2();
+            }
+
+            // ── Upgrade 1 quest (tier 1→2) ──
+            if (_crmTier == 1 && _saasActive && StaticUpgrade1Quest.Instance == null)
+            {
+                try { CreateUpgradeQuest(); created = true; }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: upgrade1 quest creation failed: {ex.Message}"); }
+            }
+            else if (!created && _crmTier >= 2 && StaticUpgrade1Quest.Instance != null && StaticUpgrade1Quest.Instance.Stage < 1)
+            {
+                try { StaticUpgrade1Quest.Instance.CompleteObj1(); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: upgrade1 completion failed: {ex.Message}"); }
+            }
+
+            // ── Upgrade 2 quest (tier 2→3) ──
+            if (_crmTier == 2 && _saasActive && StaticUpgrade2Quest.Instance == null)
+            {
+                try { CreateUpgradeQuest(); created = true; }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: upgrade2 quest creation failed: {ex.Message}"); }
+            }
+            else if (!created && _crmTier >= 3 && StaticUpgrade2Quest.Instance != null && StaticUpgrade2Quest.Instance.Stage < 1)
+            {
+                try { StaticUpgrade2Quest.Instance.CompleteObj1(); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: upgrade2 completion failed: {ex.Message}"); }
+            }
+
+            return created;
         }
 
         /// <summary>
@@ -129,17 +182,13 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void Tick()
         {
-            // Safety net: reconcile quest once after everything is loaded.
-            if (!_questReconciled && _questTriggered
-                && StaticIntroQuest.Instance != null)
+            // Safety net: reconcile quest state after everything is loaded.
+            // If ReconcileQuest creates a quest, it returns true and we re-run
+            // next frame so Unity's Start() has initialized entry components.
+            if (!_questReconciled && _questTriggered)
             {
-                _questReconciled = true;
-                int effectiveStage = _crmTier >= 1 ? 3 : _introCompleted ? 2 : 1;
-                if (StaticIntroQuest.Instance.Stage < effectiveStage)
-                {
-                    OTCLog.Msg(OTCLog.Systems.NPC, $"Tick reconciliation: quest stage {StaticIntroQuest.Instance.Stage} → {effectiveStage}");
-                    ReconcileQuest();
-                }
+                if (!ReconcileQuest())
+                    _questReconciled = true;
             }
 
             // Detect dialogue closing edge — forces a rebuild so weed count,

@@ -94,6 +94,7 @@ namespace OverTheCounter.Quests
             try
             {
                 _stage = 2;
+                _talkToStaticEntry?.Begin();
                 _talkToStaticEntry?.Complete();
                 _bringSuppliesEntry?.Begin();
             }
@@ -108,7 +109,9 @@ namespace OverTheCounter.Quests
             try
             {
                 _stage = 3;
+                _bringSuppliesEntry?.Begin();
                 _bringSuppliesEntry?.Complete();
+                Complete();
             }
             catch (Exception ex)
             {
@@ -154,7 +157,10 @@ namespace OverTheCounter.Quests
                     _bringSuppliesEntry?.Begin();
                 }
                 if (_stage >= 3)
+                {
                     _bringSuppliesEntry?.Complete();
+                    Complete();
+                }
             }
             catch (Exception ex)
             {

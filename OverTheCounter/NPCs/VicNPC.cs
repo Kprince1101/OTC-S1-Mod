@@ -249,24 +249,6 @@ namespace OverTheCounter.NPCs
 
             int stage = Math.Max(questStage, saveStage);
 
-            // Quest instance missing — force creation (bypasses _questCreated guard).
-            if (stage > 0 && VicIntroQuest.Instance == null)
-            {
-                try
-                {
-                    var quest = (VicIntroQuest)S1API.Quests.QuestManager.CreateQuest<VicIntroQuest>();
-                    if (quest != null)
-                    {
-                        quest.Initialize();
-                        quest.StartQuest();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Error(OTCLog.Systems.NPC, $"Force quest creation failed: {ex.Message}");
-                }
-            }
-
             Dialogue.BuildAndRegisterContainer("VicGreeting", container =>
             {
                 if (stage == 1)

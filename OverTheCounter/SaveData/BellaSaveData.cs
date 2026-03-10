@@ -55,6 +55,12 @@ namespace OverTheCounter.SaveData
 
             OTCLog.Msg(OTCLog.Systems.NPC, $"OnLoaded: _stage={_stage} (from save), quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
 
+            // Heal stale flags: derive state from whichever field progressed further.
+            if (_stage >= 5 && !_nightMarketUnlocked)
+                _nightMarketUnlocked = true;
+            if (_nightMarketUnlocked && _stage < 5)
+                _stage = 5;
+
             if (_stage > 0)
                 _questCreated = true;
 
@@ -75,42 +81,58 @@ namespace OverTheCounter.SaveData
 
             OTCLog.Msg(OTCLog.Systems.NPC, $"OnLoaded after pending apply: _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
 
-            ReconcileQuest();
+            // ReconcileQuest deferred to Tick safety net — OnLoaded fires before
+            // the game finishes loading its own quest persistence (Quests.json),
+            // so creating quests here races with the game's own quest loading.
         }
 
         /// <summary>
-        /// If the quest was already loaded with a stale stage, advance it to match.
-        /// Covers the case where BellaProtocolQuest.OnLoaded ran before this Saveable.
+        /// Reconciles quest state to match SaveData.
+        /// Force-creates missing quest instance and advances objectives.
+        /// Returns true if a quest was created (caller should defer advancement
+        /// to the next frame so Unity's Start() can initialize entry components).
         /// </summary>
-        private void ReconcileQuest()
+        private bool ReconcileQuest()
         {
-            if (_stage < 2 || BellaProtocolQuest.Instance == null) return;
-            if (BellaProtocolQuest.Instance.Stage >= _stage) return;
+            bool created = false;
 
-            if (_stage >= 2 && BellaProtocolQuest.Instance.Stage < 2)
-                BellaProtocolQuest.Instance.AdvanceToWeedRequest();
-            if (_stage >= 3 && BellaProtocolQuest.Instance.Stage < 3)
-                BellaProtocolQuest.Instance.AdvanceToMethRequest();
-            if (_stage >= 4 && BellaProtocolQuest.Instance.Stage < 4)
-                BellaProtocolQuest.Instance.AdvanceToCocaineRequest();
-            if (_stage >= 5 && BellaProtocolQuest.Instance.Stage < 5)
-                BellaProtocolQuest.Instance.CompleteQuest();
+            // Don't create quests that are already fully complete — no UI to show.
+            if (_stage > 0 && _stage < 5 && BellaProtocolQuest.Instance == null)
+            {
+                try
+                {
+                    var quest = (BellaProtocolQuest)QuestManager.CreateQuest<BellaProtocolQuest>();
+                    if (quest != null) { quest.Initialize(); quest.StartQuest(); created = true; }
+                }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: quest creation failed: {ex.Message}"); }
+            }
+
+            // Skip advancement on the same frame as creation — Unity's Start()
+            // hasn't run on the entry components yet, so state changes don't stick.
+            if (!created && BellaProtocolQuest.Instance != null && _stage > BellaProtocolQuest.Instance.Stage)
+            {
+                if (_stage >= 2 && BellaProtocolQuest.Instance.Stage < 2)
+                    BellaProtocolQuest.Instance.AdvanceToWeedRequest();
+                if (_stage >= 3 && BellaProtocolQuest.Instance.Stage < 3)
+                    BellaProtocolQuest.Instance.AdvanceToMethRequest();
+                if (_stage >= 4 && BellaProtocolQuest.Instance.Stage < 4)
+                    BellaProtocolQuest.Instance.AdvanceToCocaineRequest();
+                if (_stage >= 5 && BellaProtocolQuest.Instance.Stage < 5)
+                    BellaProtocolQuest.Instance.CompleteQuest();
+            }
+
+            return created;
         }
 
         public void Tick()
         {
-            // Safety net: reconcile quest once after everything is loaded.
-            // Covers all load-order timing edge cases between SaveData, Quest,
-            // and SyncVar callbacks that OnLoaded reconciliation may miss.
-            if (!_questReconciled && _stage >= 2
-                && BellaProtocolQuest.Instance != null)
+            // Safety net: reconcile quest state after everything is loaded.
+            // If ReconcileQuest creates a quest, it returns true and we re-run
+            // next frame so Unity's Start() has initialized entry components.
+            if (!_questReconciled && _stage > 0)
             {
-                _questReconciled = true;
-                if (BellaProtocolQuest.Instance.Stage < _stage)
-                {
-                    OTCLog.Msg(OTCLog.Systems.NPC, $"Tick reconciliation: quest stage {BellaProtocolQuest.Instance.Stage} → {_stage}");
-                    ReconcileQuest();
-                }
+                if (!ReconcileQuest())
+                    _questReconciled = true;
             }
 
             if (_needsSpawn)

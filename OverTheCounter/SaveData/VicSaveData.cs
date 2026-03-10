@@ -89,9 +89,15 @@ namespace OverTheCounter.SaveData
         {
             Instance = this;
 
-            // Backwards compat: old saves may have _triggerPendingDay >= 0
+            // Heal stale flags: derive earlier state from later progression.
+            if (!_questAccepted && _unlocked)
+                _questAccepted = true;
+            if (!_hasBeenTexted && (_questAccepted || _unlocked))
+                _hasBeenTexted = true;
+
+            // Backwards compat: old saves may have _triggerPendingDay > 0
             // without _hasBeenTexted. Promote to triggered state.
-            if (_triggerPendingDay >= 0 && !_hasBeenTexted)
+            if (!_hasBeenTexted && _triggerPendingDay > 0)
             {
                 _hasBeenTexted = true;
                 _needsIntroText = true;
@@ -106,23 +112,45 @@ namespace OverTheCounter.SaveData
 
             _dialogueStale = true;
             ConfigSyncData.ApplyPendingGameState();
-            ReconcileQuest();
+            // ReconcileQuest deferred to Tick safety net — OnLoaded fires before
+            // the game finishes loading its own quest persistence (Quests.json),
+            // so creating quests here races with the game's own quest loading.
         }
 
         /// <summary>
-        /// Advances VicIntroQuest to match this SaveData's effective stage.
-        /// Covers the case where the quest loaded before this Saveable received host state.
+        /// Reconciles quest state to match SaveData.
+        /// Force-creates missing quest instance and advances objectives.
+        /// Returns true if a quest was created (caller should defer advancement
+        /// to the next frame so Unity's Start() can initialize entry components).
         /// </summary>
-        private void ReconcileQuest()
+        private bool ReconcileQuest()
         {
-            if (VicIntroQuest.Instance == null) return;
             int effectiveStage = _unlocked ? 3 : _questAccepted ? 2 : _hasBeenTexted ? 1 : 0;
-            if (effectiveStage <= VicIntroQuest.Instance.Stage) return;
 
-            if (effectiveStage >= 2 && VicIntroQuest.Instance.Stage < 2)
-                VicIntroQuest.Instance.CompleteObj1();
-            if (effectiveStage >= 3 && VicIntroQuest.Instance.Stage < 3)
-                VicIntroQuest.Instance.CompleteObj2();
+            bool created = false;
+
+            // Don't create quests that are already fully complete — no UI to show.
+            if (effectiveStage > 0 && effectiveStage < 3 && VicIntroQuest.Instance == null)
+            {
+                try
+                {
+                    var quest = (VicIntroQuest)QuestManager.CreateQuest<VicIntroQuest>();
+                    if (quest != null) { quest.Initialize(); quest.StartQuest(); created = true; }
+                }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: quest creation failed: {ex.Message}"); }
+            }
+
+            // Skip advancement on the same frame as creation — Unity's Start()
+            // hasn't run on the entry components yet, so state changes don't stick.
+            if (!created && VicIntroQuest.Instance != null && effectiveStage > VicIntroQuest.Instance.Stage)
+            {
+                if (effectiveStage >= 2 && VicIntroQuest.Instance.Stage < 2)
+                    VicIntroQuest.Instance.CompleteObj1();
+                if (effectiveStage >= 3 && VicIntroQuest.Instance.Stage < 3)
+                    VicIntroQuest.Instance.CompleteObj2();
+            }
+
+            return created;
         }
 
         /// <summary>
@@ -146,17 +174,13 @@ namespace OverTheCounter.SaveData
         /// </summary>
         public void Tick()
         {
-            // Safety net: reconcile quest once after everything is loaded.
-            if (!_questReconciled && _hasBeenTexted
-                && VicIntroQuest.Instance != null)
+            // Safety net: reconcile quest state after everything is loaded.
+            // If ReconcileQuest creates a quest, it returns true and we re-run
+            // next frame so Unity's Start() has initialized entry components.
+            if (!_questReconciled && _hasBeenTexted)
             {
-                _questReconciled = true;
-                int effectiveStage = _unlocked ? 3 : _questAccepted ? 2 : 1;
-                if (VicIntroQuest.Instance.Stage < effectiveStage)
-                {
-                    OTCLog.Msg(OTCLog.Systems.NPC, $"Tick reconciliation: quest stage {VicIntroQuest.Instance.Stage} → {effectiveStage}");
-                    ReconcileQuest();
-                }
+                if (!ReconcileQuest())
+                    _questReconciled = true;
             }
 
             // Detect dialogue closing edge — forces a rebuild so weed count
