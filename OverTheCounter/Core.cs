@@ -72,6 +72,7 @@ namespace OverTheCounter
             ContactsAppFix.Apply(HarmonyInstance);
             GraffitiPatch.Apply(HarmonyInstance);
             RecipePinPatch.Apply(HarmonyInstance);
+            SupplierWarehousePatch.Apply(HarmonyInstance);
             TimeManager.OnSleepEnd += OnSleepEnd;
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
@@ -169,6 +170,7 @@ namespace OverTheCounter
             Logic.Placement.CheckoutCounter.Cleanup();
             Logic.Placement.WestvilleShack.Cleanup();
             Logic.Placement.OTCWarehouse.Cleanup();
+            Logic.Placement.OTCSupplierArea.Cleanup();
             CheckoutProcess.ResetStatic();
             BuildingGridFactory.Cleanup();
             _loadHooked = false;
@@ -181,6 +183,7 @@ namespace OverTheCounter
                 Logic.Placement.CheckoutCounter.Register();
                 Logic.Placement.WestvilleShack.SpawnBuilding();
                 Logic.Placement.OTCWarehouse.Initialize();
+                Logic.Placement.OTCSupplierArea.Initialize(Logic.Placement.OTCWarehouse.BuildingTransform);
 
                 // Defer grid item spawning until after FishNet is ready
                 // (CreateGridItem calls networkObject.Spawn which requires network initialized)
