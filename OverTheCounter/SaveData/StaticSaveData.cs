@@ -60,6 +60,9 @@ namespace OverTheCounter.SaveData
         // Runtime-only: deferred quest reconciliation guard (fires once per session in Tick).
         private bool _questReconciled;
 
+        // Runtime-only: post-load quest reconciliation (fires once after IsGameLoaded).
+        private bool _postLoadReconciled;
+
         // Runtime-only: intro text deferred until Static NPC spawns.
         private bool _needsIntroText;
 
@@ -177,6 +180,38 @@ namespace OverTheCounter.SaveData
         }
 
         /// <summary>
+        /// Called once from Tick() after LoadManager.IsGameLoaded becomes true.
+        /// At this point Quests.json is fully loaded, so any persisted quest
+        /// will have its Instance set. Completes stale quests that the early
+        /// ReconcileQuest missed because the Instance was still null.
+        /// </summary>
+        private void ReconcileQuestsPostLoad()
+        {
+            int effectiveStage = _crmTier >= 1 ? 3 : _introCompleted ? 2 : _questTriggered ? 1 : 0;
+
+            if (StaticIntroQuest.Instance != null && effectiveStage > StaticIntroQuest.Instance.Stage)
+            {
+                if (effectiveStage >= 2 && StaticIntroQuest.Instance.Stage < 2)
+                    StaticIntroQuest.Instance.CompleteObj1();
+                if (effectiveStage >= 3 && StaticIntroQuest.Instance.Stage < 3)
+                    StaticIntroQuest.Instance.CompleteObj2();
+                OTCLog.Msg(OTCLog.Systems.NPC, $"Post-load: advanced intro quest to stage {StaticIntroQuest.Instance.Stage}");
+            }
+
+            if (_crmTier >= 2 && StaticUpgrade1Quest.Instance != null && StaticUpgrade1Quest.Instance.Stage < 1)
+            {
+                StaticUpgrade1Quest.Instance.CompleteObj1();
+                OTCLog.Msg(OTCLog.Systems.NPC, "Post-load: completed upgrade1 quest");
+            }
+
+            if (_crmTier >= 3 && StaticUpgrade2Quest.Instance != null && StaticUpgrade2Quest.Instance.Stage < 1)
+            {
+                StaticUpgrade2Quest.Instance.CompleteObj1();
+                OTCLog.Msg(OTCLog.Systems.NPC, "Post-load: completed upgrade2 quest");
+            }
+        }
+
+        /// <summary>
         /// Called every frame from Core.OnLateUpdate(). Throttled internally.
         /// Polls ATM deposits and keeps Static's dialogue fresh.
         /// </summary>
@@ -189,6 +224,23 @@ namespace OverTheCounter.SaveData
             {
                 if (!ReconcileQuest())
                     _questReconciled = true;
+            }
+
+            // Second pass: after the game finishes loading Quests.json, any
+            // persisted quest Instance is now set. Advance stale quests that
+            // ReconcileQuest skipped because Instance was still null.
+            if (!_postLoadReconciled && _questTriggered)
+            {
+                try
+                {
+                    var lm = ScheduleOne.Persistence.LoadManager.Instance;
+                    if (lm != null && lm.IsGameLoaded)
+                    {
+                        _postLoadReconciled = true;
+                        ReconcileQuestsPostLoad();
+                    }
+                }
+                catch { _postLoadReconciled = true; }
             }
 
             // Detect dialogue closing edge — forces a rebuild so weed count,
