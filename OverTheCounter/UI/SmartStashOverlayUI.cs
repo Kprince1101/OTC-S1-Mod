@@ -500,6 +500,7 @@ namespace OverTheCounter.UI
                         if (slot.Quantity <= 0) continue;
 
                         int mult = ContractAggregator.GetPackagingMultiplier(slot.ItemInstance);
+                        if (mult <= 0) continue; // skip unpackaged product
                         matchingSlots.Add((s, mult));
                     }
 
