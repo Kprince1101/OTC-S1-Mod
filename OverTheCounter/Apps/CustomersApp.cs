@@ -168,10 +168,10 @@ namespace OverTheCounter.Apps
                 UnityEngine.Object.Destroy(parent.GetChild(i).gameObject);
         }
 
-        // Distribution route colors — lighter to darker orange for routes 1, 2, 3
-        private static readonly Color DistRoute1Color = new Color(0.95f, 0.65f, 0.25f);
-        private static readonly Color DistRoute2Color = new Color(0.85f, 0.50f, 0.15f);
-        private static readonly Color DistRoute3Color = new Color(0.75f, 0.38f, 0.08f);
+        // Distribution route colors — lighter to deeper blue for routes 1, 2, 3
+        private static readonly Color DistRoute1Color = new Color(0.45f, 0.65f, 0.90f);
+        private static readonly Color DistRoute2Color = new Color(0.35f, 0.52f, 0.80f);
+        private static readonly Color DistRoute3Color = new Color(0.28f, 0.42f, 0.70f);
 
         private static Color GetDistributionRouteColor(int routeDisplay)
         {
@@ -183,12 +183,48 @@ namespace OverTheCounter.Apps
             };
         }
 
+        /// <summary>
+        /// Formats a game time integer (e.g. 400 → "4AM", 1330 → "1:30PM") for display.
+        /// Reads EndOfDay dynamically so time-altering mods are respected.
+        /// </summary>
+        private static string FormatEndOfDayTime()
+        {
+            try
+            {
+#if IL2CPP
+                int eod = Il2CppScheduleOne.GameTime.TimeManager.EndOfDay;
+#else
+                int eod = ScheduleOne.GameTime.TimeManager.EndOfDay;
+#endif
+                int hours24 = eod / 100;
+                int mins = eod % 100;
+                string ampm = hours24 >= 12 ? "PM" : "AM";
+                int hours12 = hours24 % 12;
+                if (hours12 == 0) hours12 = 12;
+                return mins == 0 ? $"{hours12}{ampm}" : $"{hours12}:{mins:D2}{ampm}";
+            }
+            catch
+            {
+                return "4AM";
+            }
+        }
+
         // Status strings use \u25CF (● filled circle) as a colored bullet prefix
         internal static (string text, Color color) GetStatusDisplay(ManagerInstance mgr)
         {
             var state = mgr.State;
             if (state == ManagerState.Idle && !mgr.PaidForToday)
                 state = ManagerState.NoFunds;
+
+            if (state == ManagerState.Idle)
+            {
+                try
+                {
+                    if (S1API.GameTime.TimeManager.IsEndOfDay)
+                        return ($"\u25CF My shift ends at {FormatEndOfDayTime()}", new Color(0.6f, 0.6f, 0.6f));
+                }
+                catch { }
+            }
 
             if (state == ManagerState.SupplyRun)
             {
