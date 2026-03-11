@@ -355,6 +355,7 @@
 		<Compile Include="Logic\Placement\BuildingSignage.cs" />
 		<Compile Include="Logic\Placement\CheckoutCounter.cs" />
 		<Compile Include="Logic\Placement\ComputerScreen.cs" />
+		<Compile Include="Logic\Placement\OTCWarehouse.cs" />
 		<Compile Include="Logic\Placement\WestvilleShack.cs" />
 		<Compile Include="UI\RecipeOverlay.cs" />
 		<Compile Include="UI\TMPFactory.cs" />

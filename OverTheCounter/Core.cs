@@ -168,6 +168,7 @@ namespace OverTheCounter
             // Permanent building cleanup
             Logic.Placement.CheckoutCounter.Cleanup();
             Logic.Placement.WestvilleShack.Cleanup();
+            Logic.Placement.OTCWarehouse.Cleanup();
             CheckoutProcess.ResetStatic();
             BuildingGridFactory.Cleanup();
             _loadHooked = false;
@@ -179,6 +180,7 @@ namespace OverTheCounter
             {
                 Logic.Placement.CheckoutCounter.Register();
                 Logic.Placement.WestvilleShack.SpawnBuilding();
+                Logic.Placement.OTCWarehouse.Initialize();
 
                 // Defer grid item spawning until after FishNet is ready
                 // (CreateGridItem calls networkObject.Spawn which requires network initialized)
@@ -234,6 +236,7 @@ namespace OverTheCounter
             try
             {
                 Logic.Placement.WestvilleShack.ClearTerrain();
+                Logic.Placement.OTCWarehouse.ClearTerrain();
                 Logic.Placement.WestvilleShack.SpawnNetworkedObjects();
 
                 var grid = Logic.Placement.WestvilleShack.ShackGrid;
