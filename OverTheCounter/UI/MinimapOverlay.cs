@@ -320,9 +320,11 @@ namespace OverTheCounter.UI
             _unityScaler.matchWidthOrHeight = 0.5f;
             _canvasObj.AddComponent<GameCanvasScaler>();
             UnityEngine.Object.DontDestroyOnLoad(_canvasObj);
+            Canvas.ForceUpdateCanvases();
 
             // Compute effective canvas dimensions (accounts for UI Scale + screen aspect ratio)
             GetEffectiveCanvasSize(out float canvasW, out float canvasH);
+            OTCLog.Msg(OTCLog.Systems.Patch, $"Canvas effective size: {canvasW:F0}x{canvasH:F0} (screen {Screen.width}x{Screen.height})");
             _builtCanvasW = canvasW;
             _builtCanvasH = canvasH;
 
@@ -1287,11 +1289,29 @@ namespace OverTheCounter.UI
         }
 
         /// <summary>
-        /// Computes the effective canvas coordinate space from the CanvasScaler
-        /// and current screen resolution. Handles UI Scale and non-16:9 monitors.
+        /// Returns the effective canvas coordinate space. Reads from the Canvas
+        /// RectTransform when available (ground truth from Unity's layout system),
+        /// falling back to manual CanvasScaler computation on the first frame.
+        /// Reading the actual rect avoids mismatch on ultrawide/non-16:9 monitors
+        /// where GameCanvasScaler modifies the Unity scaler's referenceResolution.
         /// </summary>
         private void GetEffectiveCanvasSize(out float w, out float h)
         {
+            if (_canvasObj != null)
+            {
+                var rt = _canvasObj.GetComponent<RectTransform>();
+                if (rt != null)
+                {
+                    var rect = rt.rect;
+                    if (rect.width > 1f && rect.height > 1f)
+                    {
+                        w = rect.width;
+                        h = rect.height;
+                        return;
+                    }
+                }
+            }
+
             if (_unityScaler == null)
             {
                 w = 1920f; h = 1080f;
