@@ -181,6 +181,33 @@ namespace OverTheCounter.Logic
                 OTCLog.Error(OTCLog.Systems.Notification, $"Error reading player inventory: {ex.Message}");
             }
 
+            // Count backpack items (PackRat integration)
+            try
+            {
+                var bpSlots = BackpackBridge.GetSlots();
+                for (int i = 0; i < bpSlots.Length; i++)
+                {
+                    var slot = bpSlots[i];
+                    if (slot == null || slot.ItemInstance == null) continue;
+
+                    string id = slot.ItemInstance.ID;
+                    if (string.IsNullOrEmpty(id)) continue;
+
+                    int multiplier = GetPackagingMultiplier(slot.ItemInstance);
+                    if (multiplier <= 0) continue;
+                    int productUnits = slot.Quantity * multiplier;
+
+                    if (inventoryCounts.ContainsKey(id))
+                        inventoryCounts[id] += productUnits;
+                    else
+                        inventoryCounts[id] = productUnits;
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Error reading backpack: {ex.Message}");
+            }
+
             var manifest = new List<ManifestRequirement>();
             foreach (var kvp in productTotals)
             {
@@ -319,6 +346,33 @@ namespace OverTheCounter.Logic
             catch (Exception ex)
             {
                 OTCLog.Error(OTCLog.Systems.Notification, $"Error reading player inventory: {ex.Message}");
+            }
+
+            // Count backpack items (PackRat integration)
+            try
+            {
+                var bpSlots = BackpackBridge.GetSlots();
+                for (int i = 0; i < bpSlots.Length; i++)
+                {
+                    var slot = bpSlots[i];
+                    if (slot == null || slot.ItemInstance == null) continue;
+
+                    string id = slot.ItemInstance.ID;
+                    if (string.IsNullOrEmpty(id)) continue;
+
+                    int multiplier = GetPackagingMultiplier(slot.ItemInstance);
+                    if (multiplier <= 0) continue;
+                    int productUnits = slot.Quantity * multiplier;
+
+                    if (inventoryCounts.ContainsKey(id))
+                        inventoryCounts[id] += productUnits;
+                    else
+                        inventoryCounts[id] = productUnits;
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Error reading backpack: {ex.Message}");
             }
 
             foreach (var need in needs)

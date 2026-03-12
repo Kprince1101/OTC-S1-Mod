@@ -295,6 +295,7 @@
 		<Compile Include="Patches\CompassManagerAddElementPatch.cs" />
 		<Compile Include="UI\LocationPickerUI.cs" />
 		<Compile Include="Logic\ContractAggregator.cs" />
+		<Compile Include="Logic\BackpackBridge.cs" />
 		<Compile Include="UI\SmartStashOverlayUI.cs" />
 		<Compile Include="UI\HandoverFillUI.cs" />
 		<Compile Include="Patches\StorageMenuPatch.cs" />

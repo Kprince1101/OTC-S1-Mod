@@ -25,8 +25,8 @@ A complete, simulation-based automation system built on **S1API** for maximum co
 
 * **Recipe Pin Overlay:** Pin any product from the Product Manager app to see its full mixing chain on screen — every ingredient and step at a glance while you work.
 * **The Contract Aggregator:** Merges all active orders into a single "Pending Deliveries" list, grouped by time window. See exactly what you need for the next run at a glance.
-* **Smart Fill — Storage:** Open any container to see a live manifest of what you need vs. what you have. One click pulls the exact product into your inventory, prioritizing jars over baggies.
-* **Smart Fill — Handover:** During a contract handover, click once to fill the bare minimum (quality-aware, smallest packaging first). Click again to boost until acceptance hits 95%+.
+* **Smart Fill — Storage:** Open any container to see a live manifest of what you need vs. what you have. One click pulls the exact product into your inventory, prioritizing jars over baggies. If [Pack Rat](https://thunderstore.io/c/schedule-i/p/SirTidez/PackRat/) ([Nexus](https://www.nexusmods.com/schedule1/mods/1629)) is installed, backpack items count toward your totals and a **Fill Backpack First** toggle controls placement priority.
+* **Smart Fill — Handover:** During a contract handover, click once to fill the bare minimum (quality-aware, smallest packaging first). Click again to boost until acceptance hits 95%+. If Pack Rat is installed, the backpack is checked as a fallback source.
 * **Stack Size Multiplier:** Configurable scaling for item stacks, manager thresholds, and supply picker quantities — carry more per trip.
 
 ## 3. Dynamic World Events
@@ -118,6 +118,17 @@ In multiplayer, the host's settings are automatically synced to all clients (exc
 Provides a dedicated UI for hiring and transferring employees through Manny's network — hire multiple at once, assign them across properties, transfer between locations, and fire with one click.
 
 When HireMe is installed alongside OverTheCounter, a **Hire / Transfer** button appears in the OTC app's Employees tab for quick access. No configuration needed — the integration is detected automatically at runtime.
+
+### Pack Rat — *built-in soft integration*
+[Thunderstore](https://thunderstore.io/c/schedule-i/p/SirTidez/PackRat/) | [Nexus](https://www.nexusmods.com/schedule1/mods/1629)
+
+Adds a persistent, tiered backpack that grows alongside your criminal rank — extra inventory slots beyond the hotbar.
+
+When Pack Rat is installed alongside OverTheCounter, the backpack is treated as an inventory extension:
+* **Delivery Manifest** — "have" counts include items in the backpack. A **Fill Backpack First** checkbox lets you choose whether Smart Fill routes product to the backpack or hotbar first (overflow always spills into the other).
+* **Smart Fill (Handover)** — If matching product isn't found in the hotbar, the backpack is checked as a fallback source.
+
+No configuration needed — the integration is detected automatically at runtime. If Pack Rat is removed or updated incompatibly, all backpack features silently degrade.
 
 ## OTC Loader (Standalone)
 

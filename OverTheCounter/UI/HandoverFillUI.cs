@@ -234,7 +234,7 @@ namespace OverTheCounter.UI
 
                 if (remainingGrams <= 0) continue;
 
-                var matchingSlots = new List<(int index, int multiplier, EQuality quality)>();
+                var matchingSlots = new List<(ItemSlot slot, int multiplier, EQuality quality)>();
                 for (int h = 0; h < hotbar.Count; h++)
                 {
                     var slot = hotbar[h];
@@ -261,7 +261,37 @@ namespace OverTheCounter.UI
                     int mult = productItem.AppliedPackaging.Quantity;
                     EQuality slotQuality = productItem.Quality;
 
-                    matchingSlots.Add((h, mult, slotQuality));
+                    matchingSlots.Add((slot, mult, slotQuality));
+                }
+
+                // Also scan backpack as fallback source
+                var bpSlots = BackpackBridge.GetSlots();
+                for (int b = 0; b < bpSlots.Length; b++)
+                {
+                    var bpSlot = bpSlots[b];
+                    if (bpSlot?.ItemInstance == null || bpSlot.Quantity <= 0) continue;
+
+                    string slotId;
+                    try { slotId = bpSlot.ItemInstance.ID; }
+                    catch { continue; }
+
+                    if (slotId != entry.ProductID) continue;
+
+#if IL2CPP
+                    var productItem = bpSlot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                    var productItem = bpSlot.ItemInstance as ProductItemInstance;
+#endif
+                    if (productItem == null || productItem.AppliedPackaging == null)
+                    {
+                        hasUnpackaged = true;
+                        continue;
+                    }
+
+                    int mult = productItem.AppliedPackaging.Quantity;
+                    EQuality slotQuality = productItem.Quality;
+
+                    matchingSlots.Add((bpSlot, mult, slotQuality));
                 }
 
                 // Sort: exact quality match > closest above > highest below
@@ -274,11 +304,10 @@ namespace OverTheCounter.UI
                     return a.multiplier.CompareTo(b.multiplier);
                 });
 
-                foreach (var (slotIdx, multiplier, slotQuality) in matchingSlots)
+                foreach (var (sourceSlot, multiplier, slotQuality) in matchingSlots)
                 {
                     if (remainingGrams <= 0) break;
 
-                    var sourceSlot = hotbar[slotIdx];
                     if (sourceSlot?.ItemInstance == null || sourceSlot.Quantity <= 0) continue;
 
                     // Round up so we don't skip a 5g jar when only 4g is needed
@@ -398,6 +427,42 @@ namespace OverTheCounter.UI
                     }
 
                     if (match >= 0.95f || slotsFull) break;
+
+                    // If no hotbar match, check backpack
+                    if (!addedThisPass)
+                    {
+                        var bpSlots = BackpackBridge.GetSlots();
+                        for (int b = 0; b < bpSlots.Length; b++)
+                        {
+                            var bpSlot = bpSlots[b];
+                            if (bpSlot?.ItemInstance == null || bpSlot.Quantity <= 0) continue;
+
+                            string bpId;
+                            try { bpId = bpSlot.ItemInstance.ID; }
+                            catch { continue; }
+
+                            if (bpId != entry.ProductID) continue;
+
+#if IL2CPP
+                            var bpProduct = bpSlot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                            var bpProduct = bpSlot.ItemInstance as ProductItemInstance;
+#endif
+                            if (bpProduct == null || bpProduct.AppliedPackaging == null) continue;
+
+                            int placed = TryPlaceInCustomerSlots(customerSlots, bpSlot, 1, handover);
+                            if (placed <= 0) { slotsFull = true; break; }
+
+                            totalAdded += placed;
+                            addedThisPass = true;
+
+                            currentItems = GetCustomerItemsList(customerSlots);
+                            match = contract.GetProductListMatch(currentItems, out matchedCount);
+                            if (match >= 0.95f) break;
+                        }
+                    }
+
+                    if (match >= 0.95f || slotsFull) break;
                 }
 
                 if (!addedThisPass || match >= 0.95f || slotsFull) break;
@@ -453,7 +518,7 @@ namespace OverTheCounter.UI
 #endif
 
         private static int TryPlaceInCustomerSlots(
-            ItemSlot[] customerSlots, HotbarSlot sourceSlot,
+            ItemSlot[] customerSlots, ItemSlot sourceSlot,
             int amount, HandoverScreen handover)
         {
             int placed = 0;
