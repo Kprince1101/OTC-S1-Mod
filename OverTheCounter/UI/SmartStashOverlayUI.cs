@@ -37,6 +37,7 @@ namespace OverTheCounter.UI
         private static GameObject _overlayRoot;
         private static Transform _listContent;
         private static bool _includeAllShifts;
+        private static bool _fillBackpackFirst;
         private static bool _isCompact;
         private static TextMeshProUGUI _statusText;
         private static TextMeshProUGUI _collapseText;
@@ -45,7 +46,7 @@ namespace OverTheCounter.UI
         private static GameSystem.Action _refreshAction;
         private static StorageEntity _subscribedStorageEntity;
 
-        private const float ExpandedHeight = 440f;
+        private static float _expandedHeight = 440f;
         private const float CompactHeight = 40f;
 
         public static void Show()
@@ -193,7 +194,7 @@ namespace OverTheCounter.UI
             _panelRect.anchorMin = new Vector2(1f, 0.5f);
             _panelRect.anchorMax = new Vector2(1f, 0.5f);
             _panelRect.pivot = new Vector2(1f, 0.5f);
-            _panelRect.sizeDelta = new Vector2(260f, ExpandedHeight);
+            _panelRect.sizeDelta = new Vector2(260f, _expandedHeight);
             _panelRect.anchoredPosition = new Vector2(-10f, 0f);
 
             // Header
@@ -248,7 +249,7 @@ namespace OverTheCounter.UI
             var listRect = listContainer.AddComponent<RectTransform>();
             listRect.anchorMin = new Vector2(0, 0);
             listRect.anchorMax = new Vector2(1, 1);
-            listRect.offsetMin = new Vector2(12, 100);
+            listRect.offsetMin = new Vector2(12, 100); // adjusted below if backpack toggle present
             listRect.offsetMax = new Vector2(-8, 0);
 
             var contentLayout = listContainer.AddComponent<VerticalLayoutGroup>();
@@ -261,13 +262,19 @@ namespace OverTheCounter.UI
 
             _listContent = listContainer.transform;
 
+            bool hasBackpack = BackpackBridge.IsInstalled();
+            _expandedHeight = hasBackpack ? 466f : 440f;
+            _panelRect.sizeDelta = new Vector2(260f, _expandedHeight);
+            float toggleAreaHeight = hasBackpack ? 126f : 100f;
+            listRect.offsetMin = new Vector2(12, toggleAreaHeight);
+
             var toggleObj = new GameObject("IncludeAllToggle");
             toggleObj.transform.SetParent(_bodyContainer.transform, false);
             var toggleRect = toggleObj.AddComponent<RectTransform>();
             toggleRect.anchorMin = new Vector2(0, 0);
             toggleRect.anchorMax = new Vector2(1, 0);
             toggleRect.pivot = new Vector2(0.5f, 0);
-            toggleRect.anchoredPosition = new Vector2(0, 68);
+            toggleRect.anchoredPosition = new Vector2(0, hasBackpack ? 94 : 68);
             toggleRect.sizeDelta = new Vector2(0, 24);
 
             var toggleBg = new GameObject("Background");
@@ -304,6 +311,10 @@ namespace OverTheCounter.UI
             labelRect.anchorMax = new Vector2(1, 1);
             labelRect.offsetMin = new Vector2(34, 0);
             labelRect.offsetMax = new Vector2(-4, 0);
+
+            // Backpack toggle (only when PackRat installed)
+            if (hasBackpack)
+                BuildBackpackToggle(_bodyContainer.transform);
 
             // Smart Fill button
             var (btnMask, btn, btnLabel) = TMPFactory.RoundedButtonWithLabel(
@@ -355,7 +366,7 @@ namespace OverTheCounter.UI
                 _bodyContainer.SetActive(!compact);
 
             if (_panelRect != null)
-                _panelRect.sizeDelta = new Vector2(260f, compact ? CompactHeight : ExpandedHeight);
+                _panelRect.sizeDelta = new Vector2(260f, compact ? CompactHeight : _expandedHeight);
 
             if (_collapseText != null)
                 _collapseText.text = compact ? "\u25BC" : "\u25B2"; // ▼ collapsed, ▲ expanded
@@ -423,6 +434,58 @@ namespace OverTheCounter.UI
             RefreshManifest();
         }
 
+        private static void OnBackpackToggleChanged(bool value)
+        {
+            _fillBackpackFirst = value;
+        }
+
+        private static void BuildBackpackToggle(Transform parent)
+        {
+            var toggleObj = new GameObject("BackpackToggle");
+            toggleObj.transform.SetParent(parent, false);
+            var toggleRect = toggleObj.AddComponent<RectTransform>();
+            toggleRect.anchorMin = new Vector2(0, 0);
+            toggleRect.anchorMax = new Vector2(1, 0);
+            toggleRect.pivot = new Vector2(0.5f, 0);
+            toggleRect.anchoredPosition = new Vector2(0, 68);
+            toggleRect.sizeDelta = new Vector2(0, 24);
+
+            var toggleBg = new GameObject("Background");
+            toggleBg.transform.SetParent(toggleObj.transform, false);
+            var bgImage = toggleBg.AddComponent<Image>();
+            bgImage.color = new Color(0.25f, 0.25f, 0.25f);
+            var bgRect = toggleBg.GetComponent<RectTransform>();
+            bgRect.anchorMin = new Vector2(0, 0.5f);
+            bgRect.anchorMax = new Vector2(0, 0.5f);
+            bgRect.pivot = new Vector2(0, 0.5f);
+            bgRect.anchoredPosition = new Vector2(10, 0);
+            bgRect.sizeDelta = new Vector2(18, 18);
+
+            var checkmark = new GameObject("Checkmark");
+            checkmark.transform.SetParent(toggleBg.transform, false);
+            var checkImage = checkmark.AddComponent<Image>();
+            checkImage.color = new Color(0.4f, 0.8f, 0.4f);
+            var checkRect = checkmark.GetComponent<RectTransform>();
+            checkRect.anchorMin = new Vector2(0.15f, 0.15f);
+            checkRect.anchorMax = new Vector2(0.85f, 0.85f);
+            checkRect.offsetMin = Vector2.zero;
+            checkRect.offsetMax = Vector2.zero;
+
+            var toggle = toggleObj.AddComponent<Toggle>();
+            toggle.isOn = _fillBackpackFirst;
+            toggle.graphic = checkImage;
+            toggle.targetGraphic = bgImage;
+            toggle.onValueChanged.AddListener(new Action<bool>(OnBackpackToggleChanged));
+
+            var toggleLabel = TMPFactory.Text("ToggleLabel", "Fill Backpack First", toggleObj.transform, 15, TextAlignmentOptions.Left);
+            toggleLabel.color = new Color(0.8f, 0.8f, 0.8f);
+            var labelRect = toggleLabel.gameObject.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0, 0);
+            labelRect.anchorMax = new Vector2(1, 1);
+            labelRect.offsetMin = new Vector2(34, 0);
+            labelRect.offsetMax = new Vector2(-4, 0);
+        }
+
         private static void OnSmartFillClicked()
         {
             try
@@ -479,6 +542,8 @@ namespace OverTheCounter.UI
 
                 int totalTransferredUnits = 0;
                 bool inventoryFull = false;
+                var bpSlots = BackpackBridge.GetSlots();
+                bool hasBp = bpSlots.Length > 0;
 
                 foreach (var need in perContractNeeds)
                 {
@@ -500,6 +565,7 @@ namespace OverTheCounter.UI
                         if (slot.Quantity <= 0) continue;
 
                         int mult = ContractAggregator.GetPackagingMultiplier(slot.ItemInstance);
+                        if (mult <= 0) continue; // skip unpackaged product
                         matchingSlots.Add((s, mult));
                     }
 
@@ -524,7 +590,21 @@ namespace OverTheCounter.UI
                         // Can't take whole units at this tier — skip to smaller packaging
                         if (itemsToTake <= 0) continue;
 
-                        int placed = TryPlaceInHotbar(hotbar, slot.ItemInstance, itemsToTake);
+                        int placed;
+
+                        if (_fillBackpackFirst && hasBp)
+                        {
+                            placed = TryPlaceInSlots(bpSlots, slot.ItemInstance, itemsToTake);
+                            if (placed < itemsToTake)
+                                placed += TryPlaceInHotbar(hotbar, slot.ItemInstance, itemsToTake - placed);
+                        }
+                        else
+                        {
+                            placed = TryPlaceInHotbar(hotbar, slot.ItemInstance, itemsToTake);
+                            if (placed < itemsToTake && hasBp)
+                                placed += TryPlaceInSlots(bpSlots, slot.ItemInstance, itemsToTake - placed);
+                        }
+
                         if (placed <= 0)
                         {
                             inventoryFull = true;
@@ -604,6 +684,63 @@ namespace OverTheCounter.UI
             for (int i = 0; i < hotbar.Count && placed < amount; i++)
             {
                 var slot = hotbar[i];
+                if (slot == null) continue;
+                if (slot.ItemInstance != null) continue;
+
+                try
+                {
+                    int toPlace = amount - placed;
+
+                    int stackLimit;
+                    try { stackLimit = sourceItem.StackLimit; }
+                    catch { stackLimit = 20; }
+
+                    toPlace = Math.Min(toPlace, stackLimit);
+
+                    var clone = sourceItem.GetCopy(toPlace);
+                    slot.SetStoredItem(clone);
+
+                    placed += toPlace;
+                }
+                catch { }
+            }
+
+            return placed;
+        }
+
+        /// <summary>
+        /// Tries to place items into backpack slots, stacking first, then filling empty slots.
+        /// </summary>
+        private static int TryPlaceInSlots(ItemSlot[] slots, ItemInstance sourceItem, int amount)
+        {
+            int placed = 0;
+
+            for (int i = 0; i < slots.Length && placed < amount; i++)
+            {
+                var slot = slots[i];
+                if (slot == null || slot.ItemInstance == null) continue;
+
+                try
+                {
+                    if (!slot.ItemInstance.CanStackWith(sourceItem, false)) continue;
+
+                    int stackLimit;
+                    try { stackLimit = slot.ItemInstance.StackLimit; }
+                    catch { stackLimit = 20; }
+
+                    int canAdd = stackLimit - slot.Quantity;
+                    if (canAdd <= 0) continue;
+
+                    int toAdd = Math.Min(canAdd, amount - placed);
+                    slot.ChangeQuantity(toAdd);
+                    placed += toAdd;
+                }
+                catch { }
+            }
+
+            for (int i = 0; i < slots.Length && placed < amount; i++)
+            {
+                var slot = slots[i];
                 if (slot == null) continue;
                 if (slot.ItemInstance != null) continue;
 

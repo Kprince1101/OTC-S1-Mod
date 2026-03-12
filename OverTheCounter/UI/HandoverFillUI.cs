@@ -27,13 +27,17 @@ namespace OverTheCounter.UI
     /// <summary>
     /// Floating overlay shown on the HandoverScreen (Contract mode only).
     /// First click: bare minimum fill (smallest packaging, exact quality preferred).
-    /// Second click: boost — adds more product until acceptance >= 95%.
+    /// Second click: boost - adds more product until acceptance >= 95%.
     /// </summary>
     public static class HandoverFillUI
     {
         private static GameObject _overlayRoot;
-        private static TextMeshProUGUI _statusText;
+        private static TextMeshProUGUI _btnLabel;
+        private static Image _btnBgImage;
         private static bool _hasFilled;
+        private static int _lastSlotFingerprint;
+        private static Vector2 _originalDonePos;
+        private static bool _donePosSaved;
 
         public static void Show()
         {
@@ -49,12 +53,25 @@ namespace OverTheCounter.UI
 
         public static void Hide()
         {
+            // Restore DONE button to its original position
+            if (_donePosSaved)
+            {
+                var handover = Singleton<HandoverScreen>.Instance;
+                if (handover?.DoneButton != null)
+                {
+                    var doneRect = handover.DoneButton.GetComponent<RectTransform>();
+                    if (doneRect != null)
+                        doneRect.anchoredPosition = _originalDonePos;
+                }
+            }
+
             if (_overlayRoot != null)
             {
                 UnityEngine.Object.Destroy(_overlayRoot);
                 _overlayRoot = null;
             }
-            _statusText = null;
+            _btnLabel = null;
+            _btnBgImage = null;
             _hasFilled = false;
         }
 
@@ -66,8 +83,23 @@ namespace OverTheCounter.UI
             var doneRect = handover.DoneButton.GetComponent<RectTransform>();
             if (doneRect == null || doneRect.parent == null) return;
 
-            // Parent into the game's handover UI as a sibling of the DoneButton.
-            // This keeps Smart Fill aligned with the DONE button at any UI scale.
+            // Save the DONE button's original position once
+            if (!_donePosSaved)
+            {
+                _originalDonePos = doneRect.anchoredPosition;
+                _donePosSaved = true;
+            }
+
+            // Smart Fill is wider than DONE to fit status messages
+            float doneW = doneRect.sizeDelta.x;
+            float doneH = doneRect.sizeDelta.y;
+            float fillW = doneW + 80f;
+            float gap = 10f;
+
+            // Center both buttons as a pair around the original DONE position
+            doneRect.anchoredPosition = _originalDonePos + new Vector2((fillW + gap) / 2f, 0);
+
+            // Smart Fill sits as a sibling of the DONE button
             _overlayRoot = new GameObject("OTC_SmartFillPanel");
             _overlayRoot.transform.SetParent(doneRect.parent, false);
 
@@ -75,40 +107,33 @@ namespace OverTheCounter.UI
             panelRect.anchorMin = doneRect.anchorMin;
             panelRect.anchorMax = doneRect.anchorMax;
             panelRect.pivot = doneRect.pivot;
-            panelRect.sizeDelta = new Vector2(160f, 40f);
-            panelRect.anchoredPosition = doneRect.anchoredPosition + new Vector2(0, 50);
+            panelRect.sizeDelta = new Vector2(fillW, doneH);
+            panelRect.anchoredPosition = _originalDonePos - new Vector2((gap + doneW) / 2f, 0);
 
-            // Smart Fill button
+            // Smart Fill button - matches DONE sizing, feedback shown ON button text
             var (btnMask, btn, btnLabel) = TMPFactory.RoundedButtonWithLabel(
                 "SmartFillBtn", "Smart Fill", _overlayRoot.transform,
-                new Color(0.2f, 0.5f, 0.2f), 140, 32, 14, Color.white
+                BtnNormalColor, (int)fillW, (int)doneH, 15, Color.white
             );
 
             var btnRect = btnMask.GetComponent<RectTransform>();
-            btnRect.anchorMin = new Vector2(0.5f, 1f);
-            btnRect.anchorMax = new Vector2(0.5f, 1f);
-            btnRect.pivot = new Vector2(0.5f, 1f);
-            btnRect.anchoredPosition = new Vector2(0, -6);
+            btnRect.anchorMin = new Vector2(0.5f, 0.5f);
+            btnRect.anchorMax = new Vector2(0.5f, 0.5f);
+            btnRect.pivot = new Vector2(0.5f, 0.5f);
+            btnRect.anchoredPosition = Vector2.zero;
 
             var btnColors = btn.colors;
-            btnColors.normalColor = new Color(0.2f, 0.5f, 0.2f);
+            btnColors.normalColor = BtnNormalColor;
             btnColors.highlightedColor = new Color(0.3f, 0.6f, 0.3f);
             btnColors.pressedColor = new Color(0.15f, 0.35f, 0.15f);
-            btnColors.selectedColor = new Color(0.2f, 0.5f, 0.2f);
+            btnColors.selectedColor = BtnNormalColor;
             btn.colors = btnColors;
 
-            btn.onClick.AddListener(new Action(OnSmartFillClicked));
+            _btnLabel = btnLabel;
+            _btnLabel.richText = true;
+            _btnBgImage = btn.GetComponent<Image>();
 
-            // Status text below button (rich text enabled for bold)
-            _statusText = TMPFactory.Text("StatusText", "", _overlayRoot.transform, 15, TextAlignmentOptions.Center);
-            _statusText.richText = true;
-            _statusText.color = new Color(0.7f, 0.7f, 0.7f);
-            var statusRect = _statusText.gameObject.GetComponent<RectTransform>();
-            statusRect.anchorMin = new Vector2(0, 0);
-            statusRect.anchorMax = new Vector2(1, 0);
-            statusRect.pivot = new Vector2(0.5f, 0);
-            statusRect.anchoredPosition = new Vector2(0, 4);
-            statusRect.sizeDelta = new Vector2(0, 22);
+            btn.onClick.AddListener(new Action(OnSmartFillClicked));
 
             _overlayRoot.SetActive(true);
         }
@@ -118,16 +143,34 @@ namespace OverTheCounter.UI
             try
             {
                 var handover = Singleton<HandoverScreen>.Instance;
-                if (handover == null) { SetStatus("Handover screen not found"); return; }
+                if (handover == null) { SetStatus("No screen", true); return; }
 
                 var contract = handover.CurrentContract;
-                if (contract?.ProductList?.entries == null) { SetStatus("No contract"); return; }
+                if (contract?.ProductList?.entries == null) { SetStatus("No contract", true); return; }
 
                 var customerSlots = handover.GetCustomerSlots();
-                if (customerSlots == null || customerSlots.Length == 0) { SetStatus("No customer slots"); return; }
+                if (customerSlots == null || customerSlots.Length == 0) { SetStatus("No slots", true); return; }
 
                 var playerInv = PlayerSingleton<PlayerInventory>.Instance;
-                if (playerInv?.hotbarSlots == null) { SetStatus("Inventory unavailable"); return; }
+                if (playerInv?.hotbarSlots == null) { SetStatus("No inventory", true); return; }
+
+                // Reset to minimum fill if player changed customer slots since last fill
+                int fp = SlotFingerprint(customerSlots);
+                if (fp != _lastSlotFingerprint)
+                    _hasFilled = false;
+
+                // Check if already fulfilled before doing any work
+                var currentItems = GetCustomerItemsList(customerSlots);
+                int mc;
+                float currentMatch = contract.GetProductListMatch(currentItems, out mc);
+                if (currentMatch >= 0.95f)
+                {
+                    SetStatus("Fulfilled");
+                    return;
+                }
+
+                OTCLog.Msg(OTCLog.Systems.Patch, $"Smart Fill: entries={contract.ProductList.entries.Count}, " +
+                    $"hotbar={playerInv.hotbarSlots.Count}, customerSlots={customerSlots.Length}, boost={_hasFilled}");
 
                 if (_hasFilled)
                     DoBoostFill(handover, contract, customerSlots, playerInv);
@@ -136,7 +179,7 @@ namespace OverTheCounter.UI
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Patch, $"Smart Fill error: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"Smart Fill error: {ex}");
                 SetStatus("Error!", true);
             }
         }
@@ -154,18 +197,44 @@ namespace OverTheCounter.UI
             int totalGramsRequested = 0;
             int totalGramsPlaced = 0;
             bool slotsFull = false;
-            bool qualityMismatch = false;
+            bool hasUnpackaged = false;
+
+            // Count grams already in customer slots per product ID
+            var existingGrams = new Dictionary<string, int>();
+            for (int i = 0; i < customerSlots.Length; i++)
+            {
+                if (customerSlots[i]?.ItemInstance == null || customerSlots[i].Quantity <= 0) continue;
+                string id;
+                try { id = customerSlots[i].ItemInstance.ID; }
+                catch { continue; }
+#if IL2CPP
+                var pi = customerSlots[i].ItemInstance.TryCast<ProductItemInstance>();
+#else
+                var pi = customerSlots[i].ItemInstance as ProductItemInstance;
+#endif
+                if (pi == null || pi.AppliedPackaging == null) continue;
+                int grams = customerSlots[i].Quantity * pi.AppliedPackaging.Quantity;
+                if (existingGrams.ContainsKey(id))
+                    existingGrams[id] += grams;
+                else
+                    existingGrams[id] = grams;
+            }
 
             for (int e = 0; e < entries.Count; e++)
             {
                 var entry = entries[e];
                 if (entry == null || string.IsNullOrEmpty(entry.ProductID)) continue;
 
-                int remainingGrams = entry.Quantity;
+                // Subtract grams already in customer slots from what we need to place
+                int alreadyPlaced = existingGrams.ContainsKey(entry.ProductID) ? existingGrams[entry.ProductID] : 0;
+                int remainingGrams = Math.Max(0, entry.Quantity - alreadyPlaced);
                 totalGramsRequested += entry.Quantity;
+                totalGramsPlaced += Math.Min(alreadyPlaced, entry.Quantity);
                 EQuality requestedQuality = entry.Quality;
 
-                var matchingSlots = new List<(int index, int multiplier, EQuality quality)>();
+                if (remainingGrams <= 0) continue;
+
+                var matchingSlots = new List<(ItemSlot slot, int multiplier, EQuality quality)>();
                 for (int h = 0; h < hotbar.Count; h++)
                 {
                     var slot = hotbar[h];
@@ -177,13 +246,52 @@ namespace OverTheCounter.UI
 
                     if (slotId != entry.ProductID) continue;
 
-                    int mult = ContractAggregator.GetPackagingMultiplier(slot.ItemInstance);
-                    EQuality slotQuality = EQuality.Standard;
+                    // Skip unpackaged product - game ignores it in match calculation
+#if IL2CPP
                     var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
-                    if (productItem != null)
-                        slotQuality = productItem.Quality;
+#else
+                    var productItem = slot.ItemInstance as ProductItemInstance;
+#endif
+                    if (productItem == null || productItem.AppliedPackaging == null)
+                    {
+                        hasUnpackaged = true;
+                        continue;
+                    }
 
-                    matchingSlots.Add((h, mult, slotQuality));
+                    int mult = productItem.AppliedPackaging.Quantity;
+                    EQuality slotQuality = productItem.Quality;
+
+                    matchingSlots.Add((slot, mult, slotQuality));
+                }
+
+                // Also scan backpack as fallback source
+                var bpSlots = BackpackBridge.GetSlots();
+                for (int b = 0; b < bpSlots.Length; b++)
+                {
+                    var bpSlot = bpSlots[b];
+                    if (bpSlot?.ItemInstance == null || bpSlot.Quantity <= 0) continue;
+
+                    string slotId;
+                    try { slotId = bpSlot.ItemInstance.ID; }
+                    catch { continue; }
+
+                    if (slotId != entry.ProductID) continue;
+
+#if IL2CPP
+                    var productItem = bpSlot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                    var productItem = bpSlot.ItemInstance as ProductItemInstance;
+#endif
+                    if (productItem == null || productItem.AppliedPackaging == null)
+                    {
+                        hasUnpackaged = true;
+                        continue;
+                    }
+
+                    int mult = productItem.AppliedPackaging.Quantity;
+                    EQuality slotQuality = productItem.Quality;
+
+                    matchingSlots.Add((bpSlot, mult, slotQuality));
                 }
 
                 // Sort: exact quality match > closest above > highest below
@@ -196,15 +304,11 @@ namespace OverTheCounter.UI
                     return a.multiplier.CompareTo(b.multiplier);
                 });
 
-                foreach (var (slotIdx, multiplier, slotQuality) in matchingSlots)
+                foreach (var (sourceSlot, multiplier, slotQuality) in matchingSlots)
                 {
                     if (remainingGrams <= 0) break;
 
-                    var sourceSlot = hotbar[slotIdx];
                     if (sourceSlot?.ItemInstance == null || sourceSlot.Quantity <= 0) continue;
-
-                    if (slotQuality != requestedQuality)
-                        qualityMismatch = true;
 
                     // Round up so we don't skip a 5g jar when only 4g is needed
                     int itemsNeeded = (remainingGrams + multiplier - 1) / multiplier;
@@ -223,23 +327,37 @@ namespace OverTheCounter.UI
                 if (slotsFull) break;
             }
 
-            _hasFilled = totalPlaced > 0;
+            _lastSlotFingerprint = SlotFingerprint(customerSlots);
 
             if (totalPlaced == 0)
             {
-                SetStatus(slotsFull ? "Customer slots full" : "No matching products", true);
+                string noMatchMsg = slotsFull ? "Slots full"
+                    : hasUnpackaged ? "Package first"
+                    : "No match found";
+                SetStatus(noMatchMsg, true);
                 return;
             }
 
-            string msg = $"{totalGramsPlaced}g/{totalGramsRequested}g";
-            bool warn = false;
+            // Check if quantity is short - don't offer boost for quantity issues
+            if (totalGramsPlaced < totalGramsRequested)
+            {
+                int missing = totalGramsRequested - totalGramsPlaced;
+                SetStatus($"Missing {missing}g", true);
+                return;
+            }
 
-            if (totalGramsPlaced > totalGramsRequested) { msg += " (over)"; warn = true; }
-            else if (slotsFull) { msg += " (slots full)"; warn = true; }
+            // Quantity met - check if acceptance is low (quality issue)
+            var filledItems = GetCustomerItemsList(customerSlots);
+            int mc;
+            float acceptance = contract.GetProductListMatch(filledItems, out mc);
+            if (acceptance < 0.95f)
+            {
+                _hasFilled = true;
+                SetStatus("Unsatisfied - add more?", true);
+                return;
+            }
 
-            if (qualityMismatch) { msg += " ~quality"; warn = true; }
-
-            SetStatus(msg, warn);
+            SetStatus("Fulfilled");
         }
 
         /// <summary>
@@ -254,15 +372,15 @@ namespace OverTheCounter.UI
             int matchedCount;
             float match = contract.GetProductListMatch(currentItems, out matchedCount);
 
+            var entries = contract.ProductList.entries;
+
             if (match >= 0.95f)
             {
-                int pct = Mathf.RoundToInt(match * 100f);
-                SetStatus($"{pct}% — already good");
+                SetStatus("Fulfilled");
                 return;
             }
 
             var hotbar = playerInv.hotbarSlots;
-            var entries = contract.ProductList.entries;
             int totalAdded = 0;
             bool slotsFull = false;
 
@@ -288,6 +406,14 @@ namespace OverTheCounter.UI
 
                         if (slotId != entry.ProductID) continue;
 
+                        // Skip unpackaged product - game ignores it in match calculation
+#if IL2CPP
+                        var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                        var productItem = slot.ItemInstance as ProductItemInstance;
+#endif
+                        if (productItem == null || productItem.AppliedPackaging == null) continue;
+
                         int placed = TryPlaceInCustomerSlots(customerSlots, slot, 1, handover);
                         if (placed <= 0) { slotsFull = true; break; }
 
@@ -301,23 +427,60 @@ namespace OverTheCounter.UI
                     }
 
                     if (match >= 0.95f || slotsFull) break;
+
+                    // If no hotbar match, check backpack
+                    if (!addedThisPass)
+                    {
+                        var bpSlots = BackpackBridge.GetSlots();
+                        for (int b = 0; b < bpSlots.Length; b++)
+                        {
+                            var bpSlot = bpSlots[b];
+                            if (bpSlot?.ItemInstance == null || bpSlot.Quantity <= 0) continue;
+
+                            string bpId;
+                            try { bpId = bpSlot.ItemInstance.ID; }
+                            catch { continue; }
+
+                            if (bpId != entry.ProductID) continue;
+
+#if IL2CPP
+                            var bpProduct = bpSlot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                            var bpProduct = bpSlot.ItemInstance as ProductItemInstance;
+#endif
+                            if (bpProduct == null || bpProduct.AppliedPackaging == null) continue;
+
+                            int placed = TryPlaceInCustomerSlots(customerSlots, bpSlot, 1, handover);
+                            if (placed <= 0) { slotsFull = true; break; }
+
+                            totalAdded += placed;
+                            addedThisPass = true;
+
+                            currentItems = GetCustomerItemsList(customerSlots);
+                            match = contract.GetProductListMatch(currentItems, out matchedCount);
+                            if (match >= 0.95f) break;
+                        }
+                    }
+
+                    if (match >= 0.95f || slotsFull) break;
                 }
 
                 if (!addedThisPass || match >= 0.95f || slotsFull) break;
             }
 
-            int finalPct = Mathf.RoundToInt(match * 100f);
+            _lastSlotFingerprint = SlotFingerprint(customerSlots);
+
+            var (gramsPlaced, gramsRequested) = CountGrams(customerSlots, entries);
             if (totalAdded == 0)
             {
-                SetStatus(slotsFull ? $"{finalPct}% — slots full" : $"{finalPct}% — no more product", true);
-            }
-            else if (match >= 0.95f)
-            {
-                SetStatus($"+{totalAdded} boost → {finalPct}%");
+                SetStatus(slotsFull ? $"{gramsPlaced}g/{gramsRequested}g full" : $"{gramsPlaced}g/{gramsRequested}g", true);
             }
             else
             {
-                SetStatus($"+{totalAdded} boost → {finalPct}%", true);
+                string msg = $"{gramsPlaced}g/{gramsRequested}g";
+                bool warn = gramsPlaced < gramsRequested;
+                if (slotsFull) { msg += " full"; warn = true; }
+                SetStatus(msg, warn);
             }
         }
 
@@ -355,7 +518,7 @@ namespace OverTheCounter.UI
 #endif
 
         private static int TryPlaceInCustomerSlots(
-            ItemSlot[] customerSlots, HotbarSlot sourceSlot,
+            ItemSlot[] customerSlots, ItemSlot sourceSlot,
             int amount, HandoverScreen handover)
         {
             int placed = 0;
@@ -437,15 +600,67 @@ namespace OverTheCounter.UI
             return 100 + (requested - itemQuality);
         }
 
+        /// <summary>
+        /// Counts total grams of packaged product in customer slots vs total grams requested by contract.
+        /// </summary>
+        private static (int placed, int requested) CountGrams(
+            ItemSlot[] customerSlots,
+#if IL2CPP
+            Il2CppSystem.Collections.Generic.List<ProductList.Entry> entries)
+#else
+            List<ProductList.Entry> entries)
+#endif
+        {
+            int totalRequested = 0;
+            for (int e = 0; e < entries.Count; e++)
+            {
+                if (entries[e] != null)
+                    totalRequested += entries[e].Quantity;
+            }
+
+            int totalPlaced = 0;
+            for (int i = 0; i < customerSlots.Length; i++)
+            {
+                if (customerSlots[i]?.ItemInstance == null || customerSlots[i].Quantity <= 0) continue;
+#if IL2CPP
+                var pi = customerSlots[i].ItemInstance.TryCast<ProductItemInstance>();
+#else
+                var pi = customerSlots[i].ItemInstance as ProductItemInstance;
+#endif
+                if (pi == null || pi.AppliedPackaging == null) continue;
+                totalPlaced += customerSlots[i].Quantity * pi.AppliedPackaging.Quantity;
+            }
+
+            return (totalPlaced, totalRequested);
+        }
+
+        /// <summary>
+        /// Simple fingerprint of customer slot contents for detecting player changes.
+        /// </summary>
+        private static int SlotFingerprint(ItemSlot[] slots)
+        {
+            int hash = 17;
+            for (int i = 0; i < slots.Length; i++)
+            {
+                if (slots[i]?.ItemInstance == null) continue;
+                hash = hash * 31 + slots[i].Quantity;
+                try { hash = hash * 31 + slots[i].ItemInstance.ID.GetHashCode(); }
+                catch { }
+            }
+            return hash;
+        }
+
+        private static readonly Color BtnNormalColor = new Color(0.2f, 0.5f, 0.2f);
+        private static readonly Color BtnWarnColor = new Color(0.75f, 0.45f, 0.1f);
+        private static readonly Color BtnSuccessColor = new Color(0.15f, 0.45f, 0.25f);
+
         private static void SetStatus(string message, bool warn = false)
         {
-            if (_statusText != null)
-            {
-                _statusText.text = warn ? $"<b>{message}</b>" : message;
-                _statusText.color = warn
-                    ? new Color(1f, 0.7f, 0.2f)
-                    : new Color(0.7f, 0.7f, 0.7f);
-            }
+            OTCLog.Msg(OTCLog.Systems.Patch, $"Smart Fill status: {message} (warn={warn})");
+            if (_btnLabel != null)
+                _btnLabel.text = message;
+            if (_btnBgImage != null)
+                _btnBgImage.color = warn ? BtnWarnColor : BtnSuccessColor;
         }
     }
 }

@@ -5,11 +5,15 @@ using S1API.Internal.Abstraction;
 using S1API.Saveables;
 using S1API.GameTime;
 using S1API.Quests;
-using S1API.Quests.Constants;
-using S1API.Quests.Identifiers;
 using System;
 using OverTheCounter.Utilities;
 using System.Linq;
+
+#if IL2CPP
+using Il2CppScheduleOne.Money;
+#else
+using ScheduleOne.Money;
+#endif
 
 namespace OverTheCounter.SaveData
 {
@@ -27,10 +31,7 @@ namespace OverTheCounter.SaveData
         [SaveableField("vic_quest_accepted")]
         private bool _questAccepted;
 
-        /// <summary>
-        /// The in-game day when the Clean Cash quest was first detected.
-        /// -1 means not yet detected. Set to 0 once detected; intro fires on next sleep.
-        /// </summary>
+        // Legacy: kept for backwards-compatible deserialization of old saves.
         [SaveableField("vic_trigger_pending_day")]
         private int _triggerPendingDay = -1;
 
@@ -48,10 +49,6 @@ namespace OverTheCounter.SaveData
 
         // Runtime-only: guards against double quest creation per session.
         private bool _questCreated;
-
-        // Runtime-only: defers trigger from OnSleepEnd to next Tick()
-        // because NPCs aren't accessible during the sleep transition.
-        private bool _fireOnNextTick;
 
         // Runtime-only: deferred re-publish after save/load so the client
         // receives correct state even if the initial SyncVar push missed us.
@@ -71,7 +68,6 @@ namespace OverTheCounter.SaveData
         // Tracks dialogue open/close to detect the closing edge and force a rebuild.
         private bool _wasInDialogue;
 
-        private static bool _sleepEndSubscribed;
         public static VicSaveData Instance { get; private set; }
 
         internal static void ResetInstance() => Instance = null;
@@ -82,79 +78,79 @@ namespace OverTheCounter.SaveData
         public int LastDepositDay => _lastDepositDay;
         public bool Tier2IntroShown => _tier2IntroShown;
 
-        public bool HasBeenTexted
-        {
-            get => _hasBeenTexted;
-            set
-            {
-                if (_hasBeenTexted) return;
-                if (!value) return;
-
-                _hasBeenTexted = true;
-                TrySendIntroText();
-                CreateOrResumeQuest();
-                _dialogueStale = true;
-                ConfigSyncData.Instance?.PublishGameState();
-            }
-        }
+        public bool HasBeenTexted => _hasBeenTexted;
 
         public VicSaveData()
         {
             Instance = this;
-
-            if (!_sleepEndSubscribed)
-            {
-                TimeManager.OnSleepEnd += (_) => Instance?.OnPlayerWokeUp();
-                _sleepEndSubscribed = true;
-            }
         }
 
         protected override void OnLoaded()
         {
             Instance = this;
 
-            if (_questAccepted)
-                _questCreated = true;
+            // Heal stale flags: derive earlier state from later progression.
+            if (!_questAccepted && _unlocked)
+                _questAccepted = true;
+            if (!_hasBeenTexted && (_questAccepted || _unlocked))
+                _hasBeenTexted = true;
 
-            _dialogueStale = true;
+            // Backwards compat: old saves may have _triggerPendingDay > 0
+            // without _hasBeenTexted. Promote to triggered state.
+            if (!_hasBeenTexted && _triggerPendingDay > 0)
+            {
+                _hasBeenTexted = true;
+                _needsIntroText = true;
+            }
 
             if (_hasBeenTexted)
             {
                 _questCreated = true;
                 if (NetworkHelper.IsHost)
                     _needsStatePublish = true;
-
-                ConfigSyncData.ApplyPendingGameState();
-                ReconcileQuest();
-                return;
             }
 
-            // Re-apply host state even if quest hasn't triggered locally
+            _dialogueStale = true;
             ConfigSyncData.ApplyPendingGameState();
-
-            if (_triggerPendingDay >= 0)
-                return;
-
-            // Clean Cash was active before this session but we never recorded
-            // a pending day. Flag it so the next sleep triggers the intro.
-            if (IsCleanCashQuestStarted())
-                _triggerPendingDay = 0;
+            // ReconcileQuest deferred to Tick safety net — OnLoaded fires before
+            // the game finishes loading its own quest persistence (Quests.json),
+            // so creating quests here races with the game's own quest loading.
         }
 
         /// <summary>
-        /// Advances VicIntroQuest to match this SaveData's effective stage.
-        /// Covers the case where the quest loaded before this Saveable received host state.
+        /// Reconciles quest state to match SaveData.
+        /// Force-creates missing quest instance and advances objectives.
+        /// Returns true if a quest was created (caller should defer advancement
+        /// to the next frame so Unity's Start() can initialize entry components).
         /// </summary>
-        private void ReconcileQuest()
+        private bool ReconcileQuest()
         {
-            if (VicIntroQuest.Instance == null) return;
             int effectiveStage = _unlocked ? 3 : _questAccepted ? 2 : _hasBeenTexted ? 1 : 0;
-            if (effectiveStage <= VicIntroQuest.Instance.Stage) return;
 
-            if (effectiveStage >= 2 && VicIntroQuest.Instance.Stage < 2)
-                VicIntroQuest.Instance.CompleteObj1();
-            if (effectiveStage >= 3 && VicIntroQuest.Instance.Stage < 3)
-                VicIntroQuest.Instance.CompleteObj2();
+            bool created = false;
+
+            // Don't create quests that are already fully complete — no UI to show.
+            if (effectiveStage > 0 && effectiveStage < 3 && VicIntroQuest.Instance == null)
+            {
+                try
+                {
+                    var quest = (VicIntroQuest)QuestManager.CreateQuest<VicIntroQuest>();
+                    if (quest != null) { quest.Initialize(); quest.StartQuest(); created = true; }
+                }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: quest creation failed: {ex.Message}"); }
+            }
+
+            // Skip advancement on the same frame as creation — Unity's Start()
+            // hasn't run on the entry components yet, so state changes don't stick.
+            if (!created && VicIntroQuest.Instance != null && effectiveStage > VicIntroQuest.Instance.Stage)
+            {
+                if (effectiveStage >= 2 && VicIntroQuest.Instance.Stage < 2)
+                    VicIntroQuest.Instance.CompleteObj1();
+                if (effectiveStage >= 3 && VicIntroQuest.Instance.Stage < 3)
+                    VicIntroQuest.Instance.CompleteObj2();
+            }
+
+            return created;
         }
 
         /// <summary>
@@ -172,40 +168,19 @@ namespace OverTheCounter.SaveData
             TrySendIntroText();
         }
 
-        private void OnPlayerWokeUp()
-        {
-            // Host-only: re-warp after sleep so the NPC snaps to the correct
-            // NavMesh position. The Warp RPC syncs to clients via FishNet.
-            if (!NetworkHelper.IsHost) return;
-
-            _positionFixed = false;
-
-            if (_hasBeenTexted) return;
-
-            if (_triggerPendingDay >= 0 || IsCleanCashQuestStarted())
-            {
-                _triggerPendingDay = 0;
-                _fireOnNextTick = true;
-            }
-        }
-
         /// <summary>
         /// Called every frame from Core.OnLateUpdate(). Throttled internally.
-        /// Polls for the Clean Cash quest and keeps Vic's dialogue up to date.
+        /// Polls ATM deposits and keeps Vic's dialogue up to date.
         /// </summary>
         public void Tick()
         {
-            // Safety net: reconcile quest once after everything is loaded.
-            if (!_questReconciled && _hasBeenTexted
-                && VicIntroQuest.Instance != null)
+            // Safety net: reconcile quest state after everything is loaded.
+            // If ReconcileQuest creates a quest, it returns true and we re-run
+            // next frame so Unity's Start() has initialized entry components.
+            if (!_questReconciled && _hasBeenTexted)
             {
-                _questReconciled = true;
-                int effectiveStage = _unlocked ? 3 : _questAccepted ? 2 : 1;
-                if (VicIntroQuest.Instance.Stage < effectiveStage)
-                {
-                    OTCLog.Msg(OTCLog.Systems.NPC, $"Tick reconciliation: quest stage {VicIntroQuest.Instance.Stage} → {effectiveStage}");
-                    ReconcileQuest();
-                }
+                if (!ReconcileQuest())
+                    _questReconciled = true;
             }
 
             // Detect dialogue closing edge — forces a rebuild so weed count
@@ -231,15 +206,6 @@ namespace OverTheCounter.SaveData
                 ConfigSyncData.Instance?.PublishGameState();
             }
 
-            // Deferred trigger from OnSleepEnd (host-only path).
-            if (_fireOnNextTick)
-            {
-                _fireOnNextTick = false;
-                if (!_hasBeenTexted)
-                    HasBeenTexted = true;
-                return;
-            }
-
             if (++_tickCounter < TICK_INTERVAL) return;
             _tickCounter = 0;
 
@@ -252,25 +218,43 @@ namespace OverTheCounter.SaveData
                 catch (Exception) { }
             }
 
-            // Keep Vic's dialogue fresh so players see current values.
-            if (_hasBeenTexted)
+            // Check ATM trigger (either peer can hit the deposit threshold)
+            if (!_hasBeenTexted)
             {
                 try
                 {
-                    if (VicNPC.Instance != null && VicNPC.Instance.DialogueReady)
-                        VicNPC.Instance.RefreshDialogue();
+                    if (ATM.WeeklyDepositSum >= Config.VicDepositTrigger.Value)
+                    {
+                        _hasBeenTexted = true;
+                        CreateOrResumeQuest();
+
+                        if (NetworkHelper.IsHost)
+                        {
+                            TrySendIntroText();
+                            ConfigSyncData.Instance?.PublishGameState();
+                        }
+                        else
+                        {
+                            ConfigSyncData.SendQuestAction("VIC_TRIGGER");
+                        }
+
+                        _dialogueStale = true;
+                    }
                 }
-                catch (Exception) { }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.NPC, $"ATM check failed: {ex.Message}");
+                }
                 return;
             }
 
-            // Quest polling: host-only since client state comes from ApplyHostState.
-            if (!NetworkHelper.IsHost) return;
-
-            if (_triggerPendingDay >= 0) return;
-
-            if (IsCleanCashQuestStarted())
-                _triggerPendingDay = 0;
+            // Keep Vic's dialogue fresh once triggered
+            try
+            {
+                if (!inDialogue && VicNPC.Instance != null && VicNPC.Instance.DialogueReady)
+                    VicNPC.Instance.RefreshDialogue();
+            }
+            catch (Exception) { }
         }
 
         /// <summary>
@@ -391,6 +375,15 @@ namespace OverTheCounter.SaveData
                     catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Remote VicIntroQuest CompleteObj2 failed: {ex.Message}"); }
                     break;
 
+                case "VIC_TRIGGER":
+                    if (!_hasBeenTexted)
+                    {
+                        _hasBeenTexted = true;
+                        TrySendIntroText();
+                        CreateOrResumeQuest();
+                    }
+                    break;
+
                 case "VIC_LAUNDER":
                     int launderDay = TimeManager.ElapsedDays;
                     _lastDepositDay = launderDay;
@@ -440,27 +433,5 @@ namespace OverTheCounter.SaveData
             }
         }
 
-        private bool IsCleanCashQuestStarted()
-        {
-            try
-            {
-                var quest = QuestManager.Get<CleanCash>();
-                if (quest == null) return false;
-
-                var entries = quest.QuestEntries;
-                if (entries == null || entries.Count == 0) return false;
-
-                foreach (var entry in entries)
-                {
-                    if (entry.State == QuestState.Active || entry.State == QuestState.Completed)
-                        return true;
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.NPC, $"Could not check Clean Cash quest: {ex.Message}");
-            }
-            return false;
-        }
     }
 }

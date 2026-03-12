@@ -235,14 +235,19 @@ namespace OverTheCounter.NPCs
         /// </summary>
         public void RefreshDialogue()
         {
-            int stage = VicIntroQuest.Instance?.Stage ?? 0;
+            int questStage = VicIntroQuest.Instance?.Stage ?? 0;
 
-            // If the quest was just created but Instance isn't ready yet,
-            // HasBeenTexted guarantees we're at least stage 1.
-            if (stage == 0 && (VicSaveData.Instance?.HasBeenTexted ?? false))
+            // VicSaveData is the authority — derive the effective stage from it
+            // and take the MAX so a stale/failed quest objective never traps the player.
+            int saveStage = 0;
+            if (VicSaveData.Instance?.HasBeenTexted ?? false)
             {
-                stage = VicSaveData.Instance.Unlocked ? 3 : 1;
+                saveStage = VicSaveData.Instance.Unlocked ? 3
+                          : VicSaveData.Instance.QuestAccepted ? 2
+                          : 1;
             }
+
+            int stage = Math.Max(questStage, saveStage);
 
             Dialogue.BuildAndRegisterContainer("VicGreeting", container =>
             {
@@ -395,9 +400,15 @@ namespace OverTheCounter.NPCs
             {
                 try
                 {
+                    if (VicSaveData.Instance == null)
+                    {
+                        OTCLog.Error(OTCLog.Systems.NPC, "ACCEPT: VicSaveData.Instance is null — quest cannot advance.");
+                        return;
+                    }
+
                     if (NetworkHelper.IsHost)
                     {
-                        VicSaveData.Instance?.HandleRemoteAction("VIC_QUEST_ACCEPTED");
+                        VicSaveData.Instance.HandleRemoteAction("VIC_QUEST_ACCEPTED");
                     }
                     else
                     {
@@ -405,8 +416,7 @@ namespace OverTheCounter.NPCs
                     }
 
                     // Defer rebuild — dialogue is still open; Tick() refreshes on close.
-                    if (VicSaveData.Instance != null)
-                        VicSaveData.Instance._dialogueStale = true;
+                    VicSaveData.Instance._dialogueStale = true;
                 }
                 catch (Exception ex)
                 {
@@ -589,7 +599,6 @@ namespace OverTheCounter.NPCs
                 DialogueReady = false;
                 Instance = null;
             }
-            VicSaveData.ResetInstance();
             base.OnDestroyed();
         }
     }

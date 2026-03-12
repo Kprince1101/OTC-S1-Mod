@@ -31,6 +31,54 @@ namespace OverTheCounter.Apps
             typeof(Employee).GetField("WorkIssues", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 #endif
 
+        // Actionable issue color (orange) — employee can act on Fix hint
+        private static readonly Color ActionableIssueColor = new Color(0.9f, 0.6f, 0.15f);
+        // Informational issue color (light gray) — nothing the player can do right now
+        private static readonly Color InfoIssueColor = new Color(0.6f, 0.6f, 0.6f);
+
+        /// <summary>
+        /// Returns true when a WorkIssue is purely informational (player can't act on it).
+        /// Checks both empty Fix and known passive reason strings where the game fills
+        /// in a Fix hint despite the status not being actionable.
+        /// </summary>
+        private static bool IsInfoOnlyIssue(string reason, string fix) =>
+            string.IsNullOrEmpty(fix)
+            || (reason != null && reason.StartsWith("There's nothing for me to do"))
+            || (reason != null && reason.StartsWith("Sorry boss, my shift"))
+            || (reason != null && reason.Contains("destination is full"));
+
+        private static readonly Dictionary<string, string> BehaviourActivityMap = new Dictionary<string, string>
+        {
+            // Botanist
+            { "WaterPotBehaviour", "Watering" },
+            { "MistMushroomBedBehaviour", "Watering" },
+            { "SowSeedInPotBehaviour", "Planting" },
+            { "AddSoilToGrowContainerBehaviour", "Adding Soil" },
+            { "ApplyAdditiveToGrowContainerBehaviour", "Fertilizing" },
+            { "HarvestPotBehaviour", "Harvesting" },
+            { "HarvestMushroomBedBehaviour", "Harvesting" },
+            { "StartDryingRackBehaviour", "Drying" },
+            { "StopDryingRackBehaviour", "Drying" },
+            { "UseSpawnStationBehaviour", "Spawning" },
+            { "ApplySpawnToMushroomBedBehaviour", "Spawning" },
+            // Chemist
+            { "StartChemistryStationBehaviour", "Mixing" },
+            { "StartLabOvenBehaviour", "Cooking" },
+            { "FinishLabOvenBehaviour", "Cooking" },
+            { "StartCauldronBehaviour", "Cooking" },
+            { "StartMixingStationBehaviour", "Mixing" },
+            // Packager
+            { "PackagingStationBehaviour", "Packaging" },
+            { "BrickPressBehaviour", "Pressing" },
+            // Cleaner
+            { "PickUpTrashBehaviour", "Cleaning" },
+            { "EmptyTrashGrabberBehaviour", "Cleaning" },
+            { "BagTrashCanBehaviour", "Cleaning" },
+            { "DisposeTrashBagBehaviour", "Cleaning" },
+            // Shared
+            { "MoveItemBehaviour", "Moving Items" },
+        };
+
         internal static (string text, Color color) GetEmployeeStatus(Employee emp)
         {
             try
@@ -38,11 +86,19 @@ namespace OverTheCounter.Apps
 #if IL2CPP
                 var issues = emp.WorkIssues;
                 if (issues != null && issues.Count > 0)
-                    return ($"\u25CF {issues[0].Reason}", new Color(0.9f, 0.6f, 0.15f));
+                {
+                    var color = IsInfoOnlyIssue(issues[0].Reason, issues[0].Fix)
+                        ? InfoIssueColor : ActionableIssueColor;
+                    return ($"\u25CF {issues[0].Reason}", color);
+                }
 #else
                 var issues = WorkIssuesField?.GetValue(emp) as System.Collections.Generic.List<Employee.NoWorkReason>;
                 if (issues != null && issues.Count > 0)
-                    return ($"\u25CF {issues[0].Reason}", new Color(0.9f, 0.6f, 0.15f));
+                {
+                    var color = IsInfoOnlyIssue(issues[0].Reason, issues[0].Fix)
+                        ? InfoIssueColor : ActionableIssueColor;
+                    return ($"\u25CF {issues[0].Reason}", color);
+                }
 #endif
             }
             catch { }
@@ -51,7 +107,39 @@ namespace OverTheCounter.Apps
                 return ("\u25CF Unpaid", new Color(0.9f, 0.25f, 0.25f));
             if (emp.IsWaitingOutside)
                 return ("\u25CF Idle", new Color(0.5f, 0.5f, 0.5f));
-            return ("\u25CF Working", new Color(0.2f, 0.75f, 0.2f));
+
+            // Try to get specific activity from active behaviour (host-only; clients fall back)
+            string activity = null;
+            try
+            {
+                var beh = emp.Behaviour?.activeBehaviour;
+                if (beh != null)
+                {
+#if IL2CPP
+                    string typeName = beh.GetIl2CppType()?.Name;
+#else
+                    string typeName = beh.GetType()?.Name;
+#endif
+                    if (typeName != null)
+                        BehaviourActivityMap.TryGetValue(typeName, out activity);
+                }
+            }
+            catch { }
+
+            // Fall back to generic type-based label (clients, or unmapped behaviour)
+            if (activity == null)
+            {
+                activity = emp.EmployeeType switch
+                {
+                    EEmployeeType.Botanist => "Tending",
+                    EEmployeeType.Chemist => "Mixing",
+                    EEmployeeType.Handler => "Packaging",
+                    EEmployeeType.Cleaner => "Cleaning",
+                    _ => "Working"
+                };
+            }
+
+            return ($"\u25CF {activity}", new Color(0.2f, 0.75f, 0.2f));
         }
 
         private static string EmployeeTypeDisplayName(EEmployeeType t) => t switch
@@ -271,7 +359,22 @@ namespace OverTheCounter.Apps
                         if (emp == null || emp.Fired) continue;
                         if (_employeeTypeFilter != null && !_employeeTypeFilter.Contains(emp.EmployeeType)) continue;
                         var (status, _) = GetEmployeeStatus(emp);
-                        sb.Append(emp.ID).Append(':').Append(status).Append('|');
+                        sb.Append(emp.ID).Append(':').Append(status);
+                        try
+                        {
+                            var inv = emp.GetComponent<ScheduleOne.NPCs.NPCInventory>();
+                            if (inv?.ItemSlots != null)
+                            {
+                                for (int i = 0; i < inv.ItemSlots.Count; i++)
+                                {
+                                    var slot = inv.ItemSlots[i];
+                                    if (slot?.ItemInstance?.Definition != null)
+                                        sb.Append(',').Append(slot.ItemInstance.Definition.ID).Append('x').Append(slot.Quantity);
+                                }
+                            }
+                        }
+                        catch { }
+                        sb.Append('|');
                     }
                 }
                 return sb.ToString();

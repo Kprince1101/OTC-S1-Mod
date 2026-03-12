@@ -94,6 +94,11 @@ namespace OverTheCounter.UI
         private float _minimapY;
         private float _minimapTotalSize;
 
+        // Canvas scaler reference + built-with dimensions for change detection
+        private UnityEngine.UI.CanvasScaler _unityScaler;
+        private float _builtCanvasW;
+        private float _builtCanvasH;
+
         // Remote player POI → Player lookup (rebuilt on POI cache refresh)
         private readonly Dictionary<int, Player> _poiToPlayer = new();
 
@@ -234,6 +239,11 @@ namespace OverTheCounter.UI
 
         private bool ConfigChanged()
         {
+            // Detect screen resolution or UI Scale changes that affect canvas dimensions
+            GetEffectiveCanvasSize(out float cw, out float ch);
+            if (Math.Abs(cw - _builtCanvasW) > 1f || Math.Abs(ch - _builtCanvasH) > 1f)
+                return true;
+
             return Config.MinimapSize.Value != _cfgSize
                 || Config.MinimapCircle.Value != _cfgCircle
                 || Config.MinimapHorizontalOffset.Value != _cfgHOffset
@@ -304,12 +314,19 @@ namespace OverTheCounter.UI
             var canvas = _canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 999;
-            var scaler = _canvasObj.AddComponent<UnityEngine.UI.CanvasScaler>();
-            scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920, 1080);
-            scaler.matchWidthOrHeight = 0.5f;
+            _unityScaler = _canvasObj.AddComponent<UnityEngine.UI.CanvasScaler>();
+            _unityScaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            _unityScaler.referenceResolution = new Vector2(1920, 1080);
+            _unityScaler.matchWidthOrHeight = 0.5f;
             _canvasObj.AddComponent<GameCanvasScaler>();
             UnityEngine.Object.DontDestroyOnLoad(_canvasObj);
+            Canvas.ForceUpdateCanvases();
+
+            // Compute effective canvas dimensions (accounts for UI Scale + screen aspect ratio)
+            GetEffectiveCanvasSize(out float canvasW, out float canvasH);
+            OTCLog.Msg(OTCLog.Systems.Patch, $"Canvas effective size: {canvasW:F0}x{canvasH:F0} (screen {Screen.width}x{Screen.height})");
+            _builtCanvasW = canvasW;
+            _builtCanvasH = canvasH;
 
             // Border (slightly larger background behind the container)
             var borderObj = new GameObject("MinimapBorder");
@@ -320,7 +337,7 @@ namespace OverTheCounter.UI
             var borderRect = borderObj.GetComponent<RectTransform>();
             int bw = _cfgBorderWidth;
             _minimapTotalSize = size + (bw * 2);
-            ApplyFreePosition(borderRect, _minimapTotalSize, margin, _cfgHOffset, _cfgVOffset);
+            ApplyFreePosition(borderRect, _minimapTotalSize, margin, _cfgHOffset, _cfgVOffset, canvasW, canvasH);
             _minimapX = borderRect.anchoredPosition.x;
             _minimapY = borderRect.anchoredPosition.y;
             if (circle)
@@ -736,6 +753,7 @@ namespace OverTheCounter.UI
                 UnityEngine.Object.Destroy(_canvasObj);
                 _canvasObj = null;
             }
+            _unityScaler = null;
             _mapRect = null;
             _rotationPivot = null;
             _markersParent = null;
@@ -1270,14 +1288,56 @@ namespace OverTheCounter.UI
             }
         }
 
-        private static void ApplyFreePosition(RectTransform rect, float totalSize, float margin,
-            int hOffset, int vOffset)
+        /// <summary>
+        /// Returns the effective canvas coordinate space. Reads from the Canvas
+        /// RectTransform when available (ground truth from Unity's layout system),
+        /// falling back to manual CanvasScaler computation on the first frame.
+        /// Reading the actual rect avoids mismatch on ultrawide/non-16:9 monitors
+        /// where GameCanvasScaler modifies the Unity scaler's referenceResolution.
+        /// </summary>
+        private void GetEffectiveCanvasSize(out float w, out float h)
         {
-            const float refW = 1920f, refH = 1080f;
+            if (_canvasObj != null)
+            {
+                var rt = _canvasObj.GetComponent<RectTransform>();
+                if (rt != null)
+                {
+                    var rect = rt.rect;
+                    if (rect.width > 1f && rect.height > 1f)
+                    {
+                        w = rect.width;
+                        h = rect.height;
+                        return;
+                    }
+                }
+            }
+
+            if (_unityScaler == null)
+            {
+                w = 1920f; h = 1080f;
+                return;
+            }
+
+            Vector2 refRes = _unityScaler.referenceResolution;
+            float sw = Screen.width;
+            float sh = Screen.height;
+            float match = _unityScaler.matchWidthOrHeight;
+
+            float logW = Mathf.Log(sw / refRes.x, 2f);
+            float logH = Mathf.Log(sh / refRes.y, 2f);
+            float scaleFactor = Mathf.Pow(2f, Mathf.Lerp(logW, logH, match));
+
+            w = sw / scaleFactor;
+            h = sh / scaleFactor;
+        }
+
+        private static void ApplyFreePosition(RectTransform rect, float totalSize, float margin,
+            int hOffset, int vOffset, float canvasW, float canvasH)
+        {
             float xMin = margin;
-            float xMax = refW - totalSize - margin;
+            float xMax = canvasW - totalSize - margin;
             float yMin = margin;
-            float yMax = refH - totalSize - margin;
+            float yMax = canvasH - totalSize - margin;
 
             float x = Mathf.Lerp(xMin, xMax, hOffset / 100f);
             float y = Mathf.Lerp(yMax, yMin, vOffset / 100f);

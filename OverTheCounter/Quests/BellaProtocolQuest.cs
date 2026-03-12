@@ -149,7 +149,9 @@ namespace OverTheCounter.Quests
             try
             {
                 _stage = 5;
+                _cokeEntry?.Begin();
                 _cokeEntry?.Complete();
+                Complete();
             }
             catch (Exception ex)
             {
@@ -205,7 +207,10 @@ namespace OverTheCounter.Quests
                     _cokeEntry?.Begin();
                 }
                 if (_stage >= 5)
+                {
                     _cokeEntry?.Complete();
+                    Complete();
+                }
             }
             catch (Exception ex)
             {

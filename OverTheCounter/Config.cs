@@ -27,6 +27,7 @@ namespace OverTheCounter
         public static ConfigEntry<float> VicTier2Cost;
         public static ConfigEntry<float> VicTier2Return;
         public static ConfigEntry<int> VicIntroWeedGrams;
+        public static ConfigEntry<float> VicDepositTrigger;
 
         // ── Bella Protocol ──
         private static MelonPreferences_Category _bella;
@@ -212,6 +213,8 @@ namespace OverTheCounter
                 "Clean money returned for tier-2 laundering"));
             VicIntroWeedGrams = Register(_laundering.CreateEntry("VicIntroWeedGrams", 40, "Intro Quest Weed Grams",
                 "Grams of weed required to complete Vic's intro quest"));
+            VicDepositTrigger = Register(_laundering.CreateEntry("VicDepositTrigger", 10000f, "Deposit Trigger Amount",
+                "Weekly deposit total that triggers Vic's intro quest"));
 
             // ── Bella Protocol ──
             _bella = MelonPreferences.CreateCategory("OverTheCounter_Bella", "Bella Protocol");

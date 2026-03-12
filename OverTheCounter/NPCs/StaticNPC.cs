@@ -263,7 +263,6 @@ namespace OverTheCounter.NPCs
             bool introCompleted = StaticSaveData.Instance?.IntroCompleted ?? false;
             bool saasActive = StaticSaveData.Instance?.SaasActive ?? false;
             int crmTier = StaticSaveData.Instance?.CrmTier ?? 0;
-            bool upgradeAvailable = StaticSaveData.Instance?.UpgradeAvailable ?? false;
             bool earlyVisitSeen = StaticSaveData.Instance?.EarlyVisitSeen ?? true;
             int currentTime;
             try { currentTime = TimeManager.CurrentTime; }
@@ -384,7 +383,7 @@ namespace OverTheCounter.NPCs
                     container.AddNode("RESTORE_EXIT", "*nods once* \u2014 You're back online. Don't let the balance dry up again. I won't be this nice next time.");
                     container.AddNode("LEAVE_EXIT", "*waves dismissively* \u2014 Tick tock.");
                 }
-                else if (upgradeAvailable && crmTier == 1)
+                else if (crmTier == 1)
                 {
                     // ── Tier 1→2 Upgrade: Private Server pitch with fee misdirection ──
                     float bankBalance = Money.GetOnlineBalance();
@@ -438,7 +437,7 @@ namespace OverTheCounter.NPCs
                     container.AddNode("CANCEL_EXIT", "*shrugs* \u2014 Your funeral. Service is dead. You want back in, it'll cost you. And I'll remember this.");
                     container.AddNode("LEAVE_EXIT", "*nods, twitches*");
                 }
-                else if (upgradeAvailable && crmTier == 2)
+                else if (crmTier == 2)
                 {
                     // ── Tier 2→3 Upgrade: THE TRAP — fee is permanent ──
                     float bankBalance = Money.GetOnlineBalance();
@@ -925,7 +924,6 @@ namespace OverTheCounter.NPCs
                 DialogueReady = false;
                 Instance = null;
             }
-            StaticSaveData.ResetInstance();
             base.OnDestroyed();
         }
     }
