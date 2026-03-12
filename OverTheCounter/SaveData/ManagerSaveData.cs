@@ -253,6 +253,8 @@ namespace OverTheCounter.SaveData
                 string decoded = ManagerInstance.DecodeConfig(encodedConfig);
                 instance.Configuration.Deserialize(decoded);
                 instance.ReconcileLockerFromConfig();
+                instance.ApplySpeedUpgrade();
+                instance.ApplyInventoryCapacity();
 
                 // Check if locker GUID was present but didn't resolve (GUIDManager not ready)
                 bool hadLockerGuid = HasLockerGuid(decoded);
