@@ -19,7 +19,7 @@ using UnityEngine;
 using Il2CppInterop.Runtime.Injection;
 #endif
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.5.4", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.5.6", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 [assembly: MelonOptionalDependencies("SteamNetworkLib")]
 [assembly: HarmonyDontPatchAll]
