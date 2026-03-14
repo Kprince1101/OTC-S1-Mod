@@ -275,7 +275,12 @@ namespace OverTheCounter.NPCs
                 try { _gameNpc.Awareness?.SetAwarenessActive(false); } catch { }
 
                 // 3. Add to building occupant list
-                nearest.NPCEnteredBuilding(_gameNpc);
+                // Reflection: old game has NPCEnteredBuilding(NPC), new game has (NPC, StaticDoor)
+                var enteredMethod = nearest.GetType().GetMethod("NPCEnteredBuilding");
+                if (enteredMethod != null && enteredMethod.GetParameters().Length == 2)
+                    enteredMethod.Invoke(nearest, new object[] { _gameNpc, nearest.Doors[doorIndex] });
+                else
+                    enteredMethod?.Invoke(nearest, new object[] { _gameNpc });
 
                 // 4. Hide NPC properly (model + nav agent)
                 _gameNpc.SetVisible(false);

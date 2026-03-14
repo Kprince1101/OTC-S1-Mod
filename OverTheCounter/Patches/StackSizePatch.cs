@@ -21,7 +21,10 @@ namespace OverTheCounter.Patches
         {
             try
             {
-                var getter = AccessTools.Property(typeof(ItemInstanceType), "StackLimit")?.GetGetMethod();
+                var prop = typeof(ItemInstanceType).GetProperty("StackLimit");
+                if (prop == null) return;
+                // Patch on declaring type to avoid Harmony warning about inherited members
+                var getter = prop.DeclaringType.GetProperty("StackLimit")?.GetGetMethod() ?? prop.GetGetMethod();
                 if (getter == null) return;
                 harmony.Patch(getter,
                     postfix: new HarmonyMethod(typeof(StackSizePatch), nameof(StackLimit_Postfix)));
