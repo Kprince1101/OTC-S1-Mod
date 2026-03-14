@@ -64,6 +64,7 @@ namespace OverTheCounter.UI
         // POI clone tracking
         private readonly Dictionary<int, RectTransform> _poiClones = new();
         private readonly HashSet<int> _activeCloneIds = new();
+        private readonly HashSet<int> _poiIconSynced = new(); // tracks clones whose icon sprite has been synced
         private POI[] _cachedPOIs;
         private float _lastPOIRefresh;
 
@@ -772,6 +773,7 @@ namespace OverTheCounter.UI
                 if (d.Label != null) UnityEngine.Object.Destroy(d.Label.gameObject);
             _xpDrops.Clear();
             _poiClones.Clear();
+            _poiIconSynced.Clear();
             _customerClones.Clear();
             _poiToPlayer.Clear();
             _activeCloneIds.Clear();
@@ -1042,6 +1044,26 @@ namespace OverTheCounter.UI
                                 var ic = cloneRect.Find("IconContainer");
                                 if (ic != null) ic.localEulerAngles = Vector3.zero;
                             }
+                        }
+
+                        // Sync icon sprite from source POI until valid (fixes IL2CPP race where
+                        // mugshot hasn't loaded yet when the clone is first created)
+                        if (!_poiIconSynced.Contains(id))
+                        {
+                            try
+                            {
+                                var srcIcon = poi.IconContainer?.Find("Outline/Icon")?.GetComponent<Image>();
+                                if (srcIcon != null && srcIcon.sprite != null)
+                                {
+                                    var dstIcon = cloneRect.Find("IconContainer/Outline/Icon")?.GetComponent<Image>();
+                                    if (dstIcon != null)
+                                    {
+                                        dstIcon.sprite = srcIcon.sprite;
+                                        _poiIconSynced.Add(id);
+                                    }
+                                }
+                            }
+                            catch { }
                         }
 
                         if (showAtEdge)
