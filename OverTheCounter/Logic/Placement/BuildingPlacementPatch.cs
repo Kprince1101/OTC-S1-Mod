@@ -190,9 +190,11 @@ namespace OverTheCounter.Logic.Placement
                     // ParentProperty being null on OTC grids (no Property component).
                     // Without this, the closestIntersection setter crashes every frame
                     // the ghost tries to change tiles, locking it to one position.
+#if !IL2CPP
                     var tileIntersectionType = FindGameType("ScheduleOne.Building.TileIntersection");
                     if (tileIntersectionType != null)
                         _tileIntersectionTileField = AccessTools.Field(tileIntersectionType, "tile");
+#endif
 
                     var onChanged = AccessTools.Method(buildUpdateGridType, "OnClosestIntersectionChanged");
                     if (onChanged != null)

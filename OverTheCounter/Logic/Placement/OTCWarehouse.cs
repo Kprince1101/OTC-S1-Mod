@@ -450,8 +450,8 @@ namespace OverTheCounter.Logic.Placement
             if (controllers == null) return null;
             for (int i = 0; i < controllers.Length; i++)
             {
-                if (controllers[i]?.AudioSource?.clip != null)
-                    return controllers[i].AudioSource.clip;
+                if (controllers[i]?.Clip != null)
+                    return controllers[i].Clip;
             }
             return null;
         }
@@ -465,7 +465,7 @@ namespace OverTheCounter.Logic.Placement
             }
             for (int i = 0; i < controllers.Length; i++)
             {
-                var clip = controllers[i]?.AudioSource?.clip;
+                var clip = controllers[i]?.Clip;
                 OTCLog.Msg(OTCLog.Systems.Patch,
                     $"[DoorAudio]   {label}[{i}]: '{clip?.name ?? "null"}'");
             }

@@ -242,7 +242,7 @@ namespace OverTheCounter.Logic.Placement
                     OTCLog.Error(OTCLog.Systems.Patch,"Failed to create ItemInstance from custom definition");
                     return;
                 }
-                var bm = Singleton<BuildManager>.Instance;
+                var bm = NetworkSingleton<BuildManager>.Instance;
                 if (bm == null)
                 {
                     OTCLog.Error(OTCLog.Systems.Patch,"BuildManager singleton not available");
@@ -753,7 +753,7 @@ namespace OverTheCounter.Logic.Placement
                     return;
                 }
 
-                var bm = Singleton<BuildManager>.Instance;
+                var bm = NetworkSingleton<BuildManager>.Instance;
                 if (bm == null)
                 {
                     OTCLog.Error(OTCLog.Systems.Patch,"BuildManager not available for vanilla item restore");
