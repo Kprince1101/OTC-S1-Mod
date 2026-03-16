@@ -41,7 +41,7 @@ namespace OverTheCounter.Logic.Placement
         private const float RoomWidth = 6f;
         private const float RoomHeight = 3.5f;
         private const float RoomDepth = 5f;
-        private const float FoundationHeight = 1.1f;
+        private const float FoundationHeight = 0.4f;
 
         // SW corner of building footprint — ground slopes ~-3 to -3.5 here
         private static readonly Vector3 BuildingOrigin = new(-167.4f, -4f, 73.5f);
@@ -162,6 +162,7 @@ namespace OverTheCounter.Logic.Placement
             if (_building == null) return;
             TerrainClearer.ClearAroundBuilding(_building, new Vector3(RoomWidth, RoomHeight, RoomDepth),
                 new ClearingOptions { Padding = 4f });
+            TerrainFlattener.FlattenUnder(_building, new Vector3(RoomWidth, RoomHeight, RoomDepth), BuildingOrigin.y, blendDistance: 3f);
         }
 
         /// <summary>
@@ -361,8 +362,8 @@ namespace OverTheCounter.Logic.Placement
             {
                 try
                 {
-                    float extGround = -0.1f;
-                    var trashLocalPos = new Vector3(7.0f, extGround - 1.0f, -1.0f);
+                    float extGround = -FoundationHeight;
+                    var trashLocalPos = new Vector3(7.0f, extGround, -1.0f);
                     var trashGo = SpawnNetworkedAt(Prefabs.TrashCan,
                         _building.transform.TransformPoint(trashLocalPos),
                         _building.transform.rotation,
@@ -390,8 +391,8 @@ namespace OverTheCounter.Logic.Placement
                 // doesn't sync child GameObject active states — the client instantiates from the
                 // prefab's default (lid inactive). Poll until the TrashCan appears near the shack,
                 // then activate its lid.
-                float extGround = -0.1f;
-                var trashWorldPos = _building.transform.TransformPoint(new Vector3(7.0f, extGround - 1.0f, -1.0f));
+                float extGround = -FoundationHeight;
+                var trashWorldPos = _building.transform.TransformPoint(new Vector3(7.0f, extGround, -1.0f));
                 MelonLoader.MelonCoroutines.Start(WaitAndFixTrashCanLid(trashWorldPos));
             }
         }
@@ -768,25 +769,25 @@ namespace OverTheCounter.Logic.Placement
             // TerrainClearer is deferred to OnGameLoaded — terrain tree instances are not
             // yet populated during OnSceneWasInitialized on the client side.
 
-            // Exterior props — exterior ground is ~-0.1 in building local space (world Y≈-3.0, building Y=-2.9)
-            float extGround = -0.1f;
+            // Exterior props — ground is at -FoundationHeight in local space (terrain flattened to BuildingOrigin.y)
+            float extGround = -FoundationHeight;
             new InteriorBuilder(_building.transform, "WestvilleShack_Props")
                 // Dumpster on north side
                 .AddCustomMesh(Meshes.Dumpster, "Dumpster",
-                    new Vector3(2f, extGround - 1.0f, RoomDepth + 2.5f), Quaternion.Euler(-90f, 0f, 0f))
+                    new Vector3(2f, extGround, RoomDepth + 2.5f), Quaternion.Euler(-90f, 0f, 0f))
                 // Two dumpster lids side by side on top of opening
                 .AddCustomMesh(Meshes.DumpsterCover, "DumpsterLid1",
-                    new Vector3(1.5f, extGround + 0.2f, RoomDepth + 1.3f), Quaternion.Euler(-90f, 0f, 0f))
+                    new Vector3(1.5f, extGround + 1.2f, RoomDepth + 1.3f), Quaternion.Euler(-90f, 0f, 0f))
                 .AddCustomMesh(Meshes.DumpsterCover, "DumpsterLid2",
-                    new Vector3(2.5f, extGround + 0.2f, RoomDepth + 1.3f), Quaternion.Euler(-90f, 0f, 0f))
+                    new Vector3(2.5f, extGround + 1.2f, RoomDepth + 1.3f), Quaternion.Euler(-90f, 0f, 0f))
                 .Build(_building);
 
             // Wooden crates — scene cloned, decorative only
-            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(-1.2f, extGround - 1.0f, 4.2f), Quaternion.identity);
-            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(-1.2f, extGround - 1.0f, 5.4f), Quaternion.identity);
-            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(-1.2f, extGround - 0.2f, 4.8f), Quaternion.Euler(0f, 15f, 0f));
+            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(-1.2f, extGround, 4.2f), Quaternion.identity);
+            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(-1.2f, extGround, 5.4f), Quaternion.identity);
+            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(-1.2f, extGround + 0.8f, 4.8f), Quaternion.Euler(0f, 15f, 0f));
             // Lone rotated crate on north-east side
-            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(7.4f, extGround - 1.0f, 5.1f), Quaternion.Euler(0f, 35f, 0f));
+            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(7.4f, extGround, 5.1f), Quaternion.Euler(0f, 35f, 0f));
 
             // Marijuana leaf sign on north wall exterior
             try
