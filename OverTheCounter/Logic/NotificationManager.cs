@@ -263,7 +263,19 @@ namespace OverTheCounter.Logic
         {
             OTCLog.Msg(OTCLog.Systems.Notification, $"Creating ConsolidatedQuest for {contracts.Count} contracts, window {windowKey.Item1}-{windowKey.Item2}");
 
-            var quest = (ConsolidatedQuest)S1API.Quests.QuestManager.CreateQuest<ConsolidatedQuest>();
+            ConsolidatedQuest quest;
+            try
+            {
+                quest = (ConsolidatedQuest)S1API.Quests.QuestManager.CreateQuest<ConsolidatedQuest>();
+            }
+            catch (System.Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Notification, $"CreateQuest<ConsolidatedQuest> threw: {ex.Message}");
+                // Sentinel prevents retry spam — UpdateGroupSummary handles null Quest gracefully
+                _activeGroups[windowKey] = new ConsolidatedGroup { Quest = null };
+                return;
+            }
+
             if (quest != null)
             {
                 quest.Initialize();
@@ -272,6 +284,7 @@ namespace OverTheCounter.Logic
             else
             {
                 OTCLog.Error(OTCLog.Systems.Notification, "CreateQuest<ConsolidatedQuest> returned null!");
+                _activeGroups[windowKey] = new ConsolidatedGroup { Quest = null };
                 return;
             }
 
