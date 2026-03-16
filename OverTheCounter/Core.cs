@@ -169,6 +169,7 @@ namespace OverTheCounter
             // Permanent building cleanup
             Logic.Placement.CheckoutCounter.Cleanup();
             Logic.Placement.WestvilleShack.Cleanup();
+            Logic.Placement.Dispensary.Cleanup();
             Logic.Placement.OTCWarehouse.Cleanup();
             Logic.Placement.OTCSupplierArea.Cleanup();
             CheckoutProcess.ResetStatic();
@@ -180,8 +181,10 @@ namespace OverTheCounter
         {
             if (sceneName == "Main")
             {
+                MeshVault.MeshVaultAPI.Init();
                 Logic.Placement.CheckoutCounter.Register();
                 Logic.Placement.WestvilleShack.SpawnBuilding();
+                Logic.Placement.Dispensary.SpawnBuilding();
                 Logic.Placement.OTCWarehouse.Initialize();
                 Logic.Placement.OTCSupplierArea.Initialize(Logic.Placement.OTCWarehouse.BuildingTransform);
 
@@ -239,8 +242,10 @@ namespace OverTheCounter
             try
             {
                 Logic.Placement.WestvilleShack.ClearTerrain();
+                Logic.Placement.Dispensary.ClearTerrain();
                 Logic.Placement.OTCWarehouse.ClearTerrain();
                 Logic.Placement.WestvilleShack.SpawnNetworkedObjects();
+                Logic.Placement.Dispensary.SpawnNetworkedObjects();
 
                 var grid = Logic.Placement.WestvilleShack.ShackGrid;
                 if (grid == null)

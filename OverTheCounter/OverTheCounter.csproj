@@ -221,6 +221,7 @@
 		<Reference Include="SteamNetworkLib"><HintPath>$(SteamNetworkLibPath)\SteamNetworkLib-IL2Cpp.dll</HintPath></Reference>
 		<Reference Include="S1APILoader"><HintPath>$(S1APIPluginsPath)\S1APILoader.MelonLoader.dll</HintPath></Reference>
 		<Reference Include="S1MAPI"><HintPath>$(S1MAPIPath)\S1MAPI_Il2Cpp.dll</HintPath></Reference>
+		<Reference Include="MeshVault"><HintPath>$(MeshVaultPath)\MeshVault.Il2Cpp.dll</HintPath></Reference>
 	</ItemGroup>
 
 	<!-- Mono-only references -->
@@ -263,6 +264,7 @@
 		<Reference Include="S1API"><HintPath>$(MonoS1APIPath)\S1API.Mono.MelonLoader.dll</HintPath></Reference>
 		<Reference Include="SteamNetworkLib"><HintPath>$(MonoSteamNetworkLibPath)\SteamNetworkLib-Mono.dll</HintPath></Reference>
 		<Reference Include="S1MAPI"><HintPath>$(MonoS1MAPIPath)\S1MAPI_Mono.dll</HintPath></Reference>
+		<Reference Include="MeshVault"><HintPath>$(MonoMeshVaultPath)\MeshVault.Mono.dll</HintPath></Reference>
 	</ItemGroup>
 
 	<!-- Beta-only: ScheduleOne.Core assembly (split from Assembly-CSharp in game 0.4.4) -->
@@ -372,6 +374,8 @@
 		<Compile Include="Logic\Placement\BuildingSignage.cs" />
 		<Compile Include="Logic\Placement\CheckoutCounter.cs" />
 		<Compile Include="Logic\Placement\ComputerScreen.cs" />
+		<Compile Include="Logic\Placement\Dispensary.cs" />
+		<Compile Include="Logic\Placement\FurnitureManager.cs" />
 		<Compile Include="Logic\Placement\OTCSupplierArea.cs" />
 		<Compile Include="Logic\Placement\OTCWarehouse.cs" />
 		<Compile Include="Logic\Placement\WestvilleShack.cs" />
