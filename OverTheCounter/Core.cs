@@ -246,6 +246,7 @@ namespace OverTheCounter
                 Logic.Placement.OTCWarehouse.ClearTerrain();
                 Logic.Placement.WestvilleShack.SpawnNetworkedObjects();
                 Logic.Placement.Dispensary.SpawnNetworkedObjects();
+                Logic.Placement.CheckoutCounter.AddToShop();
 
                 var grid = Logic.Placement.WestvilleShack.ShackGrid;
                 if (grid == null)

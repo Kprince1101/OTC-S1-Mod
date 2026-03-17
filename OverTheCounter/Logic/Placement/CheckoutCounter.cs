@@ -3,6 +3,7 @@ using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1API.Items;
 using S1API.Money;
+using S1API.Shops;
 using S1MAPI.Gltf;
 using S1MAPI.S1;
 using S1MAPI.Utils;
@@ -60,6 +61,9 @@ namespace OverTheCounter.Logic.Placement
         private static GameObject _registerInstance;
         private static InteractableObject _registerInteractable;
         private static float _registerBalance;
+
+        // Cached icon sprite loaded from embedded resource
+        private static Sprite _cachedIcon;
 
         // Desk corner product display (replaces StorageVisualizer)
         private static Transform _deskTransform;
@@ -188,6 +192,44 @@ namespace OverTheCounter.Logic.Placement
         // =================================================================
 
         /// <summary>
+        /// Loads the checkout counter icon from the embedded PNG resource.
+        /// </summary>
+        private static void LoadCounterIcon()
+        {
+            if (_cachedIcon != null)
+            {
+                _counterDef.Icon = _cachedIcon;
+                return;
+            }
+
+            try
+            {
+                byte[] pngData = EmbeddedResourceLoader.LoadBytes(
+                    "OverTheCounter.Resources.CheckoutCounter.png",
+                    Assembly.GetExecutingAssembly());
+                if (pngData == null)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch, "CheckoutCounter.png embedded resource not found");
+                    return;
+                }
+
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (tex.LoadImage(pngData))
+                {
+                    _cachedIcon = Sprite.Create(tex,
+                        new Rect(0, 0, tex.width, tex.height),
+                        new Vector2(0.5f, 0.5f), 100f);
+                    _cachedIcon.name = "OTC_CheckoutCounterIcon";
+                    _counterDef.Icon = _cachedIcon;
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Patch, $"LoadCounterIcon failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Registers the custom checkout counter definition by cloning plastictable.
         /// Must be called after the game Registry is available (OnSceneWasInitialized).
         /// </summary>
@@ -199,12 +241,36 @@ namespace OverTheCounter.Logic.Placement
             {
                 _counterDef = BuildableItemCreator.CloneFrom(SourceItemId)
                     .WithBasicInfo(CustomItemId, "Checkout Counter", "Dispensary checkout counter")
-                    .WithPricing(0f, 0f)
+                    .WithPricing(150f, 0.5f)
                     .Build();
+
+                LoadCounterIcon();
             }
             catch (Exception ex)
             {
                 OTCLog.Error(OTCLog.Systems.Patch,$"Register failed: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        private static readonly string[] HardwareShopNames =
+            { "Handy Hank's Hardware", "Dan's Hardware" };
+
+        /// <summary>
+        /// Adds the checkout counter to both hardware stores.
+        /// Must be called after game load completes (shops aren't available during OnSceneWasInitialized).
+        /// </summary>
+        public static void AddToShop()
+        {
+            if (_counterDef == null) return;
+
+            try
+            {
+                int added = ShopManager.AddToShops(_counterDef, 150f, HardwareShopNames);
+                OTCLog.Msg(OTCLog.Systems.Patch, $"Added checkout counter to {added} hardware store(s)");
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Patch, $"AddToShop failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -358,7 +424,10 @@ namespace OverTheCounter.Logic.Placement
         {
             _checkoutInteractable = go.GetComponentInChildren<InteractableObject>(true);
             if (_checkoutInteractable != null)
+            {
                 _checkoutInteractable.SetMessage("Storage");
+                _checkoutInteractable.MaxInteractionRange = 2f;
+            }
         }
 
         /// <summary>
