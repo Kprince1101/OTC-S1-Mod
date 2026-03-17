@@ -3,7 +3,6 @@ using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1MAPI.Building;
 using S1MAPI.Building.Config;
-using S1MAPI.Building.Interior;
 using S1MAPI.Building.Structural;
 using S1MAPI.Gltf;
 using S1MAPI.S1;
@@ -78,6 +77,16 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>The placement grid inside the shack. Set after build.</summary>
         internal static Grid ShackGrid { get; private set; }
 
+        // Exterior furniture placed via MeshVault (positions are local to building root)
+        private static readonly FurnitureSlot[] Furniture =
+        {
+            new() { SlotId = "ext_dumpster", DefaultMeshId = "dumpster",
+                    LocalPosition = new(0.9412f, 0.485f, -1.0444f), EulerAngles = Vector3.zero },
+            new() { SlotId = "ext_bench", DefaultMeshId = "outdoor_bench",
+                    LocalPosition = new(7.0903f, 0.0873f, 3.7998f), EulerAngles = new(0f, 90f, 0f) },
+            new() { SlotId = "ext_rubbishbin", DefaultMeshId = "rubbishbin",
+                    LocalPosition = new(5.8993f, 0.345f, -0.8644f), EulerAngles = Vector3.zero },
+        };
 
         /// <summary>
         /// Builds and positions the Westville shack with placement grid and exterior props.
@@ -115,6 +124,7 @@ namespace OverTheCounter.Logic.Placement
             foreach (var go in _networkedObjects)
                 if (go != null) GameObject.Destroy(go);
             _networkedObjects.Clear();
+            FurnitureManager.CleanupFurniture("WestvilleShack");
             _initialized = false;
             _suppressSwitchSync = false;
             SuppressDoorSync = false;
@@ -356,45 +366,6 @@ namespace OverTheCounter.Logic.Placement
                 OTCLog.Error(OTCLog.Systems.Patch,$"Open/Close switch spawn failed: {ex.Message}");
             }
 
-            // Trash can — HOST ONLY. BuildableItem, so FishNet delivers it to clients via the
-            // game's ReplicationQueue late-join path. No need to instantiate locally on client.
-            if (NetworkHelper.IsHost)
-            {
-                try
-                {
-                    float extGround = -FoundationHeight;
-                    var trashLocalPos = new Vector3(7.0f, extGround, -1.0f);
-                    var trashGo = SpawnNetworkedAt(Prefabs.TrashCan,
-                        _building.transform.TransformPoint(trashLocalPos),
-                        _building.transform.rotation,
-                        preSpawnConfigure: inst =>
-                        {
-                            foreach (var t in inst.GetComponentsInChildren<Transform>(true))
-                            {
-                                if (t.name.StartsWith("Lid"))
-                                    t.gameObject.SetActive(true);
-                                else if (t.name == "DetectionArea" || t.name == "FootprintTiles" || t.name == "CircleProjector")
-                                    t.gameObject.SetActive(false);
-                            }
-                        });
-                    if (trashGo != null)
-                        _networkedObjects.Add(trashGo);
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Error(OTCLog.Systems.Patch,$"Trash can spawn failed: {ex.Message}");
-                }
-            }
-            else
-            {
-                // CLIENT: TrashCan arrives via FishNet (BuildableItem), but FishNet's spawn packet
-                // doesn't sync child GameObject active states — the client instantiates from the
-                // prefab's default (lid inactive). Poll until the TrashCan appears near the shack,
-                // then activate its lid.
-                float extGround = -FoundationHeight;
-                var trashWorldPos = _building.transform.TransformPoint(new Vector3(7.0f, extGround, -1.0f));
-                MelonLoader.MelonCoroutines.Start(WaitAndFixTrashCanLid(trashWorldPos));
-            }
         }
 
         /// <summary>
@@ -429,31 +400,6 @@ namespace OverTheCounter.Logic.Placement
             OTCLog.Warning(OTCLog.Systems.Patch,"[WestvilleShack] FishNet door not found within 30s — using local clone, host→client door sync relies on Steam");
         }
 
-        /// <summary>
-        /// Polls for the OTC TrashCan_Built near the shack and activates its Lid child.
-        /// FishNet's spawn packet doesn't propagate child GameObject active states, so the lid
-        /// is always inactive when the client first receives the object.
-        /// </summary>
-        private static System.Collections.IEnumerator WaitAndFixTrashCanLid(Vector3 expectedPos)
-        {
-            float timeout = 30f;
-            float elapsed = 0f;
-            while (elapsed < timeout)
-            {
-                yield return new WaitForSeconds(0.5f);
-                elapsed += 0.5f;
-                foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
-                {
-                    if (go.name == "TrashCan_Built(Clone)" && Vector3.Distance(go.transform.position, expectedPos) < 2f)
-                    {
-                        foreach (var t in go.GetComponentsInChildren<Transform>(true))
-                            if (t.name.StartsWith("Lid")) t.gameObject.SetActive(true);
-                        yield break;
-                    }
-                }
-            }
-            OTCLog.Warning(OTCLog.Systems.Patch,"[WestvilleShack] TrashCan not found within 30s — lid not activated");
-        }
 
         /// <summary>
         /// Rebuilds interior NavMesh after furniture is placed or moved.
@@ -602,36 +548,6 @@ namespace OverTheCounter.Logic.Placement
             finally { SuppressDoorSync = false; }
         }
 
-        /// <summary>
-        /// Clone an existing scene prop by name (for objects whose meshes are on child GameObjects).
-        /// </summary>
-        private static void CloneSceneProp(string goName, Transform parent, Vector3 localPos, Quaternion localRot)
-        {
-            foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
-            {
-                if (go.name == goName && go.GetComponentInChildren<MeshRenderer>(true) != null)
-                {
-                    var clone = GameObject.Instantiate(go, parent);
-                    clone.name = $"OTC_{goName}";
-
-                    // Strip game scripts and Rigidbody — keep Collider for collision, remove physics so they stay put
-                    foreach (var comp in clone.GetComponentsInChildren<MonoBehaviour>(true))
-                        GameObject.Destroy(comp);
-                    foreach (var rb in clone.GetComponentsInChildren<Rigidbody>(true))
-                        GameObject.Destroy(rb);
-
-                    clone.transform.localPosition = localPos;
-                    clone.transform.localRotation = localRot;
-                    clone.SetActive(true);
-                    foreach (var renderer in clone.GetComponentsInChildren<MeshRenderer>(true))
-                        renderer.enabled = true;
-                    foreach (var child in clone.GetComponentsInChildren<Transform>(true))
-                        child.gameObject.SetActive(true);
-                    return;
-                }
-            }
-            OTCLog.Warning(OTCLog.Systems.Patch,$"Scene prop '{goName}' not found");
-        }
 
         private static void BuildRoom()
         {
@@ -769,25 +685,6 @@ namespace OverTheCounter.Logic.Placement
             // TerrainClearer is deferred to OnGameLoaded — terrain tree instances are not
             // yet populated during OnSceneWasInitialized on the client side.
 
-            // Exterior props — ground is at -FoundationHeight in local space (terrain flattened to BuildingOrigin.y)
-            float extGround = -FoundationHeight;
-            new InteriorBuilder(_building.transform, "WestvilleShack_Props")
-                // Dumpster on north side
-                .AddCustomMesh(Meshes.Dumpster, "Dumpster",
-                    new Vector3(2f, extGround, RoomDepth + 2.5f), Quaternion.Euler(-90f, 0f, 0f))
-                // Two dumpster lids side by side on top of opening
-                .AddCustomMesh(Meshes.DumpsterCover, "DumpsterLid1",
-                    new Vector3(1.5f, extGround + 1.2f, RoomDepth + 1.3f), Quaternion.Euler(-90f, 0f, 0f))
-                .AddCustomMesh(Meshes.DumpsterCover, "DumpsterLid2",
-                    new Vector3(2.5f, extGround + 1.2f, RoomDepth + 1.3f), Quaternion.Euler(-90f, 0f, 0f))
-                .Build(_building);
-
-            // Wooden crates — scene cloned, decorative only
-            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(-1.2f, extGround, 4.2f), Quaternion.identity);
-            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(-1.2f, extGround, 5.4f), Quaternion.identity);
-            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(-1.2f, extGround + 0.8f, 4.8f), Quaternion.Euler(0f, 15f, 0f));
-            // Lone rotated crate on north-east side
-            CloneSceneProp("Wood Crate Prop", _building.transform, new Vector3(7.4f, extGround, 5.1f), Quaternion.Euler(0f, 35f, 0f));
 
             // Marijuana leaf sign on north wall exterior
             try
@@ -824,6 +721,9 @@ namespace OverTheCounter.Logic.Placement
             {
                 OTCLog.Error(OTCLog.Systems.Patch,$"LeafSign load failed: {ex.Message}");
             }
+
+            // Exterior furniture via MeshVault
+            FurnitureManager.SpawnFurniture("WestvilleShack", _building.transform, Furniture);
 
         }
     }
