@@ -36,14 +36,14 @@ namespace OverTheCounter.Logic.Placement
         // Along the south wall, facing into the interior.
         private static readonly Vector3[] StandPositions =
         {
-            new Vector3(11.5f, 0f, 2.0f),
-            new Vector3(9.4f, 0f, 2.0f),
-            new Vector3(5.2f, 0f, 2.0f),
-            new Vector3(1.6f, 0f, 2.7f),
+            new Vector3(10.6f, 0f, 7.6f),
+            new Vector3(7.8f, 0f, 7.6f),
+            new Vector3(2.6f, 0f, 7.0f),
+            new Vector3(1.6f, 0f, 1.3f),
         };
 
         // Y rotation for each stand (degrees)
-        private static readonly float[] StandYRotations = { 270f, 270f, -90f, -45f };
+        private static readonly float[] StandYRotations = { 90f, 90f, 40f, 0f };
 
         private static readonly List<SupplierLocation> _locations = new List<SupplierLocation>();
         private static Transform _warehouseTransform;
@@ -62,6 +62,19 @@ namespace OverTheCounter.Logic.Placement
 
         /// <summary>All supplier stand locations inside the warehouse.</summary>
         public static List<SupplierLocation> WarehouseLocations => _locations;
+
+        /// <summary>Returns the GameObject for a supplier stand by index, or null if out of range.</summary>
+        public static GameObject GetStandObject(int index)
+        {
+            if (index < 0 || index >= _locations.Count) return null;
+            return _locations[index]?.gameObject;
+        }
+
+        /// <summary>Returns the delivery bay GameObject, or null if not yet created.</summary>
+        public static GameObject GetDeliveryBayObject()
+        {
+            return _deliveryBay?.gameObject;
+        }
 
         /// <summary>Creates supplier stands and starts the idle-warp routine.</summary>
         public static void Initialize(Transform warehouseTransform)
@@ -441,7 +454,7 @@ namespace OverTheCounter.Logic.Placement
 
                 // Reparent into warehouse (still inactive)
                 cloneGO.transform.SetParent(_warehouseTransform);
-                cloneGO.transform.localPosition = new Vector3(7.3f, 0f, 2.6f);
+                cloneGO.transform.localPosition = new Vector3(2.1f, 0f, 3.3f);
                 cloneGO.transform.localRotation = Quaternion.identity;
 
                 // Activate — Awake fires with our GUID, creates 20 fresh ItemSlots

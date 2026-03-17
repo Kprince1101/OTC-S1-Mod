@@ -12,13 +12,11 @@ using UnityEngine;
 #if IL2CPP
 using Il2CppScheduleOne.Audio;
 using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.GameTime;
 using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.PlayerScripts;
 #else
 using ScheduleOne.Audio;
 using ScheduleOne.DevUtilities;
-using ScheduleOne.GameTime;
 using ScheduleOne.Map;
 using ScheduleOne.PlayerScripts;
 #endif
@@ -26,8 +24,8 @@ using ScheduleOne.PlayerScripts;
 namespace OverTheCounter.Logic.Placement
 {
     /// <summary>
-    /// Builds the OTC warehouse — a large brick building with raised foundation,
-    /// riser stairs on east entrance, and high windows.
+    /// Builds the OTC warehouse — a large brick building with garage door entrance
+    /// and high windows. Furniture placed via MeshVault FurnitureSlots.
     /// </summary>
     public static class OTCWarehouse
     {
@@ -35,10 +33,10 @@ namespace OverTheCounter.Logic.Placement
         private const float Width = 12.7f;
         private const float Depth = 10.2f;
         private const float WallHeight = 4.5f;
-        private const float FoundationHeight = 3.7f;
+        private const float FoundationHeight = 0.25f;
 
         // SW corner origin
-        private static readonly Vector3 Origin = new(71.4f, FoundationHeight, -54.0f);
+        private static readonly Vector3 Origin = new(66.4f, FoundationHeight, -34.0f);
 
         // Garage door
         private const float DoorWidth = 2.0f;
@@ -47,6 +45,67 @@ namespace OverTheCounter.Logic.Placement
         private const float DoorOpenDist = 3f;
         private const float DoorCloseDist = 5f;
         private const float DoorSpeed = 2.5f;
+
+        private static readonly FurnitureSlot[] Furniture =
+        {
+            new() { SlotId = "roof_ac1", DefaultMeshId = "sm_ac_unit",
+                    LocalPosition = new(10.6f, 5.07f, 8.0f), EulerAngles = Vector3.zero },
+            new() { SlotId = "roof_ac2", DefaultMeshId = "sm_ac_unit",
+                    LocalPosition = new(8.6f, 5.07f, 8.0f), EulerAngles = Vector3.zero },
+            new() { SlotId = "pallet_rack", DefaultMeshId = "pallet_rack",
+                    LocalPosition = new(10.5f, 1.52f, 9.15f), EulerAngles = new(0f, 90f, 0f) },
+            new() { SlotId = "pallet", DefaultMeshId = "pallet",
+                    LocalPosition = new(9.5f, 1.44f, 9.15f), EulerAngles = Vector3.zero },
+            new() { SlotId = "largebox", DefaultMeshId = "largebox",
+                    LocalPosition = new(9.1f, 1.73f, 9.3f), EulerAngles = new(0f, 90f, 0f) },
+            new() { SlotId = "mediumbox1", DefaultMeshId = "mediumbox",
+                    LocalPosition = new(9.58f, 1.66f, 9.35f), EulerAngles = Vector3.zero },
+            new() { SlotId = "mediumbox2", DefaultMeshId = "mediumbox",
+                    LocalPosition = new(9.9f, 1.66f, 9.35f), EulerAngles = Vector3.zero },
+            new() { SlotId = "smallbox1", DefaultMeshId = "smallbox",
+                    LocalPosition = new(9.1f, 1.66f, 8.7f), EulerAngles = Vector3.zero },
+            new() { SlotId = "smallbox2", DefaultMeshId = "smallbox",
+                    LocalPosition = new(9.5f, 1.66f, 8.7f), EulerAngles = new(0f, 50f, 0f) },
+            new() { SlotId = "filing_cabinet", DefaultMeshId = "filing_cabinet",
+                    LocalPosition = new(3.3f, 0.75f, 9.6f), EulerAngles = new(0f, 90f, 0f) },
+            new() { SlotId = "outdoor_chair", DefaultMeshId = "outdoor_chair",
+                    LocalPosition = new(11.4f, 0.51f, 7.9f), EulerAngles = Vector3.zero },
+            new() { SlotId = "double_sofa", DefaultMeshId = "double_sofa",
+                    LocalPosition = new(6.0f, 0.54f, 8.5f), EulerAngles = new(0f, 90f, 0f),
+                    MaterialOverrides = new[] { "atm_yellowbutton_mat" } },
+            new() { SlotId = "small_trash_bin", DefaultMeshId = "small_trash_bin",
+                    LocalPosition = new(6.75f, 0.37f, 7.6f), EulerAngles = Vector3.zero },
+            new() { SlotId = "tv_stand", DefaultMeshId = "tv_stand",
+                    LocalPosition = new(4.17f, 0.46f, 8.5f), EulerAngles = Vector3.zero },
+            new() { SlotId = "tv_flatscreen", DefaultMeshId = "tv_flatscreen_w_stand",
+                    LocalPosition = new(4.17f, 1.23f, 8.3f), EulerAngles = new(0f, 180f, 0f) },
+            new() { SlotId = "pallet2", DefaultMeshId = "pallet",
+                    LocalPosition = new(8.2f, 0.76f, 9.1f), EulerAngles = new(0f, 0f, 70f) },
+            new() { SlotId = "ornate_desk", DefaultMeshId = "ornate_desk",
+                    LocalPosition = new(1.2f, 0.45f, 9.5f), EulerAngles = Vector3.zero },
+            new() { SlotId = "floor_lamp", DefaultMeshId = "floor_lamp",
+                    LocalPosition = new(4.0f, 0.93f, 9.6f), EulerAngles = Vector3.zero },
+            new() { SlotId = "smallsafe", DefaultMeshId = "smallsafe",
+                    LocalPosition = new(0.6f, 1.05f, 9.6f), EulerAngles = new(0f, 150f, 0f) },
+            new() { SlotId = "safe", DefaultMeshId = "safe",
+                    LocalPosition = new(2.53f, 0.38f, 9.5f), EulerAngles = new(0f, 270f, 0f) },
+            new() { SlotId = "cashcounter", DefaultMeshId = "cashcounter",
+                    LocalPosition = new(1.9f, 1.07f, 9.6f), EulerAngles = new(0f, 60f, 0f) },
+            new() { SlotId = "pallet3", DefaultMeshId = "pallet",
+                    LocalPosition = new(11.4f, 1.44f, 9.15f), EulerAngles = Vector3.zero },
+            new() { SlotId = "largebox2", DefaultMeshId = "largebox",
+                    LocalPosition = new(10.82f, 1.73f, 9.4f), EulerAngles = new(0f, 320f, 0f) },
+            new() { SlotId = "largebox3", DefaultMeshId = "largebox",
+                    LocalPosition = new(11.9f, 1.73f, 9.0f), EulerAngles = Vector3.zero },
+            new() { SlotId = "smallbox3", DefaultMeshId = "smallbox",
+                    LocalPosition = new(10.89f, 1.66f, 8.88f), EulerAngles = Vector3.zero },
+            new() { SlotId = "mediumbox3", DefaultMeshId = "mediumbox",
+                    LocalPosition = new(11.49f, 1.66f, 8.75f), EulerAngles = Vector3.zero },
+            new() { SlotId = "pallet4", DefaultMeshId = "pallet",
+                    LocalPosition = new(9.5f, 2.84f, 9.15f), EulerAngles = Vector3.zero },
+            new() { SlotId = "smallbox4", DefaultMeshId = "smallbox",
+                    LocalPosition = new(1.4f, 1.03f, 9.5f), EulerAngles = new(0f, 270f, 0f) },
+        };
 
         private static bool _initialized;
         private static GameObject _building;
@@ -63,9 +122,6 @@ namespace OverTheCounter.Logic.Placement
         private static AudioSource _doorStartSound;
         private static AudioSource _doorLoopSound;
         private static AudioSource _doorStopSound;
-
-        private static Light _warehouseLight;
-        private static bool _lightRoutineActive;
 
         /// <summary>Builds the warehouse structure, decorations, and garage door.</summary>
         public static void Initialize()
@@ -87,8 +143,10 @@ namespace OverTheCounter.Logic.Placement
         public static void ClearTerrain()
         {
             if (_building == null) return;
-            TerrainClearer.ClearAroundBuilding(_building, new Vector3(Width, WallHeight, Depth),
+            var buildingSize = new Vector3(Width, WallHeight, Depth);
+            TerrainClearer.ClearAroundBuilding(_building, buildingSize,
                 new ClearingOptions { Padding = 4f });
+            TerrainFlattener.FlattenUnder(_building, buildingSize, Origin.y - FoundationHeight, blendDistance: 3f);
         }
 
         /// <summary>Destroys the warehouse and resets all static state.</summary>
@@ -99,14 +157,13 @@ namespace OverTheCounter.Logic.Placement
             _doorStartSound = null;
             _doorLoopSound = null;
             _doorStopSound = null;
-            _lightRoutineActive = false;
-            _warehouseLight = null;
             if (_building != null)
             {
                 UnityEngine.Object.Destroy(_building);
                 _building = null;
             }
             _garageDoor = null;
+            FurnitureManager.CleanupFurniture("OTCWarehouse");
             _initialized = false;
         }
 
@@ -135,12 +192,11 @@ namespace OverTheCounter.Logic.Placement
                 width: 8f, height: 1.2f, sillHeight: 3.0f,
                 count: 3);
 
-            // East door offset slightly north of center, 2 windows on south side
+            // East door centered, 1 high window on each side
             var entranceDoor = WallOpening.DoorWithWindows(
                 doorWidth: 2.0f, doorHeight: 2.5f,
-                leftWindow: WallOpening.Window(width: 5f, height: 1.2f, sillHeight: 3.0f, count: 2),
-                rightWindow: null);
-            entranceDoor.Offset = 2.0f;
+                leftWindow: WallOpening.Window(width: 5f, height: 1.2f, sillHeight: 3.0f, count: 1),
+                rightWindow: WallOpening.Window(width: 5f, height: 1.2f, sillHeight: 3.0f, count: 1));
 
             // Black trim
             var blackMat = Materials.Find("black") ?? Materials.MetalDarkGrey;
@@ -159,7 +215,6 @@ namespace OverTheCounter.Logic.Placement
                 .AddDoorFrames(material: blackMat)
                 .AddCornerTrim(material: blackMat)
                 .AddFoundation(height: FoundationHeight, expandX: 0.2f, expandZ: 0.2f, material: brickMat)
-                .AddStairs(WallSide.East, foundationHeight: FoundationHeight, style: StairStyle.ClosedRiser)
                 .AddParapetRoof(parapetMaterial: blackMat, capMaterial: blackMat)
                 .AddLights();
 
@@ -176,183 +231,9 @@ namespace OverTheCounter.Logic.Placement
             _navMeshRepairer.Build();
 
             CreateGarageDoor();
-            PlaceDecorations();
+            FurnitureManager.SpawnFurniture("OTCWarehouse", _building.transform, Furniture);
 
             OTCLog.Msg(OTCLog.Systems.Patch, $"OTC Warehouse built at {Origin}");
-        }
-
-        private static void PlaceDecorations()
-        {
-            try
-            {
-                // Security camera — east wall exterior
-                PlaceMesh("SM_Prop_Security_Camera_Head_01",
-                    new Vector3(84.2688f, 8.1822f, -54.0943f),
-                    Quaternion.Euler(0.00f, 126.00f, 0.00f));
-
-                // Security camera — north end
-                PlaceMesh("SM_Prop_Security_Camera_Head_01",
-                    new Vector3(84.2688f, 8.1822f, -43.6944f),
-                    Quaternion.Euler(0.00f, 77.00f, 0.00f));
-
-                // Security camera — mid east wall
-                PlaceMesh("SM_Prop_Security_Camera_01",
-                    new Vector3(84.2218f, 6.3070f, -48.4967f),
-                    Quaternion.Euler(0.00f, 90.00f, 0.00f));
-
-                // Liquid drums — east side
-                PlaceMesh("LiquidDrum_LOD0",
-                    new Vector3(84.7243f, 2.4445f, -44.2239f),
-                    Quaternion.Euler(0.00f, 0.00f, 0.00f));
-
-                PlaceMesh("LiquidDrum_LOD0",
-                    new Vector3(84.7243f, 2.7445f, -45.2239f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-
-                // Roof AC unit
-                PlaceMesh("RoofAirConditioning1",
-                    new Vector3(82.7144f, 8.3150f, -45.6617f),
-                    Quaternion.Euler(0.00f, 0.00f, 0.00f));
-
-                // Wall lamp — east exterior
-                var lamp = PlaceMesh("SM_Lamp_B",
-                    new Vector3(84.2451f, 6.5039f, -46.8573f),
-                    Quaternion.Euler(0.00f, 90.00f, 0.00f));
-                if (lamp != null)
-                    SetupScheduledLight(lamp);
-
-                // Display cabinet — interior north wall
-                PlaceMesh("display cabinet",
-                    new Vector3(83.5876f, 3.9650f, -49.3576f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-
-                // Outdoor chair — north exterior
-                PlaceMesh("outdoor chair",
-                    new Vector3(82.2127f, 4.1650f, -44.5078f),
-                    Quaternion.Euler(-90.00f, 196.00f, 0.00f));
-
-                // Sewerage pipe — north side ground level
-                PlaceMesh("seweragepipe",
-                    new Vector3(79.1421f, 4.1650f, -44.4847f),
-                    Quaternion.Euler(0.00f, 0.00f, 0.00f));
-
-                // Shelf — interior south wall
-                PlaceMesh("Shelf",
-                    new Vector3(83.8785f, 5.5650f, -51.3996f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-
-                // Graffiti — east wall exterior
-                PlaceMesh("Graffiti",
-                    new Vector3(84.2088f, 5.4015f, -44.7649f),
-                    Quaternion.Euler(0.00f, -90.00f, 0.00f));
-
-                // Sign — east wall exterior
-                PlaceMesh("sign",
-                    new Vector3(84.2098f, 5.2809f, -48.4623f),
-                    Quaternion.Euler(-90.00f, 180.00f, 0.00f));
-
-                // Office table — north exterior
-                PlaceMesh("Office_Table",
-                    new Vector3(79.7847f, 3.6650f, -45.4218f),
-                    Quaternion.Euler(0.00f, 0.00f, 0.00f));
-
-                // TV cabinet — interior
-                PlaceMesh("TV cabinet",
-                    new Vector3(78.0357f, 3.6650f, -45.8642f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-
-                // Digital alarm — east wall interior
-                PlaceMesh("digital alarm",
-                    new Vector3(83.9757f, 5.1650f, -48.2056f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-
-                // Standalone sink — south wall interior
-                PlaceMesh("standalone sink",
-                    new Vector3(83.4333f, 3.6950f, -53.4467f),
-                    Quaternion.Euler(0.00f, -90.00f, 90.00f));
-
-                // Tap — interior south wall
-                PlaceMesh("Tap",
-                    new Vector3(83.3937f, 4.7550f, -53.7230f),
-                    Quaternion.Euler(-90.00f, 180.00f, 0.00f));
-
-                // Cannisters — interior east wall
-                PlaceMesh("Cannister",
-                    new Vector3(83.8918f, 5.7246f, -50.8549f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-                PlaceMesh("Cannister",
-                    new Vector3(83.8918f, 5.7246f, -51.1549f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-                PlaceMesh("Cannister",
-                    new Vector3(83.8918f, 5.7246f, -51.4548f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-                PlaceMesh("Cannister",
-                    new Vector3(83.8918f, 5.7246f, -51.7548f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-
-                // TV — on TV cabinet
-                PlaceMesh("TV",
-                    new Vector3(79.8077f, 4.2550f, -45.3264f),
-                    Quaternion.Euler(0.00f, 180.00f, 0.00f));
-
-                // Dumpster — north side
-                PlaceMesh("Dumpster",
-                    new Vector3(83.5637f, 1.9558f, -42.2958f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-
-                // Dumpster covers — north side
-                PlaceMesh("Dumpster_Cover",
-                    new Vector3(83.0469f, 3.1552f, -43.5053f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-                PlaceMesh("Dumpster_Cover",
-                    new Vector3(84.0969f, 3.1552f, -43.5053f),
-                    Quaternion.Euler(-90.00f, 0.00f, 0.00f));
-
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch, $"OTCWarehouse decoration failed: {ex.Message}");
-            }
-        }
-
-        private static GameObject PlaceMesh(string sourceName, Vector3 worldPos, Quaternion rotation, Vector3? scale = null)
-        {
-            var meshes = Resources.FindObjectsOfTypeAll<MeshFilter>();
-            GameObject source = null;
-            foreach (var mf in meshes)
-            {
-                if (mf.gameObject.name == sourceName)
-                {
-                    source = mf.gameObject;
-                    break;
-                }
-            }
-            if (source == null)
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch, $"PlaceMesh: could not find '{sourceName}'");
-                return null;
-            }
-
-            var clone = UnityEngine.Object.Instantiate(source);
-            clone.name = $"OTC_{sourceName}";
-            clone.transform.SetParent(_building.transform);
-            clone.transform.position = worldPos;
-            clone.transform.rotation = rotation;
-            clone.transform.localScale = scale ?? Vector3.one;
-
-            // Strip game logic, keep visuals
-            foreach (var mb in clone.GetComponentsInChildren<MonoBehaviour>(true))
-                UnityEngine.Object.Destroy(mb);
-            foreach (var rb in clone.GetComponentsInChildren<Rigidbody>(true))
-                UnityEngine.Object.Destroy(rb);
-
-            clone.SetActive(true);
-            foreach (var child in clone.GetComponentsInChildren<Transform>(true))
-                child.gameObject.SetActive(true);
-            foreach (var r in clone.GetComponentsInChildren<MeshRenderer>(true))
-                r.enabled = true;
-
-            return clone;
         }
 
         private static void CreateGarageDoor()
@@ -362,7 +243,7 @@ namespace OverTheCounter.Logic.Placement
             _garageDoor.transform.SetParent(_building.transform);
             _garageDoor.transform.localScale = new Vector3(DoorThickness, DoorHeight, DoorWidth);
 
-            _doorClosedLocalPos = new Vector3(Width, DoorHeight / 2f, Depth / 2f + 2.0f);
+            _doorClosedLocalPos = new Vector3(Width, DoorHeight / 2f, Depth / 2f);
             _doorOpenLocalPos = _doorClosedLocalPos + Vector3.up * (DoorHeight - 0.3f);
             _garageDoor.transform.localPosition = _doorClosedLocalPos;
 
@@ -484,46 +365,6 @@ namespace OverTheCounter.Logic.Placement
             target.rolloffMode = AudioRolloffMode.Linear;
             target.playOnAwake = false;
             target.volume = 0.3f;
-        }
-
-        private static void SetupScheduledLight(GameObject lamp)
-        {
-            var lightGo = new GameObject("OTC_LampLight");
-            lightGo.transform.SetParent(lamp.transform);
-            lightGo.transform.localPosition = new Vector3(0f, -0.3f, 0f);
-
-            _warehouseLight = lightGo.AddComponent<Light>();
-            _warehouseLight.type = LightType.Point;
-            _warehouseLight.color = new Color(1f, 0.85f, 0.6f); // warm
-            _warehouseLight.intensity = 1.5f;
-            _warehouseLight.range = 8f;
-            _warehouseLight.shadows = LightShadows.Soft;
-            _warehouseLight.enabled = false;
-
-            _lightRoutineActive = true;
-            MelonCoroutines.Start(LightScheduleRoutine());
-        }
-
-        private static IEnumerator LightScheduleRoutine()
-        {
-            var wait = new WaitForSeconds(5f);
-            while (_lightRoutineActive && _warehouseLight != null)
-            {
-                try
-                {
-                    var tm = NetworkSingleton<TimeManager>.Instance;
-                    if (tm != null)
-                    {
-                        // On at 8PM (2000), off at 6AM (600)
-                        bool shouldBeOn = tm.CurrentTime >= 2000 || tm.CurrentTime < 600;
-                        if (_warehouseLight.enabled != shouldBeOn)
-                            _warehouseLight.enabled = shouldBeOn;
-                    }
-                }
-                catch { }
-
-                yield return wait;
-            }
         }
 
         private static IEnumerator DoorProximityRoutine()
