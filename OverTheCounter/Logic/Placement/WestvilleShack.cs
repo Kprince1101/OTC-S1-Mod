@@ -628,6 +628,8 @@ namespace OverTheCounter.Logic.Placement
                     if (x == 0 || z == 0) return false;
                     return true;
                 });
+            BuildingGridFactory.RegisterGrid(ShackGrid, PropertySaveData.ShackId,
+                PropertySaveData.ShackId, RebuildNavMesh);
 
             // Register the grid with a fixed GUID so FishNet can look it up on clients.
             // Grid.Awake (which normally calls SetGUID) is skipped for OTC grids, so we

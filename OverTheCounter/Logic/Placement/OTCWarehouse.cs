@@ -14,11 +14,13 @@ using Il2CppScheduleOne.Audio;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.PlayerScripts;
+using Grid = Il2CppScheduleOne.Tiles.Grid;
 #else
 using ScheduleOne.Audio;
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Map;
 using ScheduleOne.PlayerScripts;
+using Grid = ScheduleOne.Tiles.Grid;
 #endif
 
 namespace OverTheCounter.Logic.Placement
@@ -107,12 +109,23 @@ namespace OverTheCounter.Logic.Placement
                     LocalPosition = new(1.4f, 1.03f, 9.5f), EulerAngles = new(0f, 270f, 0f) },
         };
 
+        /// <summary>Save data key for the warehouse.</summary>
+        public const string WarehouseId = "otc_warehouse";
+
+        // Grid covers the south-east portion of the warehouse (near entrance)
+        private const int GridMinX = 10; // cut off west side
+        private const int GridMaxZ = 9;  // south half, excluding wall edge
+
         private static bool _initialized;
         private static GameObject _building;
         private static NavMeshRepairer _navMeshRepairer;
 
         /// <summary>Root transform of the warehouse building, or null if not built.</summary>
         public static Transform BuildingTransform => _building?.transform;
+
+        /// <summary>The placement grid inside the warehouse. Set after build.</summary>
+        internal static Grid WarehouseGrid { get; private set; }
+
         private static GameObject _garageDoor;
         private static Vector3 _doorClosedLocalPos;
         private static Vector3 _doorOpenLocalPos;
@@ -149,6 +162,12 @@ namespace OverTheCounter.Logic.Placement
             TerrainFlattener.FlattenUnder(_building, buildingSize, Origin.y - FoundationHeight, blendDistance: 3f);
         }
 
+        /// <summary>Rebuilds interior NavMesh after furniture is placed or moved.</summary>
+        public static void RebuildNavMesh()
+        {
+            _navMeshRepairer?.Rebuild();
+        }
+
         /// <summary>Destroys the warehouse and resets all static state.</summary>
         public static void Cleanup()
         {
@@ -163,6 +182,7 @@ namespace OverTheCounter.Logic.Placement
                 _building = null;
             }
             _garageDoor = null;
+            WarehouseGrid = null;
             FurnitureManager.CleanupFurniture("OTCWarehouse");
             _initialized = false;
         }
@@ -232,6 +252,31 @@ namespace OverTheCounter.Logic.Placement
 
             CreateGarageDoor();
             FurnitureManager.SpawnFurniture("OTCWarehouse", _building.transform, Furniture);
+
+            // Placement grid — south portion of warehouse (near entrance)
+            WarehouseGrid = BuildingGridFactory.CreateGrid(_building, Width, Depth, "OTCWarehouse_Floor1",
+                tileFilter: (x, z) =>
+                {
+                    if (x < GridMinX || z == 0) return false; // west cutoff + south wall edge
+                    if (z >= GridMaxZ) return false;           // north area (furniture/storage)
+                    return true;
+                });
+            BuildingGridFactory.RegisterGrid(WarehouseGrid, WarehouseId,
+                null, RebuildNavMesh);
+
+            // Fixed GUID so FishNet can look up the grid on clients
+            try
+            {
+#if IL2CPP
+                WarehouseGrid.SetGUID(new Il2CppSystem.Guid("c69f5e4d-2b0a-6a1c-d7e3-9f0a1b2c4e5f"));
+#else
+                WarehouseGrid.SetGUID(new System.Guid("c69f5e4d-2b0a-6a1c-d7e3-9f0a1b2c4e5f"));
+#endif
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to register WarehouseGrid GUID: {ex.Message}");
+            }
 
             OTCLog.Msg(OTCLog.Systems.Patch, $"OTC Warehouse built at {Origin}");
         }

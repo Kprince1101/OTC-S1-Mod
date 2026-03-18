@@ -16,12 +16,14 @@ using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.Persistence;
 using Il2CppScheduleOne.Persistence.Datas;
 using Il2CppScheduleOne.EntityFramework;
+using Grid = Il2CppScheduleOne.Tiles.Grid;
 #else
 using ScheduleOne.ObjectScripts;
 using ScheduleOne.Storage;
 using ScheduleOne.ItemFramework;
 using ScheduleOne.Persistence;
 using ScheduleOne.Persistence.Datas;
+using Grid = ScheduleOne.Tiles.Grid;
 #endif
 
 namespace OverTheCounter.SaveData
@@ -256,23 +258,22 @@ namespace OverTheCounter.SaveData
         }
 
         /// <summary>Restores placed items from save data for a building. Host-only.</summary>
-        internal void RestorePlacedItems(string buildingId)
+        internal void RestorePlacedItems(string buildingId, Grid grid)
         {
             if (!NetworkHelper.IsHost) return;
-            var grid = WestvilleShack.ShackGrid;
             if (grid == null) return;
 
             var items = GetPlacedItems(buildingId);
-            if (!_shackInitialized)
+
+            // Shack-specific first-load logic: auto-spawn checkout counter
+            if (buildingId == ShackId && !_shackInitialized)
             {
                 _shackInitialized = true;
                 if (items.Count == 0)
                 {
-                    // Genuine first load after purchase — spawn default counter
                     CheckoutCounter.SpawnOnGrid(grid);
                     return;
                 }
-                // Has saved items from before flag existed — fall through to restore
             }
             if (items.Count == 0)
                 return;
@@ -417,8 +418,12 @@ namespace OverTheCounter.SaveData
 
                 foreach (var kvp in BuildingGridFactory.GridContainers)
                 {
+                    var grid = kvp.Key;
                     var root = kvp.Value;
                     if (root == null) continue;
+
+                    var buildingId = BuildingGridFactory.GetBuildingId(grid);
+                    if (buildingId == null) continue;
 
                     var gridItems = GetAllGridItems(root);
                     if (gridItems == null) continue;
@@ -436,7 +441,7 @@ namespace OverTheCounter.SaveData
 
                         var placed = new OtcPlacedItem
                         {
-                            BuildingId = ShackId,
+                            BuildingId = buildingId,
                             PrefabId = itemId.ToLower(),
                             CoordX = coord.Value.x,
                             CoordZ = coord.Value.y,

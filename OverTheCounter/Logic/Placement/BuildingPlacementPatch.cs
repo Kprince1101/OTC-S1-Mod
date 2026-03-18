@@ -240,7 +240,15 @@ namespace OverTheCounter.Logic.Placement
             if (!BuildingGridFactory.OtcGrids.Contains(__instance.OwnerGrid))
                 return true;
 
-            __result = PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) ?? false;
+            if (BuildingGridFactory.GridRegistry.TryGetValue(__instance.OwnerGrid, out var info)
+                && info.PropertyId != null)
+            {
+                __result = PropertySaveData.Instance?.IsPropertyOwned(info.PropertyId) ?? false;
+            }
+            else
+            {
+                __result = true; // No ownership check — always buildable
+            }
             return false;
         }
 
@@ -386,10 +394,11 @@ namespace OverTheCounter.Logic.Placement
                 SetParentPropertyToStub(__instance);
 
                 // Record placement in PropertySaveData for persistence
-                RecordPlacement(instance, originCoordinate, rotation);
+                RecordPlacement(grid, instance, originCoordinate, rotation);
 
                 // Rebuild interior NavMesh so NPCs can navigate around placed furniture
-                WestvilleShack.RebuildNavMesh();
+                if (BuildingGridFactory.GridRegistry.TryGetValue(grid, out var gridInfo))
+                    gridInfo.RebuildNavMesh?.Invoke();
 
                 // Apply desk visual for checkout counter on all paths.
                 // CreateGridItemPostfix handles host-initiated placement, but when a CLIENT
@@ -434,17 +443,19 @@ namespace OverTheCounter.Logic.Placement
         /// Extracts the item ID from an ItemInstance and saves its grid position
         /// to PropertySaveData so the item can be restored on load.
         /// </summary>
-        private static void RecordPlacement(object itemInstance, Vector2 coord, int rotation)
+        private static void RecordPlacement(Grid grid, object itemInstance, Vector2 coord, int rotation)
         {
             try
             {
                 if (PropertySaveData.Instance == null) return;
+                var buildingId = BuildingGridFactory.GetBuildingId(grid);
+                if (buildingId == null) return;
 
 #if IL2CPP
                 if (itemInstance is Il2CppScheduleOne.ItemFramework.ItemInstance ii)
                 {
                     PropertySaveData.Instance.SavePlacedItem(
-                        PropertySaveData.ShackId, ii.ID.ToLower(), coord.x, coord.y, rotation);
+                        buildingId, ii.ID.ToLower(), coord.x, coord.y, rotation);
                 }
 #else
                 var idProp = itemInstance?.GetType().GetProperty("ID");
@@ -454,7 +465,7 @@ namespace OverTheCounter.Logic.Placement
                     if (!string.IsNullOrEmpty(id))
                     {
                         PropertySaveData.Instance.SavePlacedItem(
-                            PropertySaveData.ShackId, id.ToLower(), coord.x, coord.y, rotation);
+                            buildingId, id.ToLower(), coord.x, coord.y, rotation);
                     }
                 }
 #endif

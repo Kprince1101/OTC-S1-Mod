@@ -16,6 +16,19 @@ using Grid = ScheduleOne.Tiles.Grid;
 namespace OverTheCounter.Logic.Placement
 {
     /// <summary>
+    /// Per-grid metadata used by placement patches and save/load.
+    /// </summary>
+    internal class OtcGridInfo
+    {
+        /// <summary>Save data key (e.g. "westville_shack", "otc_warehouse").</summary>
+        public string BuildingId;
+        /// <summary>Property ownership key for buildability check. Null = always buildable.</summary>
+        public string PropertyId;
+        /// <summary>Called after an item is placed to rebuild interior NavMesh.</summary>
+        public Action RebuildNavMesh;
+    }
+
+    /// <summary>
     /// Creates Grid + Tile hierarchies on S1MAPI building floors so the game's
     /// existing placement system (BuildManager / TileDetector) works inside them.
     /// </summary>
@@ -25,6 +38,8 @@ namespace OverTheCounter.Logic.Placement
         internal static readonly HashSet<Grid> OtcGrids = new();
         /// <summary>Maps OTC grids to their building root transform (used as Container).</summary>
         internal static readonly Dictionary<Grid, Transform> GridContainers = new();
+        /// <summary>Per-grid metadata for patches and save/load.</summary>
+        internal static readonly Dictionary<Grid, OtcGridInfo> GridRegistry = new();
         private static readonly List<GameObject> _gridRoots = new();
 
         private const float TileSize = 0.5f;
@@ -210,6 +225,24 @@ namespace OverTheCounter.Logic.Placement
             }
         }
 
+        /// <summary>
+        /// Registers per-grid metadata for use by placement patches and save/load.
+        /// Call after CreateGrid().
+        /// </summary>
+        internal static void RegisterGrid(Grid grid, string buildingId, string propertyId, Action rebuildNavMesh)
+        {
+            GridRegistry[grid] = new OtcGridInfo
+            {
+                BuildingId = buildingId,
+                PropertyId = propertyId,
+                RebuildNavMesh = rebuildNavMesh
+            };
+        }
+
+        /// <summary>Returns the BuildingId for a grid, or null if not registered.</summary>
+        internal static string GetBuildingId(Grid grid) =>
+            GridRegistry.TryGetValue(grid, out var info) ? info.BuildingId : null;
+
         /// <summary>Destroys all OTC grids and clears tracking state.</summary>
         public static void Cleanup()
         {
@@ -220,6 +253,7 @@ namespace OverTheCounter.Logic.Placement
             _gridRoots.Clear();
             OtcGrids.Clear();
             GridContainers.Clear();
+            GridRegistry.Clear();
         }
     }
 }

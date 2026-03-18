@@ -248,17 +248,22 @@ namespace OverTheCounter
                 Logic.Placement.Dispensary.SpawnNetworkedObjects();
                 Logic.Placement.CheckoutCounter.AddToShop();
 
-                var grid = Logic.Placement.WestvilleShack.ShackGrid;
-                if (grid == null)
-                {
-                    MelonLoader.MelonLogger.Warning("[OTC] ShackGrid is null — cannot restore items");
-                    return;
-                }
-
+                // Restore placed items for all OTC grids
                 if (PropertySaveData.Instance != null)
-                    PropertySaveData.Instance.RestorePlacedItems(PropertySaveData.ShackId);
+                {
+                    foreach (var kvp in Logic.Placement.BuildingGridFactory.GridRegistry)
+                    {
+                        var info = kvp.Value;
+                        PropertySaveData.Instance.RestorePlacedItems(info.BuildingId, kvp.Key);
+                    }
+                }
                 else
-                    Logic.Placement.CheckoutCounter.SpawnOnGrid(grid);
+                {
+                    // No save data — spawn default checkout counter on shack grid
+                    var shackGrid = Logic.Placement.WestvilleShack.ShackGrid;
+                    if (shackGrid != null)
+                        Logic.Placement.CheckoutCounter.SpawnOnGrid(shackGrid);
+                }
             }
             catch (Exception ex)
             {
