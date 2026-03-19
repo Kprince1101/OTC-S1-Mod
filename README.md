@@ -3,8 +3,8 @@
 **OverTheCounter** is the endgame expansion for Schedule I. Automate your empire with Manager NPCs that physically run supply routes, handle contracts in one click with Smart Fill, and manage it all from a custom phone app — balanced and built for co-op. Field daytime deals from desperate fiends and random encounters with whales, robbers, and narcs.
 
 > **DUAL BUILD:** This mod ships both `OverTheCounter.Il2Cpp.dll` and `OverTheCounter.Mono.dll`.
-> The bundled **OTC Loader** plugin automatically detects your game branch and loads the correct DLL — no setup required.
-> If installing manually, only copy the DLL that matches your game branch — see instructions below.
+> Install **OTC Loader** (optional, recommended) to automatically detect your game branch and load the correct DLL.
+> If installing manually without the loader, only copy the DLL that matches your game branch — see instructions below.
 
 # Features
 
@@ -67,12 +67,12 @@ Built from the ground up for co-op.
 
 ## Requirements & Installation
 
-> **IL2CPP vs. Mono:** Schedule I runs on two different Unity backends. Most players are on **IL2CPP** (the Steam default). Mods built for one backend are incompatible with the other and will crash MelonLoader if loaded together. The bundled **OTC Loader** plugin (included in every install method below) automatically detects which version you're running and disables any incompatible mod DLLs across your entire mod list — not just OverTheCounter.
+> **IL2CPP vs. Mono:** Schedule I runs on two different Unity backends. Most players are on **IL2CPP** (the Steam default). Mods built for one backend are incompatible with the other and will crash MelonLoader if loaded together. **OTC Loader** (optional, recommended) automatically detects which version you're running and disables any incompatible mod DLLs across your entire mod list — not just OverTheCounter.
 
 ### Using a mod manager (recommended)
 Install OverTheCounter from Thunderstore using **r2modman**, **Vortex**, or **Gale**. When prompted to install dependencies, click **Yes** — the mod manager will download and configure everything for you, including:
 * **S1API** — modding API layer
-* **OTC Loader** — automatically detects your game branch (IL2CPP or Mono) and disables incompatible DLLs. Replaces the need for SwapperPlugin.
+* **OTC Loader** (optional, recommended) — automatically detects your game branch (IL2CPP or Mono) and disables incompatible DLLs. Replaces the need for SwapperPlugin.
 * **SteamNetworkLib** — multiplayer sync (single-player works fine without it, but there's no harm in having it installed)
 
 Launch the game. That's it.
@@ -82,13 +82,12 @@ If you prefer not to use a mod manager, you'll need to install each dependency y
 
 1.  Install **MelonLoader v0.7.0**.
 2.  Install **S1API** (ifBars fork) [Nexus](https://www.nexusmods.com/schedule1/mods/1194)﻿/[Thunderstore](https://thunderstore.io/c/schedule-i/p/ifBars/S1API_Forked/)﻿ — modding API layer. Make sure to pick the version matching your game branch (IL2CPP or Mono).
-3.  **Multiplayer Only** - Install **SteamNetworkLib** [Nexus](https://www.nexusmods.com/schedule1/mods/1396?tab=files)﻿ - Thunderstore \[[il2cpp](https://thunderstore.io/c/schedule-i/p/ifBars/SteamNetworkLib_Il2Cpp/)﻿/[mono](https://thunderstore.io/c/schedule-i/p/ifBars/SteamNetworkLib_Mono/)﻿\] — required for multiplayer sync. Again, pick the version matching your game branch or install both if installing OTC Loader plugin.
-4.  Download the latest OverTheCounter release. It includes three files:
+3.  **Multiplayer Only** - Install **SteamNetworkLib** [Nexus](https://www.nexusmods.com/schedule1/mods/1396?tab=files)﻿ - Thunderstore \[[il2cpp](https://thunderstore.io/c/schedule-i/p/ifBars/SteamNetworkLib_Il2Cpp/)﻿/[mono](https://thunderstore.io/c/schedule-i/p/ifBars/SteamNetworkLib_Mono/)﻿\] — required for multiplayer sync. Pick the version matching your game branch.
+4.  Download the latest OverTheCounter release. It includes two files:
     * `OverTheCounter.Il2Cpp.dll` — for the **IL2CPP** branch
     * `OverTheCounter.Mono.dll` — for the **Mono** branch
-    * `OverTheCounter-Loader.dll` — the OTC Loader plugin (**Recommended**) — Read the dedicated section below for more info.
-5. Copy **only the DLL that matches your game branch** *(You can install both if you're installing the OTC Loader plugin)* into your `Mods` folder. **Do not install both** without the loader — loading the wrong-branch DLL will crash MelonLoader.
-6.  Copy `OverTheCounter-Loader.dll` into your `Plugins or Mods` folder. This is the **OTC Loader** — it scans your entire `Mods` folder on startup and automatically disables any DLL that doesn't match your game branch, preventing crashes from other mods shipping both IL2CPP and Mono versions. You don't need it if you're manually managing your mod list yourself.
+5. Copy **only the DLL that matches your game branch** into your `Mods` folder. **Do not install both** — loading the wrong-branch DLL will crash MelonLoader.
+6.  **(Optional, recommended)** Install **OTC Loader** separately — it automatically disables wrong-branch DLLs for all mods. See the dedicated section below.
 7.  Launch the game.
 
 ## Configuration
@@ -130,11 +129,9 @@ When Pack Rat is installed alongside OverTheCounter, the backpack is treated as 
 
 No configuration needed — the integration is detected automatically at runtime. If Pack Rat is removed or updated incompatibly, all backpack features silently degrade.
 
-## OTC Loader (Standalone)
+## OTC Loader
 
-**OTC Loader** is a lightweight MelonLoader plugin that automatically detects your game branch (IL2CPP or Mono) and disables any incompatible mod DLLs before they can crash MelonLoader. It works for **all mods**, not just OverTheCounter.
-
-OTC Loader is already bundled with every OverTheCounter install — you only need the standalone version if you want branch protection **without** OverTheCounter itself.
+**OTC Loader** is a lightweight MelonLoader plugin that automatically detects your game branch (IL2CPP or Mono) and disables any incompatible mod DLLs before they can crash MelonLoader. It works for **all mods**, not just OverTheCounter. Optional but recommended — install it separately alongside OverTheCounter.
 
 ### For mod authors
 If your mod ships both IL2CPP and Mono DLLs, you can point your users to install OTC Loader instead of writing your own branch detection. Add it as a dependency or recommend it in your install instructions.
@@ -145,9 +142,9 @@ If your mod ships both IL2CPP and Mono DLLs, you can point your users to install
 3. **Compatibility check** — If a disabled DLL has no compatible counterpart, a prominent log warning tells the user which mod needs a different version.
 4. **Restart prompt** — On first-time disables, a popup recommends restarting so the runtime fully unloads cached assemblies.
 
-### Installing standalone
-* **Nexus:** Download the OTC Loader package and install via your mod manager or drop `OverTheCounter-Loader.dll` into your `Plugins` folder.
-* **Already have OverTheCounter?** You're covered — the Loader is included. Installing both is safe; the duplicate is detected and skipped automatically.
+### Installing
+* **Mod manager (recommended):** Install OTC Loader from Thunderstore or Nexus via your mod manager.
+* **Manual:** Drop `OverTheCounter-Loader.dll` into your `Plugins` folder.
 
 ## License
 **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)**
