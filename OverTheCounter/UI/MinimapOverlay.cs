@@ -1396,6 +1396,13 @@ namespace OverTheCounter.UI
                     return Config.MinimapShowDealers.Value;
                 if (text.Contains("(Manager)"))
                     return Config.MinimapShowManagers.Value;
+
+                // Check if this is a modded NPC POI (police, cartel, etc.)
+                // NPCPoI has a .NPC property — if the NPC isn't a Customer, it's from another mod.
+                var npcPoi = poi.TryCast<NPCPoI>();
+                if (npcPoi?.NPC != null && npcPoi.NPC.TryCast<Customer>() == null)
+                    return Config.MinimapShowModdedNPCs.Value;
+
                 return Config.MinimapShowCustomers.Value;
             }
 

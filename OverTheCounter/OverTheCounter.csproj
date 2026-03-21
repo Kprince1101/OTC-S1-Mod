@@ -17,17 +17,11 @@
 		<EnableDefaultCompileItems>false</EnableDefaultCompileItems>
 	</PropertyGroup>
 
-	<!-- Beta build toggle: dotnet build -p:BetaBuild=true -->
-	<PropertyGroup>
-		<BetaBuild Condition="'$(BetaBuild)' == ''">false</BetaBuild>
-	</PropertyGroup>
-
 	<!-- IL2CPP builds (Debug / Release) -->
 	<PropertyGroup Condition="!$(Configuration.StartsWith('Mono'))">
 		<TargetFramework>net6.0</TargetFramework>
 		<DefineConstants>$(DefineConstants);IL2CPP</DefineConstants>
-		<GameDllPath Condition="'$(BetaBuild)' != 'true'">$(ManagedDllPath)</GameDllPath>
-		<GameDllPath Condition="'$(BetaBuild)' == 'true'">$(BetaIl2CppDllPath)</GameDllPath>
+		<GameDllPath>$(ManagedDllPath)</GameDllPath>
 		<MLPath>$(MelonLoaderNet6Path)</MLPath>
 		<AssemblyName>OverTheCounter.Il2Cpp</AssemblyName>
 	</PropertyGroup>
@@ -35,8 +29,7 @@
 	<!-- Mono build -->
 	<PropertyGroup Condition="$(Configuration.StartsWith('Mono'))">
 		<TargetFramework>netstandard2.1</TargetFramework>
-		<GameDllPath Condition="'$(BetaBuild)' != 'true'">$(MonoManagedDllPath)</GameDllPath>
-		<GameDllPath Condition="'$(BetaBuild)' == 'true'">$(BetaMonoDllPath)</GameDllPath>
+		<GameDllPath>$(MonoManagedDllPath)</GameDllPath>
 		<MLPath>$(MonoMelonLoaderPath)</MLPath>
 		<AssemblyName>OverTheCounter.Mono</AssemblyName>
 	</PropertyGroup>
@@ -223,6 +216,7 @@
 		<Reference Include="S1APILoader"><HintPath>$(S1APIPluginsPath)\S1APILoader.MelonLoader.dll</HintPath></Reference>
 		<Reference Include="S1MAPI"><HintPath>$(S1MAPIPath)\S1MAPI_Il2Cpp.dll</HintPath></Reference>
 		<Reference Include="MeshVault"><HintPath>$(MeshVaultPath)\MeshVault.Il2Cpp.dll</HintPath></Reference>
+		<Reference Include="Il2CppScheduleOne.Core"><HintPath>$(GameDllPath)\Il2CppScheduleOne.Core.dll</HintPath></Reference>
 	</ItemGroup>
 
 	<!-- Mono-only references -->
@@ -236,9 +230,7 @@
 		<Reference Include="Cinemachine"><HintPath>$(GameDllPath)\Cinemachine.dll</HintPath></Reference>
 		<Reference Include="com.rlabrecque.steamworks.net"><HintPath>$(GameDllPath)\com.rlabrecque.steamworks.net.dll</HintPath></Reference>
 		<Reference Include="CorgiGodRays"><HintPath>$(GameDllPath)\CorgiGodRays.dll</HintPath></Reference>
-		<Reference Include="EasyButtons"><HintPath>$(GameDllPath)\EasyButtons.dll</HintPath></Reference>
 		<Reference Include="Edgegap"><HintPath>$(GameDllPath)\Edgegap.dll</HintPath></Reference>
-		<Reference Include="FishNet.Demos"><HintPath>$(GameDllPath)\FishNet.Demos.dll</HintPath></Reference>
 		<Reference Include="FishNet.Runtime"><HintPath>$(GameDllPath)\FishNet.Runtime.dll</HintPath></Reference>
 		<Reference Include="GameKit.Dependencies"><HintPath>$(GameDllPath)\GameKit.Dependencies.dll</HintPath></Reference>
 		<Reference Include="GameKit.Utilities"><HintPath>$(GameDllPath)\GameKit.Utilities.dll</HintPath></Reference>
@@ -266,13 +258,6 @@
 		<Reference Include="SteamNetworkLib"><HintPath>$(MonoSteamNetworkLibPath)\SteamNetworkLib-Mono.dll</HintPath></Reference>
 		<Reference Include="S1MAPI"><HintPath>$(MonoS1MAPIPath)\S1MAPI_Mono.dll</HintPath></Reference>
 		<Reference Include="MeshVault"><HintPath>$(MonoMeshVaultPath)\MeshVault.Mono.dll</HintPath></Reference>
-	</ItemGroup>
-
-	<!-- Beta-only: ScheduleOne.Core assembly (split from Assembly-CSharp in game 0.4.4) -->
-	<ItemGroup Condition="'$(BetaBuild)' == 'true' AND !$(Configuration.StartsWith('Mono'))">
-		<Reference Include="Il2CppScheduleOne.Core"><HintPath>$(GameDllPath)\Il2CppScheduleOne.Core.dll</HintPath></Reference>
-	</ItemGroup>
-	<ItemGroup Condition="'$(BetaBuild)' == 'true' AND $(Configuration.StartsWith('Mono'))">
 		<Reference Include="ScheduleOne.Core"><HintPath>$(GameDllPath)\ScheduleOne.Core.dll</HintPath></Reference>
 	</ItemGroup>
 
@@ -383,6 +368,7 @@
 		<Compile Include="UI\RecipeOverlay.cs" />
 		<Compile Include="UI\TMPFactory.cs" />
 		<Compile Include="Patches\RecipePinPatch.cs" />
+		<Compile Include="Patches\CustomerStartPatch.cs" />
 	</ItemGroup>
 
 	<!-- Embedded resources -->

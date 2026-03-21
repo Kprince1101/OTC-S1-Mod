@@ -138,6 +138,7 @@ namespace OverTheCounter
         public static ConfigEntry<bool> MinimapShowQuests;
         public static ConfigEntry<bool> MinimapShowProperties;
         public static ConfigEntry<bool> MinimapShowManagers;
+        public static ConfigEntry<bool> MinimapShowModdedNPCs;
 
         // All entries for bulk operations
         private static readonly Dictionary<string, ConfigEntry<float>> _floatEntries = new();
@@ -180,6 +181,7 @@ namespace OverTheCounter
             "MinimapShowQuests",
             "MinimapShowProperties",
             "MinimapShowManagers",
+            "MinimapShowModdedNPCs",
             "MinimapShowRank",
             "MinimapShowCompass",
             "MinimapShowEdgeIndicators",
@@ -370,6 +372,8 @@ namespace OverTheCounter
                 "Show Properties", "Show owned property icons on the minimap"));
             MinimapShowManagers = Register(_minimapPoi.CreateEntry("MinimapShowManagers", true,
                 "Show Managers", "Show manager icons on the minimap"));
+            MinimapShowModdedNPCs = Register(_minimapPoi.CreateEntry("MinimapShowModdedNPCs", true,
+                "Show Modded NPCs", "Show NPC icons added by other mods (e.g. police, cartel) on the minimap"));
 
             // ── Minimap ──
             _minimap = MelonPreferences.CreateCategory("OverTheCounter_Minimap", "Minimap");
