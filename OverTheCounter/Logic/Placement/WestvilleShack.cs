@@ -46,7 +46,7 @@ namespace OverTheCounter.Logic.Placement
         private static readonly Vector3 BuildingOrigin = new(-167.4f, -4f, 73.5f);
 
         private static GameObject _building;
-        private static NavMeshRepairer _navMeshRepairer;
+        private static NavigationBuilder _navigationBuilder;
         private static GameObject _lightsFolder;
         private static ModularSwitch _lightSwitch;
         private static ModularSwitch _openCloseSwitch;
@@ -109,8 +109,8 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Destroys the building and resets state for scene reload.</summary>
         public static void Cleanup()
         {
-            _navMeshRepairer?.Remove();
-            _navMeshRepairer = null;
+            _navigationBuilder?.Remove();
+            _navigationBuilder = null;
             _lightsFolder = null;
             _lightSwitch = null;
             _openCloseSwitch = null;
@@ -172,7 +172,6 @@ namespace OverTheCounter.Logic.Placement
             if (_building == null) return;
             TerrainClearer.ClearAroundBuilding(_building, new Vector3(RoomWidth, RoomHeight, RoomDepth),
                 new ClearingOptions { Padding = 4f });
-            TerrainFlattener.FlattenUnder(_building, new Vector3(RoomWidth, RoomHeight, RoomDepth), BuildingOrigin.y, blendDistance: 3f);
         }
 
         /// <summary>
@@ -402,12 +401,15 @@ namespace OverTheCounter.Logic.Placement
 
 
         /// <summary>
-        /// Rebuilds interior NavMesh after furniture is placed or moved.
+        /// Rebuilds interior pathfinding after furniture is placed or moved.
         /// </summary>
-        public static void RebuildNavMesh()
+        public static void RebuildNavigation()
         {
-            _navMeshRepairer?.Rebuild();
+            _navigationBuilder?.Rebuild();
         }
+
+        /// <summary>Toggles the pathfinding debug grid visualization.</summary>
+        public static void VisualizePathGrid(bool show = true) => _navigationBuilder?.VisualizePathGrid(show);
 
         /// <summary>
         /// Sets door access based on property ownership. Called by BuildingBuilder.AddPrefab callback.
@@ -603,33 +605,24 @@ namespace OverTheCounter.Logic.Placement
 
             // NavMesh repairer — must be created after Build() (needs building root)
             // Use employee agent type so the indoor NavMesh is visible to employee-type agents
-            int navAgentType = 0;
-            if (ManagerSpawner.TryGetEmployeeNavMeshSettings(out int empAgentType, out int empAreaMask))
-            {
-                navAgentType = empAgentType;
-            }
-            else
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch,"No employee NavMesh settings found — using default agentTypeID=0");
-            }
-            _navMeshRepairer = builder.CreateNavMeshRepairer(navAgentType);
+            _navigationBuilder = builder.CreateNavigationBuilder();
 
             // Position: room sits on top of foundation
             _building.transform.position = new Vector3(
                 BuildingOrigin.x, BuildingOrigin.y + FoundationHeight, BuildingOrigin.z);
 
-            // Build NavMesh after positioning (uses world position for bake)
-            _navMeshRepairer.Build();
+            builder.FlattenTerrain();
 
-            // Placement grid — no interior walls, just exclude exterior wall edges
+            // Placement grid — no interior walls, just exclude exterior wall edges.
             ShackGrid = BuildingGridFactory.CreateGrid(_building, RoomWidth, RoomDepth, "WestvilleShack_Floor1",
                 tileFilter: (x, z) =>
                 {
                     if (x == 0 || z == 0) return false;
                     return true;
-                });
+                },
+                gridCellSize: builder.GridCellSize);
             BuildingGridFactory.RegisterGrid(ShackGrid, PropertySaveData.ShackId,
-                PropertySaveData.ShackId, RebuildNavMesh);
+                PropertySaveData.ShackId, RebuildNavigation);
 
             // Register the grid with a fixed GUID so FishNet can look it up on clients.
             // Grid.Awake (which normally calls SetGUID) is skipped for OTC grids, so we
@@ -727,6 +720,7 @@ namespace OverTheCounter.Logic.Placement
             // Exterior furniture via MeshVault
             FurnitureManager.SpawnFurniture("WestvilleShack", _building.transform, Furniture);
 
+            _navigationBuilder.Build();
         }
     }
 }

@@ -53,7 +53,7 @@ namespace OverTheCounter.Logic.Placement
         private const float ApronDepth = 0.5f;
 
         private static GameObject _building;
-        private static NavMeshRepairer _navMeshRepairer;
+        private static NavigationBuilder _navigationBuilder;
         private static GameObject _lightsFolder;
         private static ModularSwitch _lightSwitch;
         private static ModularSwitch _openCloseSwitch;
@@ -65,6 +65,9 @@ namespace OverTheCounter.Logic.Placement
         internal static bool SuppressDoorSync;
         internal static bool CachedDoorIsOpen;
         internal static EDoorSide CachedDoorSide;
+
+        /// <summary>Unique identifier for the dispensary building.</summary>
+        internal const string DispensaryId = "big_dispensary";
 
         /// <summary>Whether the store is currently open for customers.</summary>
         public static bool IsStoreOpen { get; private set; }
@@ -127,8 +130,8 @@ namespace OverTheCounter.Logic.Placement
 
         public static void Cleanup()
         {
-            _navMeshRepairer?.Remove();
-            _navMeshRepairer = null;
+            _navigationBuilder?.Remove();
+            _navigationBuilder = null;
             _lightsFolder = null;
             _lightSwitch = null;
             _openCloseSwitch = null;
@@ -178,11 +181,10 @@ namespace OverTheCounter.Logic.Placement
         public static void ClearTerrain()
         {
             if (_building == null) return;
-            // Clear and flatten just the building footprint + apron
+            // Clear trees/objects around building footprint + apron
             var buildingSize = new Vector3(RoomWidth, RoomHeight, RoomDepth + ApronDepth);
             TerrainClearer.ClearAroundBuilding(_building, buildingSize,
                 new ClearingOptions { Padding = 2f });
-            TerrainFlattener.FlattenUnder(_building, buildingSize, BuildingOrigin.y, blendDistance: 3f);
         }
 
         private static GameObject SpawnNetworkedAt(S1MAPI.Core.PrefabRef prefab, Vector3 worldPos, Quaternion worldRot, Action<GameObject> preSpawnConfigure = null)
@@ -424,10 +426,16 @@ namespace OverTheCounter.Logic.Placement
             }
         }
 
-        public static void RebuildNavMesh()
+        /// <summary>
+        /// Rebuilds interior pathfinding after furniture is placed or moved.
+        /// </summary>
+        public static void RebuildNavigation()
         {
-            _navMeshRepairer?.Rebuild();
+            _navigationBuilder?.Rebuild();
         }
+
+        /// <summary>Toggles the pathfinding debug grid visualization.</summary>
+        public static void VisualizePathGrid(bool show = true) => _navigationBuilder?.VisualizePathGrid(show);
 
         private static void ConfigureDoor(GameObject doorGo)
         {
@@ -631,22 +639,18 @@ namespace OverTheCounter.Logic.Placement
                 SetLightsEnabled(false);
             }
 
-            // NavMesh
-            int navAgentType = 0;
-            if (ManagerSpawner.TryGetEmployeeNavMeshSettings(out int empAgentType, out int empAreaMask))
-            {
-                navAgentType = empAgentType;
-            }
-            _navMeshRepairer = builder.CreateNavMeshRepairer(navAgentType);
+            _navigationBuilder = builder.CreateNavigationBuilder();
 
             // Position: room sits on top of foundation
             _building.transform.position = new Vector3(
                 BuildingOrigin.x, BuildingOrigin.y + FoundationHeight, BuildingOrigin.z);
 
-            _navMeshRepairer.Build();
+            builder.FlattenTerrain();
 
             // Spawn furniture from mesh database
             FurnitureManager.SpawnFurniture("Dispensary", _building.transform, Furniture);
+
+            _navigationBuilder.Build();
 
             // Placement grid — showroom + backroom only (exclude lobby Z >= LobbyWallZ)
             // Also exclude exterior wall edge tiles (x==0, z==0)
@@ -657,7 +661,10 @@ namespace OverTheCounter.Logic.Placement
                     if (x == 0 || z == 0) return false;
                     if (z >= lobbyTileZ) return false; // no placement in lobby
                     return true;
-                });
+                },
+                gridCellSize: builder.GridCellSize);
+            BuildingGridFactory.RegisterGrid(DispensaryGrid, DispensaryId,
+                null, RebuildNavigation);
 
             // Concrete apron along north wall
             CreateConcreteApron();

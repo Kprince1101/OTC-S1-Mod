@@ -396,9 +396,11 @@ namespace OverTheCounter.Logic.Placement
                 // Record placement in PropertySaveData for persistence
                 RecordPlacement(grid, instance, originCoordinate, rotation);
 
-                // Rebuild interior NavMesh so NPCs can navigate around placed furniture
-                if (BuildingGridFactory.GridRegistry.TryGetValue(grid, out var gridInfo))
-                    gridInfo.RebuildNavMesh?.Invoke();
+                // Rebuild interior pathfinding so NPCs can navigate around placed furniture
+                // (suppressed during batch loading — one rebuild at end instead of per item)
+                if (!BuildingGridFactory.SuppressNavigationRebuild &&
+                    BuildingGridFactory.GridRegistry.TryGetValue(grid, out var gridInfo))
+                    gridInfo.RebuildNavigation?.Invoke();
 
                 // Apply desk visual for checkout counter on all paths.
                 // CreateGridItemPostfix handles host-initiated placement, but when a CLIENT

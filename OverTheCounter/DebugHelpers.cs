@@ -207,6 +207,14 @@ namespace OverTheCounter
             if (GUILayout.Button(_managerSpeedBoosted ? "Mgr Speed: BOOSTED (2.4x)" : "Mgr Speed Boost (2.4x)"))
                 ToggleManagerSpeedBoost();
 
+            if (GUILayout.Button(_pathGridVisible ? "Path Grid: ON" : "Path Grid: OFF"))
+            {
+                _pathGridVisible = !_pathGridVisible;
+                WestvilleShack.VisualizePathGrid(_pathGridVisible);
+                Dispensary.VisualizePathGrid(_pathGridVisible);
+                OTCWarehouse.VisualizePathGrid(_pathGridVisible);
+            }
+
             GUILayout.Space(8);
 
             if (GUILayout.Button("Force Desperation (Meth)"))
@@ -424,6 +432,7 @@ namespace OverTheCounter
 
         private bool _speedBoosted;
         private bool _managerSpeedBoosted;
+        private bool _pathGridVisible;
 
         // Hotspot editor state (3-step: 0=spawn, 1=dest, 2=describe)
         private int _hsStep;

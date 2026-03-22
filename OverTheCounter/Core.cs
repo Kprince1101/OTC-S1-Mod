@@ -246,16 +246,18 @@ namespace OverTheCounter
                 Logic.Placement.OTCWarehouse.ClearTerrain();
                 Logic.Placement.WestvilleShack.SpawnNetworkedObjects();
                 Logic.Placement.Dispensary.SpawnNetworkedObjects();
+                Logic.Placement.OTCWarehouse.SpawnNetworkedObjects();
                 Logic.Placement.CheckoutCounter.AddToShop();
+
+                // Suppress per-item navigation rebuilds during batch restore —
+                // one rebuild per building at the end instead of per item.
+                Logic.Placement.BuildingGridFactory.SuppressNavigationRebuild = true;
 
                 // Restore placed items for all OTC grids
                 if (PropertySaveData.Instance != null)
                 {
                     foreach (var kvp in Logic.Placement.BuildingGridFactory.GridRegistry)
-                    {
-                        var info = kvp.Value;
-                        PropertySaveData.Instance.RestorePlacedItems(info.BuildingId, kvp.Key);
-                    }
+                        PropertySaveData.Instance.RestorePlacedItems(kvp.Value.BuildingId, kvp.Key);
                 }
                 else
                 {
@@ -264,10 +266,19 @@ namespace OverTheCounter
                     if (shackGrid != null)
                         Logic.Placement.CheckoutCounter.SpawnOnGrid(shackGrid);
                 }
+
+                Logic.Placement.BuildingGridFactory.SuppressNavigationRebuild = false;
+
+                // Rebuild pathfinding once per building now that terrain is cleared,
+                // MeshVault furniture is placed, and grid items are restored.
+                Logic.Placement.WestvilleShack.RebuildNavigation();
+                Logic.Placement.Dispensary.RebuildNavigation();
+                Logic.Placement.OTCWarehouse.RebuildNavigation();
             }
             catch (Exception ex)
             {
-                MelonLoader.MelonLogger.Error($"[OTC] OnGameLoaded restore failed: {ex.Message}");
+                Logic.Placement.BuildingGridFactory.SuppressNavigationRebuild = false;
+                OTCLog.Error(OTCLog.Systems.General, $"OnGameLoaded restore failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
 

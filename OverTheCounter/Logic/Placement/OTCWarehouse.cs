@@ -118,7 +118,7 @@ namespace OverTheCounter.Logic.Placement
 
         private static bool _initialized;
         private static GameObject _building;
-        private static NavMeshRepairer _navMeshRepairer;
+        private static NavigationBuilder _navigationBuilder;
 
         /// <summary>Root transform of the warehouse building, or null if not built.</summary>
         public static Transform BuildingTransform => _building?.transform;
@@ -159,14 +159,16 @@ namespace OverTheCounter.Logic.Placement
             var buildingSize = new Vector3(Width, WallHeight, Depth);
             TerrainClearer.ClearAroundBuilding(_building, buildingSize,
                 new ClearingOptions { Padding = 4f });
-            TerrainFlattener.FlattenUnder(_building, buildingSize, Origin.y - FoundationHeight, blendDistance: 3f);
         }
 
-        /// <summary>Rebuilds interior NavMesh after furniture is placed or moved.</summary>
-        public static void RebuildNavMesh()
+        /// <summary>Rebuilds interior pathfinding after furniture is placed or moved.</summary>
+        public static void RebuildNavigation()
         {
-            _navMeshRepairer?.Rebuild();
+            _navigationBuilder?.Rebuild();
         }
+
+        /// <summary>Toggles the pathfinding debug grid visualization.</summary>
+        public static void VisualizePathGrid(bool show = true) => _navigationBuilder?.VisualizePathGrid(show);
 
         /// <summary>Destroys the warehouse and resets all static state.</summary>
         public static void Cleanup()
@@ -240,18 +242,16 @@ namespace OverTheCounter.Logic.Placement
 
             _building = builder.Build();
 
-            // NavMesh — use employee agent type for indoor navigation
-            int navAgentType = 0;
-            if (ManagerSpawner.TryGetEmployeeNavMeshSettings(out int empAgentType, out int _))
-                navAgentType = empAgentType;
-            _navMeshRepairer = builder.CreateNavMeshRepairer(navAgentType);
+            _navigationBuilder = builder.CreateNavigationBuilder();
 
-            // Position must be set before NavMesh bake (uses world coords)
+            // Position must be set before navigation build (uses world coords)
             _building.transform.position = Origin;
-            _navMeshRepairer.Build();
+            builder.FlattenTerrain();
 
             CreateGarageDoor();
             FurnitureManager.SpawnFurniture("OTCWarehouse", _building.transform, Furniture);
+
+            _navigationBuilder.Build();
 
             // Placement grid — south portion of warehouse (near entrance)
             WarehouseGrid = BuildingGridFactory.CreateGrid(_building, Width, Depth, "OTCWarehouse_Floor1",
@@ -260,9 +260,10 @@ namespace OverTheCounter.Logic.Placement
                     if (x < GridMinX || z == 0) return false; // west cutoff + south wall edge
                     if (z >= GridMaxZ) return false;           // north area (furniture/storage)
                     return true;
-                });
+                },
+                gridCellSize: builder.GridCellSize);
             BuildingGridFactory.RegisterGrid(WarehouseGrid, WarehouseId,
-                null, RebuildNavMesh);
+                null, RebuildNavigation);
 
             // Fixed GUID so FishNet can look up the grid on clients
             try

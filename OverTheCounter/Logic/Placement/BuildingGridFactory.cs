@@ -24,8 +24,8 @@ namespace OverTheCounter.Logic.Placement
         public string BuildingId;
         /// <summary>Property ownership key for buildability check. Null = always buildable.</summary>
         public string PropertyId;
-        /// <summary>Called after an item is placed to rebuild interior NavMesh.</summary>
-        public Action RebuildNavMesh;
+        /// <summary>Called after an item is placed to rebuild interior pathfinding.</summary>
+        public Action RebuildNavigation;
     }
 
     /// <summary>
@@ -41,6 +41,12 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Per-grid metadata for patches and save/load.</summary>
         internal static readonly Dictionary<Grid, OtcGridInfo> GridRegistry = new();
         private static readonly List<GameObject> _gridRoots = new();
+
+        /// <summary>
+        /// When true, per-item navigation rebuild callbacks are suppressed.
+        /// Set during batch loading so we rebuild once at the end instead of per item.
+        /// </summary>
+        internal static bool SuppressNavigationRebuild { get; set; }
 
         private const float TileSize = 0.5f;
 
@@ -60,8 +66,10 @@ namespace OverTheCounter.Logic.Placement
         /// </summary>
         /// <param name="tileFilter">Optional filter: return true to include tile at (x, z), false to exclude.
         /// Used to block tiles under interior walls.</param>
+        /// <param name="gridCellSize">Pathfinding grid cell size. When > 0, offsets grid origin by half a cell
+        /// so placement tiles align with pathfinding cell centers.</param>
         public static Grid CreateGrid(GameObject buildingRoot, float roomWidth, float roomDepth,
-            string buildingName, Func<int, int, bool> tileFilter = null)
+            string buildingName, Func<int, int, bool> tileFilter = null, float gridCellSize = 0f)
         {
             int tileLayer = LayerMask.NameToLayer("Tile");
             if (tileLayer < 0)
@@ -77,7 +85,14 @@ namespace OverTheCounter.Logic.Placement
             var gridGo = new GameObject($"OTC_Grid_{buildingName}");
             gridGo.SetActive(false);
             gridGo.transform.SetParent(buildingRoot.transform, false);
-            gridGo.transform.localPosition = Vector3.zero;
+
+            // Offset grid origin by half a pathfinding cell so placement tiles
+            // align with pathfinding grid cell centers instead of edges.
+            if (gridCellSize > 0f)
+            {
+                float offset = gridCellSize * 0.5f;
+                gridGo.transform.localPosition = new Vector3(offset, 0f, offset);
+            }
 
             var grid = gridGo.AddComponent<Grid>();
             OtcGrids.Add(grid);
@@ -93,8 +108,9 @@ namespace OverTheCounter.Logic.Placement
 
                     var tileGo = new GameObject($"Tile_{x}_{z}");
                     tileGo.transform.SetParent(gridGo.transform, false);
-                    // Position at grid corners (not centers) — GetMatchedCoordinate
-                    // divides by TileSize and rounds, so positions must be exact multiples
+                    // Position relative to grid GO — GetMatchedCoordinate uses
+                    // InverseTransformPoint relative to grid transform, so coordinates
+                    // remain correct regardless of grid GO offset.
                     tileGo.transform.localPosition = new Vector3(
                         x * TileSize,
                         0f,
@@ -229,13 +245,13 @@ namespace OverTheCounter.Logic.Placement
         /// Registers per-grid metadata for use by placement patches and save/load.
         /// Call after CreateGrid().
         /// </summary>
-        internal static void RegisterGrid(Grid grid, string buildingId, string propertyId, Action rebuildNavMesh)
+        internal static void RegisterGrid(Grid grid, string buildingId, string propertyId, Action rebuildNavigation)
         {
             GridRegistry[grid] = new OtcGridInfo
             {
                 BuildingId = buildingId,
                 PropertyId = propertyId,
-                RebuildNavMesh = rebuildNavMesh
+                RebuildNavigation = rebuildNavigation
             };
         }
 
