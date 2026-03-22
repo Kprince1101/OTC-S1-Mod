@@ -501,10 +501,6 @@ namespace OverTheCounter.NPCs
                 return;
             }
 
-            // End dialogue before opening HandoverScreen
-            try { _gameNpc?.DialogueHandler?.EndDialogue(); }
-            catch { }
-
             // Stop Bella's movement while handover is open
             try { _gameNpc?.Movement?.Stop(); }
             catch { }
@@ -529,6 +525,13 @@ namespace OverTheCounter.NPCs
                     float, float>((items, price) => 1.0f);
 
             handoverScreen.Open(null, _customerComponent, HandoverScreen.EMode.Offer, callback, successChance, false);
+
+            // End dialogue AFTER Open() — Open() adds an active UI element, so
+            // DialogueCanvas.EndDialogue() sees activeUIElementCount > 0 and skips
+            // the UnlockPlayer coroutine that would re-lock the mouse next frame.
+            try { _gameNpc?.DialogueHandler?.EndDialogue(); }
+            catch { }
+
             OTCLog.Msg(OTCLog.Systems.NPC, $"HandoverScreen opened for {drugType} (min ${minPrice:N0})");
         }
 
