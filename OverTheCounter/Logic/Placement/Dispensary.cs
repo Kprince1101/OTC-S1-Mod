@@ -39,15 +39,15 @@ namespace OverTheCounter.Logic.Placement
         // Room dimensions (doubled backroom + showroom, 10x14)
         private const float RoomWidth = 14f;
         private const float RoomHeight = 4.0f;
-        private const float RoomDepth = 16f;
+        private const float RoomDepth = 16.5f;
         private const float FoundationHeight = 0.15f;
 
         // Interior wall positions (Z in local space, south=0 north=14)
         private const float BackroomWallZ = 5.0f;    // backroom/showroom boundary
-        private const float LobbyWallZ = 12.0f;      // showroom/lobby boundary
+        private const float LobbyWallZ = 12.2f;      // showroom/lobby boundary
 
         // SW corner of building footprint
-        private static readonly Vector3 BuildingOrigin = new(114.16f, 0f, -11.35f);
+        private static readonly Vector3 BuildingOrigin = new(114.16f, 0f, -11.85f);
 
         // Apron extends 0.5m past building on north side
         private const float ApronDepth = 0.5f;
@@ -66,9 +66,6 @@ namespace OverTheCounter.Logic.Placement
         internal static bool CachedDoorIsOpen;
         internal static EDoorSide CachedDoorSide;
 
-        /// <summary>Unique identifier for the dispensary building.</summary>
-        internal const string DispensaryId = "big_dispensary";
-
         /// <summary>Whether the store is currently open for customers.</summary>
         public static bool IsStoreOpen { get; private set; }
 
@@ -78,6 +75,9 @@ namespace OverTheCounter.Logic.Placement
         internal static bool IsDoorOpen => CachedDoorIsOpen;
         internal static int DoorSideValue => (int)CachedDoorSide;
 
+        /// <summary>Save data key for the dispensary.</summary>
+        public const string DispensaryId = "big_dispensary";
+
         /// <summary>The placement grid inside the dispensary (showroom + backroom).</summary>
         internal static Grid DispensaryGrid { get; private set; }
 
@@ -85,32 +85,34 @@ namespace OverTheCounter.Logic.Placement
         private static readonly FurnitureSlot[] Furniture =
         {
             new() { SlotId = "lobby_sofa", DefaultMeshId = "double_sofa",
-                    LocalPosition = new(9.5244f, 0.545f, 15.3527f), EulerAngles = Vector3.zero,
+                    LocalPosition = new(9.5244f, 0.545f, 15.8527f), EulerAngles = Vector3.zero,
                     MaterialOverrides = new[] { "plastic black mat", null } },
             new() { SlotId = "lobby_sofa_2", DefaultMeshId = "double_sofa",
-                    LocalPosition = new(12.1901f, 0.545f, 15.3505f), EulerAngles = Vector3.zero,
+                    LocalPosition = new(12.1901f, 0.545f, 15.8505f), EulerAngles = Vector3.zero,
                     MaterialOverrides = new[] { "plastic black mat", null } },
             new() { SlotId = "lobby_sofa_3", DefaultMeshId = "double_sofa",
-                    LocalPosition = new(12.1901f, 0.545f, 12.6505f), EulerAngles = new(0f, -180f, 0f),
+                    LocalPosition = new(12.1901f, 0.545f, 12.8505f), EulerAngles = new(0f, -180f, 0f),
                     MaterialOverrides = new[] { "plastic black mat", null } },
             new() { SlotId = "lobby_bar", DefaultMeshId = "desk_counter_l",
-                    LocalPosition = new(4.1374f, 0.625f, 12.9012f), EulerAngles = Vector3.zero },
+                    LocalPosition = new(4.1374f, 0.625f, 13.1012f), EulerAngles = Vector3.zero },
             new() { SlotId = "lobby_tv_stand", DefaultMeshId = "tv_stand",
-                    LocalPosition = new(9.6141f, 0.455f, 12.6497f), EulerAngles = new(0f, -90f, 0f) },
+                    LocalPosition = new(9.6141f, 0.455f, 12.8497f), EulerAngles = new(0f, -90f, 0f) },
             new() { SlotId = "lobby_computer", DefaultMeshId = "computer_old",
-                    LocalPosition = new(4.939f, 1.305f, 13.1942f), EulerAngles = new(0f, -20f, 0f) },
+                    LocalPosition = new(4.939f, 1.305f, 13.3942f), EulerAngles = new(0f, -20f, 0f) },
             new() { SlotId = "lobby_keyboard", DefaultMeshId = "keyboard",
-                    LocalPosition = new(4.9274f, 1.065f, 13.021f), EulerAngles = new(0f, -20f, 0f) },
+                    LocalPosition = new(4.9274f, 1.065f, 13.221f), EulerAngles = new(0f, -20f, 0f) },
             new() { SlotId = "lobby_mousepad", DefaultMeshId = "mouse_pad",
-                    LocalPosition = new(5.3241f, 1.055f, 13.0325f), EulerAngles = new(0f, -20f, 0f) },
+                    LocalPosition = new(5.3241f, 1.055f, 13.2325f), EulerAngles = new(0f, -20f, 0f) },
             new() { SlotId = "lobby_mouse", DefaultMeshId = "mouse",
-                    LocalPosition = new(5.3341f, 1.065f, 13.0403f), EulerAngles = new(0f, -20f, 0f) },
+                    LocalPosition = new(5.3341f, 1.065f, 13.2403f), EulerAngles = new(0f, -20f, 0f) },
             new() { SlotId = "lobby_books", DefaultMeshId = "books_vertical",
-                    LocalPosition = new(9.5952f, 0.865f, 12.6607f), EulerAngles = new(0f, 90f, 0f) },
+                    LocalPosition = new(9.5952f, 0.865f, 12.8607f), EulerAngles = new(0f, 90f, 0f) },
             new() { SlotId = "lobby_tv", DefaultMeshId = "tv_flatscreen",
-                    LocalPosition = new(9.6426f, 1.865f, 12.1326f), EulerAngles = new(0f, 90f, 0f) },
+                    LocalPosition = new(9.6426f, 1.865f, 12.3326f), EulerAngles = new(0f, 90f, 0f) },
             new() { SlotId = "lobby_wall_ac", DefaultMeshId = "wall_ac",
                     LocalPosition = new(-0.2447f, 3.0162f, 15.0671f), EulerAngles = new(0f, 90f, 0f) },
+            new() { SlotId = "exterior_trash_bin", DefaultMeshId = "small_trash_bin",
+                    LocalPosition = new(-1.5f, -FoundationHeight + 0.37f, RoomDepth + 1.0f), EulerAngles = Vector3.zero },
         };
 
         public static void SpawnBuilding()
@@ -349,38 +351,7 @@ namespace OverTheCounter.Logic.Placement
                 OTCLog.Error(OTCLog.Systems.Patch, $"Dispensary open/close switch spawn failed: {ex.Message}");
             }
 
-            // Trash can — HOST ONLY
-            if (NetworkHelper.IsHost)
-            {
-                try
-                {
-                    var trashLocalPos = new Vector3(-1.5f, -FoundationHeight, RoomDepth + 1.0f);
-                    var trashGo = SpawnNetworkedAt(Prefabs.TrashCan,
-                        _building.transform.TransformPoint(trashLocalPos),
-                        _building.transform.rotation,
-                        preSpawnConfigure: inst =>
-                        {
-                            foreach (var t in inst.GetComponentsInChildren<Transform>(true))
-                            {
-                                if (t.name.StartsWith("Lid"))
-                                    t.gameObject.SetActive(true);
-                                else if (t.name == "DetectionArea" || t.name == "FootprintTiles" || t.name == "CircleProjector")
-                                    t.gameObject.SetActive(false);
-                            }
-                        });
-                    if (trashGo != null)
-                        _networkedObjects.Add(trashGo);
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Error(OTCLog.Systems.Patch, $"Dispensary trash can spawn failed: {ex.Message}");
-                }
-            }
-            else
-            {
-                var trashWorldPos = _building.transform.TransformPoint(new Vector3(-1.5f, -FoundationHeight, RoomDepth + 1.0f));
-                MelonCoroutines.Start(WaitAndFixTrashCanLid(trashWorldPos));
-            }
+            // Trash can is placed as MeshVault furniture in the Furniture array (decorative only)
         }
 
         private static System.Collections.IEnumerator WaitForFishNetDoor(Vector3 expectedWorldPos)
@@ -406,25 +377,6 @@ namespace OverTheCounter.Logic.Placement
             OTCLog.Warning(OTCLog.Systems.Patch, "[Dispensary] FishNet door not found within 30s — using local clone");
         }
 
-        private static System.Collections.IEnumerator WaitAndFixTrashCanLid(Vector3 expectedPos)
-        {
-            float timeout = 30f;
-            float elapsed = 0f;
-            while (elapsed < timeout)
-            {
-                yield return new WaitForSeconds(0.5f);
-                elapsed += 0.5f;
-                foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
-                {
-                    if (go.name == "TrashCan_Built(Clone)" && Vector3.Distance(go.transform.position, expectedPos) < 2f)
-                    {
-                        foreach (var t in go.GetComponentsInChildren<Transform>(true))
-                            if (t.name.StartsWith("Lid")) t.gameObject.SetActive(true);
-                        yield break;
-                    }
-                }
-            }
-        }
 
         /// <summary>
         /// Rebuilds interior pathfinding after furniture is placed or moved.
@@ -553,7 +505,7 @@ namespace OverTheCounter.Logic.Placement
             apron.name = "OTC_ConcreteApron";
             apron.transform.SetParent(_building.transform, false);
             // Position/scale from MeshPlacer log
-            apron.transform.localPosition = new Vector3(4.0f, -0.27f, 16.35f);
+            apron.transform.localPosition = new Vector3(4.0f, -0.27f, 16.85f);
             apron.transform.localScale = new Vector3(2.4f, 0.4f, 2.0f);
 
             var renderer = apron.GetComponent<MeshRenderer>();
@@ -610,11 +562,10 @@ namespace OverTheCounter.Logic.Placement
                 .AddCornerTrim(material: trimBlack)
                 .AddAmbientLighting()
                 // Interior wall: showroom/lobby boundary (metal glass door)
-                .AddInteriorWall(InteriorWallAxis.X, LobbyWallZ, opening: WallOpening.Door(width: 1.0f, height: 2.2f))
+                .AddInteriorWall(InteriorWallAxis.X, LobbyWallZ, opening: WallOpening.Door(width: 1.05f, height: 2.1f))
                 // Interior wall: backroom/showroom boundary (classical wooden door)
-                .AddInteriorWall(InteriorWallAxis.X, BackroomWallZ, opening: WallOpening.Door(width: 1.2f, height: 2.2f))
+                .AddInteriorWall(InteriorWallAxis.X, BackroomWallZ, opening: WallOpening.Door(width: 1.05f, height: 2.1f))
                 .AddInteriorDoorFrames(material: trimBlack)
-                // Sliding doors in the north wall door opening
                 .AddSlidingDoors(
                     new Vector3(RoomWidth / 2f - 3f, -0.058f, RoomDepth - 0.065f),
                     Quaternion.identity,
@@ -653,8 +604,8 @@ namespace OverTheCounter.Logic.Placement
             _navigationBuilder.Build();
 
             // Placement grid — showroom + backroom only (exclude lobby Z >= LobbyWallZ)
-            // Also exclude exterior wall edge tiles (x==0, z==0)
-            int lobbyTileZ = (int)(LobbyWallZ / 0.5f); // tile index where lobby starts
+            // Also exclude exterior wall edge tiles (x==0, z==0).
+            int lobbyTileZ = (int)(LobbyWallZ / 0.5f);
             DispensaryGrid = BuildingGridFactory.CreateGrid(_building, RoomWidth, RoomDepth, "Dispensary_Floor1",
                 tileFilter: (x, z) =>
                 {

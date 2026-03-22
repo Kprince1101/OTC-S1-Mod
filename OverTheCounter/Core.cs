@@ -73,6 +73,8 @@ namespace OverTheCounter
             GraffitiPatch.Apply(HarmonyInstance);
             RecipePinPatch.Apply(HarmonyInstance);
             SupplierWarehousePatch.Apply(HarmonyInstance);
+            SaveManagerPatch.Apply(HarmonyInstance);
+
             TimeManager.OnSleepEnd += OnSleepEnd;
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
@@ -244,9 +246,11 @@ namespace OverTheCounter
                 Logic.Placement.WestvilleShack.ClearTerrain();
                 Logic.Placement.Dispensary.ClearTerrain();
                 Logic.Placement.OTCWarehouse.ClearTerrain();
+
                 Logic.Placement.WestvilleShack.SpawnNetworkedObjects();
                 Logic.Placement.Dispensary.SpawnNetworkedObjects();
                 Logic.Placement.OTCWarehouse.SpawnNetworkedObjects();
+
                 Logic.Placement.CheckoutCounter.AddToShop();
 
                 // Suppress per-item navigation rebuilds during batch restore —

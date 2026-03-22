@@ -790,6 +790,24 @@ namespace OverTheCounter.SaveData
                             // DoorSyncPatch.Postfix fires on the host's SetIsOpen call and publishes game state.
                         }
                     }
+                    else if (action.StartsWith("DISP_LIGHTS:"))
+                    {
+                        bool on = action.Substring("DISP_LIGHTS:".Length) == "1";
+                        Logic.Placement.Dispensary.SetLightsFromSync(on);
+                        Instance?.PublishGameState();
+                    }
+                    else if (action.StartsWith("DISP_STORE:"))
+                    {
+                        bool open = action.Substring("DISP_STORE:".Length) == "1";
+                        Logic.Placement.Dispensary.SetStoreOpen(open);
+                        Instance?.PublishGameState();
+                    }
+                    else if (action.StartsWith("WH_LIGHTS:"))
+                    {
+                        bool on = action.Substring("WH_LIGHTS:".Length) == "1";
+                        Logic.Placement.OTCWarehouse.SetLightsFromSync(on);
+                        Instance?.PublishGameState();
+                    }
                     else
                     {
                         OTCLog.Warning(OTCLog.Systems.Network, $"Unknown quest action: {action}");
@@ -883,6 +901,15 @@ namespace OverTheCounter.SaveData
             // Shack door state
             parts.Add($"shack_door_open={BoolToStr(Logic.Placement.WestvilleShack.IsDoorOpen)}");
             parts.Add($"shack_door_side={Logic.Placement.WestvilleShack.DoorSideValue}");
+
+            // Dispensary switch states
+            parts.Add($"disp_lights={BoolToStr(Logic.Placement.Dispensary.AreLightsOn)}");
+            parts.Add($"disp_open={BoolToStr(Logic.Placement.Dispensary.IsStoreOpen)}");
+            parts.Add($"disp_door_open={BoolToStr(Logic.Placement.Dispensary.IsDoorOpen)}");
+            parts.Add($"disp_door_side={Logic.Placement.Dispensary.DoorSideValue}");
+
+            // Warehouse switch states
+            parts.Add($"wh_lights={BoolToStr(Logic.Placement.OTCWarehouse.AreLightsOn)}");
 
             // Manager data is on per-manager SyncVar slots (_mgrSlots) to avoid lobby data truncation.
 
@@ -984,6 +1011,22 @@ namespace OverTheCounter.SaveData
                 int sideVal = state.TryGetValue("shack_door_side", out var doorSide) && int.TryParse(doorSide, out var si) ? si : 0;
                 Logic.Placement.WestvilleShack.SetDoorFromSync(open, sideVal);
             }
+
+            // Dispensary switch states
+            if (state.TryGetValue("disp_lights", out var dl))
+                Logic.Placement.Dispensary.SetLightsFromSync(StrToBool(dl));
+            if (state.TryGetValue("disp_open", out var dso))
+                Logic.Placement.Dispensary.SetStoreOpen(StrToBool(dso));
+            if (state.TryGetValue("disp_door_open", out var dispDoorOpen))
+            {
+                bool dOpen = StrToBool(dispDoorOpen);
+                int dSideVal = state.TryGetValue("disp_door_side", out var dispDoorSide) && int.TryParse(dispDoorSide, out var dsi) ? dsi : 0;
+                Logic.Placement.Dispensary.SetDoorFromSync(dOpen, dSideVal);
+            }
+
+            // Warehouse switch states
+            if (state.TryGetValue("wh_lights", out var wl))
+                Logic.Placement.OTCWarehouse.SetLightsFromSync(StrToBool(wl));
 
             // Manager data is on per-manager SyncVar slots — handled in HandleManagerSlotChanged.
         }

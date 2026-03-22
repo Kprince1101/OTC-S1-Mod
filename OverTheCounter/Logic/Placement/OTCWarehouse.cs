@@ -1,21 +1,32 @@
 using MelonLoader;
 using OverTheCounter.Logic;
+using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1MAPI.Building;
 using S1MAPI.Building.Config;
 using S1MAPI.Building.Structural;
 using S1MAPI.S1;
+using S1API.Misc;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 #if IL2CPP
+using Il2CppFishNet;
+using Il2CppFishNet.Object;
+using Il2CppFishNet.Observing;
+using Il2CppFishNet.Component.Ownership;
 using Il2CppScheduleOne.Audio;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.PlayerScripts;
 using Grid = Il2CppScheduleOne.Tiles.Grid;
 #else
+using FishNet;
+using FishNet.Object;
+using FishNet.Observing;
+using FishNet.Component.Ownership;
 using ScheduleOne.Audio;
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Map;
@@ -119,9 +130,16 @@ namespace OverTheCounter.Logic.Placement
         private static bool _initialized;
         private static GameObject _building;
         private static NavigationBuilder _navigationBuilder;
+        private static GameObject _lightsFolder;
+        private static ModularSwitch _lightSwitch;
+        private static bool _suppressSwitchSync;
+        private static readonly List<GameObject> _networkedObjects = new();
 
         /// <summary>Root transform of the warehouse building, or null if not built.</summary>
         public static Transform BuildingTransform => _building?.transform;
+
+        /// <summary>Whether the interior lights are currently on.</summary>
+        public static bool AreLightsOn { get; private set; }
 
         /// <summary>The placement grid inside the warehouse. Set after build.</summary>
         internal static Grid WarehouseGrid { get; private set; }
@@ -152,7 +170,7 @@ namespace OverTheCounter.Logic.Placement
             }
         }
 
-        /// <summary>Flattens terrain around the warehouse footprint.</summary>
+        /// <summary>Clears terrain trees and objects around the warehouse footprint.</summary>
         public static void ClearTerrain()
         {
             if (_building == null) return;
@@ -170,6 +188,132 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Toggles the pathfinding debug grid visualization.</summary>
         public static void VisualizePathGrid(bool show = true) => _navigationBuilder?.VisualizePathGrid(show);
 
+        internal static void SetLightsEnabled(bool enabled)
+        {
+            AreLightsOn = enabled;
+            if (_lightsFolder == null) return;
+            foreach (var light in _lightsFolder.GetComponentsInChildren<Light>(true))
+                light.enabled = enabled;
+        }
+
+        internal static void SetLightsFromSync(bool enabled)
+        {
+            _suppressSwitchSync = true;
+            try
+            {
+                SetLightsEnabled(enabled);
+                if (_lightSwitch != null)
+                {
+                    if (enabled) _lightSwitch.SwitchOn();
+                    else _lightSwitch.SwitchOff();
+                }
+            }
+            finally { _suppressSwitchSync = false; }
+        }
+
+        /// <summary>Applies persisted toggle states after save data is loaded.</summary>
+        public static void ApplySavedState(bool lightsOn)
+        {
+            if (_lightSwitch != null)
+            {
+                if (lightsOn) _lightSwitch.SwitchOn();
+                else _lightSwitch.SwitchOff();
+            }
+            else
+                SetLightsEnabled(lightsOn);
+        }
+
+        /// <summary>Spawns FishNet-networked objects (light switch) inside the warehouse.</summary>
+        public static void SpawnNetworkedObjects()
+        {
+            if (_building == null) return;
+
+            try
+            {
+                // Light switch on interior wall near entrance
+                var lightLocalPos = new Vector3(Width - 0.1f, 1.2f, Depth / 2f - 1.5f);
+                var switchGo = SpawnNetworkedAt(Prefabs.ModularSwitch,
+                    _building.transform.TransformPoint(lightLocalPos),
+                    _building.transform.rotation * Quaternion.Euler(0f, 270f, 0f));
+                if (switchGo != null)
+                {
+                    switchGo.name = "OTC_WH_LightSwitch";
+                    _networkedObjects.Add(switchGo);
+                    _lightSwitch = new ModularSwitch(switchGo);
+                    _lightSwitch.SetInteractionMessages("Turn Off Lights", "Turn On Lights");
+                    _lightSwitch.OnToggled += isOn =>
+                    {
+                        SetLightsEnabled(isOn);
+                        if (!_suppressSwitchSync)
+                        {
+                            if (NetworkHelper.IsHost)
+                                ConfigSyncData.Instance?.PublishGameState();
+                            else
+                                ConfigSyncData.SendQuestAction($"WH_LIGHTS:{(isOn ? 1 : 0)}");
+                        }
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Patch, $"Warehouse light switch spawn failed: {ex.Message}");
+            }
+        }
+
+        private static GameObject SpawnNetworkedAt(S1MAPI.Core.PrefabRef prefab, Vector3 worldPos, Quaternion worldRot)
+        {
+            var prefabGo = prefab.Find();
+            if (prefabGo == null)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"WH SpawnNetworkedAt: prefab not found: {prefab.Name}");
+                return null;
+            }
+
+            bool originalActive = prefabGo.activeSelf;
+            prefabGo.SetActive(false);
+            var instance = UnityEngine.Object.Instantiate(prefabGo);
+            prefabGo.SetActive(originalActive);
+            if (instance == null) return null;
+
+            var netMgr = InstanceFinder.NetworkManager;
+            if (netMgr != null && netMgr.IsServer)
+            {
+                var netObj = instance.GetComponent<NetworkObject>();
+                if (netObj != null)
+                {
+                    var networkObserver = instance.GetComponent<NetworkObserver>();
+                    if (networkObserver != null)
+                        UnityEngine.Object.DestroyImmediate(networkObserver);
+
+                    if (instance.GetComponent<PredictedSpawn>() == null)
+                        instance.AddComponent<PredictedSpawn>();
+
+                    instance.transform.SetPositionAndRotation(worldPos, worldRot);
+                    netMgr.ServerManager.Spawn(netObj);
+                }
+                else
+                {
+                    instance.transform.SetPositionAndRotation(worldPos, worldRot);
+                }
+            }
+            else
+            {
+                instance.transform.SetPositionAndRotation(worldPos, worldRot);
+                MelonCoroutines.Start(ReactivateAfterFishNetStart(instance, prefab.Name));
+            }
+
+            instance.SetActive(true);
+            return instance;
+        }
+
+        private static IEnumerator ReactivateAfterFishNetStart(GameObject go, string name)
+        {
+            yield return null;
+            yield return null;
+            if (go != null && !go.activeSelf)
+                go.SetActive(true);
+        }
+
         /// <summary>Destroys the warehouse and resets all static state.</summary>
         public static void Cleanup()
         {
@@ -178,6 +322,10 @@ namespace OverTheCounter.Logic.Placement
             _doorStartSound = null;
             _doorLoopSound = null;
             _doorStopSound = null;
+            _lightsFolder = null;
+            _lightSwitch = null;
+            AreLightsOn = false;
+            _suppressSwitchSync = false;
             if (_building != null)
             {
                 UnityEngine.Object.Destroy(_building);
@@ -185,6 +333,9 @@ namespace OverTheCounter.Logic.Placement
             }
             _garageDoor = null;
             WarehouseGrid = null;
+            foreach (var go in _networkedObjects)
+                if (go != null) UnityEngine.Object.Destroy(go);
+            _networkedObjects.Clear();
             FurnitureManager.CleanupFurniture("OTCWarehouse");
             _initialized = false;
         }
@@ -241,6 +392,14 @@ namespace OverTheCounter.Logic.Placement
                 .AddLights();
 
             _building = builder.Build();
+
+            // Cache lights folder — start off
+            var lightsTransform = _building.transform.Find("Lights");
+            if (lightsTransform != null)
+            {
+                _lightsFolder = lightsTransform.gameObject;
+                SetLightsEnabled(false);
+            }
 
             _navigationBuilder = builder.CreateNavigationBuilder();
 

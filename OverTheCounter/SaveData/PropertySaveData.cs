@@ -89,6 +89,25 @@ namespace OverTheCounter.SaveData
     }
 
     /// <summary>
+    /// Persisted toggle states for the dispensary (lights, store open/close).
+    /// </summary>
+    [Serializable]
+    public class OtcDispensaryState
+    {
+        public bool LightsOn;
+        public bool StoreOpen;
+    }
+
+    /// <summary>
+    /// Persisted toggle states for the warehouse (lights only).
+    /// </summary>
+    [Serializable]
+    public class OtcWarehouseState
+    {
+        public bool LightsOn;
+    }
+
+    /// <summary>
     /// Record of a single product sale at the OTC checkout counter.
     /// </summary>
     [Serializable]
@@ -122,6 +141,12 @@ namespace OverTheCounter.SaveData
         [SaveableField("otc_shack_state")]
         private OtcShackState _shackState = new();
 
+        [SaveableField("otc_dispensary_state")]
+        private OtcDispensaryState _dispensaryState = new();
+
+        [SaveableField("otc_warehouse_state")]
+        private OtcWarehouseState _warehouseState = new();
+
         [SaveableField("otc_sales_log")]
         private List<OtcSaleRecord> _salesLog = new();
 
@@ -141,7 +166,9 @@ namespace OverTheCounter.SaveData
         protected override void OnLoaded()
         {
             Instance = this;
-            ConfigSyncData.ApplyPendingGameState();
+
+            try { ConfigSyncData.ApplyPendingGameState(); }
+            catch (Exception ex) { OTCLog.Error(OTCLog.Systems.General, $"ApplyPendingGameState failed: {ex.Message}"); }
 
             if (IsPropertyOwned(ShackId))
             {
@@ -149,6 +176,8 @@ namespace OverTheCounter.SaveData
                 WestvilleShack.ApplySavedState(_shackState.LightsOn, _shackState.StoreOpen);
             }
 
+            Dispensary.ApplySavedState(_dispensaryState.LightsOn, _dispensaryState.StoreOpen);
+            OTCWarehouse.ApplySavedState(_warehouseState.LightsOn);
         }
 
         /// <summary>
@@ -166,11 +195,16 @@ namespace OverTheCounter.SaveData
             }
         }
 
-        /// <summary>Captures current shack toggle states before save serialization.</summary>
+        /// <summary>Captures current building toggle states before save serialization.</summary>
         public void CaptureShackState()
         {
             _shackState.LightsOn = WestvilleShack.AreLightsOn;
             _shackState.StoreOpen = WestvilleShack.IsStoreOpen;
+
+            _dispensaryState.LightsOn = Dispensary.AreLightsOn;
+            _dispensaryState.StoreOpen = Dispensary.IsStoreOpen;
+
+            _warehouseState.LightsOn = OTCWarehouse.AreLightsOn;
 
             // Sum all counter register balances
             _registerBalance = 0f;
