@@ -149,8 +149,21 @@ namespace OverTheCounter.SaveData
                 WestvilleShack.ApplySavedState(_shackState.LightsOn, _shackState.StoreOpen);
             }
 
-            // Restore register balance
-            CheckoutCounter.RegisterBalance = _registerBalance;
+        }
+
+        /// <summary>
+        /// Applies the saved register balance to the first counter.
+        /// Called after counters have been placed.
+        /// </summary>
+        public void ApplyRegisterBalance()
+        {
+            if (_registerBalance <= 0f) return;
+            var counters = CheckoutCounter.AllCounters;
+            if (counters.Count > 0)
+            {
+                counters[0].RegisterBalance = _registerBalance;
+                _registerBalance = 0f;
+            }
         }
 
         /// <summary>Captures current shack toggle states before save serialization.</summary>
@@ -158,7 +171,11 @@ namespace OverTheCounter.SaveData
         {
             _shackState.LightsOn = WestvilleShack.AreLightsOn;
             _shackState.StoreOpen = WestvilleShack.IsStoreOpen;
-            _registerBalance = CheckoutCounter.RegisterBalance;
+
+            // Sum all counter register balances
+            _registerBalance = 0f;
+            foreach (var counter in CheckoutCounter.AllCounters)
+                _registerBalance += counter.RegisterBalance;
         }
 
         // ==================================================================
@@ -261,7 +278,11 @@ namespace OverTheCounter.SaveData
         internal void RestorePlacedItems(string buildingId, Grid grid)
         {
             if (!NetworkHelper.IsHost) return;
-            if (grid == null) return;
+            if (grid == null)
+            {
+                OTCLog.Warning(OTCLog.Systems.General, $"RestorePlacedItems '{buildingId}': grid is null");
+                return;
+            }
 
             var items = GetPlacedItems(buildingId);
 
@@ -281,8 +302,9 @@ namespace OverTheCounter.SaveData
             // Track items with saved slots for deferred restoration
             var itemsWithSlots = new List<OtcPlacedItem>();
 
-            foreach (var item in items)
+            for (int idx = 0; idx < items.Count; idx++)
             {
+                var item = items[idx];
                 try
                 {
                     var coord = new Vector2(item.CoordX, item.CoordZ);
@@ -296,9 +318,12 @@ namespace OverTheCounter.SaveData
                 }
                 catch (Exception ex)
                 {
-                    OTCLog.Warning(OTCLog.Systems.General,$"Failed to restore '{item.PrefabId}': {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.General,$"Failed to restore '{item.PrefabId}' at ({item.CoordX},{item.CoordZ}): {ex.Message}\n{ex.StackTrace}");
                 }
             }
+
+            // Apply saved register balance now that counters are registered
+            ApplyRegisterBalance();
 
             // Defer slot restoration so grid items have time to initialize
             if (itemsWithSlots.Count > 0)

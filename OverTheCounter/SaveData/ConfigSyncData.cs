@@ -341,7 +341,7 @@ namespace OverTheCounter.SaveData
         private static int _checkoutSeq;
 
         /// <summary>
-        /// Publishes checkout lock state and register balance to clients.
+        /// Publishes checkout lock state and total register balance to clients.
         /// Format: "seq|lockHolder|customerId|registerBal"
         /// </summary>
         public void PublishCheckoutState(string lockHolder, string customerId)
@@ -350,7 +350,10 @@ namespace OverTheCounter.SaveData
 
             try
             {
-                float registerBal = Logic.Placement.CheckoutCounter.RegisterBalance;
+                float registerBal = 0f;
+                foreach (var counter in Logic.Placement.CheckoutCounter.AllCounters)
+                    registerBal += counter.RegisterBalance;
+
                 string payload = $"{++_checkoutSeq}|{lockHolder}|{customerId}|{registerBal.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
                 if (IsNetworkLibAvailable)
                     PublishCheckoutStateImpl(payload);
@@ -513,21 +516,17 @@ namespace OverTheCounter.SaveData
             {
                 if (string.IsNullOrEmpty(newValue))
                 {
-                    Logic.CheckoutProcess.OnLockStateChanged("", "", 0f);
+                    Logic.CheckoutProcess.OnLockStateChanged("", "");
                     return;
                 }
 
                 var parts = newValue.Split('|');
-                if (parts.Length < 4) return;
+                if (parts.Length < 3) return;
 
                 string lockHolder = parts[1];
                 string customerId = parts[2];
-                float registerBal = 0f;
-                if (parts.Length > 3)
-                    float.TryParse(parts[3], System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out registerBal);
 
-                Logic.CheckoutProcess.OnLockStateChanged(lockHolder, customerId, registerBal);
+                Logic.CheckoutProcess.OnLockStateChanged(lockHolder, customerId);
             }
             catch (Exception ex)
             {
@@ -763,9 +762,9 @@ namespace OverTheCounter.SaveData
                     {
                         Logic.CheckoutProcess.HandleCheckoutAbort();
                     }
-                    else if (action == "REGISTER_COLLECT")
+                    else if (action.StartsWith("REGISTER_COLLECT:"))
                     {
-                        Logic.CheckoutProcess.HandleRegisterCollect();
+                        Logic.CheckoutProcess.HandleRegisterCollect(action.Substring("REGISTER_COLLECT:".Length));
                     }
                     else if (action.StartsWith("SHACK_LIGHTS:"))
                     {

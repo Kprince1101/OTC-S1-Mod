@@ -154,6 +154,9 @@ namespace OverTheCounter.Logic
         /// <summary>Game hour (0-23) when the customer joined the checkout queue.</summary>
         public int CheckoutStartHour { get; set; }
 
+        /// <summary>The counter this customer is queued at, or null.</summary>
+        internal CheckoutCounterInstance AssignedCounter { get; set; }
+
         // =====================================================================
         //  Product selection (picked during browsing)
         // =====================================================================
@@ -200,11 +203,6 @@ namespace OverTheCounter.Logic
         private const float StuckCheckInterval = 2f;
         private const float StuckMovementThreshold = 0.5f;
         private const float StuckWarpTime = 8f;
-
-        // NavMesh switching (civilian ↔ employee)
-        private int _savedAgentTypeID;
-        private int _savedAreaMask;
-        private bool _usingEmployeeNavMesh;
 
         // =====================================================================
         //  Constructor + Factory
@@ -510,74 +508,6 @@ namespace OverTheCounter.Logic
             if (dir.sqrMagnitude > 0.001f)
                 GameNpc.Movement?.FaceDirection(dir, 0.3f);
             GameNpc.SetAnimationTrigger_Networked(null, "GrabItem");
-        }
-
-        // =====================================================================
-        //  NavMesh switching (civilian ↔ employee)
-        // =====================================================================
-
-        /// <summary>
-        /// Switches the NPC's NavMeshAgent to employee settings for indoor navigation.
-        /// Must be called near the building entrance where both surfaces overlap.
-        /// </summary>
-        public bool SwitchToEmployeeNavMesh()
-        {
-            if (_usingEmployeeNavMesh) return true;
-
-            if (!ManagerSpawner.TryGetEmployeeNavMeshSettings(out int empAgentType, out int empAreaMask))
-            {
-                OTCLog.Warning(OTCLog.Systems.Customer,$"{Id}: no employee NavMesh settings available");
-                return false;
-            }
-
-            try
-            {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent == null) return false;
-
-                _savedAgentTypeID = agent.agentTypeID;
-                _savedAreaMask = agent.areaMask;
-
-                agent.agentTypeID = empAgentType;
-                agent.areaMask = empAreaMask;
-
-                // Don't Warp here — caller warps to the target position on the
-                // runtime Employee NavMesh (baked and runtime are separate instances).
-
-                _usingEmployeeNavMesh = true;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Customer,$"{Id}: SwitchToEmployeeNavMesh failed: {ex.Message}");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Restores the NPC's NavMeshAgent to civilian settings for outdoor navigation.
-        /// </summary>
-        public void RestoreCivilianNavMesh()
-        {
-            if (!_usingEmployeeNavMesh) return;
-
-            try
-            {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent == null) return;
-
-                agent.agentTypeID = _savedAgentTypeID;
-                agent.areaMask = _savedAreaMask;
-
-                GameNpc.Movement.Warp(GameNpc.transform.position);
-
-                _usingEmployeeNavMesh = false;
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Customer,$"{Id}: RestoreCivilianNavMesh failed: {ex.Message}");
-                _usingEmployeeNavMesh = false;
-            }
         }
 
         /// <summary>
@@ -961,8 +891,6 @@ namespace OverTheCounter.Logic
         public void Despawn()
         {
             Active.Remove(Id);
-
-            RestoreCivilianNavMesh();
 
             if (GameNpc != null)
             {

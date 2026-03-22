@@ -4,7 +4,6 @@ using OverTheCounter.Utilities;
 using S1API.Items;
 using S1API.Money;
 using S1API.Shops;
-using S1MAPI.Gltf;
 using S1MAPI.S1;
 using S1MAPI.Utils;
 using System;
@@ -18,8 +17,6 @@ using Il2CppScheduleOne;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Building;
 using Il2CppScheduleOne.Interaction;
-using Il2CppScheduleOne.Storage;
-using Il2CppScheduleOne.Product;
 using NativeItemInstance = Il2CppScheduleOne.ItemFramework.ItemInstance;
 using NativeBuildableItemDef = Il2CppScheduleOne.ItemFramework.BuildableItemDefinition;
 using NativeStorableItemDef = Il2CppScheduleOne.ItemFramework.StorableItemDefinition;
@@ -29,8 +26,6 @@ using ScheduleOne;
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Building;
 using ScheduleOne.Interaction;
-using ScheduleOne.Storage;
-using ScheduleOne.Product;
 using NativeItemInstance = ScheduleOne.ItemFramework.ItemInstance;
 using NativeBuildableItemDef = ScheduleOne.ItemFramework.BuildableItemDefinition;
 using NativeStorableItemDef = ScheduleOne.ItemFramework.StorableItemDefinition;
@@ -41,9 +36,8 @@ namespace OverTheCounter.Logic.Placement
 {
     /// <summary>
     /// Checkout counter built via BuildableItemCreator.CloneFrom("plastictable").
-    /// Shares the vanilla BuiltItem prefab (FishNet-compatible) with a custom definition
-    /// registered in the game's Registry. After spawn, the visual is swapped to
-    /// DeskPedestal + Computer + Keyboard.
+    /// Manages counter definition, registration, spawning, and a registry of
+    /// per-counter instances. Each placed counter gets its own CheckoutCounterInstance.
     /// </summary>
     public static class CheckoutCounter
     {
@@ -54,136 +48,148 @@ namespace OverTheCounter.Logic.Placement
         private const int DefaultRotation = 0;
 
         private static BuildableItemDefinition _counterDef;
-        private static GameObject _counterInstance;
-        private static InteractableObject _checkoutInteractable;
-
-        // Cash register
-        private static GameObject _registerInstance;
-        private static InteractableObject _registerInteractable;
-        private static float _registerBalance;
-
-        // Cached icon sprite loaded from embedded resource
         private static Sprite _cachedIcon;
 
-        // Desk corner product display (replaces StorageVisualizer)
-        private static Transform _deskTransform;
-        private static readonly List<GameObject> _deskDisplayItems = new();
-        private static StorageEntity _counterStorageEntity;
+        private static readonly string[] HardwareShopNames =
+            { "Handy Hank's Hardware", "Dan's Hardware" };
 
-        // Desk display layout offsets (finalized via runtime editor)
-        private const float DisplayXBase = -0.89f;
-        private const float DisplayYBase = -0.38f;
-        private const float DisplayZPos = 0.47f;
-        private const float DisplayRotX = 90f;
-        private const float DisplayScale = 0.5f;
+        // =================================================================
+        //  Counter registry
+        // =================================================================
 
-        /// <summary>World position of the checkout counter, or null if not placed.</summary>
-        public static Vector3? CounterPosition =>
-            _counterInstance != null ? _counterInstance.transform.position : null;
+        private static readonly List<CheckoutCounterInstance> _counters = new();
 
-        /// <summary>The counter's Transform, or null if not placed.</summary>
-        public static Transform CounterTransform =>
-            _counterInstance != null ? _counterInstance.transform : null;
-
-        /// <summary>The counter's StorageEntity, or null if not placed.</summary>
-        public static StorageEntity CounterStorageEntity => _counterStorageEntity;
-
-        /// <summary>World position of the counter surface (top of desk).
-        /// Desk mesh is at 270° X rotation; desk-local Z=0.55 maps to world Y offset.</summary>
-        public static Vector3? SurfacePosition =>
-            _counterInstance != null
-                ? _counterInstance.transform.position + Vector3.up * 0.6f
-                : null;
+        /// <summary>All registered counter instances (read-only view).</summary>
+        public static IReadOnlyList<CheckoutCounterInstance> AllCounters => _counters;
 
         /// <summary>
-        /// Position where a customer should stand to face the counter.
-        /// Offset slightly in front so the NPC doesn't clip into the desk.
+        /// Registers a counter instance for the given GridItem GameObject.
+        /// Returns the existing instance if already registered.
         /// </summary>
-        public static Vector3? CustomerStandPosition
+        public static CheckoutCounterInstance RegisterInstance(GameObject go, Grid grid = null)
         {
-            get
+            var existing = GetCounterByGameObject(go);
+            if (existing != null) return existing;
+
+            var instance = new CheckoutCounterInstance(go, grid);
+            _counters.Add(instance);
+            return instance;
+        }
+
+        /// <summary>Removes a counter instance from the registry.</summary>
+        public static void UnregisterInstance(GameObject go)
+        {
+            _counters.RemoveAll(c => c.CounterGameObject == go);
+        }
+
+        /// <summary>Finds the counter instance whose checkout InteractableObject matches.</summary>
+        public static CheckoutCounterInstance GetCounterByInteractable(InteractableObject interactable)
+        {
+            if (interactable == null) return null;
+            for (int i = 0; i < _counters.Count; i++)
             {
-                if (_counterInstance == null) return null;
-                return _counterInstance.transform.position - _counterInstance.transform.forward * 1.0f;
+                if (_counters[i].CheckoutInteractable == interactable)
+                    return _counters[i];
             }
+            return null;
+        }
+
+        /// <summary>Finds the counter instance whose register InteractableObject matches.</summary>
+        public static CheckoutCounterInstance GetCounterByRegister(InteractableObject interactable)
+        {
+            if (interactable == null) return null;
+            for (int i = 0; i < _counters.Count; i++)
+            {
+                if (_counters[i].RegisterInteractable == interactable)
+                    return _counters[i];
+            }
+            return null;
+        }
+
+        /// <summary>Finds the counter instance by its GridItem GameObject.</summary>
+        public static CheckoutCounterInstance GetCounterByGameObject(GameObject go)
+        {
+            if (go == null) return null;
+            for (int i = 0; i < _counters.Count; i++)
+            {
+                if (_counters[i].CounterGameObject == go)
+                    return _counters[i];
+            }
+            return null;
+        }
+
+        /// <summary>Returns the registry index of a counter, or -1 if not found.</summary>
+        public static int GetCounterIndex(CheckoutCounterInstance counter)
+        {
+            if (counter == null) return -1;
+            return _counters.IndexOf(counter);
+        }
+
+        /// <summary>Returns the counter at the given registry index, or null if out of range.</summary>
+        public static CheckoutCounterInstance GetCounterByIndex(int index)
+        {
+            if (index < 0 || index >= _counters.Count) return null;
+            return _counters[index];
         }
 
         // =================================================================
-        //  Cash register
+        //  Cash register collection (iterates all counters)
         // =================================================================
-
-        /// <summary>The cash register's Transform, or null if not placed.</summary>
-        public static Transform RegisterTransform =>
-            _registerInstance != null ? _registerInstance.transform : null;
-
-        /// <summary>World position of the cash register, or null if not placed.</summary>
-        public static Vector3? RegisterPosition =>
-            _registerInstance != null ? _registerInstance.transform.position : null;
-
-        /// <summary>Accumulated cash balance in the register.</summary>
-        public static float RegisterBalance
-        {
-            get => _registerBalance;
-            set => _registerBalance = value;
-        }
-
-        /// <summary>Adds cash to the register balance.</summary>
-        public static void DepositToRegister(float amount) =>
-            _registerBalance += amount;
-
-        /// <summary>Withdraws all cash from register. Returns amount collected.</summary>
-        public static float CollectRegister()
-        {
-            float amount = _registerBalance;
-            _registerBalance = 0f;
-            return amount;
-        }
 
         /// <summary>
-        /// Updates register interaction prompt and handles collection.
+        /// Updates register interaction prompts and handles collection for all counters.
         /// Called from Core.OnLateUpdate when no checkout is active.
         /// Both host and client — client routes collection through host.
         /// </summary>
         public static void TryCollectRegister()
         {
-            if (_registerInteractable == null) return;
-
-            // Update prompt based on whether player is looking at register
             var im = Singleton<InteractionManager>.Instance;
-            bool isHovered = im?.HoveredInteractableObject == _registerInteractable;
+            if (im == null) return;
+            var hovered = im.HoveredInteractableObject;
 
-            if (_registerBalance > 0f && isHovered)
+            for (int i = 0; i < _counters.Count; i++)
             {
-                _registerInteractable.SetMessage($"[Q] Withdraw All - Balance: ${_registerBalance:F2}");
-                if (_registerInteractable._interactionState != InteractableObject.EInteractableState.Label)
-                    _registerInteractable.SetInteractableState(InteractableObject.EInteractableState.Label);
+                var counter = _counters[i];
+                var regInteractable = counter.RegisterInteractable;
+                if (regInteractable == null) continue;
 
-                // Q key to withdraw
-                if (Input.GetKeyDown(KeyCode.Q) && !GameInput.IsTyping)
+                bool isHovered = hovered == regInteractable;
+
+                if (counter.RegisterBalance > 0f && isHovered)
                 {
-                    if (NetworkHelper.IsHost)
+                    regInteractable.SetMessage($"[Q] Withdraw All - Balance: ${counter.RegisterBalance:F2}");
+                    if (regInteractable._interactionState != InteractableObject.EInteractableState.Label)
+                        regInteractable.SetInteractableState(InteractableObject.EInteractableState.Label);
+
+                    if (Input.GetKeyDown(KeyCode.Q) && !GameInput.IsTyping)
                     {
-                        float amount = CollectRegister();
+                        // Cash balance is local — whoever presses Q gets the money
+                        float amount = counter.RegisterBalance;
                         Money.ChangeCashBalance(amount, true, true);
-                        SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
-                    }
-                    else
-                    {
-                        // Client: ask host to collect and give money
-                        SaveData.ConfigSyncData.SendQuestAction("REGISTER_COLLECT");
+
+                        if (NetworkHelper.IsHost)
+                        {
+                            counter.CollectRegister();
+                            ConfigSyncData.Instance?.PublishCheckoutClear();
+                        }
+                        else
+                        {
+                            // Tell host to zero this register
+                            ConfigSyncData.SendQuestAction($"REGISTER_COLLECT:{i}");
+                        }
                     }
                 }
-            }
-            else if (_registerBalance > 0f)
-            {
-                _registerInteractable.SetMessage($"Balance: ${_registerBalance:F2}");
-                if (_registerInteractable._interactionState != InteractableObject.EInteractableState.Label)
-                    _registerInteractable.SetInteractableState(InteractableObject.EInteractableState.Label);
-            }
-            else
-            {
-                if (_registerInteractable._interactionState != InteractableObject.EInteractableState.Disabled)
-                    _registerInteractable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
+                else if (counter.RegisterBalance > 0f)
+                {
+                    regInteractable.SetMessage($"Balance: ${counter.RegisterBalance:F2}");
+                    if (regInteractable._interactionState != InteractableObject.EInteractableState.Label)
+                        regInteractable.SetInteractableState(InteractableObject.EInteractableState.Label);
+                }
+                else
+                {
+                    if (regInteractable._interactionState != InteractableObject.EInteractableState.Disabled)
+                        regInteractable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
+                }
             }
         }
 
@@ -252,9 +258,6 @@ namespace OverTheCounter.Logic.Placement
             }
         }
 
-        private static readonly string[] HardwareShopNames =
-            { "Handy Hank's Hardware", "Dan's Hardware" };
-
         /// <summary>
         /// Adds the checkout counter to both hardware stores.
         /// Must be called after game load completes (shops aren't available during OnSceneWasInitialized).
@@ -288,11 +291,6 @@ namespace OverTheCounter.Logic.Placement
         public static void SpawnOnGrid(Grid grid, Vector2 coord, int rotation)
         {
             if (!NetworkHelper.IsHost) return;
-            if (_counterInstance != null)
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch,"Counter already exists — skipping duplicate spawn");
-                return;
-            }
             if (_counterDef == null)
             {
                 OTCLog.Error(OTCLog.Systems.Patch,"Counter definition not registered — call Register() first");
@@ -301,7 +299,6 @@ namespace OverTheCounter.Logic.Placement
 
             try
             {
-                // Create native ItemInstance from our custom definition via Registry
                 var nativeInstance = CreateInstanceFromRegistry(CustomItemId);
                 if (nativeInstance == null)
                 {
@@ -319,7 +316,7 @@ namespace OverTheCounter.Logic.Placement
 
                 if (gridItem != null)
                 {
-                    _counterInstance = gridItem.gameObject;
+                    RegisterInstance(gridItem.gameObject, grid);
                     MelonCoroutines.Start(MonitorAndSwapVisual(gridItem.gameObject));
                 }
                 else
@@ -380,13 +377,11 @@ namespace OverTheCounter.Logic.Placement
 
         /// <summary>
         /// Monitors the GridItem for destruction (diagnostic) and swaps the visual once stable.
-        /// Logs timing if FishNet destroys it.
         /// </summary>
         private static IEnumerator MonitorAndSwapVisual(GameObject go)
         {
             float spawnTime = Time.time;
 
-            // Check every 100ms for the first 2 seconds to catch FishNet destruction
             for (int i = 0; i < 20; i++)
             {
                 yield return new WaitForSeconds(0.1f);
@@ -394,51 +389,24 @@ namespace OverTheCounter.Logic.Placement
                 {
                     float elapsed = Time.time - spawnTime;
                     OTCLog.Error(OTCLog.Systems.Patch,$"Counter DESTROYED at {elapsed:F2}s after spawn — FishNet killed it");
-                    _counterInstance = null;
+                    UnregisterInstance(go);
                     yield break;
                 }
             }
-
-            // Still alive after 2s — stable. Visual is applied by CreateGridItemPostfix.
         }
+
+        // =================================================================
+        //  Visual helpers (static utilities)
+        // =================================================================
 
         /// <summary>
         /// Disables all InteractableObject components on the counter.
-        /// Prevents E key from opening the storage UI (which also blocks
-        /// E-to-rotate during placement). Storage is not used on the checkout counter.
+        /// Prevents E key from opening the storage UI during placement.
         /// </summary>
         public static void DisableStorageInteraction(GameObject go)
         {
             foreach (var intObj in go.GetComponentsInChildren<InteractableObject>(true))
                 intObj.enabled = false;
-        }
-
-        /// <summary>The counter's InteractableObject, used to gate F-key checkout to line-of-sight.</summary>
-        public static InteractableObject CounterInteractable => _checkoutInteractable;
-
-        /// <summary>
-        /// Saves a reference to the counter's InteractableObject and sets the default message.
-        /// Vanilla storage listeners are left intact so E opens storage normally.
-        /// </summary>
-        private static void CaptureInteractable(GameObject go)
-        {
-            _checkoutInteractable = go.GetComponentInChildren<InteractableObject>(true);
-            if (_checkoutInteractable != null)
-            {
-                _checkoutInteractable.SetMessage("Storage");
-                _checkoutInteractable.MaxInteractionRange = 2f;
-            }
-        }
-
-        /// <summary>
-        /// Shows or hides checkout info on the computer screen.
-        /// Counter interaction message stays "Storage" always — the [F] prompt
-        /// is displayed on the computer screen instead of the InteractionCanvas.
-        /// </summary>
-        public static void SetCheckoutAvailable(bool available)
-        {
-            if (!available)
-                ComputerScreen.HideCheckoutInfo();
         }
 
         /// <summary>
@@ -458,7 +426,6 @@ namespace OverTheCounter.Logic.Placement
 
         /// <summary>
         /// Checks if any ancestor (up to stopAt) has a name starting with "OTC_".
-        /// Protects all children of OTC-spawned objects from being disabled.
         /// </summary>
         private static bool IsOtcChild(Transform t, Transform stopAt)
         {
@@ -472,8 +439,6 @@ namespace OverTheCounter.Logic.Placement
 
         /// <summary>
         /// Swaps the ghost placement preview from plastic table to desk shape only.
-        /// No peripherals (computer/keyboard/mouse) — just the desk mesh.
-        /// Game applies its own ghost material (white transparent) automatically.
         /// </summary>
         public static void ApplyGhostVisual(GameObject ghostGo)
         {
@@ -483,8 +448,6 @@ namespace OverTheCounter.Logic.Placement
             Meshes.Custom("ornate desk").Instantiate("OTC_GhostDesk",
                 Vector3.zero, Quaternion.Euler(270f, 0f, 0f), ghostGo.transform);
 
-            // Disable ALL colliders (including any from the new desk mesh)
-            // so the ghost doesn't push the player around during placement
             foreach (var col in ghostGo.GetComponentsInChildren<Collider>(true))
             {
                 col.enabled = false;
@@ -492,322 +455,26 @@ namespace OverTheCounter.Logic.Placement
         }
 
         /// <summary>
-        /// Replaces the plastic table mesh with ornate desk + Computer + Keyboard + Mouse.
+        /// Applies the desk visual for a registered counter instance.
+        /// Looks up the instance by GameObject and delegates to its ApplyDeskVisual method.
         /// </summary>
         public static void ApplyDeskVisual(GameObject go)
         {
-            DisableOriginalRenderers(go);
-            CaptureInteractable(go);
-
-            // Add ornate desk (freestanding, visible from all sides)
-            var ornateDesk = Meshes.Custom("ornate desk");
-            var desk = ornateDesk.Instantiate(
-                "OTC_Desk", new Vector3(0f, 0f, 0f),
-                Quaternion.Euler(270f, 0f, 0f), go.transform);
-
-            if (desk != null)
+            var counter = GetCounterByGameObject(go);
+            if (counter == null)
             {
-                // Computer (all-in-one with built-in monitor) on desk surface
-                // Desk has 270 X rotation so local Z = world up
-                var computer = Meshes.Computer.Instantiate("OTC_Computer",
-                    new Vector3(0.63f, 0.22f, 0.55f),
-                    Quaternion.Euler(0f, 0f, 75f), desk.transform);
-
-                // WorldSpace display on the computer's built-in screen
-                if (computer != null)
-                    ComputerScreen.Create(computer);
-
-                // Keyboard base (game-scale mesh, scaled to match Keys overlay)
-                var kbBase = Meshes.Keyboard.Instantiate("OTC_KeyboardBase",
-                    new Vector3(0.70f, -0.13f, 0.48f),
-                    Quaternion.Euler(0f, 0f, 75f), desk.transform);
-                if (kbBase != null) kbBase.transform.localScale = new Vector3(0.8f, 0.8f, 0.8f);
-
-                // Keys overlay (world-scale mesh, needs 0.03 scale)
-                var keys = Meshes.Custom("Keys").Instantiate("OTC_Keys",
-                    new Vector3(0.56f, -0.11f, 0.47f),
-                    Quaternion.Euler(0f, 0f, 75f), desk.transform);
-                if (keys != null) keys.transform.localScale = new Vector3(0.03f, 0.03f, 0.03f);
-
-                // Mouse pad + mouse on desk surface (right of keyboard)
-                var mousePad = Meshes.Custom("MousePad").Instantiate("OTC_MousePad",
-                    new Vector3(0.27f, -0.07f, 0.47f),
-                    Quaternion.Euler(0f, 0f, 75f), desk.transform);
-
-                var mouse = Meshes.Mouse.Instantiate("OTC_Mouse",
-                    new Vector3(0.27f, -0.07f, 0.47f),
-                    Quaternion.Euler(0f, 0f, 75f), desk.transform);
-
-                // Cash register on right side of desk (opposite from computer)
-                SpawnCashRegister(desk.transform);
-
-                _deskTransform = desk.transform;
-
-                // Disable the default StorageVisualizer so products don't render on the invisible plastic table
-                DisableStorageVisualizer(go);
-
-                // Hook storage slot changes to update our desk corner display
-                HookStorageDisplay(go);
+                OTCLog.Warning(OTCLog.Systems.Patch, "ApplyDeskVisual called for unregistered counter");
+                return;
             }
-            else
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch,"Ornate desk mesh not found — counter shows plastic table visual");
-            }
+            counter.ApplyDeskVisual();
         }
 
-        /// <summary>
-        /// Loads the CashRegister.glb embedded resource and places it on the desk.
-        /// </summary>
-        private static void SpawnCashRegister(Transform deskTransform)
-        {
-            try
-            {
-                byte[] glbData = EmbeddedResourceLoader.LoadBytes(
-                    "OverTheCounter.Resources.CashRegister.glb",
-                    Assembly.GetExecutingAssembly());
-                if (glbData == null)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Patch,"Could not load CashRegister.glb embedded resource");
-                    return;
-                }
-
-                var register = GltfLoader.LoadGlb(glbData);
-                if (register == null)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Patch,"GltfLoader returned null for CashRegister.glb");
-                    return;
-                }
-
-                register.name = "OTC_CashRegister";
-                register.transform.SetParent(deskTransform, false);
-                // Right side of desk, on surface (desk has 270 X rotation, so local Z = world up)
-                register.transform.localPosition = new Vector3(-0.74f, 0.06f, 0.49f);
-                register.transform.localRotation = Quaternion.Euler(345f, 90f, 90f);
-                register.transform.localScale = Vector3.one * 0.14f;
-
-                // Disable existing colliders, add a large one (scale=0.14 so local size must compensate)
-                foreach (var col in register.GetComponentsInChildren<Collider>(true))
-                    col.enabled = false;
-                var box = register.AddComponent<BoxCollider>();
-                box.size = new Vector3(3f, 3f, 3f);
-
-                // Set layer to match desk so game's InteractionManager raycast can hit it
-                int deskLayer = deskTransform.gameObject.layer;
-                register.layer = deskLayer;
-                foreach (var child in register.GetComponentsInChildren<Transform>(true))
-                    child.gameObject.layer = deskLayer;
-
-                // Add InteractableObject as label-only prompt (withdrawal handled via Q key)
-                var intObj = register.AddComponent<InteractableObject>();
-                intObj.SetMessage("");
-                intObj.MaxInteractionRange = 3f;
-                intObj.Priority = 10; // higher than counter Storage so register wins when aimed at
-                intObj.SetInteractableState(InteractableObject.EInteractableState.Disabled);
-                _registerInteractable = intObj;
-
-                _registerInstance = register;
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Patch,$"SpawnCashRegister failed: {ex.Message}");
-            }
-        }
+        // =================================================================
+        //  Vanilla item factories
+        // =================================================================
 
         /// <summary>
-        /// Disables the StorageVisualizer component so stored products don't render
-        /// on the invisible plastic table surface. BlockRefreshes prevents slot change
-        /// callbacks from spawning new visuals, and existing visuals are destroyed.
-        /// </summary>
-        private static void DisableStorageVisualizer(GameObject go)
-        {
-            try
-            {
-                var visualizer = go.GetComponentInChildren<StorageVisualizer>(true);
-                if (visualizer != null)
-                {
-                    // Prevent any future QueueRefresh calls from doing anything
-                    visualizer.BlockRefreshes = true;
-                    visualizer.enabled = false;
-
-                    // Destroy all existing visual StoredItem GameObjects
-                    try
-                    {
-#if IL2CPP
-                        var activeItems = visualizer.activeStoredItems;
-                        if (activeItems != null)
-                        {
-                            var enumerator = activeItems.GetEnumerator();
-                            while (enumerator.MoveNext())
-                            {
-                                var list = enumerator.Current.Value;
-                                if (list == null) continue;
-                                for (int i = list.Count - 1; i >= 0; i--)
-                                {
-                                    if (list[i] != null)
-                                        UnityEngine.Object.Destroy(list[i].gameObject);
-                                }
-                            }
-                            enumerator.Dispose();
-                            activeItems.Clear();
-                        }
-#else
-                        // activeStoredItems is protected on Mono — destroy children of ItemContainer
-                        var container = visualizer.ItemContainer ?? visualizer.transform;
-                        for (int i = container.childCount - 1; i >= 0; i--)
-                        {
-                            var child = container.GetChild(i);
-                            if (child != null)
-                                UnityEngine.Object.Destroy(child.gameObject);
-                        }
-#endif
-                    }
-                    catch (Exception ex2)
-                    {
-                        OTCLog.Warning(OTCLog.Systems.Patch,$"Clearing activeStoredItems failed: {ex2.Message}");
-                    }
-
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch,$"DisableStorageVisualizer failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Hooks into the counter's StorageEntity slot changes to update desk display visuals.
-        /// </summary>
-        private static void HookStorageDisplay(GameObject go)
-        {
-            try
-            {
-                _counterStorageEntity = go.GetComponentInChildren<StorageEntity>(true);
-                if (_counterStorageEntity?.ItemSlots == null) return;
-
-                for (int i = 0; i < _counterStorageEntity.ItemSlots.Count; i++)
-                {
-                    var slot = _counterStorageEntity.ItemSlots[i];
-                    if (slot == null) continue;
-#if IL2CPP
-                    slot.onItemDataChanged += (Il2CppSystem.Action)RefreshDeskDisplay;
-#else
-                    slot.onItemDataChanged = (Action)Delegate.Combine(
-                        slot.onItemDataChanged, new Action(RefreshDeskDisplay));
-#endif
-                }
-
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch,$"HookStorageDisplay failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Rebuilds the desk corner product display from current storage contents.
-        /// Shows small product visuals near the cash register.
-        /// </summary>
-        public static void RefreshDeskDisplay()
-        {
-            // Clear existing display items
-            foreach (var item in _deskDisplayItems)
-            {
-                if (item != null) UnityEngine.Object.Destroy(item);
-            }
-            _deskDisplayItems.Clear();
-
-            if (_deskTransform == null || _counterStorageEntity?.ItemSlots == null) return;
-
-            try
-            {
-                int displayIdx = 0;
-                for (int i = 0; i < _counterStorageEntity.ItemSlots.Count && displayIdx < 6; i++)
-                {
-                    var slot = _counterStorageEntity.ItemSlots[i];
-                    if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
-
-#if IL2CPP
-                    var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
-#else
-                    var productItem = slot.ItemInstance as ProductItemInstance;
-#endif
-                    if (productItem == null) continue;
-
-                    // Get the StoredItem prefab for visuals
-                    GameObject prefab = null;
-                    ProductDefinition prodDef = null;
-                    try
-                    {
-#if IL2CPP
-                        prodDef = productItem.Definition?.TryCast<ProductDefinition>();
-#else
-                        prodDef = productItem.Definition as ProductDefinition;
-#endif
-                        var stored = productItem.StoredItem;
-                        if (stored != null) prefab = stored.gameObject;
-                    }
-                    catch { }
-
-                    // 3×2 grid in front of the register
-                    int col = displayIdx % 3;
-                    int row = displayIdx / 3;
-                    float xPos = DisplayXBase + col * 0.11f;
-                    float yPos = DisplayYBase + row * 0.14f;
-                    float zPos = DisplayZPos;
-
-                    GameObject displayGo;
-                    if (prefab != null)
-                    {
-                        displayGo = UnityEngine.Object.Instantiate(prefab);
-                        displayGo.name = $"OTC_DeskDisplay_{displayIdx}";
-                        displayGo.transform.SetParent(_deskTransform, false);
-                        displayGo.transform.localPosition = new Vector3(xPos, yPos, zPos);
-                        displayGo.transform.localRotation = Quaternion.Euler(DisplayRotX, 0f, 0f);
-                        displayGo.transform.localScale = Vector3.one * DisplayScale;
-
-                        try
-                        {
-                            var multiVisuals = displayGo.GetComponentInChildren<MultiTypeVisualsSetter>();
-                            if (multiVisuals != null && prodDef != null)
-                                multiVisuals.ApplyVisuals(prodDef);
-                            else
-                            {
-                                var setter = displayGo.GetComponentInChildren<ProductVisualsSetter>();
-                                if (setter != null && prodDef != null)
-                                    setter.ApplyVisuals(prodDef);
-                            }
-                        }
-                        catch { }
-
-                        // Disable all colliders and interaction
-                        foreach (var c in displayGo.GetComponentsInChildren<Collider>(true))
-                            c.enabled = false;
-                    }
-                    else
-                    {
-                        // Fallback: small colored cube
-                        displayGo = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                        displayGo.name = $"OTC_DeskDisplay_{displayIdx}";
-                        displayGo.transform.SetParent(_deskTransform, false);
-                        displayGo.transform.localPosition = new Vector3(xPos, yPos, zPos);
-                        displayGo.transform.localScale = new Vector3(0.08f, 0.08f, 0.08f);
-                        var col2 = displayGo.GetComponent<Collider>();
-                        if (col2 != null) col2.enabled = false;
-                    }
-
-                    _deskDisplayItems.Add(displayGo);
-                    displayIdx++;
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch,$"RefreshDeskDisplay failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Spawns a vanilla game item (e.g. displaycabinet) on an OTC grid from save data.
-        /// Creates a native ItemInstance from the game Registry and places it via BuildManager.
+        /// Spawns a vanilla game item on an OTC grid from save data.
         /// </summary>
         public static void SpawnVanillaGridItem(Grid grid, string itemId, Vector2 coord, int rotation)
         {
@@ -857,14 +524,12 @@ namespace OverTheCounter.Logic.Placement
             }
             return storableDef.GetDefaultInstance(1);
 #else
-            // Use reflection to avoid Registry.GetItem overload ambiguity on Mono
             var registryType = typeof(NativeItemInstance).Assembly.GetType("ScheduleOne.Registry");
             if (registryType == null)
             {
                 OTCLog.Error(OTCLog.Systems.Patch,"Registry type not found");
                 return null;
             }
-            // Filter to non-generic overload to avoid AmbiguousMatchException
             MethodInfo getItem = null;
             foreach (var m in registryType.GetMethods(BindingFlags.Public | BindingFlags.Static))
             {
@@ -897,31 +562,16 @@ namespace OverTheCounter.Logic.Placement
 #endif
         }
 
-        /// <summary>
-        /// Updates the tracked counter instance. Called from CreateGridItemPostfix
-        /// when the player re-places the counter after picking it up.
-        /// </summary>
-        public static void SetInstance(GameObject go)
-        {
-            _counterInstance = go;
-        }
+        // =================================================================
+        //  Cleanup
+        // =================================================================
 
-        /// <summary>Clears counter reference for scene cleanup.</summary>
+        /// <summary>Cleans up all counter instances and resets registry. Definition persists.</summary>
         public static void Cleanup()
         {
-            _counterInstance = null;
-            _checkoutInteractable = null;
-            _registerInstance = null;
-            _registerInteractable = null;
-            _registerBalance = 0f;
-            _deskTransform = null;
-            _counterStorageEntity = null;
-            foreach (var item in _deskDisplayItems)
-            {
-                if (item != null) UnityEngine.Object.Destroy(item);
-            }
-            _deskDisplayItems.Clear();
-            ComputerScreen.Cleanup();
+            foreach (var counter in _counters)
+                counter.Cleanup();
+            _counters.Clear();
             // Don't clear _counterDef — it persists across scene loads
         }
     }

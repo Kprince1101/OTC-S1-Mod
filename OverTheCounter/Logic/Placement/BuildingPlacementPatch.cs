@@ -414,7 +414,7 @@ namespace OverTheCounter.Logic.Placement
                     && __instance is BuildableItem bi
                     && bi.gameObject.transform.Find("OTC_Desk") == null)
                 {
-                    CheckoutCounter.SetInstance(bi.gameObject);
+                    CheckoutCounter.RegisterInstance(bi.gameObject, grid);
                     MelonCoroutines.Start(ApplyVisualDeferred(bi.gameObject));
                 }
 #else
@@ -426,7 +426,7 @@ namespace OverTheCounter.Logic.Placement
                     var clientGo = goProp?.GetValue(__instance) as GameObject;
                     if (clientGo != null && clientGo.transform.Find("OTC_Desk") == null)
                     {
-                        CheckoutCounter.SetInstance(clientGo);
+                        CheckoutCounter.RegisterInstance(clientGo, grid);
                         MelonCoroutines.Start(ApplyVisualDeferred(clientGo));
                     }
                 }
@@ -625,7 +625,9 @@ namespace OverTheCounter.Logic.Placement
 
                 if (itemId == "otc_checkout_counter" && go != null)
                 {
-                    CheckoutCounter.SetInstance(go);
+                    var gridProp = __result.GetType().GetProperty("OwnerGrid");
+                    var counterGrid = gridProp?.GetValue(__result) as Grid;
+                    CheckoutCounter.RegisterInstance(go, counterGrid);
                     MelonCoroutines.Start(ApplyVisualDeferred(go));
                 }
             }

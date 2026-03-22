@@ -126,6 +126,7 @@ namespace OverTheCounter.Logic
 
         // State
         private readonly CustomerInstance _customer;
+        private readonly CheckoutCounterInstance _counter;
         private State _state;
         private float _stateTimer;
         private float _totalPlacedPrice;
@@ -153,14 +154,19 @@ namespace OverTheCounter.Logic
         // Client lock request state
         private static bool _pendingLockRequest;
         private static string _pendingCustomerId;
+        private static CheckoutCounterInstance _pendingCounter;
         private static float _lockRequestTime;
 
         /// <summary>Current checkout lock holder Steam ID (updated from SyncVar on client).</summary>
         internal static string CurrentLockHolder { get; private set; } = "";
 
-        private CheckoutProcess(CustomerInstance customer)
+        /// <summary>The counter this checkout is operating on.</summary>
+        public CheckoutCounterInstance Counter => _counter;
+
+        private CheckoutProcess(CustomerInstance customer, CheckoutCounterInstance counter)
         {
             _customer = customer;
+            _counter = counter;
         }
 
         // =================================================================
@@ -187,11 +193,14 @@ namespace OverTheCounter.Logic
 
             if (Instance != null) return;
 
-            // Player must be looking at the checkout counter
-            var counterInteractable = CheckoutCounter.CounterInteractable;
-            if (counterInteractable == null) return;
+            // Player must be looking at a checkout counter
             var hovered = Singleton<InteractionManager>.Instance?.HoveredInteractableObject;
-            if (hovered != counterInteractable) return;
+            if (hovered == null) return;
+            var counter = CheckoutCounter.GetCounterByInteractable(hovered);
+            if (counter == null) return;
+
+            // Check if another player is already using this counter
+            if (!string.IsNullOrEmpty(counter.LockHolder)) return;
 
             // Find a customer waiting at checkout
             CustomerInstance waitingCustomer = null;
@@ -208,7 +217,7 @@ namespace OverTheCounter.Logic
             if (NetworkHelper.IsHost)
             {
                 // Host path: start directly, publish lock
-                StartCheckoutDirect(waitingCustomer);
+                StartCheckoutDirect(waitingCustomer, counter);
             }
             else
             {
@@ -217,6 +226,7 @@ namespace OverTheCounter.Logic
                     return;
                 _pendingLockRequest = true;
                 _pendingCustomerId = waitingCustomer.Id;
+                _pendingCounter = counter;
                 _lockRequestTime = Time.time;
                 string myId = SaveData.ConfigSyncData.LocalPlayerId;
                 SaveData.ConfigSyncData.SendQuestAction($"CHECKOUT_REQUEST:{waitingCustomer.Id}:{myId}");
@@ -227,16 +237,16 @@ namespace OverTheCounter.Logic
         /// Host: creates the checkout instance and publishes the lock.
         /// Also used when granting a client's lock request.
         /// </summary>
-        private static void StartCheckoutDirect(CustomerInstance customer)
+        private static void StartCheckoutDirect(CustomerInstance customer, CheckoutCounterInstance counter)
         {
-            var process = new CheckoutProcess(customer);
+            var process = new CheckoutProcess(customer, counter);
             Instance = process;
 
             process.SearchAndShowAvailable();
 
             process._state = State.CameraPanning;
             process._stateTimer = Time.time;
-            ComputerScreen.HideCheckoutInfo();
+            counter.Screen?.HideCheckoutInfo();
             process.LockPlayerInput();
 
             // Publish lock with host's Steam ID (or "host" fallback if LocalPlayerId isn't ready).
@@ -264,6 +274,7 @@ namespace OverTheCounter.Logic
                 OTCLog.Warning(OTCLog.Systems.Customer,"Checkout lock request timed out");
                 _pendingLockRequest = false;
                 _pendingCustomerId = null;
+                _pendingCounter = null;
                 return;
             }
 
@@ -274,16 +285,19 @@ namespace OverTheCounter.Logic
                 _pendingLockRequest = false;
 
                 // Find the customer
-                if (!string.IsNullOrEmpty(_pendingCustomerId) &&
+                if (!string.IsNullOrEmpty(_pendingCustomerId) && _pendingCounter != null &&
                     CustomerInstance.Active.TryGetValue(_pendingCustomerId, out var customer))
                 {
+                    var counter = _pendingCounter;
                     _pendingCustomerId = null;
-                    StartCheckoutDirect(customer);
+                    _pendingCounter = null;
+                    StartCheckoutDirect(customer, counter);
                 }
                 else
                 {
                     OTCLog.Warning(OTCLog.Systems.Customer,$"Lock granted but customer {_pendingCustomerId} not found");
                     _pendingCustomerId = null;
+                    _pendingCounter = null;
                 }
             }
             else if (!string.IsNullOrEmpty(CurrentLockHolder) && CurrentLockHolder != myId)
@@ -291,6 +305,7 @@ namespace OverTheCounter.Logic
                 // Someone else got the lock
                 _pendingLockRequest = false;
                 _pendingCustomerId = null;
+                _pendingCounter = null;
             }
         }
 
@@ -302,10 +317,9 @@ namespace OverTheCounter.Logic
         /// Called on client when the checkout SyncVar changes.
         /// Updates local lock state and register balance.
         /// </summary>
-        public static void OnLockStateChanged(string lockHolder, string customerId, float registerBal)
+        public static void OnLockStateChanged(string lockHolder, string customerId)
         {
             CurrentLockHolder = lockHolder ?? "";
-            CheckoutCounter.RegisterBalance = registerBal;
 
             // If lock cleared and we had an active checkout that already completed locally, clean up
             if (string.IsNullOrEmpty(lockHolder) && Instance != null &&
@@ -365,9 +379,6 @@ namespace OverTheCounter.Logic
                     System.Globalization.CultureInfo.InvariantCulture, out float totalPrice))
                     return;
 
-                // Deposit to register
-                CheckoutCounter.DepositToRegister(totalPrice);
-
                 // Record sales if product data provided
                 if (parts.Length > 2 && !string.IsNullOrEmpty(parts[2]))
                 {
@@ -388,9 +399,15 @@ namespace OverTheCounter.Logic
                     }
                 }
 
-                // Signal customer to exit
+                // Signal customer to exit and deposit to their assigned counter's register
                 if (CustomerInstance.Active.TryGetValue(custId, out var customer))
                 {
+                    var counter = customer.AssignedCounter;
+                    if (counter != null)
+                        counter.DepositToRegister(totalPrice);
+                    else if (CheckoutCounter.AllCounters.Count > 0)
+                        CheckoutCounter.AllCounters[0].DepositToRegister(totalPrice);
+
                     customer.CheckoutArrivalTime = 0f;
                     customer.ArrivedAtDestination = false;
                     customer.State = CustomerState.ExitingStore;
@@ -422,18 +439,19 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Host: handles REGISTER_COLLECT action from client.
+        /// Zeroes the register — the client already gave itself the cash locally.
+        /// Format: "counterIndex" (registry index of the counter to collect from).
         /// </summary>
-        public static void HandleRegisterCollect()
+        public static void HandleRegisterCollect(string payload)
         {
             if (!NetworkHelper.IsHost) return;
 
-            float amount = CheckoutCounter.CollectRegister();
-            if (amount > 0f)
-            {
-                // Give money to host (shared business — all money goes to same pool)
-                S1API.Money.Money.ChangeCashBalance(amount, true, true);
-                SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
-            }
+            if (!int.TryParse(payload, out int counterIdx)) return;
+            var counter = CheckoutCounter.GetCounterByIndex(counterIdx);
+            if (counter == null || counter.RegisterBalance <= 0f) return;
+
+            counter.CollectRegister();
+            SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
         }
 
         /// <summary>
@@ -474,7 +492,7 @@ namespace OverTheCounter.Logic
                     Instance._placedProductKeys.Remove($"{product.ProductId}:{product.PackagingId}");
 
                     // Update POS display
-                    ComputerScreen.ShowBudtendingStatus(
+                    Instance._counter.Screen?.ShowBudtendingStatus(
                         Instance._customer.SelectedProducts,
                         Instance._missingProductKeys,
                         Instance._placedProductKeys,
@@ -492,7 +510,7 @@ namespace OverTheCounter.Logic
             if (_state == State.Paused) return;
 
             // Safety: customer or counter gone → abort
-            if (!_customer.IsValid || CheckoutCounter.CounterTransform == null)
+            if (!_customer.IsValid || _counter?.CounterTransform == null)
             {
                 Abort();
                 return;
@@ -668,8 +686,8 @@ namespace OverTheCounter.Logic
 
         private void SpawnProductOnCounter(AvailableProduct product)
         {
-            var counterTransform = CheckoutCounter.CounterTransform;
-            var surfacePos = CheckoutCounter.SurfacePosition.Value;
+            var counterTransform = _counter.CounterTransform;
+            var surfacePos = _counter.SurfacePosition.Value;
 
             // 2×2 grid layout on counter
             int idx = _counterProducts.Count;
@@ -756,7 +774,7 @@ namespace OverTheCounter.Logic
             UnlockPlayerInput();
 
             // Show POS with current status (resume prompt)
-            ComputerScreen.ShowBudtendingStatus(
+            _counter.Screen?.ShowBudtendingStatus(
                 _customer.SelectedProducts,
                 _missingProductKeys,
                 _placedProductKeys,
@@ -765,18 +783,16 @@ namespace OverTheCounter.Logic
 
         private void ResumeFromPause()
         {
-            // Player must be looking at the counter
-            var counterInteractable = CheckoutCounter.CounterInteractable;
-            if (counterInteractable == null) return;
+            // Player must be looking at this counter
             var hovered = Singleton<InteractionManager>.Instance?.HoveredInteractableObject;
-            if (hovered != counterInteractable) return;
+            if (hovered != _counter?.CheckoutInteractable) return;
 
             // Re-scan sources for remaining unfulfilled items
             SearchAndShowAvailable();
 
             _state = State.CameraPanning;
             _stateTimer = Time.time;
-            ComputerScreen.HideCheckoutInfo();
+            _counter.Screen?.HideCheckoutInfo();
             LockPlayerInput();
         }
 
@@ -815,7 +831,7 @@ namespace OverTheCounter.Logic
             var customerTransform = _customer.GameNpc?.transform;
             var targetPos = customerTransform != null
                 ? customerTransform.position + Vector3.up * 0.8f
-                : CheckoutCounter.SurfacePosition ?? Vector3.zero;
+                : _counter?.SurfacePosition ?? Vector3.zero;
 
             // Capture starting state of each product
             var startPositions = new Vector3[_counterProducts.Count];
@@ -876,11 +892,11 @@ namespace OverTheCounter.Logic
 
         private IEnumerator CashFlyCoroutine()
         {
-            var registerPos = CheckoutCounter.RegisterPosition;
+            var registerPos = _counter?.RegisterPosition;
             if (_paymentObject == null || !registerPos.HasValue)
             {
                 // No register — fall back to direct deposit
-                CheckoutCounter.DepositToRegister(_totalPlacedPrice);
+                _counter?.DepositToRegister(_totalPlacedPrice);
                 if (_paymentObject != null)
                     UnityEngine.Object.Destroy(_paymentObject);
                 _paymentObject = null;
@@ -916,7 +932,7 @@ namespace OverTheCounter.Logic
             }
 
             // Deposit and cleanup
-            CheckoutCounter.DepositToRegister(_totalPlacedPrice);
+            _counter?.DepositToRegister(_totalPlacedPrice);
             PlayCashSound();
 
             if (_paymentObject != null)
@@ -958,12 +974,7 @@ namespace OverTheCounter.Logic
                 }
 
                 // Get counter storage
-                StorageEntity counterStorage = null;
-                if (CheckoutCounter.CounterTransform != null)
-                {
-                    counterStorage = CheckoutCounter.CounterTransform
-                        .GetComponentInChildren<StorageEntity>(true);
-                }
+                StorageEntity counterStorage = _counter?.CounterStorageEntity;
 
                 foreach (var selection in requested)
                 {
@@ -1238,7 +1249,7 @@ namespace OverTheCounter.Logic
                 }
 
                 // 2. Try checkout counter storage
-                var counterStorage = CheckoutCounter.CounterStorageEntity;
+                var counterStorage = Instance?._counter?.CounterStorageEntity;
                 if (counterStorage != null && counterStorage.CanItemFit(productInstance, 1))
                 {
                     counterStorage.InsertItem(productInstance, true);
@@ -1301,7 +1312,7 @@ namespace OverTheCounter.Logic
 
         private void UpdatePOSForBudtending()
         {
-            ComputerScreen.ShowBudtendingStatus(
+            _counter.Screen?.ShowBudtendingStatus(
                 _customer.SelectedProducts,
                 _missingProductKeys,
                 _placedProductKeys,
@@ -1314,8 +1325,8 @@ namespace OverTheCounter.Logic
 
         private void SpawnPaymentObject()
         {
-            var surfacePos = CheckoutCounter.SurfacePosition.Value;
-            var counterTransform = CheckoutCounter.CounterTransform;
+            var surfacePos = _counter.SurfacePosition.Value;
+            var counterTransform = _counter.CounterTransform;
 
             // Position on the left side of desk
             var payPos = surfacePos - counterTransform.right * 0.3f;
@@ -1429,8 +1440,8 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var counterTransform = CheckoutCounter.CounterTransform;
-                var counterPos = CheckoutCounter.CounterPosition.Value;
+                var counterTransform = _counter.CounterTransform;
+                var counterPos = _counter.CounterPosition.Value;
 
                 // Look-at point shifted toward computer (positive right = computer side)
                 var surfaceCenter = counterPos + Vector3.up * CamUpOffset + counterTransform.right * CamRightOffset;
@@ -1478,13 +1489,13 @@ namespace OverTheCounter.Logic
         //  Audio
         // =================================================================
 
-        private static void PlayScanSound()
+        private void PlayScanSound()
         {
             try
             {
                 if (_scanClip == null) CacheScanClip();
                 if (_scanClip == null) return;
-                var counterPos = CheckoutCounter.CounterPosition;
+                var counterPos = _counter?.CounterPosition;
                 if (!counterPos.HasValue) return;
                 AudioSource.PlayClipAtPoint(_scanClip, counterPos.Value, 0.5f);
             }
@@ -1671,6 +1682,7 @@ namespace OverTheCounter.Logic
             Instance = null;
             _pendingLockRequest = false;
             _pendingCustomerId = null;
+            _pendingCounter = null;
         }
 
         /// <summary>

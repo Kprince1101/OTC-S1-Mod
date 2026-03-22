@@ -351,7 +351,8 @@ namespace OverTheCounter
                     CheckoutProcess.TryPickupCounterProduct();
 
                 // Periodic POS display refresh (2-second throttle for availability updates)
-                Logic.Placement.ComputerScreen.Tick();
+                foreach (var counter in Logic.Placement.CheckoutCounter.AllCounters)
+                    counter.Screen?.Tick();
 
                 // Update drifter quest timers on client (OnTimeTick is host-only)
                 _drifterManager?.ClientQuestTick();

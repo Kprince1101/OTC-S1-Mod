@@ -374,6 +374,7 @@ namespace OverTheCounter.Logic
 
                 var customer = npc.gameObject.AddComponent<Customer>();
                 customer.SetCustData(customerData);
+                customer.enabled = false; // Prevent Start() from subscribing to onMinutePass
                 return customer;
             }
             catch (Exception ex)
@@ -408,6 +409,7 @@ namespace OverTheCounter.Logic
                 npc.gameObject.SetActive(false);
                 var customer = npc.gameObject.AddComponent<Customer>();
                 customer.SetCustData(customerData);
+                customer.enabled = false; // Prevent Start() from subscribing to onMinutePass
                 npc.gameObject.SetActive(true);
 
                 IsolateCustomerComponent(npc);
@@ -437,16 +439,10 @@ namespace OverTheCounter.Logic
                 Customer.UnlockedCustomers.Remove(customer);
                 Customer.LockedCustomers.Remove(customer);
 
-                try
-                {
-                    var tm = NetworkSingleton<ScheduleOne.GameTime.TimeManager>.Instance;
-                    if (tm != null)
-                    {
-                        RemoveActionsForTarget(tm.onMinutePass, customer);
-                        RemoveActionsForTarget(tm.onTick, customer);
-                    }
-                }
-                catch { }
+                // Disable so Start() never fires (prevents onMinutePass/onTick subscription).
+                // We intentionally do NOT call RemoveActionsForTarget — directly mutating the
+                // ActionList corrupts StaggeredInvoke iteration (uses live list[i], not snapshot).
+                customer.enabled = false;
 
                 customer.SetTimeSinceLastDealOffered(0);
                 customer.SetTimeSinceLastDealCompleted(0);
@@ -463,34 +459,6 @@ namespace OverTheCounter.Logic
         public static Customer GetCustomerComponent(NPC npc) =>
             npc?.gameObject?.GetComponent<Customer>();
 
-        /// <summary>
-        /// Removes all Action delegates from an ActionList whose target matches
-        /// the given object. Used to unsubscribe NPCs from TimeManager events.
-        /// </summary>
-#if IL2CPP
-        private static void RemoveActionsForTarget(Il2Cpp.ActionList actionList, GameSystem.Object target)
-#else
-        private static void RemoveActionsForTarget(ActionList actionList, object target)
-#endif
-        {
-            if (actionList == null) return;
-            try
-            {
-                var list = actionList.GetInvocationList();
-                if (list == null) return;
-
-                for (int i = list.Count - 1; i >= 0; i--)
-                {
-                    var action = list[i];
-                    if (action?.Target == target)
-                        list.RemoveAt(i);
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Drifter,$"RemoveActionsForTarget failed: {ex.Message}");
-            }
-        }
 
         // =====================================================================
         //  Appearance generation

@@ -34,8 +34,6 @@ namespace OverTheCounter.Logic
         private const int SpawnEndHour = 20;
         private const float DespawnDistance = 30f;
 
-        // Checkout queue (ordered customer IDs waiting at counter)
-        private readonly List<string> _checkoutQueue = new();
         private const float QueueSpacing = 1.0f;
 
         // Client-side adoption
@@ -95,8 +93,11 @@ namespace OverTheCounter.Logic
         private void OnDayPass()
         {
             _lastSpawnSlot = -1;
-            _checkoutQueue.Clear();
-            ComputerScreen.HideCheckoutInfo();
+            foreach (var counter in CheckoutCounter.AllCounters)
+            {
+                counter.Queue.Clear();
+                counter.Screen?.HideCheckoutInfo();
+            }
 
             foreach (var customer in CustomerInstance.Active.Values.ToList())
             {
@@ -178,13 +179,8 @@ namespace OverTheCounter.Logic
                         {
                             customer.ArrivedAtDestination = false;
                             customer.State = CustomerState.EnteringStore;
-                            if (!customer.SwitchToEmployeeNavMesh())
-                                OTCLog.Warning(OTCLog.Systems.Customer, $"{customer.Id} failed to switch to employee NavMesh");
-                            // Warp to ramp base (runtime Employee mesh), then walk up
-                            // through door to room center. Target must be >2m inside the
-                            // wall (X=-161.4) so the 2m walk tolerance doesn't trigger
-                            // before the NPC enters the building.
-                            customer.WarpTo(CustomerSpawnPoints.RampBottomPosition);
+                            // NavigationBuilder auto-intercepts SetDestination — routes NPC
+                            // through doorway via A* pathfinding, no manual NavMesh switching needed.
                             customer.WalkTo(CustomerSpawnPoints.RoomCenterPosition);
                         }
                         break;
@@ -227,7 +223,7 @@ namespace OverTheCounter.Logic
                                 // No storage — exit the store
                                 customer.State = CustomerState.ExitingStore;
                                 customer.SetAvoidancePriority(10);
-                                customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                                customer.WalkTo(CustomerSpawnPoints.StairApproachPosition);
                             }
                         }
                         break;
@@ -246,25 +242,26 @@ namespace OverTheCounter.Logic
                                 customer.ShowDisappointed();
                                 customer.State = CustomerState.ExitingStore;
                                 customer.SetAvoidancePriority(10);
-                                customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                                customer.WalkTo(CustomerSpawnPoints.StairApproachPosition);
                                 break;
                             }
 
-                            var counterPos = CheckoutCounter.CustomerStandPosition;
-                            if (counterPos.HasValue)
+                            var bestCounter = FindBestCounter(customer.Position ?? Vector3.zero);
+                            if (bestCounter != null)
                             {
                                 customer.State = CustomerState.CheckingOut;
                                 customer.CheckoutStartHour = TimeManager.CurrentTime / 100;
-                                _checkoutQueue.Add(customer.Id);
-                                int queueIdx = _checkoutQueue.Count - 1;
-                                customer.WalkTo(GetQueuePosition(queueIdx));
+                                customer.AssignedCounter = bestCounter;
+                                bestCounter.Queue.Add(customer.Id);
+                                int queueIdx = bestCounter.Queue.Count - 1;
+                                customer.WalkTo(GetQueuePosition(bestCounter, queueIdx));
                             }
                             else
                             {
                                 // No counter — exit the store
                                 customer.State = CustomerState.ExitingStore;
                                 customer.SetAvoidancePriority(10);
-                                customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                                customer.WalkTo(CustomerSpawnPoints.StairApproachPosition);
                             }
                         }
                         break;
@@ -280,21 +277,23 @@ namespace OverTheCounter.Logic
                             {
                                 customer.State = CustomerState.ExitingStore;
                                 customer.SetAvoidancePriority(10);
-                                customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                                customer.WalkTo(CustomerSpawnPoints.StairApproachPosition);
                                 break;
                             }
                         }
 
                         // Only the front-of-queue customer is eligible for checkout
-                        if (_checkoutQueue.Count > 0 && _checkoutQueue[0] == customer.Id)
+                        var assignedCounter = customer.AssignedCounter;
+                        if (assignedCounter != null && assignedCounter.Queue.Count > 0 &&
+                            assignedCounter.Queue[0] == customer.Id)
                         {
                             if (customer.ArrivedAtDestination && customer.CheckoutArrivalTime == 0f)
                             {
                                 customer.CheckoutArrivalTime = Time.time;
-                                var counterPos1 = CheckoutCounter.CounterPosition;
+                                var counterPos1 = assignedCounter.CounterPosition;
                                 if (counterPos1.HasValue)
                                     customer.FaceAndAnimate(counterPos1.Value);
-                                ComputerScreen.ShowCheckoutInfo(customer.SelectedProducts);
+                                assignedCounter.Screen?.ShowCheckoutInfo(customer.SelectedProducts);
                             }
                         }
                         break;
@@ -304,9 +303,7 @@ namespace OverTheCounter.Logic
                         {
                             customer.ArrivedAtDestination = false;
                             customer.State = CustomerState.LeavingStore;
-                            // Warp to ground in front of stairs, then restore civilian mesh
-                            customer.WarpTo(CustomerSpawnPoints.StairApproachPosition);
-                            customer.RestoreCivilianNavMesh();
+                            // NavigationBuilder routes NPC out through doorway automatically
                             customer.SetAvoidancePriority(50);
                             customer.WalkTo(customer.SpawnPoint.Position);
                         }
@@ -329,15 +326,18 @@ namespace OverTheCounter.Logic
                     _statePublishNeeded = true;
             }
 
-            // Clean up stale queue entries (customers that left CheckingOut or became invalid)
-            int queueBefore = _checkoutQueue.Count;
-            _checkoutQueue.RemoveAll(id =>
+            // Clean up stale queue entries across all counters
+            foreach (var counter in CheckoutCounter.AllCounters)
             {
-                if (!CustomerInstance.Active.TryGetValue(id, out var c)) return true;
-                return c.State != CustomerState.CheckingOut;
-            });
-            if (_checkoutQueue.Count != queueBefore)
-                AdvanceQueue();
+                int queueBefore = counter.Queue.Count;
+                counter.Queue.RemoveAll(id =>
+                {
+                    if (!CustomerInstance.Active.TryGetValue(id, out var c)) return true;
+                    return c.State != CustomerState.CheckingOut;
+                });
+                if (counter.Queue.Count != queueBefore)
+                    AdvanceQueue(counter);
+            }
 
             if (toRemove.Count > 0)
             {
@@ -365,31 +365,31 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Returns the world position for a given queue index (0 = front, at counter).
-        /// Each subsequent customer stands further from the counter.
+        /// Returns the world position for a given queue index at a specific counter.
+        /// Index 0 = front (at counter), subsequent customers stand further back.
         /// </summary>
-        private static Vector3 GetQueuePosition(int queueIndex)
+        private static Vector3 GetQueuePosition(CheckoutCounterInstance counter, int queueIndex)
         {
-            var counterPos = CheckoutCounter.CounterPosition.Value;
-            var counterForward = CheckoutCounter.CounterTransform.forward;
+            var counterPos = counter.CounterPosition.Value;
+            var counterForward = counter.CounterTransform.forward;
             return counterPos - counterForward * (1.0f + queueIndex * QueueSpacing);
         }
 
         /// <summary>
-        /// Re-walks all queued customers to their updated positions after the front changes.
+        /// Re-walks all queued customers to their updated positions at the given counter.
         /// </summary>
-        private void AdvanceQueue()
+        private void AdvanceQueue(CheckoutCounterInstance counter)
         {
-            for (int i = 0; i < _checkoutQueue.Count; i++)
+            for (int i = 0; i < counter.Queue.Count; i++)
             {
-                if (!CustomerInstance.Active.TryGetValue(_checkoutQueue[i], out var c)) continue;
+                if (!CustomerInstance.Active.TryGetValue(counter.Queue[i], out var c)) continue;
                 c.ArrivedAtDestination = false;
                 c.CheckoutArrivalTime = 0f;
-                c.WalkTo(GetQueuePosition(i));
+                c.WalkTo(GetQueuePosition(counter, i));
             }
 
-            if (_checkoutQueue.Count == 0)
-                ComputerScreen.HideCheckoutInfo();
+            if (counter.Queue.Count == 0)
+                counter.Screen?.HideCheckoutInfo();
         }
 
         /// <summary>
@@ -398,10 +398,53 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void OnCheckoutComplete(string customerId)
         {
-            _checkoutQueue.Remove(customerId);
-            ComputerScreen.HideCheckoutInfo();
-            AdvanceQueue();
+            // Find which counter this customer was at
+            foreach (var counter in CheckoutCounter.AllCounters)
+            {
+                if (counter.Queue.Remove(customerId))
+                {
+                    counter.Screen?.HideCheckoutInfo();
+                    AdvanceQueue(counter);
+                    break;
+                }
+            }
+
+            // Clear assigned counter on the customer instance
+            if (CustomerInstance.Active.TryGetValue(customerId, out var customer))
+                customer.AssignedCounter = null;
+
             _statePublishNeeded = true;
+        }
+
+        /// <summary>
+        /// Finds the counter with the shortest queue. Random tiebreak if equal.
+        /// Returns null if no counters are registered.
+        /// </summary>
+        private static CheckoutCounterInstance FindBestCounter(Vector3 position)
+        {
+            var counters = CheckoutCounter.AllCounters;
+            if (counters.Count == 0) return null;
+            if (counters.Count == 1) return counters[0];
+
+            int minQueue = int.MaxValue;
+            var candidates = new List<CheckoutCounterInstance>();
+
+            for (int i = 0; i < counters.Count; i++)
+            {
+                int qLen = counters[i].Queue.Count;
+                if (qLen < minQueue)
+                {
+                    minQueue = qLen;
+                    candidates.Clear();
+                    candidates.Add(counters[i]);
+                }
+                else if (qLen == minQueue)
+                {
+                    candidates.Add(counters[i]);
+                }
+            }
+
+            return candidates[UnityEngine.Random.Range(0, candidates.Count)];
         }
 
         // =====================================================================
@@ -422,8 +465,8 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Serializes all active customers for SyncVar transmission.
         /// Format: "id:seed:spawnIdx:state:netObjId;id2:seed2:..."
-        /// CheckingOut customers with products get an extra field:
-        /// "id:seed:spawnIdx:state:netObjId:prodId,pkgId,qty,name,price,quality~prod2~..."
+        /// CheckingOut customers include counter index and optional products:
+        /// "id:seed:spawnIdx:state:netObjId:counterIdx:prodId,pkgId,qty,name,price,quality~prod2~..."
         /// </summary>
         public string SerializeCustomerState()
         {
@@ -436,13 +479,19 @@ namespace OverTheCounter.Logic
                 int spawnIdx = CustomerSpawnPoints.GetSpawnPointIndex(c.SpawnPoint);
                 string entry = $"{c.Id}:{c.SpawnSeed}:{spawnIdx}:{(int)c.State}:{c.NetworkObjectId}";
 
-                // Include selected products for CheckingOut customers so client can show POS
-                if (c.State == CustomerState.CheckingOut && c.SelectedProducts.Count > 0)
+                // Include counter index and products for CheckingOut customers
+                if (c.State == CustomerState.CheckingOut)
                 {
-                    var prods = new List<string>();
-                    foreach (var p in c.SelectedProducts)
-                        prods.Add($"{p.ProductId},{p.PackagingId},{p.Quantity},{p.ProductName},{p.Price.ToString(System.Globalization.CultureInfo.InvariantCulture)},{p.QualityLevel}");
-                    entry += ":" + string.Join("~", prods);
+                    int counterIdx = CheckoutCounter.GetCounterIndex(c.AssignedCounter);
+                    entry += $":{counterIdx}";
+
+                    if (c.SelectedProducts.Count > 0)
+                    {
+                        var prods = new List<string>();
+                        foreach (var p in c.SelectedProducts)
+                            prods.Add($"{p.ProductId},{p.PackagingId},{p.Quantity},{p.ProductName},{p.Price.ToString(System.Globalization.CultureInfo.InvariantCulture)},{p.QualityLevel}");
+                        entry += ":" + string.Join("~", prods);
+                    }
                 }
 
                 parts.Add(entry);
@@ -481,15 +530,22 @@ namespace OverTheCounter.Logic
                     var state = (CustomerState)stateInt;
                     hostCustomers.Add(customerId);
 
-                    // Parse optional product data (6th field for CheckingOut customers)
+                    // Parse counter index (6th field) and products (7th field) for CheckingOut
+                    int counterIdx = -1;
                     List<CustomerInstance.SelectedProduct> products = null;
-                    if (parts.Length > 5 && !string.IsNullOrEmpty(parts[5]))
-                        products = ParseSelectedProducts(parts[5]);
+                    if (parts.Length > 5)
+                    {
+                        int.TryParse(parts[5], out counterIdx);
+                        if (parts.Length > 6 && !string.IsNullOrEmpty(parts[6]))
+                            products = ParseSelectedProducts(parts[6]);
+                    }
 
-                    // Already tracked — update state and products
+                    // Already tracked — update state, counter assignment, and products
                     if (CustomerInstance.Active.TryGetValue(customerId, out var existing))
                     {
                         existing.State = state;
+                        if (counterIdx >= 0)
+                            existing.AssignedCounter = CheckoutCounter.GetCounterByIndex(counterIdx);
                         if (products != null && products.Count > 0 && existing.SelectedProducts.Count == 0)
                         {
                             existing.SelectedProducts.Clear();
@@ -513,8 +569,13 @@ namespace OverTheCounter.Logic
                     if (npc != null)
                     {
                         var adopted = CustomerInstance.Adopt(customerId, seed, spawnPoint, state, npc);
-                        if (adopted != null && products != null)
-                            adopted.SelectedProducts.AddRange(products);
+                        if (adopted != null)
+                        {
+                            if (counterIdx >= 0)
+                                adopted.AssignedCounter = CheckoutCounter.GetCounterByIndex(counterIdx);
+                            if (products != null)
+                                adopted.SelectedProducts.AddRange(products);
+                        }
                     }
                     else
                     {
@@ -552,29 +613,37 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// On client, shows POS checkout info for the front-of-queue customer if they have products.
+        /// On client, shows POS checkout info for each counter's front-of-queue customer.
         /// </summary>
         private void UpdateClientPOS()
         {
             if (NetworkHelper.IsHost) return;
-            if (_checkoutQueue.Count == 0)
-            {
-                // Rebuild queue from state: find all CheckingOut customers
-                foreach (var c in CustomerInstance.Active.Values)
-                {
-                    if (c.State == CustomerState.CheckingOut && !_checkoutQueue.Contains(c.Id))
-                        _checkoutQueue.Add(c.Id);
-                }
-            }
 
-            if (_checkoutQueue.Count > 0 &&
-                CustomerInstance.Active.TryGetValue(_checkoutQueue[0], out var front) &&
-                front.State == CustomerState.CheckingOut &&
-                front.SelectedProducts.Count > 0 &&
-                front.CheckoutArrivalTime == 0f) // not yet shown
+            foreach (var counter in CheckoutCounter.AllCounters)
             {
-                front.CheckoutArrivalTime = Time.time;
-                ComputerScreen.ShowCheckoutInfo(front.SelectedProducts);
+                // Rebuild queue from state if empty
+                if (counter.Queue.Count == 0)
+                {
+                    foreach (var c in CustomerInstance.Active.Values)
+                    {
+                        if (c.State == CustomerState.CheckingOut &&
+                            c.AssignedCounter == counter &&
+                            !counter.Queue.Contains(c.Id))
+                        {
+                            counter.Queue.Add(c.Id);
+                        }
+                    }
+                }
+
+                if (counter.Queue.Count > 0 &&
+                    CustomerInstance.Active.TryGetValue(counter.Queue[0], out var front) &&
+                    front.State == CustomerState.CheckingOut &&
+                    front.SelectedProducts.Count > 0 &&
+                    front.CheckoutArrivalTime == 0f)
+                {
+                    front.CheckoutArrivalTime = Time.time;
+                    counter.Screen?.ShowCheckoutInfo(front.SelectedProducts);
+                }
             }
         }
 
@@ -696,7 +765,6 @@ namespace OverTheCounter.Logic
             TimeManager.OnTick -= OnTimeTick;
             TimeManager.OnDayPass -= OnDayPass;
 
-            _checkoutQueue.Clear();
             _pendingAdoptions.Clear();
             CustomerInstance.CleanupAll();
             Instance = null;
