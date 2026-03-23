@@ -2,6 +2,7 @@ using HarmonyLib;
 using MelonLoader;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
+using S1API.Money;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -204,6 +205,18 @@ namespace OverTheCounter.Logic.Placement
                     }
                     else
                         OTCLog.Warning(OTCLog.Systems.Patch,"OnClosestIntersectionChanged not found — ghost will lock to one tile");
+                }
+
+                // Patch BuildableItem.PickupItem — refund desk upgrade cost on counter pickup
+                var buildableItemType = FindGameType("ScheduleOne.EntityFramework.BuildableItem");
+                if (buildableItemType != null)
+                {
+                    var pickupItem = AccessTools.Method(buildableItemType, "PickupItem");
+                    if (pickupItem != null)
+                    {
+                        harmony.Patch(pickupItem,
+                            prefix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(PickupItemPrefix)));
+                    }
                 }
             }
             catch (Exception ex)
@@ -439,6 +452,45 @@ namespace OverTheCounter.Logic.Placement
             }
 
             return false;
+        }
+
+        // =====================================================================
+        //  Pickup refund (refunds desk upgrade cost when counter is picked up)
+        // =====================================================================
+
+        private static void PickupItemPrefix(object __instance)
+        {
+            try
+            {
+                GameObject go = null;
+#if IL2CPP
+                go = (__instance as BuildableItem)?.gameObject;
+#else
+                var goProp = __instance?.GetType().GetProperty("gameObject");
+                go = goProp?.GetValue(__instance) as GameObject;
+#endif
+                if (go == null) return;
+
+                var counter = CheckoutCounter.GetCounterByGameObject(go);
+                if (counter == null) return;
+
+                var style = DeskStyle.Get(counter.CurrentDeskStyleId);
+                float refund = style.Cost - DeskStyle.Default.Cost;
+                if (refund > 0f)
+                {
+                    Money.CreateOnlineTransaction(
+                        "Desk Refund", refund, 1f,
+                        $"Picked up counter with {style.DisplayName}");
+                    OTCLog.Msg(OTCLog.Systems.Patch, $"Refunded ${refund:F0} for {style.DisplayName} on counter pickup");
+                }
+
+                counter.Cleanup();
+                CheckoutCounter.UnregisterInstance(go);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"PickupItemPrefix failed: {ex.Message}");
+            }
         }
 
         /// <summary>

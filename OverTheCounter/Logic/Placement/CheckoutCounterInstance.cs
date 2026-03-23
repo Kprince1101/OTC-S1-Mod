@@ -95,6 +95,10 @@ namespace OverTheCounter.Logic.Placement
 
         // Desk display
         private Transform _deskTransform;
+        private GameObject _peripheralAnchor;
+
+        /// <summary>The desk mesh transform (for debug editor positioning).</summary>
+        public Transform DeskTransform => _deskTransform;
         private readonly List<GameObject> _deskDisplayItems = new();
         private StorageEntity _counterStorageEntity;
 
@@ -103,6 +107,9 @@ namespace OverTheCounter.Logic.Placement
 
         /// <summary>POS screen instance for this counter.</summary>
         public ComputerScreen Screen { get; private set; }
+
+        /// <summary>Current desk style ID for this counter.</summary>
+        public string CurrentDeskStyleId { get; internal set; } = DeskStyle.Default.Id;
 
         /// <summary>Customer IDs queued at this counter (index 0 = front).</summary>
         internal List<string> Queue { get; } = new();
@@ -144,59 +151,130 @@ namespace OverTheCounter.Logic.Placement
         // =================================================================
 
         /// <summary>
-        /// Replaces the plastic table mesh with ornate desk + Computer + Keyboard + Mouse.
+        /// Replaces the plastic table mesh with the current desk style + peripherals.
         /// </summary>
         public void ApplyDeskVisual()
         {
-            var go = CounterGameObject;
-            CheckoutCounter.DisableOriginalRenderers(go);
+            CheckoutCounter.DisableOriginalRenderers(CounterGameObject);
             CaptureInteractable();
 
-            var ornateDesk = Meshes.Custom("ornate desk");
-            var desk = ornateDesk.Instantiate(
-                "OTC_Desk", new Vector3(0f, 0f, 0f),
-                Quaternion.Euler(270f, 0f, 0f), go.transform);
+            var style = DeskStyle.Get(CurrentDeskStyleId);
+            SwapDesk(style);
+        }
+
+        /// <summary>
+        /// Swaps the desk to a different style. Destroys old desk and re-creates
+        /// all visuals with the new mesh.
+        /// </summary>
+        public void SwapDesk(DeskStyle style)
+        {
+            if (style == null) return;
+
+            // Tear down existing desk visuals
+            Screen?.Cleanup();
+            Screen = null;
+            foreach (var item in _deskDisplayItems)
+            {
+                if (item != null) UnityEngine.Object.Destroy(item);
+            }
+            _deskDisplayItems.Clear();
+            if (_registerInstance != null)
+            {
+                UnityEngine.Object.Destroy(_registerInstance);
+                _registerInstance = null;
+            }
+            _registerInteractable = null;
+            if (_peripheralAnchor != null)
+            {
+                UnityEngine.Object.Destroy(_peripheralAnchor);
+                _peripheralAnchor = null;
+            }
+            if (_deskTransform != null)
+            {
+                UnityEngine.Object.Destroy(_deskTransform.gameObject);
+                _deskTransform = null;
+            }
+
+            CurrentDeskStyleId = style.Id;
+
+            // Rebuild with new style
+            var go = CounterGameObject;
+            if (go == null) return;
+
+            GameObject desk = null;
+            try
+            {
+                MeshVault.MeshVaultAPI.Init();
+                var worldPos = go.transform.TransformPoint(Vector3.zero);
+                var worldRot = go.transform.rotation * style.SpawnRotation;
+                desk = MeshVault.MeshVaultAPI.Spawn(style.MeshVaultId, worldPos, worldRot, parent: go.transform);
+                if (desk != null)
+                {
+                    desk.name = "OTC_Desk";
+                    desk.transform.localPosition = style.SpawnOffset;
+                    desk.transform.localRotation = style.SpawnRotation;
+                    desk.transform.localScale = Vector3.one;
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"MeshVault spawn failed for '{style.MeshVaultId}': {ex.Message}");
+            }
 
             if (desk != null)
             {
-                var computer = Meshes.Computer.Instantiate("OTC_Computer",
-                    new Vector3(0.63f, 0.22f, 0.55f),
-                    Quaternion.Euler(0f, 0f, 75f), desk.transform);
-
-                if (computer != null)
-                {
-                    Screen = new ComputerScreen(this);
-                    Screen.Create(computer);
-                }
-
-                var kbBase = Meshes.Keyboard.Instantiate("OTC_KeyboardBase",
-                    new Vector3(0.70f, -0.13f, 0.48f),
-                    Quaternion.Euler(0f, 0f, 75f), desk.transform);
-                if (kbBase != null) kbBase.transform.localScale = new Vector3(0.8f, 0.8f, 0.8f);
-
-                var keys = Meshes.Custom("Keys").Instantiate("OTC_Keys",
-                    new Vector3(0.56f, -0.11f, 0.47f),
-                    Quaternion.Euler(0f, 0f, 75f), desk.transform);
-                if (keys != null) keys.transform.localScale = new Vector3(0.03f, 0.03f, 0.03f);
-
-                Meshes.Custom("MousePad").Instantiate("OTC_MousePad",
-                    new Vector3(0.27f, -0.07f, 0.47f),
-                    Quaternion.Euler(0f, 0f, 75f), desk.transform);
-
-                Meshes.Mouse.Instantiate("OTC_Mouse",
-                    new Vector3(0.27f, -0.07f, 0.47f),
-                    Quaternion.Euler(0f, 0f, 75f), desk.transform);
-
-                SpawnCashRegister(desk.transform);
                 _deskTransform = desk.transform;
 
+                // Peripheral anchor: fixed 270° X rotation so existing peripheral
+                // positions (tuned in that coordinate space) stay correct regardless
+                // of the desk style's SpawnRotation.
+                _peripheralAnchor = new GameObject("OTC_PeripheralAnchor");
+                _peripheralAnchor.transform.SetParent(go.transform, false);
+                _peripheralAnchor.transform.localPosition = Vector3.zero;
+                _peripheralAnchor.transform.localRotation = Quaternion.Euler(270f, 0f, 0f);
+
+                SpawnPeripherals(_peripheralAnchor.transform);
+                SpawnCashRegister(_peripheralAnchor.transform);
                 DisableStorageVisualizer();
                 HookStorageDisplay();
             }
             else
             {
-                OTCLog.Warning(OTCLog.Systems.Patch, "Ornate desk mesh not found — counter shows plastic table visual");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Desk mesh not found for style '{style.Id}'");
             }
+        }
+
+        /// <summary>
+        /// Spawns computer, keyboard, mouse, mousepad on the desk.
+        /// </summary>
+        private void SpawnPeripherals(Transform deskTransform)
+        {
+            var computer = Meshes.Computer.Instantiate("OTC_Computer",
+                new Vector3(0.63f, 0.22f, 0.55f),
+                Quaternion.Euler(0f, 0f, 75f), deskTransform);
+            if (computer != null)
+            {
+                Screen = new ComputerScreen(this);
+                Screen.Create(computer);
+            }
+
+            var kbBase = Meshes.Keyboard.Instantiate("OTC_KeyboardBase",
+                new Vector3(0.70f, -0.13f, 0.48f),
+                Quaternion.Euler(0f, 0f, 75f), deskTransform);
+            if (kbBase != null) kbBase.transform.localScale = new Vector3(0.8f, 0.8f, 0.8f);
+
+            var keys = Meshes.Custom("Keys").Instantiate("OTC_Keys",
+                new Vector3(0.56f, -0.11f, 0.47f),
+                Quaternion.Euler(0f, 0f, 75f), deskTransform);
+            if (keys != null) keys.transform.localScale = new Vector3(0.03f, 0.03f, 0.03f);
+
+            Meshes.Custom("MousePad").Instantiate("OTC_MousePad",
+                new Vector3(0.27f, -0.07f, 0.47f),
+                Quaternion.Euler(0f, 0f, 75f), deskTransform);
+
+            Meshes.Mouse.Instantiate("OTC_Mouse",
+                new Vector3(0.27f, -0.07f, 0.47f),
+                Quaternion.Euler(0f, 0f, 75f), deskTransform);
         }
 
         private void CaptureInteractable()
@@ -449,6 +527,7 @@ namespace OverTheCounter.Logic.Placement
             _registerInstance = null;
             _registerInteractable = null;
             _registerBalance = 0f;
+            _peripheralAnchor = null;
             _deskTransform = null;
             _counterStorageEntity = null;
             foreach (var item in _deskDisplayItems)

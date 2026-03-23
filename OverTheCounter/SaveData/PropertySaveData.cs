@@ -76,6 +76,7 @@ namespace OverTheCounter.SaveData
         public float CoordZ;
         public int Rotation;
         public string[] Slots;
+        public string DeskStyleId;
     }
 
     /// <summary>
@@ -343,7 +344,19 @@ namespace OverTheCounter.SaveData
                 {
                     var coord = new Vector2(item.CoordX, item.CoordZ);
                     if (item.PrefabId == "otc_checkout_counter")
+                    {
                         CheckoutCounter.SpawnOnGrid(grid, coord, item.Rotation);
+
+                        // Apply saved desk style before the deferred visual fires (next frame)
+                        if (!string.IsNullOrEmpty(item.DeskStyleId))
+                        {
+                            var counter = CheckoutCounter.AllCounters.Count > 0
+                                ? CheckoutCounter.AllCounters[CheckoutCounter.AllCounters.Count - 1]
+                                : null;
+                            if (counter != null)
+                                counter.CurrentDeskStyleId = item.DeskStyleId;
+                        }
+                    }
                     else
                         CheckoutCounter.SpawnVanillaGridItem(grid, item.PrefabId, coord, item.Rotation);
 
@@ -510,6 +523,14 @@ namespace OverTheCounter.SaveData
                         // Snapshot slots if it's a storage entity
                         if (item is PlaceableStorageEntity storage)
                             placed.Slots = SnapshotEntitySlots(storage);
+
+                        // Capture desk style for checkout counters
+                        if (placed.PrefabId == "otc_checkout_counter")
+                        {
+                            var counter = CheckoutCounter.GetCounterByGameObject(item.gameObject);
+                            if (counter != null)
+                                placed.DeskStyleId = counter.CurrentDeskStyleId;
+                        }
 
                         _placedItems.Add(placed);
                     }

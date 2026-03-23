@@ -115,6 +115,9 @@ namespace OverTheCounter.Logic.Placement
                     LocalPosition = new(-1.5f, -FoundationHeight + 0.37f, RoomDepth + 1.0f), EulerAngles = Vector3.zero },
         };
 
+        /// <summary>
+        /// Builds and positions the dispensary with placement grid and interior layout.
+        /// </summary>
         public static void SpawnBuilding()
         {
             if (_initialized) return;
@@ -130,6 +133,7 @@ namespace OverTheCounter.Logic.Placement
             }
         }
 
+        /// <summary>Destroys the building and resets state for scene reload.</summary>
         public static void Cleanup()
         {
             _navigationBuilder?.Remove();
@@ -180,6 +184,10 @@ namespace OverTheCounter.Logic.Placement
             finally { _suppressSwitchSync = false; }
         }
 
+        /// <summary>
+        /// Clears terrain trees and scene objects around the dispensary.
+        /// Deferred to onLoadComplete so terrain data is fully populated.
+        /// </summary>
         public static void ClearTerrain()
         {
             if (_building == null) return;
@@ -244,6 +252,9 @@ namespace OverTheCounter.Logic.Placement
                 go.SetActive(true);
         }
 
+        /// <summary>
+        /// Spawns networked objects (doors, switches) after FishNet is initialized.
+        /// </summary>
         public static void SpawnNetworkedObjects()
         {
             if (_building == null) return;
@@ -414,6 +425,7 @@ namespace OverTheCounter.Logic.Placement
             }
         }
 
+        /// <summary>Unlocks the dispensary door at runtime.</summary>
         public static void UnlockDoor()
         {
             var doorCtrl = Door;
@@ -437,6 +449,7 @@ namespace OverTheCounter.Logic.Placement
             }
         }
 
+        /// <summary>Restores switch states from save data after load.</summary>
         public static void ApplySavedState(bool lightsOn, bool storeOpen)
         {
             if (_lightSwitch != null)
@@ -472,6 +485,7 @@ namespace OverTheCounter.Logic.Placement
             finally { _suppressSwitchSync = false; }
         }
 
+        /// <summary>Updates the open/close switch interaction messages based on current state.</summary>
         public static void UpdateOpenCloseSwitchMessages()
         {
             if (_openCloseSwitch == null) return;
@@ -600,6 +614,21 @@ namespace OverTheCounter.Logic.Placement
 
             // Spawn furniture from mesh database
             FurnitureManager.SpawnFurniture("Dispensary", _building.transform, Furniture);
+
+            // Static decals
+            try
+            {
+                MeshVault.MeshVaultAPI.Init();
+                // Estonia flag — lobby wall (local: -0.16, 1.45, 13.15)
+                var estoniaPos = _building.transform.TransformPoint(new Vector3(-0.16f, 1.45f, 13.15f));
+                var estoniaRot = _building.transform.rotation * Quaternion.Euler(0f, 90f, 0f);
+                MeshVault.MeshVaultAPI.SpawnDecal("otc_Estonia", estoniaPos, estoniaRot,
+                    scale: new Vector3(2f, 2f, 1f));
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Furniture, $"Dispensary decal spawn failed: {ex.Message}");
+            }
 
             _navigationBuilder.Build();
 

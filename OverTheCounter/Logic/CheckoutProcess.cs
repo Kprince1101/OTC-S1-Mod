@@ -160,6 +160,15 @@ namespace OverTheCounter.Logic
         /// <summary>Current checkout lock holder Steam ID (updated from SyncVar on client).</summary>
         internal static string CurrentLockHolder { get; private set; } = "";
 
+        // Upgrade mode state
+        private static CheckoutCounterInstance _upgradeCounter;
+        private static bool _upgradeActive;
+        private static string _originalStyleId;
+        private static string _previewStyleId;
+
+        /// <summary>Whether the desk upgrade screen is currently open.</summary>
+        public static bool IsUpgradeActive => _upgradeActive;
+
         /// <summary>The counter this checkout is operating on.</summary>
         public CheckoutCounterInstance Counter => _counter;
 
@@ -181,7 +190,29 @@ namespace OverTheCounter.Logic
         public static void TryStartCheckout()
         {
             if (GameInput.IsTyping) return;
+
+            // ESC or Tab closes upgrade mode
+            if (_upgradeActive && (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.Tab)))
+            {
+                CloseUpgradeMode();
+                return;
+            }
+
+            // Poll clicks on upgrade rows (manual raycast — EventSystem unreliable on world-space canvas)
+            if (_upgradeActive && Input.GetMouseButtonDown(0))
+            {
+                _upgradeCounter?.Screen?.TickUpgradeInput();
+            }
+
             if (!Input.GetKeyDown(KeyCode.R)) return;
+
+            // Close upgrade mode if already open
+            if (_upgradeActive)
+            {
+                CloseUpgradeMode();
+                return;
+            }
+
             if (_pendingLockRequest) return; // client waiting for lock grant
 
             // Resume from pause
@@ -212,24 +243,194 @@ namespace OverTheCounter.Logic
                     break;
                 }
             }
-            if (waitingCustomer == null) return;
 
-            if (NetworkHelper.IsHost)
+            if (waitingCustomer != null)
             {
-                // Host path: start directly, publish lock
-                StartCheckoutDirect(waitingCustomer, counter);
+                // Customer waiting → start checkout
+                if (NetworkHelper.IsHost)
+                {
+                    StartCheckoutDirect(waitingCustomer, counter);
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(CurrentLockHolder))
+                        return;
+                    _pendingLockRequest = true;
+                    _pendingCustomerId = waitingCustomer.Id;
+                    _pendingCounter = counter;
+                    _lockRequestTime = Time.time;
+                    string myId = SaveData.ConfigSyncData.LocalPlayerId;
+                    SaveData.ConfigSyncData.SendQuestAction($"CHECKOUT_REQUEST:{waitingCustomer.Id}:{myId}");
+                }
             }
             else
             {
-                // Client path: request lock from host
-                if (!string.IsNullOrEmpty(CurrentLockHolder))
+                // No customer waiting → open upgrade screen
+                OpenUpgradeMode(counter);
+            }
+        }
+
+        // =================================================================
+        //  Desk upgrade mode
+        // =================================================================
+
+        private static void OpenUpgradeMode(CheckoutCounterInstance counter)
+        {
+            if (counter?.Screen == null) return;
+            _upgradeCounter = counter;
+            _upgradeActive = true;
+            _originalStyleId = counter.CurrentDeskStyleId;
+            _previewStyleId = null;
+
+            counter.Screen.OnUpgradeSelected = OnUpgradeStyleSelected;
+            counter.Screen.ShowUpgradeScreen();
+
+            // Pan camera to screen and lock input (same pattern as checkout LockPlayerInput)
+            try
+            {
+                ApplyUpgradeCamera(counter);
+
+                var cam = PlayerSingleton<PlayerCamera>.Instance;
+                cam.AddActiveUIElement("OTC_DeskUpgrade");
+                cam.FreeMouse();
+
+                PlayerSingleton<PlayerMovement>.Instance.CanMove = false;
+                Singleton<HUD>.Instance.canvas.enabled = false;
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"OpenUpgradeMode UI setup failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Positions the camera for the upgrade screen.
+        /// </summary>
+        private static void ApplyUpgradeCamera(CheckoutCounterInstance counter, float lerpTime = CameraLerpTime)
+        {
+            var counterTransform = counter.CounterTransform;
+            var counterPos = counter.CounterPosition.Value;
+
+            var surfaceCenter = counterPos + Vector3.up * CamUpOffset + counterTransform.right * CamRightOffset;
+            var overheadPos = surfaceCenter + Vector3.up * CamHeight + counterTransform.forward * CamForwardOffset;
+            var lookDir = (surfaceCenter - overheadPos).normalized;
+            var overheadRot = Quaternion.LookRotation(lookDir);
+
+            var cam = PlayerSingleton<PlayerCamera>.Instance;
+            cam.OverrideTransform(overheadPos, overheadRot, lerpTime, false);
+            cam.OverrideFOV(CamFOV, lerpTime);
+        }
+
+        private static void CloseUpgradeMode()
+        {
+            // Revert preview if we didn't purchase
+            if (_previewStyleId != null && _upgradeCounter != null)
+            {
+                var revertStyle = DeskStyle.Get(_originalStyleId);
+                _upgradeCounter.SwapDesk(revertStyle);
+            }
+
+            if (_upgradeCounter?.Screen != null)
+            {
+                _upgradeCounter.Screen.HideUpgradeScreen();
+                _upgradeCounter.Screen.OnUpgradeSelected = null;
+            }
+            _upgradeCounter = null;
+            _upgradeActive = false;
+            _previewStyleId = null;
+            _originalStyleId = null;
+
+            // Restore camera, cursor, and movement
+            try
+            {
+                var cam = PlayerSingleton<PlayerCamera>.Instance;
+                cam.RemoveActiveUIElement("OTC_DeskUpgrade");
+                cam.StopFOVOverride(CameraLerpTime);
+                cam.StopTransformOverride(CameraLerpTime, true, true);
+                cam.LockMouse();
+
+                PlayerSingleton<PlayerMovement>.Instance.CanMove = true;
+                Singleton<HUD>.Instance.canvas.enabled = true;
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"CloseUpgradeMode UI teardown failed: {ex.Message}");
+            }
+        }
+
+        private static void OnUpgradeStyleSelected(string styleId)
+        {
+            if (_upgradeCounter == null || string.IsNullOrEmpty(styleId)) return;
+
+            var style = DeskStyle.Get(styleId);
+            if (style.Id == _upgradeCounter.CurrentDeskStyleId) return; // already this style
+
+            if (styleId == _previewStyleId)
+            {
+                // Second click — purchase the previewed style
+                float currentCost = DeskStyle.Get(_originalStyleId).Cost;
+                float costDiff = style.Cost - currentCost;
+
+                try
+                {
+                    var moneyMgr = NetworkSingleton<NativeMoneyManager>.Instance;
+                    if (costDiff > 0f)
+                    {
+                        // Upgrading — charge the difference
+                        if (moneyMgr == null || moneyMgr.onlineBalance < costDiff)
+                        {
+                            OTCLog.Msg(OTCLog.Systems.Patch, $"Insufficient bank balance for desk upgrade (need ${costDiff:F0})");
+                            _upgradeCounter?.Screen?.FlashInsufficientFunds(styleId);
+                            return;
+                        }
+                        moneyMgr.CreateOnlineTransaction(
+                            "Desk Upgrade", -costDiff, 1f,
+                            $"Upgraded to {style.DisplayName}");
+                    }
+                    else if (costDiff < 0f && moneyMgr != null)
+                    {
+                        // Downgrading — refund the difference
+                        moneyMgr.CreateOnlineTransaction(
+                            "Desk Refund", -costDiff, 1f,
+                            $"Downgraded to {style.DisplayName}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Error(OTCLog.Systems.Patch, $"Desk upgrade payment failed: {ex.Message}");
                     return;
-                _pendingLockRequest = true;
-                _pendingCustomerId = waitingCustomer.Id;
-                _pendingCounter = counter;
-                _lockRequestTime = Time.time;
-                string myId = SaveData.ConfigSyncData.LocalPlayerId;
-                SaveData.ConfigSyncData.SendQuestAction($"CHECKOUT_REQUEST:{waitingCustomer.Id}:{myId}");
+                }
+
+                // Commit: desk is already swapped from preview, just update IDs
+                _upgradeCounter.CurrentDeskStyleId = style.Id;
+                _originalStyleId = style.Id;
+                _previewStyleId = null;
+
+                // Refresh UI to show CURRENT
+                if (_upgradeCounter.Screen != null)
+                {
+                    _upgradeCounter.Screen.OnUpgradeSelected = OnUpgradeStyleSelected;
+                    _upgradeCounter.Screen.ShowUpgradeScreen();
+                }
+            }
+            else
+            {
+                // First click — preview the style
+                _previewStyleId = styleId;
+                _upgradeCounter.SwapDesk(style);
+                // SwapDesk sets CurrentDeskStyleId — revert it so save data stays correct
+                _upgradeCounter.CurrentDeskStyleId = _originalStyleId;
+
+                // Re-wire the new Screen (SwapDesk recreates it)
+                if (_upgradeCounter.Screen != null)
+                {
+                    _upgradeCounter.Screen.OnUpgradeSelected = OnUpgradeStyleSelected;
+                    _upgradeCounter.Screen.ShowUpgradeScreen(_previewStyleId);
+                }
+
+                // Reposition camera for the new desk
+                try { ApplyUpgradeCamera(_upgradeCounter); }
+                catch { }
             }
         }
 

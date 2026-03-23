@@ -184,6 +184,36 @@ namespace OverTheCounter
             if (sceneName == "Main")
             {
                 MeshVault.MeshVaultAPI.Init();
+
+                // Register OTC custom meshes (e.g. resized dealership desk)
+                try
+                {
+                    var meshBytes = S1MAPI.Utils.EmbeddedResourceLoader.LoadBytes(
+                        "OverTheCounter.Resources.MeshDatabase.json",
+                        System.Reflection.Assembly.GetExecutingAssembly());
+                    if (meshBytes != null)
+                        MeshVault.MeshVaultAPI.RegisterMeshes(
+                            "otc", "OverTheCounter",
+                            System.Text.Encoding.UTF8.GetString(meshBytes));
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch, $"OTC mesh registration failed: {ex.Message}");
+                }
+
+                // Register OTC decals from embedded resources
+                try
+                {
+                    MeshVault.MeshVaultAPI.RegisterDecals(
+                        "otc", "OverTheCounter",
+                        System.Reflection.Assembly.GetExecutingAssembly(),
+                        "OverTheCounter.Resources.MeshVaultDecals.");
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch, $"OTC decal registration failed: {ex.Message}");
+                }
+
                 Logic.Placement.CheckoutCounter.Register();
                 Logic.Placement.WestvilleShack.SpawnBuilding();
                 Logic.Placement.Dispensary.SpawnBuilding();
@@ -216,7 +246,7 @@ namespace OverTheCounter
                     _loadHooked = true;
                 }
                 else
-                    MelonLoader.MelonLogger.Warning("[OTC] LoadManager.Instance is null — cannot hook onLoadComplete");
+                    OTCLog.Warning(OTCLog.Systems.Patch, "LoadManager.Instance is null — cannot hook onLoadComplete");
 #else
                 var lm = ScheduleOne.Persistence.LoadManager.Instance;
                 if (lm != null)
@@ -226,12 +256,12 @@ namespace OverTheCounter
                     _loadHooked = true;
                 }
                 else
-                    MelonLoader.MelonLogger.Warning("[OTC] LoadManager.Instance is null — cannot hook onLoadComplete");
+                    OTCLog.Warning(OTCLog.Systems.Patch, "LoadManager.Instance is null — cannot hook onLoadComplete");
 #endif
             }
             catch (Exception ex)
             {
-                MelonLoader.MelonLogger.Error($"[OTC] Failed to hook LoadManager.onLoadComplete: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"Failed to hook LoadManager.onLoadComplete: {ex.Message}");
             }
         }
 

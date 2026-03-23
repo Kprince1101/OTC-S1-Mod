@@ -720,6 +720,19 @@ namespace OverTheCounter.Logic.Placement
             // Exterior furniture via MeshVault
             FurnitureManager.SpawnFurniture("WestvilleShack", _building.transform, Furniture);
 
+            // Static decals
+            try
+            {
+                MeshVault.MeshVaultAPI.Init();
+                var barsBanPos = _building.transform.TransformPoint(new Vector3(3.69f, 2.08f, -0.11f));
+                var barsBanRot = _building.transform.rotation * Quaternion.Euler(0f, 0f, 0f);
+                MeshVault.MeshVaultAPI.SpawnDecal("otc_BarsBan", barsBanPos, barsBanRot);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Furniture, $"WestvilleShack decal spawn failed: {ex.Message}");
+            }
+
             _navigationBuilder.Build();
         }
     }
