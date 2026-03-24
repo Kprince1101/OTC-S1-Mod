@@ -56,11 +56,6 @@ namespace OverTheCounter.Logic.Placement
         // changes local position which FishNet sends to clients instead of world position).
         private static readonly System.Collections.Generic.List<GameObject> _networkedObjects = new();
         internal static DoorController Door;
-        internal static bool SuppressDoorSync;
-        // Cached by DoorSyncPatch postfix — avoids reading Door.IsOpen which may
-        // not reflect the new state by the time PublishGameState serializes it.
-        internal static bool CachedDoorIsOpen;
-        internal static EDoorSide CachedDoorSide;
 
         /// <summary>Whether the store is currently open for customers. Toggled by the open/close switch.</summary>
         public static bool IsStoreOpen { get; private set; }
@@ -68,11 +63,24 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Whether the interior lights are currently on.</summary>
         public static bool AreLightsOn { get; private set; }
 
-        /// <summary>Current door open/closed state — written by DoorSyncPatch, read by game state serializer.</summary>
-        internal static bool IsDoorOpen => CachedDoorIsOpen;
+        /// <summary>Current door open/closed state — read directly from DoorController.</summary>
+        internal static bool IsDoorOpen => Door != null && Door.IsOpen;
 
         /// <summary>Last door side that triggered open — serialized as int (Interior=0, Exterior=1).</summary>
-        internal static int DoorSideValue => (int)CachedDoorSide;
+        internal static int DoorSideValue
+        {
+            get
+            {
+                if (Door == null) return 0;
+#if IL2CPP
+                return (int)Door.lastOpenSide;
+#else
+                var fi = Door.GetType().GetField("lastOpenSide",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                return fi != null ? (int)fi.GetValue(Door) : 0;
+#endif
+            }
+        }
 
         /// <summary>The placement grid inside the shack. Set after build.</summary>
         internal static Grid ShackGrid { get; private set; }
@@ -127,9 +135,6 @@ namespace OverTheCounter.Logic.Placement
             FurnitureManager.CleanupFurniture("WestvilleShack");
             _initialized = false;
             _suppressSwitchSync = false;
-            SuppressDoorSync = false;
-            CachedDoorIsOpen = false;
-            CachedDoorSide = default;
         }
 
         /// <summary>
@@ -423,7 +428,6 @@ namespace OverTheCounter.Logic.Placement
                 bool purchased = PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) ?? false;
                 doorCtrl.PlayerAccess = purchased ? EDoorAccess.Open : EDoorAccess.Locked;
 
-                // Door sync is handled by DoorSyncPatch — a Harmony postfix on DoorController.SetIsOpen(bool, EDoorSide).
                 // Let NPCs open the door naturally when they approach
                 try
                 {
@@ -525,29 +529,12 @@ namespace OverTheCounter.Logic.Placement
         }
 
         /// <summary>
-        /// Called on host when a client toggles the shack door.
-        /// Applies the state to the host's networked door. DoorSyncPatch detects this
-        /// via Harmony postfix and publishes the updated game state to all clients.
-        /// </summary>
-        internal static void ApplyRemoteDoorToggle(bool isOpen, int sideValue)
-        {
-            if (Door == null) return;
-            Door.SetIsOpen(isOpen, (EDoorSide)sideValue);
-        }
-
-        /// <summary>
-        /// Applies door open/close state received from host sync.
-        /// SuppressDoorSync prevents the DoorSyncPatch postfix from re-broadcasting.
+        /// Applies door open/close state received from host sync (save/load restore).
         /// </summary>
         internal static void SetDoorFromSync(bool isOpen, int sideValue)
         {
-            SuppressDoorSync = true;
-            try
-            {
-                if (Door != null)
-                    Door.SetIsOpen(isOpen, (EDoorSide)sideValue);
-            }
-            finally { SuppressDoorSync = false; }
+            if (Door != null)
+                Door.SetIsOpen(isOpen, (EDoorSide)sideValue);
         }
 
 

@@ -51,7 +51,7 @@ namespace OverTheCounter
             NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
             StackSizePatch.Apply(HarmonyInstance);
             ConfigSyncPatch.TryApply(HarmonyInstance);
-            DoorSyncPatch.TryApply(HarmonyInstance);
+
             ManagerClipboardPatch.Apply(HarmonyInstance);
             try
             {

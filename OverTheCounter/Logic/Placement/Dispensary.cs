@@ -62,9 +62,6 @@ namespace OverTheCounter.Logic.Placement
         private static readonly List<GameObject> _networkedObjects = new();
         private static readonly List<GameObject> _sidewalks = new();
         internal static DoorController Door;
-        internal static bool SuppressDoorSync;
-        internal static bool CachedDoorIsOpen;
-        internal static EDoorSide CachedDoorSide;
 
         /// <summary>Whether the store is currently open for customers.</summary>
         public static bool IsStoreOpen { get; private set; }
@@ -72,8 +69,24 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Whether the interior lights are currently on.</summary>
         public static bool AreLightsOn { get; private set; }
 
-        internal static bool IsDoorOpen => CachedDoorIsOpen;
-        internal static int DoorSideValue => (int)CachedDoorSide;
+        /// <summary>Current door open/closed state — read directly from DoorController.</summary>
+        internal static bool IsDoorOpen => Door != null && Door.IsOpen;
+
+        /// <summary>Last door side that triggered open — serialized as int (Interior=0, Exterior=1).</summary>
+        internal static int DoorSideValue
+        {
+            get
+            {
+                if (Door == null) return 0;
+#if IL2CPP
+                return (int)Door.lastOpenSide;
+#else
+                var fi = Door.GetType().GetField("lastOpenSide",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                return fi != null ? (int)fi.GetValue(Door) : 0;
+#endif
+            }
+        }
 
         /// <summary>Save data key for the dispensary.</summary>
         public const string DispensaryId = "big_dispensary";
@@ -156,9 +169,6 @@ namespace OverTheCounter.Logic.Placement
             _sidewalks.Clear();
             _initialized = false;
             _suppressSwitchSync = false;
-            SuppressDoorSync = false;
-            CachedDoorIsOpen = false;
-            CachedDoorSide = default;
         }
 
         internal static void SetLightsEnabled(bool enabled)
@@ -495,21 +505,13 @@ namespace OverTheCounter.Logic.Placement
                 $"Open Store{hours}");
         }
 
-        internal static void ApplyRemoteDoorToggle(bool isOpen, int sideValue)
-        {
-            if (Door == null) return;
-            Door.SetIsOpen(isOpen, (EDoorSide)sideValue);
-        }
-
+        /// <summary>
+        /// Applies door open/close state received from host sync (save/load restore).
+        /// </summary>
         internal static void SetDoorFromSync(bool isOpen, int sideValue)
         {
-            SuppressDoorSync = true;
-            try
-            {
-                if (Door != null)
-                    Door.SetIsOpen(isOpen, (EDoorSide)sideValue);
-            }
-            finally { SuppressDoorSync = false; }
+            if (Door != null)
+                Door.SetIsOpen(isOpen, (EDoorSide)sideValue);
         }
 
         private static void CreateConcreteApron()

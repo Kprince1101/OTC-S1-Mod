@@ -778,18 +778,6 @@ namespace OverTheCounter.SaveData
                         Logic.Placement.WestvilleShack.SetStoreOpen(open);
                         Instance?.PublishGameState();
                     }
-                    else if (action.StartsWith("SHACK_DOOR:"))
-                    {
-                        // Format: SHACK_DOOR:<open>:<side>  (open=1/0, side=int EDoorSide)
-                        var doorParts = action.Substring("SHACK_DOOR:".Length).Split(':');
-                        if (doorParts.Length >= 2
-                            && int.TryParse(doorParts[0], out var doorOpen)
-                            && int.TryParse(doorParts[1], out var doorSide))
-                        {
-                            Logic.Placement.WestvilleShack.ApplyRemoteDoorToggle(doorOpen == 1, doorSide);
-                            // DoorSyncPatch.Postfix fires on the host's SetIsOpen call and publishes game state.
-                        }
-                    }
                     else if (action.StartsWith("DISP_LIGHTS:"))
                     {
                         bool on = action.Substring("DISP_LIGHTS:".Length) == "1";
@@ -898,15 +886,10 @@ namespace OverTheCounter.SaveData
             // Shack switch states
             parts.Add($"shack_lights={BoolToStr(Logic.Placement.WestvilleShack.AreLightsOn)}");
             parts.Add($"shack_open={BoolToStr(Logic.Placement.WestvilleShack.IsStoreOpen)}");
-            // Shack door state
-            parts.Add($"shack_door_open={BoolToStr(Logic.Placement.WestvilleShack.IsDoorOpen)}");
-            parts.Add($"shack_door_side={Logic.Placement.WestvilleShack.DoorSideValue}");
 
             // Dispensary switch states
             parts.Add($"disp_lights={BoolToStr(Logic.Placement.Dispensary.AreLightsOn)}");
             parts.Add($"disp_open={BoolToStr(Logic.Placement.Dispensary.IsStoreOpen)}");
-            parts.Add($"disp_door_open={BoolToStr(Logic.Placement.Dispensary.IsDoorOpen)}");
-            parts.Add($"disp_door_side={Logic.Placement.Dispensary.DoorSideValue}");
 
             // Warehouse switch states
             parts.Add($"wh_lights={BoolToStr(Logic.Placement.OTCWarehouse.AreLightsOn)}");
@@ -1004,25 +987,12 @@ namespace OverTheCounter.SaveData
                 Logic.Placement.WestvilleShack.SetLightsFromSync(StrToBool(sl));
             if (state.TryGetValue("shack_open", out var so))
                 Logic.Placement.WestvilleShack.SetStoreOpen(StrToBool(so));
-            // Shack door state
-            if (state.TryGetValue("shack_door_open", out var doorOpen))
-            {
-                bool open = StrToBool(doorOpen);
-                int sideVal = state.TryGetValue("shack_door_side", out var doorSide) && int.TryParse(doorSide, out var si) ? si : 0;
-                Logic.Placement.WestvilleShack.SetDoorFromSync(open, sideVal);
-            }
 
             // Dispensary switch states
             if (state.TryGetValue("disp_lights", out var dl))
                 Logic.Placement.Dispensary.SetLightsFromSync(StrToBool(dl));
             if (state.TryGetValue("disp_open", out var dso))
                 Logic.Placement.Dispensary.SetStoreOpen(StrToBool(dso));
-            if (state.TryGetValue("disp_door_open", out var dispDoorOpen))
-            {
-                bool dOpen = StrToBool(dispDoorOpen);
-                int dSideVal = state.TryGetValue("disp_door_side", out var dispDoorSide) && int.TryParse(dispDoorSide, out var dsi) ? dsi : 0;
-                Logic.Placement.Dispensary.SetDoorFromSync(dOpen, dSideVal);
-            }
 
             // Warehouse switch states
             if (state.TryGetValue("wh_lights", out var wl))
