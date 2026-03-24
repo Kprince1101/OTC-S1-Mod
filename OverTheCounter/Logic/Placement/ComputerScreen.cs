@@ -62,30 +62,6 @@ namespace OverTheCounter.Logic.Placement
 
         private static Sprite _starSprite;
 
-        // Upgrade panel
-        private GameObject _upgradePanel;
-        private readonly List<UpgradeRow> _upgradeRows = new();
-        private bool _upgradeActive;
-        private string _previewStyleId;
-        private object _flashCoroutine;
-
-        private struct UpgradeRow
-        {
-            public GameObject Root;
-            public Image Background;
-            public TextMeshProUGUI NameText;
-            public TextMeshProUGUI ActionText;
-            public string StyleId;
-        }
-
-        /// <summary>Callback fired when the player clicks a desk style row.</summary>
-        public System.Action<string> OnUpgradeSelected;
-
-        private static readonly Color UpgradeCurrentBg = new(0.06f, 0.15f, 0.06f, 0.8f);
-        private static readonly Color UpgradeAvailableBg = new(0.03f, 0.06f, 0.03f, 0.5f);
-        private static readonly Color UpgradeLockedBg = new(0.12f, 0.03f, 0.03f, 0.5f);
-        private static readonly Color CostColor = new(0.4f, 0.8f, 1f);
-
         // Display state
         private List<CustomerInstance.SelectedProduct> _allProducts;
         private List<CustomerInstance.SelectedProduct> _sortedProducts;
@@ -254,11 +230,8 @@ namespace OverTheCounter.Logic.Placement
                 // --- Idle prompt (visible when no panel is active) ---
                 _idlePromptText = CreateText("IdlePrompt", _canvasGo.transform,
                     new Vector2(0f, -15f), new Vector2(PanelWidth, 18f),
-                    "[R] Upgrades", 11, TextAlignmentOptions.Center,
+                    "[R] Checkout", 11, TextAlignmentOptions.Center,
                     PromptBright);
-
-                // --- Upgrade panel ---
-                CreateUpgradePanel();
             }
             catch (System.Exception ex)
             {
@@ -340,7 +313,7 @@ namespace OverTheCounter.Logic.Placement
             _isBudtending = false;
             if (_checkoutPanel != null)
                 _checkoutPanel.SetActive(false);
-            if (_idlePromptText != null && !_upgradeActive)
+            if (_idlePromptText != null)
                 _idlePromptText.gameObject.SetActive(true);
         }
 
@@ -665,245 +638,6 @@ namespace OverTheCounter.Logic.Placement
                 MelonCoroutines.Stop(_blinkCoroutine);
                 _blinkCoroutine = null;
             }
-            if (_flashCoroutine != null)
-            {
-                MelonCoroutines.Stop(_flashCoroutine);
-                _flashCoroutine = null;
-            }
-        }
-
-        // =================================================================
-        //  Upgrade screen
-        // =================================================================
-
-        private void CreateUpgradePanel()
-        {
-            _upgradePanel = new GameObject("UpgradePanel");
-            _upgradePanel.transform.SetParent(_canvasGo.transform, false);
-            var panelRt = _upgradePanel.AddComponent<RectTransform>();
-            panelRt.anchorMin = new Vector2(0.5f, 0.5f);
-            panelRt.anchorMax = new Vector2(0.5f, 0.5f);
-            panelRt.pivot = new Vector2(0.5f, 0.5f);
-            panelRt.sizeDelta = new Vector2(PanelWidth, PanelHeight);
-            panelRt.anchoredPosition = new Vector2(0f, -15f);
-
-            CreateText("UpTitle", _upgradePanel.transform,
-                new Vector2(0f, 50f), new Vector2(180f, 16f),
-                "DESK STYLE", 10, TextAlignmentOptions.Center, HeaderLabelColor);
-
-            CreateSeparator("UpSep1", _upgradePanel.transform, 42f);
-
-            int idx = 0;
-            foreach (var style in DeskStyle.All.Values)
-            {
-                float rowY = 30f - idx * RowSpacing;
-                var row = CreateUpgradeRow(idx, style, _upgradePanel.transform, rowY);
-                _upgradeRows.Add(row);
-                idx++;
-            }
-
-            CreateSeparator("UpSep2", _upgradePanel.transform, 30f - idx * RowSpacing + 8f);
-
-            CreateText("UpPrompt", _upgradePanel.transform,
-                new Vector2(0f, 30f - idx * RowSpacing - 6f), new Vector2(PanelWidth, 16f),
-                "[R] Close", 9, TextAlignmentOptions.Center,
-                PromptBright);
-
-            _upgradePanel.SetActive(false);
-        }
-
-        private UpgradeRow CreateUpgradeRow(int index, DeskStyle style, Transform parent, float yPos)
-        {
-            float rowWidth = PanelWidth - 10f;
-
-            var rowGo = new GameObject($"UpgradeRow_{index}");
-            rowGo.transform.SetParent(parent, false);
-            var rowRt = rowGo.AddComponent<RectTransform>();
-            rowRt.anchorMin = new Vector2(0.5f, 0.5f);
-            rowRt.anchorMax = new Vector2(0.5f, 0.5f);
-            rowRt.pivot = new Vector2(0.5f, 0.5f);
-            rowRt.sizeDelta = new Vector2(rowWidth, RowHeight);
-            rowRt.anchoredPosition = new Vector2(0f, yPos);
-
-            var bgImg = rowGo.AddComponent<Image>();
-            bgImg.color = UpgradeAvailableBg;
-            bgImg.raycastTarget = false;
-
-            var nameText = CreateText("Name", rowGo.transform,
-                Vector2.zero, new Vector2(100f, RowHeight),
-                style.DisplayName, 9, TextAlignmentOptions.Left, TextColor);
-            var nameRt = nameText.GetComponent<RectTransform>();
-            nameRt.anchorMin = new Vector2(0f, 0.5f);
-            nameRt.anchorMax = new Vector2(0f, 0.5f);
-            nameRt.pivot = new Vector2(0f, 0.5f);
-            nameRt.anchoredPosition = new Vector2(10f, 0f);
-
-            // Single right-aligned text for status/cost
-            var actionText = CreateText("Action", rowGo.transform,
-                Vector2.zero, new Vector2(70f, RowHeight),
-                "", 9, TextAlignmentOptions.Right, TitleColor);
-            var actionRt = actionText.GetComponent<RectTransform>();
-            actionRt.anchorMin = new Vector2(1f, 0.5f);
-            actionRt.anchorMax = new Vector2(1f, 0.5f);
-            actionRt.pivot = new Vector2(1f, 0.5f);
-            actionRt.anchoredPosition = new Vector2(-6f, 0f);
-
-            return new UpgradeRow
-            {
-                Root = rowGo,
-                Background = bgImg,
-                NameText = nameText,
-                ActionText = actionText,
-                StyleId = style.Id
-            };
-        }
-
-        /// <summary>Shows the desk upgrade panel on the POS screen.</summary>
-        public void ShowUpgradeScreen(string previewStyleId = null)
-        {
-            if (_upgradePanel == null) return;
-            StopAnimations();
-            if (_checkoutPanel != null) _checkoutPanel.SetActive(false);
-
-            _previewStyleId = previewStyleId;
-            RefreshUpgradeRows();
-
-            if (_idlePromptText != null) _idlePromptText.gameObject.SetActive(false);
-            _upgradePanel.SetActive(true);
-            _upgradeActive = true;
-
-            if (_headerText != null)
-                _headerText.text = "GreenTab POS";
-        }
-
-        /// <summary>Hides the upgrade panel.</summary>
-        public void HideUpgradeScreen()
-        {
-            if (_upgradePanel != null) _upgradePanel.SetActive(false);
-            _upgradeActive = false;
-            if (_idlePromptText != null) _idlePromptText.gameObject.SetActive(true);
-        }
-
-        /// <summary>Whether the upgrade screen is currently active.</summary>
-        public bool IsUpgradeActive => _upgradeActive;
-
-        /// <summary>
-        /// Polls for mouse clicks on upgrade rows. Call every frame while upgrade is active.
-        /// Uses RectTransformUtility instead of EventSystem for reliable world-space canvas hits.
-        /// </summary>
-        public void TickUpgradeInput()
-        {
-            if (!_upgradeActive || _upgradePanel == null) return;
-            if (!Input.GetMouseButtonDown(0)) return;
-
-            var cam = _canvas != null ? _canvas.worldCamera : null;
-            if (cam == null) cam = Camera.main;
-            if (cam == null) return;
-
-            var mousePos = Input.mousePosition;
-            for (int i = 0; i < _upgradeRows.Count; i++)
-            {
-                var row = _upgradeRows[i];
-                if (row.Root == null) continue;
-                var rowRt = row.Root.GetComponent<RectTransform>();
-                if (RectTransformUtility.RectangleContainsScreenPoint(rowRt, mousePos, cam))
-                {
-                    OnUpgradeSelected?.Invoke(row.StyleId);
-                    return;
-                }
-            }
-        }
-
-        private void RefreshUpgradeRows()
-        {
-            string currentId = _owner?.CurrentDeskStyleId ?? DeskStyle.Default.Id;
-
-            for (int i = 0; i < _upgradeRows.Count; i++)
-            {
-                var row = _upgradeRows[i];
-                var style = DeskStyle.Get(row.StyleId);
-                bool isCurrent = row.StyleId == currentId;
-                bool isPreviewing = row.StyleId == _previewStyleId;
-
-                if (isCurrent)
-                {
-                    row.Background.color = UpgradeCurrentBg;
-                    row.ActionText.text = "CURRENT";
-                    row.ActionText.color = TitleColor;
-                }
-                else if (isPreviewing)
-                {
-                    // Previewing — show price, click again to buy
-                    row.Background.color = UpgradeCurrentBg;
-                    float currentCost = DeskStyle.Get(currentId).Cost;
-                    float costDiff = style.Cost - currentCost;
-                    if (costDiff > 0f)
-                    {
-                        row.ActionText.text = $"${costDiff:F0}";
-                        row.ActionText.color = CostColor;
-                    }
-                    else if (costDiff < 0f)
-                    {
-                        row.ActionText.text = $"+${-costDiff:F0}";
-                        row.ActionText.color = PriceColor;
-                    }
-                    else
-                    {
-                        row.ActionText.text = "FREE";
-                        row.ActionText.color = PriceColor;
-                    }
-                }
-                else
-                {
-                    row.Background.color = UpgradeAvailableBg;
-                    row.ActionText.text = "PREVIEW";
-                    row.ActionText.color = HeaderLabelColor;
-                }
-            }
-        }
-
-        /// <summary>Flashes the upgrade row red to indicate insufficient funds.</summary>
-        public void FlashInsufficientFunds(string styleId)
-        {
-            if (_flashCoroutine != null)
-                MelonCoroutines.Stop(_flashCoroutine);
-
-            for (int i = 0; i < _upgradeRows.Count; i++)
-            {
-                if (_upgradeRows[i].StyleId != styleId) continue;
-                var row = _upgradeRows[i];
-                row.ActionText.text = "NO FUNDS";
-                row.ActionText.color = TextMissing;
-                row.Background.color = UpgradeLockedBg;
-                _flashCoroutine = MelonCoroutines.Start(FlashRowCoroutine(i));
-                return;
-            }
-        }
-
-        private IEnumerator FlashRowCoroutine(int rowIndex)
-        {
-            // Hold the red state briefly
-            yield return new WaitForSeconds(1.2f);
-
-            // Fade back to normal over 0.5s
-            float duration = 0.5f;
-            float elapsed = 0f;
-            while (elapsed < duration)
-            {
-                elapsed += Time.deltaTime;
-                float t = Mathf.Clamp01(elapsed / duration);
-                if (rowIndex < _upgradeRows.Count)
-                {
-                    var row = _upgradeRows[rowIndex];
-                    row.Background.color = Color.Lerp(UpgradeLockedBg, UpgradeCurrentBg, t);
-                    row.ActionText.color = Color.Lerp(TextMissing, CostColor, t);
-                }
-                yield return null;
-            }
-
-            // Restore proper text via full refresh
-            _flashCoroutine = null;
-            RefreshUpgradeRows();
         }
 
         /// <summary>
@@ -913,9 +647,6 @@ namespace OverTheCounter.Logic.Placement
         {
             StopAnimations();
             _productRows.Clear();
-            _upgradeRows.Clear();
-            _upgradeActive = false;
-            OnUpgradeSelected = null;
             if (_canvasGo != null)
             {
                 UnityEngine.Object.Destroy(_canvasGo);
@@ -924,7 +655,6 @@ namespace OverTheCounter.Logic.Placement
             _canvas = null;
             _headerText = null;
             _checkoutPanel = null;
-            _upgradePanel = null;
             _promptText = null;
             _idlePromptText = null;
             _totalValueText = null;
