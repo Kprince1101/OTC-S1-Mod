@@ -137,6 +137,9 @@ namespace OverTheCounter.SaveData
                 // NOTE: Initial value push is deferred to ProcessMessages() after lobby
                 // discovery. SyncVar writes before _currentLobby is set fail silently.
 
+                // Initialize P2P bridge on the same client (shares ProcessIncomingMessages tick).
+                NetworkP2PBridge.Initialize(_netClient);
+
                 OTCLog.Msg(OTCLog.Systems.Network, $"SteamNetworkLib SyncVars initialized (inLobby={_netClient.IsInLobby}).");
             }
             catch (Exception ex)
@@ -285,6 +288,8 @@ namespace OverTheCounter.SaveData
         /// </summary>
         internal static void Cleanup()
         {
+            NetworkP2PBridge.Cleanup();
+
             try
             {
                 _netClient?.Dispose();
