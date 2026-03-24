@@ -751,8 +751,8 @@ namespace OverTheCounter.SaveData
                     }
                     else if (action.StartsWith("CHECKOUT_REQUEST:"))
                     {
-                        string custId = action.Substring("CHECKOUT_REQUEST:".Length);
-                        Logic.CheckoutProcess.HandleCheckoutRequest(custId);
+                        // SyncVar fallback (Debug builds / P2P unavailable)
+                        Logic.CheckoutProcess.HandleCheckoutRequest(action.Substring("CHECKOUT_REQUEST:".Length));
                     }
                     else if (action.StartsWith("CHECKOUT_DONE:"))
                     {

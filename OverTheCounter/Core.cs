@@ -282,6 +282,7 @@ namespace OverTheCounter
                 Logic.Placement.OTCWarehouse.SpawnNetworkedObjects();
 
                 Logic.Placement.CheckoutCounter.AddToShop();
+                CheckoutProcess.InitP2P();
 
                 // Suppress per-item navigation rebuilds during batch restore —
                 // one rebuild per building at the end instead of per item.

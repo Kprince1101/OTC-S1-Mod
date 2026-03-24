@@ -9,6 +9,12 @@ using System.Collections.Generic;
 using UnityEngine;
 
 #if IL2CPP
+using CSteamID = Il2CppSteamworks.CSteamID;
+#else
+using CSteamID = Steamworks.CSteamID;
+#endif
+
+#if IL2CPP
 using Il2CppScheduleOne;
 using Il2CppScheduleOne.Audio;
 using Il2CppScheduleOne.DevUtilities;
@@ -152,7 +158,8 @@ namespace OverTheCounter.Logic
         private object _pickupAnimCoroutine;
 
         // Client lock request state
-        private static bool _pendingLockRequest;
+        private enum PendingLockType { None, Checkout }
+        private static PendingLockType _pendingLockType;
         private static string _pendingCustomerId;
         private static CheckoutCounterInstance _pendingCounter;
         private static float _lockRequestTime;
@@ -160,14 +167,10 @@ namespace OverTheCounter.Logic
         /// <summary>Current checkout lock holder Steam ID (updated from SyncVar on client).</summary>
         internal static string CurrentLockHolder { get; private set; } = "";
 
-        // Upgrade mode state
-        private static CheckoutCounterInstance _upgradeCounter;
-        private static bool _upgradeActive;
-        private static string _originalStyleId;
-        private static string _previewStyleId;
-
-        /// <summary>Whether the desk upgrade screen is currently open.</summary>
-        public static bool IsUpgradeActive => _upgradeActive;
+        // P2P lock channels — instant lock acquisition instead of SyncVar polling
+        private const string P2P_LOCK_REQ = "lock_req";
+        private const string P2P_LOCK_RES = "lock_res";
+        private static bool _p2pSubscribed;
 
         /// <summary>The counter this checkout is operating on.</summary>
         public CheckoutCounterInstance Counter => _counter;
@@ -176,6 +179,175 @@ namespace OverTheCounter.Logic
         {
             _customer = customer;
             _counter = counter;
+        }
+
+        // =================================================================
+        //  P2P lock system — replaces SyncVar-based lock polling
+        // =================================================================
+
+        /// <summary>
+        /// Subscribes P2P handlers for instant lock request/response.
+        /// Called from Core.OnGameLoaded after network is ready.
+        /// </summary>
+        public static void InitP2P()
+        {
+            if (_p2pSubscribed) return;
+            if (!SaveData.ConfigSyncData.IsNetworkLibAvailable) return;
+
+#if DEBUG
+            // P2P doesn't work with LocalLobby (same Steam account, same SteamID on both
+            // instances → ISteamNetworking can't establish a P2P channel to yourself).
+            // Debug builds use SyncVar quest actions instead. Release uses P2P.
+            OTCLog.Msg(OTCLog.Systems.Network, "Debug build: skipping P2P lock init, using SyncVar fallback");
+            return;
+#endif
+
+            try
+            {
+                InitP2PImpl();
+                _p2pSubscribed = true;
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Network, $"CheckoutProcess P2P init failed: {ex.Message}");
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void InitP2PImpl()
+        {
+            // Host listens for lock requests from clients
+            SaveData.NetworkP2PBridge.Subscribe(P2P_LOCK_REQ, OnP2PLockRequest);
+            // Client listens for lock grant/deny from host
+            SaveData.NetworkP2PBridge.Subscribe(P2P_LOCK_RES, OnP2PLockResponse);
+        }
+
+        private static void CleanupP2P()
+        {
+            if (!_p2pSubscribed) return;
+            try
+            {
+                SaveData.NetworkP2PBridge.Unsubscribe(P2P_LOCK_REQ);
+                SaveData.NetworkP2PBridge.Unsubscribe(P2P_LOCK_RES);
+            }
+            catch { }
+            _p2pSubscribed = false;
+        }
+
+        /// <summary>
+        /// Host: receives lock request from client via P2P.
+        /// Format: "CHECKOUT:custId:steamId"
+        /// Responds immediately with GRANT or DENY.
+        /// </summary>
+        private static void OnP2PLockRequest(ulong senderSteamId, string value)
+        {
+            if (!NetworkHelper.IsHost) return;
+            if (string.IsNullOrEmpty(value)) return;
+
+            var senderId = new CSteamID(senderSteamId);
+            string clientSteamStr = senderSteamId.ToString();
+
+            if (value.StartsWith("CHECKOUT:"))
+            {
+                string rest = value.Substring("CHECKOUT:".Length);
+                int sep = rest.IndexOf(':');
+                string custId = sep > 0 ? rest.Substring(0, sep) : rest;
+
+                if (Instance != null)
+                {
+                    SaveData.NetworkP2PBridge.SendTo(senderId, P2P_LOCK_RES, "DENY:IN_USE");
+                    return;
+                }
+
+                if (!CustomerInstance.Active.TryGetValue(custId, out var customer) ||
+                    customer.State != CustomerState.CheckingOut)
+                {
+                    SaveData.NetworkP2PBridge.SendTo(senderId, P2P_LOCK_RES, "DENY:INVALID_CUSTOMER");
+                    return;
+                }
+
+                SaveData.ConfigSyncData.Instance?.PublishCheckoutState(clientSteamStr, custId);
+                SaveData.NetworkP2PBridge.SendTo(senderId, P2P_LOCK_RES, $"GRANT:CHECKOUT:{custId}");
+
+                if (Config.VerboseLogging.Value)
+                    OTCLog.Msg(OTCLog.Systems.Customer, $"P2P lock GRANTED (checkout) to {clientSteamStr} for {custId}");
+            }
+        }
+
+        /// <summary>
+        /// Client: receives lock grant/deny from host via P2P.
+        /// Format: "GRANT:CHECKOUT:custId" or "DENY:reason"
+        /// </summary>
+        private static void OnP2PLockResponse(ulong senderSteamId, string value)
+        {
+            if (NetworkHelper.IsHost) return;
+            if (_pendingLockType == PendingLockType.None) return;
+            if (string.IsNullOrEmpty(value)) return;
+
+            if (value.StartsWith("GRANT:"))
+            {
+                string rest = value.Substring("GRANT:".Length);
+                string myId = SaveData.ConfigSyncData.LocalPlayerId;
+
+                if (rest.StartsWith("CHECKOUT:") && _pendingLockType == PendingLockType.Checkout)
+                {
+                    string custId = rest.Substring("CHECKOUT:".Length);
+                    _pendingLockType = PendingLockType.None;
+                    CurrentLockHolder = myId;
+
+                    if (!string.IsNullOrEmpty(custId) && _pendingCounter != null &&
+                        CustomerInstance.Active.TryGetValue(custId, out var customer))
+                    {
+                        var counter = _pendingCounter;
+                        _pendingCustomerId = null;
+                        _pendingCounter = null;
+                        StartCheckoutDirect(customer, counter);
+                    }
+                    else
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Customer, $"P2P lock granted but customer {custId} not found");
+                        _pendingCustomerId = null;
+                        _pendingCounter = null;
+                    }
+                }
+            }
+            else if (value.StartsWith("DENY:"))
+            {
+                string reason = value.Substring("DENY:".Length);
+                OTCLog.Msg(OTCLog.Systems.Customer, $"P2P lock denied: {reason}");
+                _pendingLockType = PendingLockType.None;
+                _pendingCustomerId = null;
+                _pendingCounter = null;
+            }
+        }
+
+        // =================================================================
+        //  SyncVar fallback handlers (Debug builds / P2P unavailable)
+        // =================================================================
+
+        /// <summary>
+        /// Host: handles CHECKOUT_REQUEST quest action from client (SyncVar path).
+        /// Same validation as <see cref="OnP2PLockRequest"/> but grants via SyncVar
+        /// instead of P2P response — client polls <see cref="CurrentLockHolder"/>.
+        /// Format: "custId:steamId"
+        /// </summary>
+        public static void HandleCheckoutRequest(string payload)
+        {
+            if (!NetworkHelper.IsHost) return;
+            var parts = payload.Split(':');
+            if (parts.Length < 2) return;
+
+            string custId = parts[0];
+            string clientSteamStr = parts[1];
+
+            if (Instance != null) return;
+
+            if (!CustomerInstance.Active.TryGetValue(custId, out var customer) ||
+                customer.State != CustomerState.CheckingOut)
+                return;
+
+            SaveData.ConfigSyncData.Instance?.PublishCheckoutState(clientSteamStr, custId);
+            OTCLog.Msg(OTCLog.Systems.Customer, $"SyncVar lock GRANTED (checkout) to {clientSteamStr} for {custId}");
         }
 
         // =================================================================
@@ -190,30 +362,8 @@ namespace OverTheCounter.Logic
         public static void TryStartCheckout()
         {
             if (GameInput.IsTyping) return;
-
-            // ESC or Tab closes upgrade mode
-            if (_upgradeActive && (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.Tab)))
-            {
-                CloseUpgradeMode();
-                return;
-            }
-
-            // Poll clicks on upgrade rows (manual raycast — EventSystem unreliable on world-space canvas)
-            if (_upgradeActive && Input.GetMouseButtonDown(0))
-            {
-                _upgradeCounter?.Screen?.TickUpgradeInput();
-            }
-
             if (!Input.GetKeyDown(KeyCode.R)) return;
-
-            // Close upgrade mode if already open
-            if (_upgradeActive)
-            {
-                CloseUpgradeMode();
-                return;
-            }
-
-            if (_pendingLockRequest) return; // client waiting for lock grant
+            if (_pendingLockType != PendingLockType.None) return;
 
             // Resume from pause
             if (Instance != null && Instance._state == State.Paused)
@@ -244,193 +394,32 @@ namespace OverTheCounter.Logic
                 }
             }
 
-            if (waitingCustomer != null)
+            if (waitingCustomer == null) return;
+
+            if (NetworkHelper.IsHost)
             {
-                // Customer waiting → start checkout
-                if (NetworkHelper.IsHost)
+                StartCheckoutDirect(waitingCustomer, counter);
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(CurrentLockHolder))
+                    return;
+                _pendingLockType = PendingLockType.Checkout;
+                _pendingCustomerId = waitingCustomer.Id;
+                _pendingCounter = counter;
+                _lockRequestTime = Time.time;
+                string myId = SaveData.ConfigSyncData.LocalPlayerId;
+
+                if (_p2pSubscribed)
                 {
-                    StartCheckoutDirect(waitingCustomer, counter);
+                    SaveData.NetworkP2PBridge.SendToHost(P2P_LOCK_REQ,
+                        $"CHECKOUT:{waitingCustomer.Id}:{myId}");
                 }
                 else
                 {
-                    if (!string.IsNullOrEmpty(CurrentLockHolder))
-                        return;
-                    _pendingLockRequest = true;
-                    _pendingCustomerId = waitingCustomer.Id;
-                    _pendingCounter = counter;
-                    _lockRequestTime = Time.time;
-                    string myId = SaveData.ConfigSyncData.LocalPlayerId;
-                    SaveData.ConfigSyncData.SendQuestAction($"CHECKOUT_REQUEST:{waitingCustomer.Id}:{myId}");
+                    SaveData.ConfigSyncData.SendQuestAction(
+                        $"CHECKOUT_REQUEST:{waitingCustomer.Id}:{myId}");
                 }
-            }
-            else
-            {
-                // No customer waiting → open upgrade screen
-                OpenUpgradeMode(counter);
-            }
-        }
-
-        // =================================================================
-        //  Desk upgrade mode
-        // =================================================================
-
-        private static void OpenUpgradeMode(CheckoutCounterInstance counter)
-        {
-            if (counter?.Screen == null) return;
-            _upgradeCounter = counter;
-            _upgradeActive = true;
-            _originalStyleId = counter.CurrentDeskStyleId;
-            _previewStyleId = null;
-
-            counter.Screen.OnUpgradeSelected = OnUpgradeStyleSelected;
-            counter.Screen.ShowUpgradeScreen();
-
-            // Pan camera to screen and lock input (same pattern as checkout LockPlayerInput)
-            try
-            {
-                ApplyUpgradeCamera(counter);
-
-                var cam = PlayerSingleton<PlayerCamera>.Instance;
-                cam.AddActiveUIElement("OTC_DeskUpgrade");
-                cam.FreeMouse();
-
-                PlayerSingleton<PlayerMovement>.Instance.CanMove = false;
-                Singleton<HUD>.Instance.canvas.enabled = false;
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch, $"OpenUpgradeMode UI setup failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Positions the camera for the upgrade screen.
-        /// </summary>
-        private static void ApplyUpgradeCamera(CheckoutCounterInstance counter, float lerpTime = CameraLerpTime)
-        {
-            var counterTransform = counter.CounterTransform;
-            var counterPos = counter.CounterPosition.Value;
-
-            var surfaceCenter = counterPos + Vector3.up * CamUpOffset + counterTransform.right * CamRightOffset;
-            var overheadPos = surfaceCenter + Vector3.up * CamHeight + counterTransform.forward * CamForwardOffset;
-            var lookDir = (surfaceCenter - overheadPos).normalized;
-            var overheadRot = Quaternion.LookRotation(lookDir);
-
-            var cam = PlayerSingleton<PlayerCamera>.Instance;
-            cam.OverrideTransform(overheadPos, overheadRot, lerpTime, false);
-            cam.OverrideFOV(CamFOV, lerpTime);
-        }
-
-        private static void CloseUpgradeMode()
-        {
-            // Revert preview if we didn't purchase
-            if (_previewStyleId != null && _upgradeCounter != null)
-            {
-                var revertStyle = DeskStyle.Get(_originalStyleId);
-                _upgradeCounter.SwapDesk(revertStyle);
-            }
-
-            if (_upgradeCounter?.Screen != null)
-            {
-                _upgradeCounter.Screen.HideUpgradeScreen();
-                _upgradeCounter.Screen.OnUpgradeSelected = null;
-            }
-            _upgradeCounter = null;
-            _upgradeActive = false;
-            _previewStyleId = null;
-            _originalStyleId = null;
-
-            // Restore camera, cursor, and movement
-            try
-            {
-                var cam = PlayerSingleton<PlayerCamera>.Instance;
-                cam.RemoveActiveUIElement("OTC_DeskUpgrade");
-                cam.StopFOVOverride(CameraLerpTime);
-                cam.StopTransformOverride(CameraLerpTime, true, true);
-                cam.LockMouse();
-
-                PlayerSingleton<PlayerMovement>.Instance.CanMove = true;
-                Singleton<HUD>.Instance.canvas.enabled = true;
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch, $"CloseUpgradeMode UI teardown failed: {ex.Message}");
-            }
-        }
-
-        private static void OnUpgradeStyleSelected(string styleId)
-        {
-            if (_upgradeCounter == null || string.IsNullOrEmpty(styleId)) return;
-
-            var style = DeskStyle.Get(styleId);
-            if (style.Id == _upgradeCounter.CurrentDeskStyleId) return; // already this style
-
-            if (styleId == _previewStyleId)
-            {
-                // Second click — purchase the previewed style
-                float currentCost = DeskStyle.Get(_originalStyleId).Cost;
-                float costDiff = style.Cost - currentCost;
-
-                try
-                {
-                    var moneyMgr = NetworkSingleton<NativeMoneyManager>.Instance;
-                    if (costDiff > 0f)
-                    {
-                        // Upgrading — charge the difference
-                        if (moneyMgr == null || moneyMgr.onlineBalance < costDiff)
-                        {
-                            OTCLog.Msg(OTCLog.Systems.Patch, $"Insufficient bank balance for desk upgrade (need ${costDiff:F0})");
-                            _upgradeCounter?.Screen?.FlashInsufficientFunds(styleId);
-                            return;
-                        }
-                        moneyMgr.CreateOnlineTransaction(
-                            "Desk Upgrade", -costDiff, 1f,
-                            $"Upgraded to {style.DisplayName}");
-                    }
-                    else if (costDiff < 0f && moneyMgr != null)
-                    {
-                        // Downgrading — refund the difference
-                        moneyMgr.CreateOnlineTransaction(
-                            "Desk Refund", -costDiff, 1f,
-                            $"Downgraded to {style.DisplayName}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Error(OTCLog.Systems.Patch, $"Desk upgrade payment failed: {ex.Message}");
-                    return;
-                }
-
-                // Commit: desk is already swapped from preview, just update IDs
-                _upgradeCounter.CurrentDeskStyleId = style.Id;
-                _originalStyleId = style.Id;
-                _previewStyleId = null;
-
-                // Refresh UI to show CURRENT
-                if (_upgradeCounter.Screen != null)
-                {
-                    _upgradeCounter.Screen.OnUpgradeSelected = OnUpgradeStyleSelected;
-                    _upgradeCounter.Screen.ShowUpgradeScreen();
-                }
-            }
-            else
-            {
-                // First click — preview the style
-                _previewStyleId = styleId;
-                _upgradeCounter.SwapDesk(style);
-                // SwapDesk sets CurrentDeskStyleId — revert it so save data stays correct
-                _upgradeCounter.CurrentDeskStyleId = _originalStyleId;
-
-                // Re-wire the new Screen (SwapDesk recreates it)
-                if (_upgradeCounter.Screen != null)
-                {
-                    _upgradeCounter.Screen.OnUpgradeSelected = OnUpgradeStyleSelected;
-                    _upgradeCounter.Screen.ShowUpgradeScreen(_previewStyleId);
-                }
-
-                // Reposition camera for the new desk
-                try { ApplyUpgradeCamera(_upgradeCounter); }
-                catch { }
             }
         }
 
@@ -461,50 +450,44 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Client: polls for lock grant after sending CHECKOUT_REQUEST.
+        /// Client: timeout fallback for P2P lock requests.
+        /// The actual grant/deny comes via <see cref="OnP2PLockResponse"/>.
+        /// This just catches the edge case where the P2P message is lost in transit.
         /// Called from Core.OnLateUpdate.
         /// </summary>
         public static void PollLockGrant()
         {
-            if (!_pendingLockRequest) return;
-            if (NetworkHelper.IsHost) { _pendingLockRequest = false; return; }
+            if (_pendingLockType == PendingLockType.None) return;
+            if (NetworkHelper.IsHost) { _pendingLockType = PendingLockType.None; return; }
 
-            // Timeout after 3 seconds
-            if (Time.time - _lockRequestTime > 3f)
+            string myId = SaveData.ConfigSyncData.LocalPlayerId;
+
+            // SyncVar path: host sets CurrentLockHolder via PublishCheckoutState,
+            // client polls until it matches their ID.
+            if (!_p2pSubscribed && !string.IsNullOrEmpty(myId) && CurrentLockHolder == myId)
             {
-                OTCLog.Warning(OTCLog.Systems.Customer,"Checkout lock request timed out");
-                _pendingLockRequest = false;
-                _pendingCustomerId = null;
-                _pendingCounter = null;
+                _pendingLockType = PendingLockType.None;
+
+                if (_pendingCustomerId != null)
+                {
+                    if (CustomerInstance.Active.TryGetValue(_pendingCustomerId, out var customer))
+                    {
+                        StartCheckoutDirect(customer, _pendingCounter);
+                    }
+                    _pendingCustomerId = null;
+                    _pendingCounter = null;
+                }
                 return;
             }
 
-            // Check if lock was granted to us
-            string myId = SaveData.ConfigSyncData.LocalPlayerId;
-            if (!string.IsNullOrEmpty(CurrentLockHolder) && CurrentLockHolder == myId)
+            // Timeout — 3s for P2P, 5s for SyncVar (lobby metadata is slower)
+            float timeout = _p2pSubscribed ? 3f : 5f;
+            if (Time.time - _lockRequestTime > timeout)
             {
-                _pendingLockRequest = false;
-
-                // Find the customer
-                if (!string.IsNullOrEmpty(_pendingCustomerId) && _pendingCounter != null &&
-                    CustomerInstance.Active.TryGetValue(_pendingCustomerId, out var customer))
-                {
-                    var counter = _pendingCounter;
-                    _pendingCustomerId = null;
-                    _pendingCounter = null;
-                    StartCheckoutDirect(customer, counter);
-                }
-                else
-                {
-                    OTCLog.Warning(OTCLog.Systems.Customer,$"Lock granted but customer {_pendingCustomerId} not found");
-                    _pendingCustomerId = null;
-                    _pendingCounter = null;
-                }
-            }
-            else if (!string.IsNullOrEmpty(CurrentLockHolder) && CurrentLockHolder != myId)
-            {
-                // Someone else got the lock
-                _pendingLockRequest = false;
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    _p2pSubscribed ? "P2P lock request timed out (no response from host)"
+                                  : "SyncVar lock request timed out (no response from host)");
+                _pendingLockType = PendingLockType.None;
                 _pendingCustomerId = null;
                 _pendingCounter = null;
             }
@@ -528,38 +511,6 @@ namespace OverTheCounter.Logic
             {
                 // Host confirmed completion — nothing extra needed, Cleanup already called locally
             }
-        }
-
-        /// <summary>
-        /// Host: handles CHECKOUT_REQUEST action from client.
-        /// Format: "customerId:steamId"
-        /// </summary>
-        public static void HandleCheckoutRequest(string payload)
-        {
-            if (!NetworkHelper.IsHost) return;
-
-            // Parse "customerId:steamId"
-            int sep = payload.IndexOf(':');
-            if (sep <= 0) return;
-            string custId = payload.Substring(0, sep);
-            string clientSteamId = payload.Substring(sep + 1);
-
-            // Check if lock is available
-            if (Instance != null)
-                return;
-
-            // Validate customer exists and is CheckingOut
-            if (!CustomerInstance.Active.TryGetValue(custId, out var customer) ||
-                customer.State != CustomerState.CheckingOut)
-            {
-                OTCLog.Warning(OTCLog.Systems.Customer,$"Checkout request for invalid customer {custId}");
-                return;
-            }
-
-            // Grant lock to client by publishing their Steam ID as lock holder
-            SaveData.ConfigSyncData.Instance?.PublishCheckoutState(clientSteamId, custId);
-            if (Config.VerboseLogging.Value)
-                OTCLog.Msg(OTCLog.Systems.Customer,$"Checkout lock granted to {clientSteamId} for customer {custId}");
         }
 
         /// <summary>
@@ -1881,7 +1832,7 @@ namespace OverTheCounter.Logic
 
             BudtenderHUD.Hide();
             Instance = null;
-            _pendingLockRequest = false;
+            _pendingLockType = PendingLockType.None;
             _pendingCustomerId = null;
             _pendingCounter = null;
         }
@@ -1891,10 +1842,12 @@ namespace OverTheCounter.Logic
         /// </summary>
         public static void ResetStatic()
         {
+            CleanupP2P();
             Instance = null;
             CurrentLockHolder = "";
-            _pendingLockRequest = false;
+            _pendingLockType = PendingLockType.None;
             _pendingCustomerId = null;
+            _pendingCounter = null;
         }
     }
 }
