@@ -44,7 +44,7 @@ namespace OverTheCounter.Logic.Placement
         private const float FoundationHeight = 0.15f;
 
         // Interior wall positions (Z in local space, south=0 north=14)
-        private const float BackroomWallZ = 5.0f;    // backroom/showroom boundary
+        private const float BackroomWallZ = 4.75f;   // backroom/showroom boundary (centered on grid cell)
         private const float LobbyWallZ = 12.2f;      // showroom/lobby boundary
 
         // SW corner of building footprint
@@ -652,13 +652,17 @@ namespace OverTheCounter.Logic.Placement
             _navigationBuilder.Build();
 
             // Placement grid — showroom + backroom only (exclude lobby Z >= LobbyWallZ)
-            // Also exclude exterior wall edge tiles (x==0, z==0).
+            // Also exclude exterior wall edge tiles and backroom wall row.
             int lobbyTileZ = (int)(LobbyWallZ / 0.5f);
+            int backroomWallTileZ = (int)(BackroomWallZ / 0.5f);
+            int eastWallTileX = (int)(RoomWidth / 0.5f) - 1;
             DispensaryGrid = BuildingGridFactory.CreateGrid(_building, RoomWidth, RoomDepth, "Dispensary_Floor1",
                 tileFilter: (x, z) =>
                 {
                     if (x == 0 || z == 0) return false;
+                    if (x >= eastWallTileX) return false; // block east wall edge
                     if (z >= lobbyTileZ) return false; // no placement in lobby
+                    if (z == backroomWallTileZ) return false; // block interior wall row (incl. doorway)
                     return true;
                 },
                 gridCellSize: builder.GridCellSize);
