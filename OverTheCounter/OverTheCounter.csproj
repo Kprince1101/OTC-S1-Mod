@@ -50,6 +50,7 @@
 		<None Remove="Resources\ManagerIcon.png" />
 		<None Remove="Resources\ChevronIcon.png" />
 		<None Remove="Resources\CheckoutCounter.png" />
+		<None Remove="Resources\GreenTabPOS\*.png" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -276,6 +277,7 @@
 		<Compile Include="Apps\CustomersApp.EmployeeDetail.cs" />
 		<Compile Include="Apps\CustomersApp.CustomerDetail.cs" />
 		<Compile Include="Apps\CustomersApp.HireMeIntegration.cs" />
+		<Compile Include="Apps\GreenTabApp.cs" />
 		<Compile Include="Core.cs" />
 		<Compile Include="DebugHelpers.cs" />
 		<Compile Include="NPCs\VicNPC.cs" />
@@ -329,9 +331,10 @@
 		<Compile Include="Utilities\OTCLog.cs" />
 		<Compile Include="SaveData\ConfigSyncData.cs" />
 		<Compile Include="SaveData\NetworkSyncBridge.cs" />
+		<Compile Include="SaveData\NetworkP2PBridge.cs" />
 		<Compile Include="Patches\ConfigReplicatorPatch.cs" />
 		<Compile Include="Patches\ConfigSyncPatch.cs" />
-		<Compile Include="Patches\DoorSyncPatch.cs" />
+
 		<Compile Include="Patches\ContactsAppPatch.cs" />
 		<Compile Include="Patches\FixerDialoguePatch.cs" />
 		<Compile Include="Patches\ManagerClipboardPatch.cs" />
@@ -390,6 +393,7 @@
 		<EmbeddedResource Include="Resources\ShackPhoto.png" Condition="Exists('Resources\ShackPhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\MeshDatabase.json"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\MeshVaultDecals\*.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\GreenTabPOS\*.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 	</ItemGroup>
 
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="!$(Configuration.StartsWith('Mono'))">

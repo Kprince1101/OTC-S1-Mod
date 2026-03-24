@@ -448,6 +448,7 @@ namespace OverTheCounter
             ExtractResource(iconDir, "CrimeWareQuest.png");
             ExtractResource(iconDir, "ExecutivePrivilege.png");
             ExtractResource(iconDir, "ManagerIcon.png");
+            ExtractResource(iconDir, "CheckoutCounter.png");
         }
 
         private void ExtractResource(string directory, string fileName)

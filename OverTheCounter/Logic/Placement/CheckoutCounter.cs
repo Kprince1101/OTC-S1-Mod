@@ -73,6 +73,24 @@ namespace OverTheCounter.Logic.Placement
 
             var instance = new CheckoutCounterInstance(go, grid);
             _counters.Add(instance);
+
+            var buildingId = instance.BuildingId;
+            OTCLog.Msg(OTCLog.Systems.Patch, $"RegisterInstance: counter #{_counters.Count} grid={grid?.name ?? "null"} buildingId={buildingId ?? "null"} style={instance.CurrentDeskStyleId}");
+
+            // Inherit desk style from existing counters in the same building
+            if (buildingId != null)
+            {
+                foreach (var c in _counters)
+                {
+                    if (c != instance && c.BuildingId == buildingId
+                        && !string.IsNullOrEmpty(c.CurrentDeskStyleId))
+                    {
+                        instance.CurrentDeskStyleId = c.CurrentDeskStyleId;
+                        break;
+                    }
+                }
+            }
+
             return instance;
         }
 

@@ -894,6 +894,13 @@ namespace OverTheCounter.SaveData
             // Warehouse switch states
             parts.Add($"wh_lights={BoolToStr(Logic.Placement.OTCWarehouse.AreLightsOn)}");
 
+            // Checkout desk styles (per counter)
+            var counters = Logic.Placement.CheckoutCounter.AllCounters;
+            for (int i = 0; i < counters.Count; i++)
+            {
+                parts.Add($"desk_style_{i}={counters[i].CurrentDeskStyleId}");
+            }
+
             // Manager data is on per-manager SyncVar slots (_mgrSlots) to avoid lobby data truncation.
 
             return string.Join("|", parts);
@@ -997,6 +1004,22 @@ namespace OverTheCounter.SaveData
             // Warehouse switch states
             if (state.TryGetValue("wh_lights", out var wl))
                 Logic.Placement.OTCWarehouse.SetLightsFromSync(StrToBool(wl));
+
+            // Checkout desk styles (per counter)
+            {
+                var deskCounters = Logic.Placement.CheckoutCounter.AllCounters;
+                for (int i = 0; i < deskCounters.Count; i++)
+                {
+                    if (!state.TryGetValue($"desk_style_{i}", out var deskStyle) || string.IsNullOrEmpty(deskStyle))
+                        continue;
+
+                    if (deskCounters[i].CurrentDeskStyleId != deskStyle)
+                    {
+                        var style = Logic.Placement.DeskStyle.Get(deskStyle);
+                        deskCounters[i].SwapDesk(style);
+                    }
+                }
+            }
 
             // Manager data is on per-manager SyncVar slots — handled in HandleManagerSlotChanged.
         }
