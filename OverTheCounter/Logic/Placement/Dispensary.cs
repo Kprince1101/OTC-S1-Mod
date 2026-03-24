@@ -2,6 +2,7 @@ using MelonLoader;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1MAPI.Building;
+using S1MAPI.Building.Components;
 using S1MAPI.Building.Config;
 using S1MAPI.Building.Interior;
 using S1MAPI.Building.Structural;
@@ -169,6 +170,8 @@ namespace OverTheCounter.Logic.Placement
             _sidewalks.Clear();
             _initialized = false;
             _suppressSwitchSync = false;
+            _awaitingClientDoors = false;
+            _clientDoorsConfigured = 0;
         }
 
         internal static void SetLightsEnabled(bool enabled)
@@ -269,44 +272,48 @@ namespace OverTheCounter.Logic.Placement
         {
             if (_building == null) return;
 
-            // Metal glass door — lobby/showroom boundary
+            // Interior doors — placed via S1MAPI PrefabPlacer for proper FishNet replication.
+            // Press-E interaction calls SetIsOpen_Server (RunLocally=true, RequireOwnership=false)
+            // which syncs door state to all peers automatically.
             try
             {
-                var lobbyDoorLocal = new Vector3(RoomWidth / 2f, 0f, LobbyWallZ);
-                var lobbyDoorWorld = _building.transform.TransformPoint(lobbyDoorLocal);
-                var lobbyDoorRot = _building.transform.rotation;
-                var lobbyDoorGo = SpawnNetworkedAt(Prefabs.MetalGlassDoor, lobbyDoorWorld, lobbyDoorRot);
-                if (lobbyDoorGo != null)
-                {
-                    _networkedObjects.Add(lobbyDoorGo);
-                    var dc = lobbyDoorGo.GetComponentInChildren<DoorController>(true);
-                    if (dc != null)
-                        dc.PlayerAccess = EDoorAccess.Open;
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Patch, $"Dispensary lobby door spawn failed: {ex.Message}");
-            }
+                var placer = new PrefabPlacer(_building.transform);
 
-            // Classical wooden door — backroom/showroom boundary
-            try
-            {
-                var backDoorLocal = new Vector3(RoomWidth / 2f, 0f, BackroomWallZ);
-                var backDoorWorld = _building.transform.TransformPoint(backDoorLocal);
-                var backDoorRot = _building.transform.rotation;
-                var backDoorGo = SpawnNetworkedAt(Prefabs.ClassicalWoodenDoor, backDoorWorld, backDoorRot);
+                // Metal glass door — lobby/showroom boundary
+                var lobbyDoorGo = placer.Place(Prefabs.MetalGlassDoor,
+                    new Vector3(RoomWidth / 2f, 0f, LobbyWallZ), Quaternion.identity, networked: true,
+                    enableComponents: true,
+                    onReady: (door) =>
+                    {
+                        var dc = door.GetComponentInChildren<DoorController>(true);
+                        if (dc != null)
+                        {
+                            dc.PlayerAccess = EDoorAccess.Open;
+                            dc.AutoOpenForPlayer = false;
+                        }
+                    });
+                if (lobbyDoorGo != null)
+                    _networkedObjects.Add(lobbyDoorGo);
+
+                // Classical wooden door — backroom/showroom boundary
+                var backDoorGo = placer.Place(Prefabs.ClassicalWoodenDoor,
+                    new Vector3(RoomWidth / 2f, 0f, BackroomWallZ), Quaternion.identity, networked: true,
+                    enableComponents: true,
+                    onReady: (door) =>
+                    {
+                        var dc = door.GetComponentInChildren<DoorController>(true);
+                        if (dc != null)
+                        {
+                            dc.PlayerAccess = EDoorAccess.Open;
+                            dc.AutoOpenForPlayer = false;
+                        }
+                    });
                 if (backDoorGo != null)
-                {
                     _networkedObjects.Add(backDoorGo);
-                    var dc = backDoorGo.GetComponentInChildren<DoorController>(true);
-                    if (dc != null)
-                        dc.PlayerAccess = EDoorAccess.Open;
-                }
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Patch, $"Dispensary backroom door spawn failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Patch, $"Dispensary door spawn failed: {ex.Message}");
             }
 
             // Light switch — lobby side of lobby/showroom wall
@@ -375,29 +382,39 @@ namespace OverTheCounter.Logic.Placement
             // Trash can is placed as MeshVault furniture in the Furniture array (decorative only)
         }
 
-        private static System.Collections.IEnumerator WaitForFishNetDoor(Vector3 expectedWorldPos)
+        /// <summary>Client: true while waiting for FishNet-replicated interior doors.</summary>
+        private static bool _awaitingClientDoors;
+        private static int _clientDoorsConfigured;
+
+        /// <summary>
+        /// Client-side frame tick: checks if FishNet-replicated interior doors have been
+        /// parented to the building by S1MAPI's linker. Called from Core.OnLateUpdate
+        /// every frame until both doors are found (no timeout — deterministic).
+        /// </summary>
+        internal static void TickClientDoorSetup()
         {
-            float timeout = 30f;
-            float elapsed = 0f;
-            while (elapsed < timeout)
+            if (!_awaitingClientDoors || _building == null) return;
+
+            var doors = _building.GetComponentsInChildren<DoorController>(true);
+            if (doors == null) return;
+
+            foreach (var dc in doors)
             {
-                yield return new WaitForSeconds(0.5f);
-                elapsed += 0.5f;
-                foreach (var dc in Resources.FindObjectsOfTypeAll<DoorController>())
+                if (dc == null) continue;
+                // Track by AutoOpenForPlayer (prefab default is true).
+                // PlayerAccess may already be Open from FishNet sync, but we
+                // still need to disable auto-open to prevent auto-close.
+                if (dc.AutoOpenForPlayer)
                 {
-                    var no = dc.GetComponentInParent<NetworkObject>();
-                    if (no == null || no.ObjectId == 0) continue;
-                    if (Vector3.Distance(no.transform.position, expectedWorldPos) > 2f) continue;
-                    var oldDoor = Door?.gameObject;
-                    ConfigureDoor(no.gameObject);
-                    if (oldDoor != null && oldDoor != no.gameObject)
-                        GameObject.Destroy(oldDoor);
-                    yield break;
+                    dc.PlayerAccess = EDoorAccess.Open;
+                    dc.AutoOpenForPlayer = false;
+                    _clientDoorsConfigured++;
                 }
             }
-            OTCLog.Warning(OTCLog.Systems.Patch, "[Dispensary] FishNet door not found within 30s — using local clone");
-        }
 
+            if (_clientDoorsConfigured >= 2)
+                _awaitingClientDoors = false;
+        }
 
         /// <summary>
         /// Rebuilds interior pathfinding after furniture is placed or moved.

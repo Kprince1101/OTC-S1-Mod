@@ -2,6 +2,7 @@ using MelonLoader;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1MAPI.Building;
+using S1MAPI.Building.Components;
 using S1MAPI.Building.Config;
 using S1MAPI.Building.Structural;
 using S1MAPI.Gltf;
@@ -135,6 +136,7 @@ namespace OverTheCounter.Logic.Placement
             FurnitureManager.CleanupFurniture("WestvilleShack");
             _initialized = false;
             _suppressSwitchSync = false;
+            _awaitingClientDoor = false;
         }
 
         /// <summary>
@@ -280,28 +282,28 @@ namespace OverTheCounter.Logic.Placement
         {
             if (_building == null) return;
 
-            // Door — host spawns via FishNet; client polls for the FishNet-delivered instance.
-            // Using the FishNet-managed door directly means FishNet's ObserversRpc handles
-            // host→client and SetIsOpen_Server handles client→host — identical to ModularSwitch.
+            // Door — placed via S1MAPI PrefabPlacer for proper FishNet replication.
+            // Server spawns networked; FishNet replicates to clients; S1MAPI's linker
+            // parents the client copy to the building. Press-E interaction calls
+            // SetIsOpen_Server (RunLocally=true, RequireOwnership=false) which syncs
+            // door state to all peers automatically.
             try
             {
+                var placer = new PrefabPlacer(_building.transform);
                 var doorLocalPos = new Vector3(RoomWidth, 0f, RoomDepth / 2f - 1.2f);
-                var doorWorldPos = _building.transform.TransformPoint(doorLocalPos);
-                var doorRot = _building.transform.rotation * Quaternion.Euler(0f, 270f, 0f);
-
-                var doorGo = SpawnNetworkedAt(Prefabs.ClassicalWoodenDoor, doorWorldPos, doorRot);
+                var doorLocalRot = Quaternion.Euler(0f, 270f, 0f);
+                var doorGo = placer.Place(Prefabs.ClassicalWoodenDoor, doorLocalPos, doorLocalRot, networked: true);
                 if (doorGo != null)
                 {
+                    // Host: Place returns the instance — configure and track for cleanup
                     _networkedObjects.Add(doorGo);
                     ConfigureDoor(doorGo);
                 }
-
-                if (!NetworkHelper.IsHost)
+                else if (!NetworkHelper.IsHost)
                 {
-                    // Client also scans for the FishNet-managed door from the host.
-                    // If found, we switch WestvilleShack.Door to it so FishNet's ObserversRpc
-                    // (host→client) works natively — identical to how ModularSwitch syncs.
-                    MelonLoader.MelonCoroutines.Start(WaitForFishNetDoor(doorWorldPos));
+                    // Client: door arrives via FishNet replication, S1MAPI's linker
+                    // parents it to the building. TickClientDoorSetup() polls each frame.
+                    _awaitingClientDoor = true;
                 }
             }
             catch (Exception ex)
@@ -372,36 +374,23 @@ namespace OverTheCounter.Logic.Placement
 
         }
 
+        /// <summary>Client: true while waiting for the FishNet-replicated door to arrive.</summary>
+        private static bool _awaitingClientDoor;
+
         /// <summary>
-        /// Polls for the FishNet-delivered DoorController near the expected world position and
-        /// calls ConfigureDoor on it. FishNet replicates the host's spawned door to clients;
-        /// using that instance directly gives us ObserversRpc updates (host→client) and
-        /// SetIsOpen_Server (client→host) for free — same as ModularSwitch.
+        /// Client-side frame tick: checks if the FishNet-replicated door has been parented
+        /// to the building by S1MAPI's linker. Called from Core.OnLateUpdate every frame
+        /// until the door is found (no timeout — deterministic).
         /// </summary>
-        private static System.Collections.IEnumerator WaitForFishNetDoor(Vector3 expectedWorldPos)
+        internal static void TickClientDoorSetup()
         {
-            float timeout = 30f;
-            float elapsed = 0f;
-            while (elapsed < timeout)
-            {
-                yield return new WaitForSeconds(0.5f);
-                elapsed += 0.5f;
-                foreach (var dc in Resources.FindObjectsOfTypeAll<DoorController>())
-                {
-                    var no = dc.GetComponentInParent<NetworkObject>();
-                    if (no == null || no.ObjectId == 0) continue;
-                    // Use the NetworkObject root's position — DoorController is a child and may be offset.
-                    if (Vector3.Distance(no.transform.position, expectedWorldPos) > 2f) continue;
-                    // Found the FishNet-managed door. Replace local clone with it so
-                    // FishNet's ObserversRpc fires on WestvilleShack.Door directly.
-                    var oldDoor = Door?.gameObject;
-                    ConfigureDoor(no.gameObject);
-                    if (oldDoor != null && oldDoor != no.gameObject)
-                        GameObject.Destroy(oldDoor);
-                    yield break;
-                }
-            }
-            OTCLog.Warning(OTCLog.Systems.Patch,"[WestvilleShack] FishNet door not found within 30s — using local clone, host→client door sync relies on Steam");
+            if (!_awaitingClientDoor || _building == null) return;
+
+            var dc = _building.GetComponentInChildren<DoorController>(true);
+            if (dc == null) return;
+
+            _awaitingClientDoor = false;
+            ConfigureDoor(dc.gameObject);
         }
 
 
@@ -417,7 +406,7 @@ namespace OverTheCounter.Logic.Placement
         public static void VisualizePathGrid(bool show = true) => _navigationBuilder?.VisualizePathGrid(show);
 
         /// <summary>
-        /// Sets door access based on property ownership. Called by BuildingBuilder.AddPrefab callback.
+        /// Sets door access based on property ownership.
         /// </summary>
         private static void ConfigureDoor(GameObject doorGo)
         {
@@ -427,6 +416,7 @@ namespace OverTheCounter.Logic.Placement
             {
                 bool purchased = PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) ?? false;
                 doorCtrl.PlayerAccess = purchased ? EDoorAccess.Open : EDoorAccess.Locked;
+                doorCtrl.AutoOpenForPlayer = false;
 
                 // Let NPCs open the door naturally when they approach
                 try

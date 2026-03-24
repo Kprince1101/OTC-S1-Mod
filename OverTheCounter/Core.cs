@@ -371,6 +371,13 @@ namespace OverTheCounter
                     }
                 }
 
+                // Client: poll for FishNet-replicated doors arriving in buildings
+                if (!NetworkHelper.IsHost)
+                {
+                    Logic.Placement.WestvilleShack.TickClientDoorSetup();
+                    Logic.Placement.Dispensary.TickClientDoorSetup();
+                }
+
                 // Interactive checkout process (camera, clicks, payment)
                 CheckoutProcess.Instance?.Tick();
                 CheckoutProcess.TryStartCheckout(); // Both host and client (internal routing)
