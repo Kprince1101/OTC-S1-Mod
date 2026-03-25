@@ -278,6 +278,11 @@
 		<Compile Include="Apps\CustomersApp.CustomerDetail.cs" />
 		<Compile Include="Apps\CustomersApp.HireMeIntegration.cs" />
 		<Compile Include="Apps\GreenTabApp.cs" />
+		<Compile Include="Apps\GreenTabApp.Navigation.cs" />
+		<Compile Include="Apps\GreenTabApp.Cards.cs" />
+		<Compile Include="Apps\GreenTabApp.DeskTab.cs" />
+		<Compile Include="Apps\GreenTabApp.LightingTab.cs" />
+		<Compile Include="Apps\GreenTabApp.Helpers.cs" />
 		<Compile Include="Core.cs" />
 		<Compile Include="DebugHelpers.cs" />
 		<Compile Include="NPCs\VicNPC.cs" />
