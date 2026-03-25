@@ -649,6 +649,12 @@ namespace OverTheCounter.SaveData
                 case "PURCHASE_WESTVILLE_SHACK":
                     PropertySaveData.Instance?.PurchaseProperty(PropertySaveData.ShackId);
                     break;
+                case "PURCHASE_DISPENSARY":
+                    PropertySaveData.Instance?.PurchaseProperty(PropertySaveData.DispensaryId);
+                    break;
+                case "PURCHASE_WAREHOUSE":
+                    PropertySaveData.Instance?.PurchaseProperty(PropertySaveData.WarehouseId);
+                    break;
 
                 case "VIC_QUEST_ACCEPTED":
                 case "VIC_QUEST_COMPLETE":
@@ -863,6 +869,8 @@ namespace OverTheCounter.SaveData
             {
                 parts.Add($"prop_shack_listed={BoolToStr(PropertySaveData.Instance.GetProperty(PropertySaveData.ShackId) != null)}");
                 parts.Add($"prop_shack={BoolToStr(PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.ShackId))}");
+                parts.Add($"prop_dispensary={BoolToStr(PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.DispensaryId))}");
+                parts.Add($"prop_warehouse={BoolToStr(PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.WarehouseId))}");
             }
 
             if (VicSaveData.Instance != null)
@@ -946,6 +954,14 @@ namespace OverTheCounter.SaveData
 
                 if (shackOwned)
                     PropertySaveData.Instance?.ApplyHostPropertyState(PropertySaveData.ShackId, true);
+
+                bool dispensaryOwned = state.TryGetValue("prop_dispensary", out var pd) && StrToBool(pd);
+                if (dispensaryOwned)
+                    PropertySaveData.Instance?.ApplyHostPropertyState(PropertySaveData.DispensaryId, true);
+
+                bool warehouseOwned = state.TryGetValue("prop_warehouse", out var pw) && StrToBool(pw);
+                if (warehouseOwned)
+                    PropertySaveData.Instance?.ApplyHostPropertyState(PropertySaveData.WarehouseId, true);
 
                 bool introCompleted = state.TryGetValue("static_intro", out var si) && StrToBool(si);
                 int crmTier = state.TryGetValue("static_tier", out var st) && int.TryParse(st, out var stVal) ? stVal : 0;

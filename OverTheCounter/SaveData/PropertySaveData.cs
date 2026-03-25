@@ -133,6 +133,8 @@ namespace OverTheCounter.SaveData
     public class PropertySaveData : Saveable
     {
         public const string ShackId = "westville_shack";
+        public const string DispensaryId = "big_dispensary";
+        public const string WarehouseId = "otc_warehouse";
 
         [SaveableField("otc_properties")]
         private List<OtcPropertyRecord> _properties = new();
@@ -181,11 +183,20 @@ namespace OverTheCounter.SaveData
                 WestvilleShack.ApplySavedState(_shackState.LightsOn, _shackState.StoreOpen);
             }
 
-            Dispensary.ApplySavedState(_dispensaryState.LightsOn, _dispensaryState.StoreOpen,
-                _dispensaryState.LightingStyleId,
-                _dispensaryState.ExteriorWallStyleId, _dispensaryState.InteriorWallStyleId,
-                _dispensaryState.FloorStyleId);
-            OTCWarehouse.ApplySavedState(_warehouseState.LightsOn);
+            if (IsPropertyOwned(DispensaryId))
+            {
+                Dispensary.UnlockDoor();
+                Dispensary.ApplySavedState(_dispensaryState.LightsOn, _dispensaryState.StoreOpen,
+                    _dispensaryState.LightingStyleId,
+                    _dispensaryState.ExteriorWallStyleId, _dispensaryState.InteriorWallStyleId,
+                    _dispensaryState.FloorStyleId);
+            }
+
+            if (IsPropertyOwned(WarehouseId))
+            {
+                OTCWarehouse.UnlockDoor();
+                OTCWarehouse.ApplySavedState(_warehouseState.LightsOn);
+            }
         }
 
         /// <summary>
@@ -316,6 +327,10 @@ namespace OverTheCounter.SaveData
 
             if (propertyId == ShackId)
                 WestvilleShack.UnlockDoor();
+            else if (propertyId == DispensaryId)
+                Dispensary.UnlockDoor();
+            else if (propertyId == WarehouseId)
+                OTCWarehouse.UnlockDoor();
 
             ConfigSyncData.Instance?.PublishGameState();
         }
@@ -443,6 +458,10 @@ namespace OverTheCounter.SaveData
 
             if (propertyId == ShackId)
                 WestvilleShack.UnlockDoor();
+            else if (propertyId == DispensaryId)
+                Dispensary.UnlockDoor();
+            else if (propertyId == WarehouseId)
+                OTCWarehouse.UnlockDoor();
         }
 
         // ==================================================================

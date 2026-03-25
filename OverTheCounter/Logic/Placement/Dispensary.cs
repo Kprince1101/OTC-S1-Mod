@@ -58,6 +58,8 @@ namespace OverTheCounter.Logic.Placement
         private static NavigationBuilder _navigationBuilder;
         private static ModularSwitch _lightSwitch;
         private static ModularSwitch _openCloseSwitch;
+        private static GameObject _lightSwitchGo;
+        private static GameObject _openCloseSwitchGo;
         private static bool _initialized;
         private static bool _suppressSwitchSync;
         private static readonly List<GameObject> _networkedObjects = new();
@@ -188,6 +190,8 @@ namespace OverTheCounter.Logic.Placement
             _navigationBuilder = null;
             _lightSwitch = null;
             _openCloseSwitch = null;
+            _lightSwitchGo = null;
+            _openCloseSwitchGo = null;
             Door = null;
             IsStoreOpen = false;
             AreLightsOn = false;
@@ -353,6 +357,7 @@ namespace OverTheCounter.Logic.Placement
                 var placer = new PrefabPlacer(_building.transform);
 
                 // Metal glass door — lobby/showroom boundary
+                bool purchased = PropertySaveData.Instance?.IsPropertyOwned(DispensaryId) ?? false;
                 var lobbyDoorGo = placer.Place(Prefabs.MetalGlassDoor,
                     new Vector3(RoomWidth / 2f, 0f, LobbyWallZ), Quaternion.identity, networked: true,
                     enableComponents: true,
@@ -361,7 +366,8 @@ namespace OverTheCounter.Logic.Placement
                         var dc = door.GetComponentInChildren<DoorController>(true);
                         if (dc != null)
                         {
-                            dc.PlayerAccess = EDoorAccess.Open;
+                            Door = dc;
+                            dc.PlayerAccess = purchased ? EDoorAccess.Open : EDoorAccess.Locked;
                             dc.AutoOpenForPlayer = false;
                         }
                     });
@@ -377,7 +383,7 @@ namespace OverTheCounter.Logic.Placement
                         var dc = door.GetComponentInChildren<DoorController>(true);
                         if (dc != null)
                         {
-                            dc.PlayerAccess = EDoorAccess.Open;
+                            dc.PlayerAccess = purchased ? EDoorAccess.Open : EDoorAccess.Locked;
                             dc.AutoOpenForPlayer = false;
                         }
                     });
@@ -400,6 +406,7 @@ namespace OverTheCounter.Logic.Placement
                 {
                     switchGo.name = "OTC_LightSwitch";
                     _networkedObjects.Add(switchGo);
+                    _lightSwitchGo = switchGo;
                     _lightSwitch = new ModularSwitch(switchGo);
                     _lightSwitch.SetInteractionMessages("Turn Off Lights", "Turn On Lights");
                     _lightSwitch.OnToggled += isOn =>
@@ -431,6 +438,7 @@ namespace OverTheCounter.Logic.Placement
                 {
                     openSwitchGo.name = "OTC_OpenCloseSwitch";
                     _networkedObjects.Add(openSwitchGo);
+                    _openCloseSwitchGo = openSwitchGo;
                     _openCloseSwitch = new ModularSwitch(openSwitchGo);
                     _openCloseSwitch.OnToggled += isOn =>
                     {
@@ -453,6 +461,13 @@ namespace OverTheCounter.Logic.Placement
             }
 
             // Trash can is placed as MeshVault furniture in the Furniture array (decorative only)
+
+            // Disable switches until property is purchased
+            if (!(PropertySaveData.Instance?.IsPropertyOwned(DispensaryId) ?? false))
+            {
+                if (_lightSwitchGo != null) _lightSwitchGo.SetActive(false);
+                if (_openCloseSwitchGo != null) _openCloseSwitchGo.SetActive(false);
+            }
 
             // Re-apply saved styles (may have been set before building existed)
             ApplyLightingStyle(LightingStyle.Get(CurrentLightingStyleId));
@@ -493,15 +508,14 @@ namespace OverTheCounter.Logic.Placement
             var doors = _building.GetComponentsInChildren<DoorController>(true);
             if (doors == null) return;
 
+            bool purchased = PropertySaveData.Instance?.IsPropertyOwned(DispensaryId) ?? false;
             foreach (var dc in doors)
             {
                 if (dc == null) continue;
                 // Track by AutoOpenForPlayer (prefab default is true).
-                // PlayerAccess may already be Open from FishNet sync, but we
-                // still need to disable auto-open to prevent auto-close.
                 if (dc.AutoOpenForPlayer)
                 {
-                    dc.PlayerAccess = EDoorAccess.Open;
+                    dc.PlayerAccess = purchased ? EDoorAccess.Open : EDoorAccess.Locked;
                     dc.AutoOpenForPlayer = false;
                     _clientDoorsConfigured++;
                 }
@@ -522,53 +536,34 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Toggles the pathfinding debug grid visualization.</summary>
         public static void VisualizePathGrid(bool show = true) => _navigationBuilder?.VisualizePathGrid(show);
 
-        private static void ConfigureDoor(GameObject doorGo)
-        {
-            var doorCtrl = doorGo.GetComponentInChildren<DoorController>(true);
-            Door = doorCtrl;
-            if (doorCtrl != null)
-            {
-                // Always unlocked for now (no purchase system yet)
-                doorCtrl.PlayerAccess = EDoorAccess.Open;
-                try
-                {
-#if IL2CPP
-                    doorCtrl.OpenableByNPCs = true;
-#else
-                    var field = doorCtrl.GetType().GetField("OpenableByNPCs",
-                        BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
-                    if (field != null) field.SetValue(doorCtrl, true);
-#endif
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to set OpenableByNPCs: {ex.Message}");
-                }
-            }
-        }
-
-        /// <summary>Unlocks the dispensary door at runtime.</summary>
+        /// <summary>Unlocks interior doors and enables switches (called after purchase).</summary>
         public static void UnlockDoor()
         {
-            var doorCtrl = Door;
-            if (doorCtrl != null)
+            if (_building != null)
             {
-                doorCtrl.PlayerAccess = EDoorAccess.Open;
-                try
+                var doors = _building.GetComponentsInChildren<DoorController>(true);
+                if (doors != null)
                 {
+                    foreach (var dc in doors)
+                    {
+                        if (dc == null) continue;
+                        dc.PlayerAccess = EDoorAccess.Open;
+                        try
+                        {
 #if IL2CPP
-                    doorCtrl.OpenableByNPCs = true;
+                            dc.OpenableByNPCs = true;
 #else
-                    var field = doorCtrl.GetType().GetField("OpenableByNPCs",
-                        BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
-                    if (field != null) field.SetValue(doorCtrl, true);
+                            var field = dc.GetType().GetField("OpenableByNPCs",
+                                BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public);
+                            if (field != null) field.SetValue(dc, true);
 #endif
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to set OpenableByNPCs: {ex.Message}");
+                        }
+                        catch { }
+                    }
                 }
             }
+            if (_lightSwitchGo != null) _lightSwitchGo.SetActive(true);
+            if (_openCloseSwitchGo != null) _openCloseSwitchGo.SetActive(true);
         }
 
         /// <summary>Restores switch states from save data after load.</summary>
@@ -787,7 +782,7 @@ namespace OverTheCounter.Logic.Placement
                 },
                 gridCellSize: builder.GridCellSize);
             BuildingGridFactory.RegisterGrid(DispensaryGrid, DispensaryId,
-                null, RebuildNavigation);
+                DispensaryId, RebuildNavigation);
 
             // Concrete apron along north wall
             CreateConcreteApron();

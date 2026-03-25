@@ -422,7 +422,7 @@ namespace OverTheCounter.Logic.Placement
                 },
                 gridCellSize: builder.GridCellSize);
             BuildingGridFactory.RegisterGrid(WarehouseGrid, WarehouseId,
-                null, RebuildNavigation);
+                WarehouseId, RebuildNavigation);
 
             // Fixed GUID so FishNet can look up the grid on clients
             try
@@ -572,6 +572,12 @@ namespace OverTheCounter.Logic.Placement
             target.volume = 0.3f;
         }
 
+        /// <summary>
+        /// Called after purchase. Proximity routine checks ownership each frame,
+        /// so this just exists for PurchaseProperty dispatch consistency.
+        /// </summary>
+        public static void UnlockDoor() { }
+
         private static IEnumerator DoorProximityRoutine()
         {
             bool wasOpen = false;
@@ -580,13 +586,16 @@ namespace OverTheCounter.Logic.Placement
             {
                 try
                 {
+                    bool owned = PropertySaveData.Instance?.IsPropertyOwned(WarehouseId) ?? false;
                     var player = PlayerSingleton<PlayerMovement>.Instance;
                     if (player != null)
                     {
                         var doorWorldPos = _garageDoor.transform.parent.TransformPoint(_doorClosedLocalPos);
                         float dist = Vector3.Distance(player.transform.position, doorWorldPos);
 
-                        if (_doorShouldBeOpen && dist > DoorCloseDist)
+                        if (!owned)
+                            _doorShouldBeOpen = false;
+                        else if (_doorShouldBeOpen && dist > DoorCloseDist)
                             _doorShouldBeOpen = false;
                         else if (!_doorShouldBeOpen && dist < DoorOpenDist)
                             _doorShouldBeOpen = true;
