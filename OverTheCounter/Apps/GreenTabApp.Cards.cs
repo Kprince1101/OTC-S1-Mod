@@ -136,18 +136,19 @@ namespace OverTheCounter.Apps
 
         private void RefreshCards()
         {
-            // Clear existing
-            foreach (var entry in _cardEntries)
-            {
-                if (entry.Card != null)
-                    UnityEngine.Object.Destroy(entry.Card);
-            }
+            // Clear all children of card grid (tracked cards + untracked headers/dividers)
             _cardEntries.Clear();
+            for (int i = _cardGrid.childCount - 1; i >= 0; i--)
+                UnityEngine.Object.Destroy(_cardGrid.GetChild(i).gameObject);
 
             if (_activeCategory == Category.CheckoutDesk)
                 RefreshDeskCards();
             else if (_activeCategory == Category.Lighting)
                 RefreshLightingCards();
+            else if (_activeCategory == Category.Walls)
+                RefreshWallCards();
+            else if (_activeCategory == Category.Flooring)
+                RefreshFloorCards();
 
             RefreshFooter();
         }
@@ -193,6 +194,48 @@ namespace OverTheCounter.Apps
                     entry.LockOverlay.SetActive(!canAfford && !isEquipped);
                 }
             }
+            else if (_activeCategory == Category.Walls)
+            {
+                string currentExt = Dispensary.CurrentExteriorWallStyleId ?? WallStyle.ExtDefault.Id;
+                string currentInt = Dispensary.CurrentInteriorWallStyleId ?? WallStyle.IntDefault.Id;
+
+                for (int i = 0; i < _cardEntries.Count; i++)
+                {
+                    var entry = _cardEntries[i];
+                    if (entry.Card == null) continue;
+
+                    bool isExterior = entry.StyleId.StartsWith("ext:");
+                    string actualId = entry.StyleId.Substring(4);
+                    string currentStyle = isExterior ? currentExt : currentInt;
+                    string pendingStyle = isExterior ? _pendingExteriorWallId : _pendingInteriorWallId;
+
+                    bool isEquipped = actualId == currentStyle;
+                    bool isSelected = actualId == pendingStyle;
+                    bool canAfford = CanAffordWall(currentStyle, actualId, balance, isExterior);
+
+                    entry.CardImage.color = isSelected ? CardSelected : CardBg;
+                    entry.EquippedBadge.SetActive(isEquipped);
+                    entry.LockOverlay.SetActive(!canAfford && !isEquipped);
+                }
+            }
+            else if (_activeCategory == Category.Flooring)
+            {
+                string currentFloor = Dispensary.CurrentFloorStyleId ?? FloorStyle.Default.Id;
+
+                for (int i = 0; i < _cardEntries.Count; i++)
+                {
+                    var entry = _cardEntries[i];
+                    if (entry.Card == null) continue;
+
+                    bool isEquipped = entry.StyleId == currentFloor;
+                    bool isSelected = entry.StyleId == _pendingFloorId;
+                    bool canAfford = CanAffordFloor(currentFloor, entry.StyleId, balance);
+
+                    entry.CardImage.color = isSelected ? CardSelected : CardBg;
+                    entry.EquippedBadge.SetActive(isEquipped);
+                    entry.LockOverlay.SetActive(!canAfford && !isEquipped);
+                }
+            }
         }
 
         // ==================================================================
@@ -218,6 +261,18 @@ namespace OverTheCounter.Apps
             {
                 string currentLighting = Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
                 hasChange = _pendingLightingId != null && _pendingLightingId != currentLighting;
+            }
+            else if (_activeCategory == Category.Walls)
+            {
+                string currentExt = Dispensary.CurrentExteriorWallStyleId ?? WallStyle.ExtDefault.Id;
+                string currentInt = Dispensary.CurrentInteriorWallStyleId ?? WallStyle.IntDefault.Id;
+                hasChange = (_pendingExteriorWallId != null && _pendingExteriorWallId != currentExt)
+                         || (_pendingInteriorWallId != null && _pendingInteriorWallId != currentInt);
+            }
+            else if (_activeCategory == Category.Flooring)
+            {
+                string currentFloor = Dispensary.CurrentFloorStyleId ?? FloorStyle.Default.Id;
+                hasChange = _pendingFloorId != null && _pendingFloorId != currentFloor;
             }
 
             if (_applyBtnImage != null)
@@ -256,6 +311,35 @@ namespace OverTheCounter.Apps
 
                 _pendingLightingId = styleId;
             }
+            else if (_activeCategory == Category.Walls)
+            {
+                bool isExterior = styleId.StartsWith("ext:");
+                string actualId = styleId.Substring(4);
+
+                if (isExterior)
+                {
+                    string currentExt = Dispensary.CurrentExteriorWallStyleId ?? WallStyle.ExtDefault.Id;
+                    if (!CanAffordWall(currentExt, actualId, balance, true) && actualId != currentExt)
+                        return;
+                    _pendingExteriorWallId = actualId;
+                }
+                else
+                {
+                    string currentInt = Dispensary.CurrentInteriorWallStyleId ?? WallStyle.IntDefault.Id;
+                    if (!CanAffordWall(currentInt, actualId, balance, false) && actualId != currentInt)
+                        return;
+                    _pendingInteriorWallId = actualId;
+                }
+            }
+            else if (_activeCategory == Category.Flooring)
+            {
+                string currentFloor = Dispensary.CurrentFloorStyleId ?? FloorStyle.Default.Id;
+
+                if (!CanAffordFloor(currentFloor, styleId, balance) && styleId != currentFloor)
+                    return;
+
+                _pendingFloorId = styleId;
+            }
 
             UpdateCardVisuals();
             RefreshFooter();
@@ -267,6 +351,10 @@ namespace OverTheCounter.Apps
                 ApplyDeskUpgrade();
             else if (_activeCategory == Category.Lighting)
                 ApplyLightingUpgrade();
+            else if (_activeCategory == Category.Walls)
+                ApplyWallUpgrade();
+            else if (_activeCategory == Category.Flooring)
+                ApplyFloorUpgrade();
         }
     }
 }

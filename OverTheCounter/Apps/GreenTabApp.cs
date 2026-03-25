@@ -22,14 +22,16 @@ namespace OverTheCounter.Apps
 {
     /// <summary>
     /// GreenTab POS — phone app for dispensary customization.
-    /// Horizontal orientation. Supports desk style and lighting upgrades.
+    /// Horizontal orientation. Supports desk, wall, floor, and lighting upgrades.
     /// Split across partial files:
-    ///   GreenTabApp.cs           — core, fields, lifecycle, utilities
+    ///   GreenTabApp.cs            — core, fields, lifecycle, utilities
     ///   GreenTabApp.Navigation.cs — nav bar, sidebar, top bar, dropdown
-    ///   GreenTabApp.Cards.cs     — card grid, footer, refresh, click routing
-    ///   GreenTabApp.DeskTab.cs   — desk style cards + purchase logic
-    ///   GreenTabApp.LightingTab.cs — lighting style cards + purchase logic
-    ///   GreenTabApp.Helpers.cs   — balance, counter, building lookups
+    ///   GreenTabApp.Cards.cs      — card grid, footer, refresh, click routing
+    ///   GreenTabApp.DeskTab.cs    — desk style cards + purchase logic
+    ///   GreenTabApp.LightingTab.cs— lighting style cards + purchase logic
+    ///   GreenTabApp.WallsTab.cs   — wall style cards (exterior + interior)
+    ///   GreenTabApp.FlooringTab.cs— floor style cards + purchase logic
+    ///   GreenTabApp.Helpers.cs    — balance, counter, building lookups
     /// </summary>
     public partial class GreenTabApp : PhoneApp
     {
@@ -48,7 +50,7 @@ namespace OverTheCounter.Apps
         private const float FOOTER_HEIGHT = 52f;
         private const float CARD_WIDTH = 140f;
         private const float CARD_HEIGHT = 110f;
-        private const int GRID_COLUMNS = 2;
+        private const int GRID_COLUMNS = 4;
         private const float CARD_GAP = 8f;
 
         // ---- Colors (dark neutral base, green accent used sparingly) ----
@@ -74,8 +76,8 @@ namespace OverTheCounter.Apps
         private static readonly (Category cat, string label, bool locked)[] Categories =
         {
             (Category.CheckoutDesk, "Checkout Desk", false),
-            (Category.Walls, "Walls", true),
-            (Category.Flooring, "Flooring", true),
+            (Category.Walls, "Walls", false),
+            (Category.Flooring, "Flooring", false),
             (Category.Lighting, "Lighting", false), // set true to gate behind unlock
         };
 
@@ -85,6 +87,9 @@ namespace OverTheCounter.Apps
         private string _pendingStyleId;
         private DeskStyle _pendingStyle;
         private string _pendingLightingId;
+        private string _pendingExteriorWallId;
+        private string _pendingInteriorWallId;
+        private string _pendingFloorId;
 
         // ---- UI refs ----
         private GameObject _rootPanel;
@@ -141,6 +146,52 @@ namespace OverTheCounter.Apps
             { "flush_mount", new Color(0.95f, 0.92f, 0.80f) },          // warm white
             { "neon_tech", new Color(0f, 0.8f, 1f) },                   // cyan neon
             { "industrial", new Color(1f, 0.85f, 0.55f) },              // warm brass
+        };
+
+        // ---- Wall style swatch colors ----
+        private static readonly Dictionary<string, Color> WallSwatchColors = new()
+        {
+            // Interior
+            { "brick_red", new Color(0.65f, 0.25f, 0.20f) },
+            { "concrete_charcoal", new Color(0.25f, 0.25f, 0.25f) },
+            { "stripes_charcoal", new Color(0.28f, 0.28f, 0.30f) },
+            { "metal_green", new Color(0.20f, 0.40f, 0.25f) },
+            { "white_lighter", new Color(0.92f, 0.92f, 0.92f) },
+            { "mansion_wood", new Color(0.85f, 0.80f, 0.70f) },
+            { "alum_grey", new Color(0.60f, 0.62f, 0.65f) },
+            { "tiles_black", new Color(0.10f, 0.10f, 0.10f) },
+            { "metal_darkgrey", new Color(0.18f, 0.18f, 0.18f) },
+            { "concrete_green", new Color(0.25f, 0.45f, 0.30f) },
+            { "small_tile_white", new Color(0.85f, 0.82f, 0.78f) },
+            // Exterior
+            { "ext_brick_red", new Color(0.65f, 0.25f, 0.20f) },
+            { "granite_salmon", new Color(0.75f, 0.55f, 0.50f) },
+            { "mansion_ext", new Color(0.80f, 0.75f, 0.65f) },
+            { "ext_concrete_charcoal", new Color(0.25f, 0.25f, 0.25f) },
+            { "ext_metal_darkgrey", new Color(0.18f, 0.18f, 0.18f) },
+            { "brick_dark_grey", new Color(0.30f, 0.30f, 0.30f) },
+            { "brick_blue", new Color(0.20f, 0.30f, 0.55f) },
+            { "brick_warehouse", new Color(0.50f, 0.35f, 0.25f) },
+            { "ext_alum_grey", new Color(0.60f, 0.62f, 0.65f) },
+        };
+
+        // ---- Floor style swatch colors ----
+        private static readonly Dictionary<string, Color> FloorSwatchColors = new()
+        {
+            { "wood_planks_brown", new Color(0.55f, 0.35f, 0.18f) },
+            { "tiles_light_grey", new Color(0.72f, 0.72f, 0.72f) },
+            { "mansion_floor", new Color(0.45f, 0.30f, 0.18f) },
+            { "concrete_beige", new Color(0.78f, 0.72f, 0.62f) },
+            { "tiles_black", new Color(0.10f, 0.10f, 0.10f) },
+            { "concrete_black", new Color(0.08f, 0.08f, 0.08f) },
+            { "metal_dark_grey", new Color(0.22f, 0.22f, 0.22f) },
+            { "wood_planks_black", new Color(0.12f, 0.10f, 0.08f) },
+            { "concrete_grey", new Color(0.55f, 0.55f, 0.55f) },
+            { "concrete_crimson", new Color(0.55f, 0.12f, 0.12f) },
+            { "concrete_navy", new Color(0.10f, 0.15f, 0.35f) },
+            { "small_tile_white", new Color(0.85f, 0.82f, 0.78f) },
+            { "wood_beige", new Color(0.72f, 0.60f, 0.42f) },
+            { "off_white", new Color(0.90f, 0.88f, 0.85f) },
         };
 
         // ---- Nav tab icon names (order matches tabs array in BuildNavBar) ----

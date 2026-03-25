@@ -98,6 +98,9 @@ namespace OverTheCounter.SaveData
         public bool LightsOn;
         public bool StoreOpen;
         public string LightingStyleId;
+        public string ExteriorWallStyleId;
+        public string InteriorWallStyleId;
+        public string FloorStyleId;
     }
 
     /// <summary>
@@ -178,7 +181,10 @@ namespace OverTheCounter.SaveData
                 WestvilleShack.ApplySavedState(_shackState.LightsOn, _shackState.StoreOpen);
             }
 
-            Dispensary.ApplySavedState(_dispensaryState.LightsOn, _dispensaryState.StoreOpen, _dispensaryState.LightingStyleId);
+            Dispensary.ApplySavedState(_dispensaryState.LightsOn, _dispensaryState.StoreOpen,
+                _dispensaryState.LightingStyleId,
+                _dispensaryState.ExteriorWallStyleId, _dispensaryState.InteriorWallStyleId,
+                _dispensaryState.FloorStyleId);
             OTCWarehouse.ApplySavedState(_warehouseState.LightsOn);
         }
 
@@ -206,6 +212,9 @@ namespace OverTheCounter.SaveData
             _dispensaryState.LightsOn = Dispensary.AreLightsOn;
             _dispensaryState.StoreOpen = Dispensary.IsStoreOpen;
             _dispensaryState.LightingStyleId = Dispensary.CurrentLightingStyleId;
+            _dispensaryState.ExteriorWallStyleId = Dispensary.CurrentExteriorWallStyleId;
+            _dispensaryState.InteriorWallStyleId = Dispensary.CurrentInteriorWallStyleId;
+            _dispensaryState.FloorStyleId = Dispensary.CurrentFloorStyleId;
 
             _warehouseState.LightsOn = OTCWarehouse.AreLightsOn;
 

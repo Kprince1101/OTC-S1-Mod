@@ -898,6 +898,14 @@ namespace OverTheCounter.SaveData
             if (!string.IsNullOrEmpty(Logic.Placement.Dispensary.CurrentLightingStyleId))
                 parts.Add($"disp_lighting={Logic.Placement.Dispensary.CurrentLightingStyleId}");
 
+            // Dispensary wall/floor styles
+            if (!string.IsNullOrEmpty(Logic.Placement.Dispensary.CurrentExteriorWallStyleId))
+                parts.Add($"disp_ext_wall={Logic.Placement.Dispensary.CurrentExteriorWallStyleId}");
+            if (!string.IsNullOrEmpty(Logic.Placement.Dispensary.CurrentInteriorWallStyleId))
+                parts.Add($"disp_int_wall={Logic.Placement.Dispensary.CurrentInteriorWallStyleId}");
+            if (!string.IsNullOrEmpty(Logic.Placement.Dispensary.CurrentFloorStyleId))
+                parts.Add($"disp_floor={Logic.Placement.Dispensary.CurrentFloorStyleId}");
+
             // Checkout desk styles (per counter)
             var counters = Logic.Placement.CheckoutCounter.AllCounters;
             for (int i = 0; i < counters.Count; i++)
@@ -1016,6 +1024,46 @@ namespace OverTheCounter.SaveData
             {
                 var lightStyle = Logic.Placement.LightingStyle.Get(dispLighting);
                 Logic.Placement.Dispensary.ApplyLightingStyle(lightStyle);
+            }
+
+            // Dispensary wall/floor styles
+            if (state.TryGetValue("disp_ext_wall", out var extWall)
+                && !string.IsNullOrEmpty(extWall)
+                && extWall != Logic.Placement.Dispensary.CurrentExteriorWallStyleId)
+            {
+                var style = Logic.Placement.WallStyle.GetExterior(extWall);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.Dispensary.SwapExteriorWallMaterial(mat);
+                    Logic.Placement.Dispensary.CurrentExteriorWallStyleId = extWall;
+                }
+            }
+
+            if (state.TryGetValue("disp_int_wall", out var intWall)
+                && !string.IsNullOrEmpty(intWall)
+                && intWall != Logic.Placement.Dispensary.CurrentInteriorWallStyleId)
+            {
+                var style = Logic.Placement.WallStyle.GetInterior(intWall);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.Dispensary.SwapInteriorWallMaterial(mat);
+                    Logic.Placement.Dispensary.CurrentInteriorWallStyleId = intWall;
+                }
+            }
+
+            if (state.TryGetValue("disp_floor", out var floorStyle)
+                && !string.IsNullOrEmpty(floorStyle)
+                && floorStyle != Logic.Placement.Dispensary.CurrentFloorStyleId)
+            {
+                var style = Logic.Placement.FloorStyle.Get(floorStyle);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.Dispensary.SwapFloorMaterial(mat);
+                    Logic.Placement.Dispensary.CurrentFloorStyleId = floorStyle;
+                }
             }
 
             // Checkout desk styles (per counter)

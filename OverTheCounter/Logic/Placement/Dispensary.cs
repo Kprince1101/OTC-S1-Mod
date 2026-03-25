@@ -89,6 +89,15 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Current lighting style ID for the dispensary.</summary>
         public static string CurrentLightingStyleId { get; internal set; }
 
+        /// <summary>Current exterior wall style ID.</summary>
+        public static string CurrentExteriorWallStyleId { get; internal set; }
+
+        /// <summary>Current interior wall style ID.</summary>
+        public static string CurrentInteriorWallStyleId { get; internal set; }
+
+        /// <summary>Current floor style ID.</summary>
+        public static string CurrentFloorStyleId { get; internal set; }
+
         /// <summary>Whether the store is currently open for customers.</summary>
         public static bool IsStoreOpen { get; private set; }
 
@@ -197,6 +206,9 @@ namespace OverTheCounter.Logic.Placement
             _lightFixtures.Clear();
             _materialSwaps.Clear();
             CurrentLightingStyleId = null;
+            CurrentExteriorWallStyleId = null;
+            CurrentInteriorWallStyleId = null;
+            CurrentFloorStyleId = null;
             _initialized = false;
             _suppressSwitchSync = false;
             _awaitingClientDoors = false;
@@ -442,8 +454,27 @@ namespace OverTheCounter.Logic.Placement
 
             // Trash can is placed as MeshVault furniture in the Furniture array (decorative only)
 
-            // Apply default lighting style on first spawn
+            // Re-apply saved styles (may have been set before building existed)
             ApplyLightingStyle(LightingStyle.Get(CurrentLightingStyleId));
+
+            if (!string.IsNullOrEmpty(CurrentExteriorWallStyleId))
+            {
+                var extStyle = WallStyle.GetExterior(CurrentExteriorWallStyleId);
+                var extMat = Materials.Find(extStyle.MaterialName);
+                if (extMat != null) SwapExteriorWallMaterial(extMat);
+            }
+            if (!string.IsNullOrEmpty(CurrentInteriorWallStyleId))
+            {
+                var intStyle = WallStyle.GetInterior(CurrentInteriorWallStyleId);
+                var intMat = Materials.Find(intStyle.MaterialName);
+                if (intMat != null) SwapInteriorWallMaterial(intMat);
+            }
+            if (!string.IsNullOrEmpty(CurrentFloorStyleId))
+            {
+                var floorStyle = FloorStyle.Get(CurrentFloorStyleId);
+                var floorMat = Materials.Find(floorStyle.MaterialName);
+                if (floorMat != null) SwapFloorMaterial(floorMat);
+            }
         }
 
         /// <summary>Client: true while waiting for FishNet-replicated interior doors.</summary>
@@ -541,7 +572,8 @@ namespace OverTheCounter.Logic.Placement
         }
 
         /// <summary>Restores switch states from save data after load.</summary>
-        public static void ApplySavedState(bool lightsOn, bool storeOpen, string lightingStyleId = null)
+        public static void ApplySavedState(bool lightsOn, bool storeOpen, string lightingStyleId = null,
+            string exteriorWallStyleId = null, string interiorWallStyleId = null, string floorStyleId = null)
         {
             if (!string.IsNullOrEmpty(lightingStyleId))
             {
@@ -549,6 +581,30 @@ namespace OverTheCounter.Logic.Placement
                     ApplyLightingStyle(LightingStyle.Get(lightingStyleId));
                 else
                     CurrentLightingStyleId = lightingStyleId;
+            }
+
+            if (!string.IsNullOrEmpty(exteriorWallStyleId))
+            {
+                CurrentExteriorWallStyleId = exteriorWallStyleId;
+                var style = WallStyle.GetExterior(exteriorWallStyleId);
+                var mat = Materials.Find(style.MaterialName);
+                if (mat != null && _building != null) SwapExteriorWallMaterial(mat);
+            }
+
+            if (!string.IsNullOrEmpty(interiorWallStyleId))
+            {
+                CurrentInteriorWallStyleId = interiorWallStyleId;
+                var style = WallStyle.GetInterior(interiorWallStyleId);
+                var mat = Materials.Find(style.MaterialName);
+                if (mat != null && _building != null) SwapInteriorWallMaterial(mat);
+            }
+
+            if (!string.IsNullOrEmpty(floorStyleId))
+            {
+                CurrentFloorStyleId = floorStyleId;
+                var style = FloorStyle.Get(floorStyleId);
+                var mat = Materials.Find(style.MaterialName);
+                if (mat != null && _building != null) SwapFloorMaterial(mat);
             }
 
             if (_lightSwitch != null)
@@ -636,6 +692,7 @@ namespace OverTheCounter.Logic.Placement
             {
                 FloorMaterial = Materials.WoodPlanksMediumBrown,
                 WallMaterial = wallMat,
+                InteriorWallMaterial = wallMat,
                 CeilingMaterial = Materials.ConcreteLightGrey,
                 TrimMaterial = trimBlack,
             };
@@ -981,6 +1038,44 @@ namespace OverTheCounter.Logic.Placement
                 PrimitiveBuilder.CreatePointLight($"Neon_{lbl}_E_L", new Vector3(0f, -0.1f, 0f),
                     neonColor, range: 4f, intensity: 0.5f, parent: east.transform);
             }
+        }
+
+        // ==================================================================
+        //  Wall / Floor material swapping
+        // ==================================================================
+
+        /// <summary>
+        /// Swaps exterior wall material (submesh 0 on dual-material walls).
+        /// </summary>
+        public static void SwapExteriorWallMaterial(Material material)
+        {
+            if (_building == null || material == null) return;
+            var registry = _building.GetComponent<BuildingPartRegistry>();
+            if (registry == null) return;
+            registry.SetExteriorWallMaterial(material);
+        }
+
+        /// <summary>
+        /// Swaps interior wall material (submesh 1 on dual-material exterior walls + all interior partition walls).
+        /// </summary>
+        public static void SwapInteriorWallMaterial(Material material)
+        {
+            if (_building == null || material == null) return;
+            var registry = _building.GetComponent<BuildingPartRegistry>();
+            if (registry == null) return;
+            registry.SetInteriorFaceMaterial(material);
+            registry.SetMaterial(BuildingPart.InteriorWalls, material);
+        }
+
+        /// <summary>
+        /// Swaps floor material on the dispensary floor slab.
+        /// </summary>
+        public static void SwapFloorMaterial(Material material)
+        {
+            if (_building == null || material == null) return;
+            var registry = _building.GetComponent<BuildingPartRegistry>();
+            if (registry == null) return;
+            registry.SetMaterial(BuildingPart.Floor, material);
         }
 
     }
