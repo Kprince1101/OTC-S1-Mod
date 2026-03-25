@@ -6,6 +6,7 @@ using S1MAPI.Building.Components;
 using S1MAPI.Building.Config;
 using S1MAPI.Building.Interior;
 using S1MAPI.Building.Structural;
+using S1MAPI.ProceduralMesh;
 using S1MAPI.S1;
 using S1MAPI.Utils;
 using S1API.Misc;
@@ -55,14 +56,38 @@ namespace OverTheCounter.Logic.Placement
 
         private static GameObject _building;
         private static NavigationBuilder _navigationBuilder;
-        private static GameObject _lightsFolder;
         private static ModularSwitch _lightSwitch;
         private static ModularSwitch _openCloseSwitch;
         private static bool _initialized;
         private static bool _suppressSwitchSync;
         private static readonly List<GameObject> _networkedObjects = new();
         private static readonly List<GameObject> _sidewalks = new();
+        private static readonly List<GameObject> _lightFixtures = new();
+        private static readonly List<LightMatSwap> _materialSwaps = new();
+        private static Color _neonEmissionColor = Color.black;
+
+        /// <summary>Tracks a renderer whose material should be swapped between on/off states.</summary>
+        private class LightMatSwap
+        {
+            public MeshRenderer Renderer;
+            public Material OnMat;
+            public Material OffMat;
+        }
+
+        /// <summary>Maps mesh base name (without _on/_off) to [onMaterial, offMaterial].</summary>
+        private static readonly Dictionary<string, string[]> _meshLightMats = new()
+        {
+            { "otc_mansion_light",            new[] { "warmbulb_on_mat",  "lightbulb_off_mat" } },
+            { "otc_flurobar",                 new[] { "warmfluro_on_mat", "fluro_off_mat" } },
+            { "otc_round_ceiling_light",      new[] { "fluro_on_mat",     "fluro_off_mat" } },
+            { "otc_wall_lantern",             new[] { "warmbulb_on_mat",  "lamppost light off mat" } },
+            { "otc_segmented_light_bar",      new[] { "warmfluro_on_mat", "segmented light off" } },
+            { "otc_industrial_hanging_light", new[] { "warmbulb_on_mat",  "lightbulb_off_mat" } },
+        };
         internal static DoorController Door;
+
+        /// <summary>Current lighting style ID for the dispensary.</summary>
+        public static string CurrentLightingStyleId { get; internal set; }
 
         /// <summary>Whether the store is currently open for customers.</summary>
         public static bool IsStoreOpen { get; private set; }
@@ -152,7 +177,6 @@ namespace OverTheCounter.Logic.Placement
         {
             _navigationBuilder?.Remove();
             _navigationBuilder = null;
-            _lightsFolder = null;
             _lightSwitch = null;
             _openCloseSwitch = null;
             Door = null;
@@ -168,6 +192,11 @@ namespace OverTheCounter.Logic.Placement
             foreach (var go in _sidewalks)
                 if (go != null) GameObject.Destroy(go);
             _sidewalks.Clear();
+            foreach (var go in _lightFixtures)
+                if (go != null) GameObject.Destroy(go);
+            _lightFixtures.Clear();
+            _materialSwaps.Clear();
+            CurrentLightingStyleId = null;
             _initialized = false;
             _suppressSwitchSync = false;
             _awaitingClientDoors = false;
@@ -177,9 +206,41 @@ namespace OverTheCounter.Logic.Placement
         internal static void SetLightsEnabled(bool enabled)
         {
             AreLightsOn = enabled;
-            if (_lightsFolder == null) return;
-            foreach (var light in _lightsFolder.GetComponentsInChildren<Light>(true))
-                light.enabled = enabled;
+
+            // Toggle fixture point lights
+            foreach (var go in _lightFixtures)
+            {
+                if (go == null) continue;
+                foreach (var light in go.GetComponentsInChildren<Light>(true))
+                    light.enabled = enabled;
+
+                // Toggle neon strip emissive materials
+                if (go.name == "NeonStrips")
+                {
+                    foreach (var renderer in go.GetComponentsInChildren<MeshRenderer>(true))
+                    {
+                        var mat = renderer.material;
+                        if (enabled)
+                        {
+                            mat.EnableKeyword("_EMISSION");
+                            mat.SetColor("_EmissionColor", _neonEmissionColor);
+                        }
+                        else
+                        {
+                            mat.DisableKeyword("_EMISSION");
+                            mat.SetColor("_EmissionColor", Color.black);
+                        }
+                    }
+                }
+            }
+
+            // Swap fixture mesh materials between on/off states
+            foreach (var swap in _materialSwaps)
+            {
+                if (swap.Renderer == null) continue;
+                var mat = enabled ? swap.OnMat : swap.OffMat;
+                if (mat != null) swap.Renderer.material = mat;
+            }
         }
 
         internal static void SetLightsFromSync(bool enabled)
@@ -380,6 +441,9 @@ namespace OverTheCounter.Logic.Placement
             }
 
             // Trash can is placed as MeshVault furniture in the Furniture array (decorative only)
+
+            // Apply default lighting style on first spawn
+            ApplyLightingStyle(LightingStyle.Get(CurrentLightingStyleId));
         }
 
         /// <summary>Client: true while waiting for FishNet-replicated interior doors.</summary>
@@ -477,8 +541,16 @@ namespace OverTheCounter.Logic.Placement
         }
 
         /// <summary>Restores switch states from save data after load.</summary>
-        public static void ApplySavedState(bool lightsOn, bool storeOpen)
+        public static void ApplySavedState(bool lightsOn, bool storeOpen, string lightingStyleId = null)
         {
+            if (!string.IsNullOrEmpty(lightingStyleId))
+            {
+                if (_lightFixtures.Count > 0 && lightingStyleId != CurrentLightingStyleId)
+                    ApplyLightingStyle(LightingStyle.Get(lightingStyleId));
+                else
+                    CurrentLightingStyleId = lightingStyleId;
+            }
+
             if (_lightSwitch != null)
             {
                 if (lightsOn) _lightSwitch.SwitchOn();
@@ -589,7 +661,6 @@ namespace OverTheCounter.Logic.Placement
                     east: null,
                     west: null)
                 .AddDoorFrames(trimBlack)
-                .AddLights(intensity: 1.2f)
                 .AddFoundation(height: FoundationHeight, expandX: 0.1f, expandZ: 0.1f, material: foundationMat)
                 .AddBaseMolding(material: trimBlack)
                 .AddCornerTrim(material: trimBlack)
@@ -614,14 +685,6 @@ namespace OverTheCounter.Logic.Placement
                     capMaterial: trimBlack);
 
             _building = builder.Build();
-
-            // Cache lights folder — start off
-            var lightsTransform = _building.transform.Find("Lights");
-            if (lightsTransform != null)
-            {
-                _lightsFolder = lightsTransform.gameObject;
-                SetLightsEnabled(false);
-            }
 
             _navigationBuilder = builder.CreateNavigationBuilder();
 
@@ -686,5 +749,239 @@ namespace OverTheCounter.Logic.Placement
                 OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to register DispensaryGrid GUID: {ex.Message}");
             }
         }
+
+        /// <summary>
+        /// Applies a lighting style to the dispensary interior.
+        /// Destroys existing fixtures and spawns new ones based on the style.
+        /// </summary>
+        public static void ApplyLightingStyle(LightingStyle style)
+        {
+            if (_building == null) return;
+
+            // Destroy existing light fixtures
+            foreach (var go in _lightFixtures)
+            {
+                if (go != null) UnityEngine.Object.Destroy(go);
+            }
+            _lightFixtures.Clear();
+            _materialSwaps.Clear();
+
+            CurrentLightingStyleId = style.Id;
+
+            float fixtureY = style.FixtureY;
+
+            // --- Room zone calculations ---
+            // Backroom: Z = 0 to BackroomWallZ
+            float backMidZ = BackroomWallZ / 2f;
+
+            // Showroom: Z = BackroomWallZ to LobbyWallZ
+            float showMidZ = (BackroomWallZ + LobbyWallZ) / 2f;
+            float showLen = LobbyWallZ - BackroomWallZ;
+            float showFrontZ = showMidZ + showLen * 0.25f;
+            float showBackZ = showMidZ - showLen * 0.25f;
+
+            // Lobby: Z = LobbyWallZ to RoomDepth
+            float lobbyMidZ = (LobbyWallZ + RoomDepth) / 2f;
+
+            // --- Column layout (shared across rooms) ---
+            int cols = style.ShowroomColumns;
+            float colMargin = 2f;
+            float colSpan = RoomWidth - colMargin * 2f;
+
+            // --- Backroom ceiling fixtures (Nx1) ---
+            for (int col = 0; col < cols; col++)
+            {
+                float x = colMargin + colSpan * (col + 0.5f) / cols;
+                SpawnFixture(style.CeilingMeshId, $"Back_C{col}",
+                    new Vector3(x, fixtureY, backMidZ),
+                    style.LightOffset, style.LightColor, style.Range, style.Intensity,
+                    emissiveOverride: style.CeilingEmissiveColor);
+            }
+
+            // --- Showroom ceiling fixtures (Nx2) ---
+            for (int col = 0; col < cols; col++)
+            {
+                float x = colMargin + colSpan * (col + 0.5f) / cols;
+                SpawnFixture(style.CeilingMeshId, $"Show_F{col}",
+                    new Vector3(x, fixtureY, showFrontZ),
+                    style.LightOffset, style.LightColor, style.Range, style.Intensity,
+                    emissiveOverride: style.CeilingEmissiveColor);
+                SpawnFixture(style.CeilingMeshId, $"Show_B{col}",
+                    new Vector3(x, fixtureY, showBackZ),
+                    style.LightOffset, style.LightColor, style.Range, style.Intensity,
+                    emissiveOverride: style.CeilingEmissiveColor);
+            }
+
+            // --- Lobby ceiling fixtures (Nx1) ---
+            for (int col = 0; col < cols; col++)
+            {
+                float x = colMargin + colSpan * (col + 0.5f) / cols;
+                SpawnFixture(style.CeilingMeshId, $"Lobby_C{col}",
+                    new Vector3(x, fixtureY, lobbyMidZ),
+                    style.LightOffset, style.LightColor, style.Range, style.Intensity,
+                    emissiveOverride: style.CeilingEmissiveColor);
+            }
+
+            // --- Wall lights (all rooms) ---
+            if (style.WallMeshId != null)
+            {
+                float wallY = 2.2f;
+                var wallLightOff = new Vector3(0f, 0.1f, 0f);
+
+                // Backroom walls
+                SpawnFixture(style.WallMeshId, "Wall_BW",
+                    new Vector3(0.25f, wallY, backMidZ), wallLightOff, style.WallLightColor, 5f, 0.8f,
+                    rotation: Quaternion.Euler(0f, 90f, 0f));
+                SpawnFixture(style.WallMeshId, "Wall_BE",
+                    new Vector3(RoomWidth - 0.25f, wallY, backMidZ), wallLightOff, style.WallLightColor, 5f, 0.8f,
+                    rotation: Quaternion.Euler(0f, -90f, 0f));
+
+                // Showroom walls
+                SpawnFixture(style.WallMeshId, "Wall_SW1",
+                    new Vector3(0.25f, wallY, showFrontZ), wallLightOff, style.WallLightColor, 5f, 0.8f,
+                    rotation: Quaternion.Euler(0f, 90f, 0f));
+                SpawnFixture(style.WallMeshId, "Wall_SW2",
+                    new Vector3(0.25f, wallY, showBackZ), wallLightOff, style.WallLightColor, 5f, 0.8f,
+                    rotation: Quaternion.Euler(0f, 90f, 0f));
+                SpawnFixture(style.WallMeshId, "Wall_SE1",
+                    new Vector3(RoomWidth - 0.25f, wallY, showFrontZ), wallLightOff, style.WallLightColor, 5f, 0.8f,
+                    rotation: Quaternion.Euler(0f, -90f, 0f));
+                SpawnFixture(style.WallMeshId, "Wall_SE2",
+                    new Vector3(RoomWidth - 0.25f, wallY, showBackZ), wallLightOff, style.WallLightColor, 5f, 0.8f,
+                    rotation: Quaternion.Euler(0f, -90f, 0f));
+
+                // Lobby walls
+                SpawnFixture(style.WallMeshId, "Wall_LW",
+                    new Vector3(0.25f, wallY, lobbyMidZ), wallLightOff, style.WallLightColor, 5f, 0.8f,
+                    rotation: Quaternion.Euler(0f, 90f, 0f));
+                SpawnFixture(style.WallMeshId, "Wall_LE",
+                    new Vector3(RoomWidth - 0.25f, wallY, lobbyMidZ), wallLightOff, style.WallLightColor, 5f, 0.8f,
+                    rotation: Quaternion.Euler(0f, -90f, 0f));
+            }
+
+            // --- Neon strips (all rooms) ---
+            if (style.HasNeonStrips)
+            {
+                SpawnNeonStrips(style.NeonColor);
+            }
+
+            OTCLog.Msg(OTCLog.Systems.Furniture, $"Applied lighting style '{style.DisplayName}' ({_lightFixtures.Count} fixtures)");
+
+            // Sync light visual state (point lights + materials) with current switch state
+            SetLightsEnabled(AreLightsOn);
+        }
+
+        private static void SpawnFixture(string meshId, string label, Vector3 localPos,
+            Vector3 lightOffset, Color lightColor, float range, float intensity,
+            float scale = 1f, Quaternion? rotation = null, Color? emissiveOverride = null)
+        {
+            if (_building == null) return;
+            var rot = _building.transform.rotation * (rotation ?? Quaternion.identity);
+            var worldPos = _building.transform.TransformPoint(localPos);
+            var go = MeshVault.MeshVaultAPI.Spawn(meshId, worldPos, rot, parent: _building.transform);
+            if (go == null) return;
+            go.name = $"Light_{label}";
+            if (scale != 1f) go.transform.localScale = Vector3.one * scale;
+            PrimitiveBuilder.CreatePointLight($"{label}_PL",
+                lightOffset, lightColor, range: range, intensity: intensity,
+                parent: go.transform);
+            _lightFixtures.Add(go);
+
+            // Record material swaps for on/off toggling
+            var baseMeshId = meshId.Replace("_on", "").Replace("_off", "");
+            if (_meshLightMats.TryGetValue(baseMeshId, out var mats))
+            {
+                // Resolve on material: custom emissive override or game material
+                Material onMat = emissiveOverride.HasValue
+                    ? MaterialPresets.Emissive(emissiveOverride.Value, 2f)
+                    : Materials.Find(mats[0]);
+                Material offMat = Materials.Find(mats[1]);
+
+                foreach (var r in go.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    var matName = r.material.name.Replace(" (Instance)", "");
+                    if (matName == mats[0] || matName == mats[1])
+                    {
+                        // Apply emissive override immediately
+                        if (emissiveOverride.HasValue && onMat != null)
+                            r.material = onMat;
+                        _materialSwaps.Add(new LightMatSwap { Renderer = r, OnMat = onMat, OffMat = offMat });
+                    }
+                }
+            }
+        }
+
+        private static void SpawnNeonStrips(Color neonColor)
+        {
+            if (_building == null) return;
+
+            // Cache emission color for on/off toggling
+            _neonEmissionColor = neonColor * 2f;
+
+            float ceilingY = RoomHeight - 0.1f;
+            float stripH = 0.03f;
+            float stripD = 0.05f;
+            float inset = 0.15f;
+            float stripY = ceilingY - stripH / 2f;
+            var neonMat = MaterialPresets.Emissive(neonColor, 2f);
+            var neonParent = new GameObject("NeonStrips");
+            neonParent.transform.SetParent(_building.transform, false);
+            _lightFixtures.Add(neonParent);
+
+            float x0 = inset;
+            float x1 = RoomWidth - inset;
+            float centerX = RoomWidth / 2f;
+            float roomWid = x1 - x0;
+
+            // Three room zones
+            float[][] zones = {
+                new[] { inset, BackroomWallZ - inset },           // Backroom
+                new[] { BackroomWallZ + inset, LobbyWallZ - inset }, // Showroom
+                new[] { LobbyWallZ + inset, RoomDepth - inset },  // Lobby
+            };
+            string[] labels = { "Back", "Show", "Lobby" };
+
+            for (int i = 0; i < zones.Length; i++)
+            {
+                float z0 = zones[i][0];
+                float z1 = zones[i][1];
+                float zLen = z1 - z0;
+                float zMid = (z0 + z1) / 2f;
+                string lbl = labels[i];
+
+                // South strip
+                var south = PrimitiveBuilder.CreateBox($"Neon_{lbl}_S",
+                    new Vector3(centerX, stripY, z0), new Vector3(roomWid, stripH, stripD),
+                    neonColor, neonParent.transform);
+                south.GetComponent<MeshRenderer>().material = neonMat;
+                PrimitiveBuilder.CreatePointLight($"Neon_{lbl}_S_L", new Vector3(0f, -0.1f, 0f),
+                    neonColor, range: 4f, intensity: 0.5f, parent: south.transform);
+
+                // North strip
+                var north = PrimitiveBuilder.CreateBox($"Neon_{lbl}_N",
+                    new Vector3(centerX, stripY, z1), new Vector3(roomWid, stripH, stripD),
+                    neonColor, neonParent.transform);
+                north.GetComponent<MeshRenderer>().material = neonMat;
+                PrimitiveBuilder.CreatePointLight($"Neon_{lbl}_N_L", new Vector3(0f, -0.1f, 0f),
+                    neonColor, range: 4f, intensity: 0.5f, parent: north.transform);
+
+                // West strip
+                var west = PrimitiveBuilder.CreateBox($"Neon_{lbl}_W",
+                    new Vector3(x0, stripY, zMid), new Vector3(stripD, stripH, zLen),
+                    neonColor, neonParent.transform);
+                west.GetComponent<MeshRenderer>().material = neonMat;
+                PrimitiveBuilder.CreatePointLight($"Neon_{lbl}_W_L", new Vector3(0f, -0.1f, 0f),
+                    neonColor, range: 4f, intensity: 0.5f, parent: west.transform);
+
+                // East strip
+                var east = PrimitiveBuilder.CreateBox($"Neon_{lbl}_E",
+                    new Vector3(x1, stripY, zMid), new Vector3(stripD, stripH, zLen),
+                    neonColor, neonParent.transform);
+                east.GetComponent<MeshRenderer>().material = neonMat;
+                PrimitiveBuilder.CreatePointLight($"Neon_{lbl}_E_L", new Vector3(0f, -0.1f, 0f),
+                    neonColor, range: 4f, intensity: 0.5f, parent: east.transform);
+            }
+        }
+
     }
 }

@@ -364,6 +364,7 @@
 		<Compile Include="Logic\Placement\CheckoutCounter.cs" />
 		<Compile Include="Logic\Placement\CheckoutCounterInstance.cs" />
 		<Compile Include="Logic\Placement\DeskStyle.cs" />
+		<Compile Include="Logic\Placement\LightingStyle.cs" />
 		<Compile Include="Logic\Placement\ComputerScreen.cs" />
 		<Compile Include="Logic\Placement\Dispensary.cs" />
 		<Compile Include="Logic\Placement\FurnitureManager.cs" />

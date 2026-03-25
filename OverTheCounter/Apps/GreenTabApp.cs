@@ -76,7 +76,7 @@ namespace OverTheCounter.Apps
             (Category.CheckoutDesk, "Checkout Desk", false),
             (Category.Walls, "Walls", true),
             (Category.Flooring, "Flooring", true),
-            (Category.Lighting, "Lighting", true),
+            (Category.Lighting, "Lighting", false), // set true to gate behind unlock
         };
 
         // ---- State ----
@@ -84,9 +84,12 @@ namespace OverTheCounter.Apps
         private string _selectedBuildingId;
         private string _pendingStyleId;
         private DeskStyle _pendingStyle;
+        private string _pendingLightingId;
 
         // ---- UI refs ----
         private GameObject _rootPanel;
+        private Transform _sidebarParent;
+        private GameObject _sidebarPanel;
         private Transform _cardGrid;
         private TextMeshProUGUI _balanceText;
         private TextMeshProUGUI _propertyDropdownText;
@@ -127,6 +130,17 @@ namespace OverTheCounter.Apps
             { "otc_midnight_desk", new Color(0.12f, 0.12f, 0.15f) },       // noir black
             { "otc_glass_desk", new Color(0.45f, 0.65f, 0.75f) },          // glass blue
             { "otc_led_desk", new Color(0.20f, 0.85f, 0.65f) },            // LED cyan-green
+        };
+
+        // ---- Lighting style swatch colors ----
+        private static readonly Dictionary<string, Color> LightingSwatchColors = new()
+        {
+            { "brass_pendant", new Color(0.83f, 0.68f, 0.21f) },        // warm brass gold
+            { "fluorescent", new Color(0.85f, 0.85f, 0.95f) },          // cool white
+            { "modern_panel", new Color(0.90f, 0.90f, 0.85f) },         // neutral white
+            { "flush_mount", new Color(0.95f, 0.92f, 0.80f) },          // warm white
+            { "neon_tech", new Color(0f, 0.8f, 1f) },                   // cyan neon
+            { "industrial", new Color(1f, 0.85f, 0.55f) },              // warm brass
         };
 
         // ---- Nav tab icon names (order matches tabs array in BuildNavBar) ----
@@ -309,7 +323,11 @@ namespace OverTheCounter.Apps
 
         private void BuildSidebar(Transform parent)
         {
+            _sidebarParent = parent;
+            if (_sidebarPanel != null) UnityEngine.Object.Destroy(_sidebarPanel);
+
             var sidebar = UIFactory.Panel("Sidebar", parent, SidebarBg);
+            _sidebarPanel = sidebar;
             var sbRect = sidebar.GetComponent<RectTransform>();
             sbRect.anchorMin = new Vector2(NAV_WIDTH_FRAC, 0);
             sbRect.anchorMax = new Vector2(NAV_WIDTH_FRAC + SIDEBAR_WIDTH_FRAC, 1f);
@@ -404,7 +422,28 @@ namespace OverTheCounter.Apps
                         lockIconRect.anchoredPosition = new Vector2(-10, 0);
                     }
                 }
+
+                // Click handler for unlocked categories
+                if (!locked)
+                {
+                    var pillBtn = pill.AddComponent<Button>();
+                    pillBtn.targetGraphic = pill.GetComponent<Image>();
+                    var capturedCat = cat;
+                    pillBtn.onClick.AddListener(new Action(() => SelectCategory(capturedCat)));
+                }
             }
+        }
+
+        private void SelectCategory(Category cat)
+        {
+            if (cat == _activeCategory) return;
+            _activeCategory = cat;
+
+            // Rebuild sidebar to update pill highlight
+            if (_sidebarParent != null)
+                BuildSidebar(_sidebarParent);
+
+            RefreshCards();
         }
 
         // ==================================================================
@@ -622,8 +661,16 @@ namespace OverTheCounter.Apps
             }
             _cardEntries.Clear();
 
-            if (_activeCategory != Category.CheckoutDesk) return;
+            if (_activeCategory == Category.CheckoutDesk)
+                RefreshDeskCards();
+            else if (_activeCategory == Category.Lighting)
+                RefreshLightingCards();
 
+            RefreshFooter();
+        }
+
+        private void RefreshDeskCards()
+        {
             var counter = GetSelectedCounter();
             string currentStyle = counter?.CurrentDeskStyleId ?? DeskStyle.Default.Id;
             _pendingStyleId = currentStyle;
@@ -632,7 +679,6 @@ namespace OverTheCounter.Apps
             float balance = GetOnlineBalance();
             var styles = DeskStyle.All.Values.ToList();
 
-            // Calculate content height
             int rows = (styles.Count + GRID_COLUMNS - 1) / GRID_COLUMNS;
             float totalHeight = 10 + rows * (CARD_HEIGHT + CARD_GAP);
             var contentRect = _cardGrid.GetComponent<RectTransform>();
@@ -654,8 +700,37 @@ namespace OverTheCounter.Apps
                 var card = CreateDeskCard(style, isEquipped, isSelected, canAfford, xPos, yPos);
                 _cardEntries.Add(card);
             }
+        }
 
-            RefreshFooter();
+        private void RefreshLightingCards()
+        {
+            string currentLighting = Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
+            _pendingLightingId = currentLighting;
+
+            float balance = GetOnlineBalance();
+            var styles = LightingStyle.All.Values.ToList();
+
+            int rows = (styles.Count + GRID_COLUMNS - 1) / GRID_COLUMNS;
+            float totalHeight = 10 + rows * (CARD_HEIGHT + CARD_GAP);
+            var contentRect = _cardGrid.GetComponent<RectTransform>();
+            contentRect.sizeDelta = new Vector2(0, totalHeight);
+
+            for (int i = 0; i < styles.Count; i++)
+            {
+                var style = styles[i];
+                int col = i % GRID_COLUMNS;
+                int row = i / GRID_COLUMNS;
+
+                bool isEquipped = style.Id == currentLighting;
+                bool isSelected = style.Id == _pendingLightingId;
+                bool canAfford = CanAffordLighting(currentLighting, style.Id, balance);
+
+                float xPos = 10 + col * (CARD_WIDTH + CARD_GAP);
+                float yPos = -(8 + row * (CARD_HEIGHT + CARD_GAP));
+
+                var card = CreateLightingCard(style, isEquipped, isSelected, canAfford, xPos, yPos);
+                _cardEntries.Add(card);
+            }
         }
 
         private CardEntry CreateDeskCard(DeskStyle style, bool isEquipped, bool isSelected, bool canAfford,
@@ -784,29 +859,171 @@ namespace OverTheCounter.Apps
             };
         }
 
+        private CardEntry CreateLightingCard(LightingStyle style, bool isEquipped, bool isSelected, bool canAfford,
+            float xPos, float yPos)
+        {
+            var card = UIFactory.Panel($"Card_{style.Id}", _cardGrid, isSelected ? CardSelected : CardBg);
+            var cardRect = card.GetComponent<RectTransform>();
+            cardRect.anchorMin = new Vector2(0, 1);
+            cardRect.anchorMax = new Vector2(0, 1);
+            cardRect.pivot = new Vector2(0, 1);
+            cardRect.sizeDelta = new Vector2(CARD_WIDTH, CARD_HEIGHT);
+            cardRect.anchoredPosition = new Vector2(xPos, yPos);
+
+            var cardImage = card.GetComponent<Image>();
+
+            // Colored swatch representing the light color
+            var swatchColor = LightingSwatchColors.TryGetValue(style.Id, out var sc) ? sc : TextMuted;
+            var swatch = UIFactory.Panel("Swatch", card.transform, swatchColor);
+            var swatchRect = swatch.GetComponent<RectTransform>();
+            swatchRect.anchorMin = new Vector2(0.1f, 0.42f);
+            swatchRect.anchorMax = new Vector2(0.9f, 0.92f);
+            swatchRect.offsetMin = Vector2.zero;
+            swatchRect.offsetMax = Vector2.zero;
+            var swatchImage = swatch.GetComponent<Image>();
+
+            // Name label
+            var nameLabel = TMPFactory.Text($"Name_{style.Id}", style.DisplayName,
+                card.transform, 12, TextAlignmentOptions.Left, FontStyles.Bold);
+            nameLabel.color = Color.white;
+            var nameRect = nameLabel.gameObject.GetComponent<RectTransform>();
+            nameRect.anchorMin = Vector2.zero;
+            nameRect.anchorMax = new Vector2(1, 0.38f);
+            nameRect.offsetMin = new Vector2(6, 14);
+            nameRect.offsetMax = new Vector2(-6, 0);
+
+            // Price label
+            string priceStr = style.Cost <= 0 ? "FREE" : $"${style.Cost:F0}";
+            var priceLabel = TMPFactory.Text($"Price_{style.Id}", priceStr,
+                card.transform, 11, TextAlignmentOptions.Left);
+            priceLabel.color = style.Cost <= 0 ? AccentGreen : TextMuted;
+            var priceRect = priceLabel.gameObject.GetComponent<RectTransform>();
+            priceRect.anchorMin = Vector2.zero;
+            priceRect.anchorMax = new Vector2(1, 0.20f);
+            priceRect.offsetMin = new Vector2(6, 0);
+            priceRect.offsetMax = new Vector2(-6, 0);
+
+            // EQUIPPED badge
+            GameObject equippedBadge = null;
+            if (isEquipped)
+            {
+                equippedBadge = UIFactory.Panel("EquippedBadge", card.transform, EquippedBadge);
+                var badgeRect = equippedBadge.GetComponent<RectTransform>();
+                badgeRect.anchorMin = new Vector2(1, 1);
+                badgeRect.anchorMax = new Vector2(1, 1);
+                badgeRect.pivot = new Vector2(1, 1);
+                badgeRect.sizeDelta = new Vector2(60, 16);
+                badgeRect.anchoredPosition = new Vector2(-4, -4);
+
+                var badgeText = TMPFactory.Text("EquippedText", "EQUIPPED",
+                    equippedBadge.transform, 9, TextAlignmentOptions.Center, FontStyles.Bold);
+                badgeText.color = Color.white;
+                var btRect = badgeText.gameObject.GetComponent<RectTransform>();
+                btRect.anchorMin = Vector2.zero;
+                btRect.anchorMax = Vector2.one;
+                btRect.offsetMin = Vector2.zero;
+                btRect.offsetMax = Vector2.zero;
+            }
+            else
+            {
+                equippedBadge = new GameObject("EquippedBadge");
+                equippedBadge.transform.SetParent(card.transform, false);
+                equippedBadge.SetActive(false);
+            }
+
+            // Lock overlay
+            var lockOverlay = UIFactory.Panel("LockOverlay", card.transform, LockedOverlay);
+            var lockOvRect = lockOverlay.GetComponent<RectTransform>();
+            lockOvRect.anchorMin = Vector2.zero;
+            lockOvRect.anchorMax = Vector2.one;
+            lockOvRect.offsetMin = Vector2.zero;
+            lockOvRect.offsetMax = Vector2.zero;
+
+            var lockSp = LoadIcon("LockIcon");
+            if (lockSp != null)
+            {
+                var lockIconGo = new GameObject("LockIconOverlay");
+                lockIconGo.transform.SetParent(lockOverlay.transform, false);
+                var lockIconImg = lockIconGo.AddComponent<Image>();
+                lockIconImg.sprite = lockSp;
+                lockIconImg.preserveAspect = true;
+                lockIconImg.color = new Color(0.9f, 0.3f, 0.3f, 0.7f);
+                var lockIconRect = lockIconGo.GetComponent<RectTransform>();
+                lockIconRect.anchorMin = new Vector2(0.35f, 0.45f);
+                lockIconRect.anchorMax = new Vector2(0.65f, 0.85f);
+                lockIconRect.offsetMin = Vector2.zero;
+                lockIconRect.offsetMax = Vector2.zero;
+            }
+
+            var lockText = TMPFactory.Text("LockText", "INSUFFICIENT FUNDS",
+                lockOverlay.transform, 10, TextAlignmentOptions.Center, FontStyles.Bold);
+            lockText.color = new Color(0.9f, 0.3f, 0.3f);
+            var lockTextRect = lockText.gameObject.GetComponent<RectTransform>();
+            lockTextRect.anchorMin = new Vector2(0, 0);
+            lockTextRect.anchorMax = new Vector2(1, 0.45f);
+            lockTextRect.offsetMin = Vector2.zero;
+            lockTextRect.offsetMax = Vector2.zero;
+
+            lockOverlay.SetActive(false);
+
+            // Click handler
+            string styleId = style.Id;
+            var btn = card.AddComponent<Button>();
+            btn.targetGraphic = cardImage;
+            btn.onClick.AddListener(new Action(() => OnCardClicked(styleId)));
+
+            return new CardEntry
+            {
+                StyleId = style.Id,
+                Card = card,
+                CardImage = cardImage,
+                PriceText = priceLabel,
+                EquippedBadge = equippedBadge,
+                LockOverlay = lockOverlay,
+                SwatchImage = swatchImage,
+            };
+        }
+
         private void UpdateCardVisuals()
         {
-            var counter = GetSelectedCounter();
-            string currentStyle = counter?.CurrentDeskStyleId ?? DeskStyle.Default.Id;
             float balance = GetOnlineBalance();
 
-            for (int i = 0; i < _cardEntries.Count; i++)
+            if (_activeCategory == Category.CheckoutDesk)
             {
-                var entry = _cardEntries[i];
-                if (entry.Card == null) continue;
+                var counter = GetSelectedCounter();
+                string currentStyle = counter?.CurrentDeskStyleId ?? DeskStyle.Default.Id;
 
-                bool isEquipped = entry.StyleId == currentStyle;
-                bool isSelected = entry.StyleId == _pendingStyleId;
-                bool canAfford = CanAffordUpgrade(currentStyle, entry.StyleId, balance);
+                for (int i = 0; i < _cardEntries.Count; i++)
+                {
+                    var entry = _cardEntries[i];
+                    if (entry.Card == null) continue;
 
-                // Card background
-                entry.CardImage.color = isSelected ? CardSelected : CardBg;
+                    bool isEquipped = entry.StyleId == currentStyle;
+                    bool isSelected = entry.StyleId == _pendingStyleId;
+                    bool canAfford = CanAffordUpgrade(currentStyle, entry.StyleId, balance);
 
-                // Equipped badge
-                entry.EquippedBadge.SetActive(isEquipped);
+                    entry.CardImage.color = isSelected ? CardSelected : CardBg;
+                    entry.EquippedBadge.SetActive(isEquipped);
+                    entry.LockOverlay.SetActive(!canAfford && !isEquipped);
+                }
+            }
+            else if (_activeCategory == Category.Lighting)
+            {
+                string currentLighting = Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
 
-                // Lock overlay
-                entry.LockOverlay.SetActive(!canAfford && !isEquipped);
+                for (int i = 0; i < _cardEntries.Count; i++)
+                {
+                    var entry = _cardEntries[i];
+                    if (entry.Card == null) continue;
+
+                    bool isEquipped = entry.StyleId == currentLighting;
+                    bool isSelected = entry.StyleId == _pendingLightingId;
+                    bool canAfford = CanAffordLighting(currentLighting, entry.StyleId, balance);
+
+                    entry.CardImage.color = isSelected ? CardSelected : CardBg;
+                    entry.EquippedBadge.SetActive(isEquipped);
+                    entry.LockOverlay.SetActive(!canAfford && !isEquipped);
+                }
             }
         }
 
@@ -821,9 +1038,19 @@ namespace OverTheCounter.Apps
             if (_balanceText != null)
                 _balanceText.text = $"${balance:F0}";
 
-            bool hasChange = _pendingStyleId != null
-                && GetSelectedCounter() != null
-                && _pendingStyleId != (GetSelectedCounter().CurrentDeskStyleId ?? DeskStyle.Default.Id);
+            bool hasChange = false;
+
+            if (_activeCategory == Category.CheckoutDesk)
+            {
+                hasChange = _pendingStyleId != null
+                    && GetSelectedCounter() != null
+                    && _pendingStyleId != (GetSelectedCounter().CurrentDeskStyleId ?? DeskStyle.Default.Id);
+            }
+            else if (_activeCategory == Category.Lighting)
+            {
+                string currentLighting = Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
+                hasChange = _pendingLightingId != null && _pendingLightingId != currentLighting;
+            }
 
             if (_applyBtnImage != null)
                 _applyBtnImage.color = hasChange ? AccentGreenDark : TextDim;
@@ -837,24 +1064,44 @@ namespace OverTheCounter.Apps
 
         private void OnCardClicked(string styleId)
         {
-            var counter = GetSelectedCounter();
-            if (counter == null) return;
-
-            string currentStyle = counter.CurrentDeskStyleId ?? DeskStyle.Default.Id;
             float balance = GetOnlineBalance();
 
-            // Can't select if locked (unaffordable and not current)
-            if (!CanAffordUpgrade(currentStyle, styleId, balance) && styleId != currentStyle)
-                return;
+            if (_activeCategory == Category.CheckoutDesk)
+            {
+                var counter = GetSelectedCounter();
+                if (counter == null) return;
 
-            _pendingStyleId = styleId;
-            _pendingStyle = DeskStyle.Get(styleId);
+                string currentStyle = counter.CurrentDeskStyleId ?? DeskStyle.Default.Id;
+
+                if (!CanAffordUpgrade(currentStyle, styleId, balance) && styleId != currentStyle)
+                    return;
+
+                _pendingStyleId = styleId;
+                _pendingStyle = DeskStyle.Get(styleId);
+            }
+            else if (_activeCategory == Category.Lighting)
+            {
+                string currentLighting = Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
+
+                if (!CanAffordLighting(currentLighting, styleId, balance) && styleId != currentLighting)
+                    return;
+
+                _pendingLightingId = styleId;
+            }
 
             UpdateCardVisuals();
             RefreshFooter();
         }
 
         private void OnApplyClicked()
+        {
+            if (_activeCategory == Category.CheckoutDesk)
+                ApplyDeskUpgrade();
+            else if (_activeCategory == Category.Lighting)
+                ApplyLightingUpgrade();
+        }
+
+        private void ApplyDeskUpgrade()
         {
             var counter = GetSelectedCounter();
             if (counter == null) return;
@@ -868,7 +1115,6 @@ namespace OverTheCounter.Apps
 
             if (cost > 0 && balance < cost) return;
 
-            // Process payment
             if (cost > 0)
             {
                 try
@@ -883,7 +1129,6 @@ namespace OverTheCounter.Apps
                 }
             }
 
-            // Swap ALL counters in this building to the new style
             int swapped = 0;
             foreach (var c in CheckoutCounter.AllCounters)
             {
@@ -895,19 +1140,50 @@ namespace OverTheCounter.Apps
             }
             OTCLog.Msg(OTCLog.Systems.Patch, $"Swapped {swapped}/{CheckoutCounter.AllCounters.Count} counters to '{newStyle.DisplayName}' (building={_selectedBuildingId})");
 
-            // Sync to network
-            try
-            {
-                ConfigSyncData.Instance?.PublishGameState();
-            }
+            try { ConfigSyncData.Instance?.PublishGameState(); }
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Network, $"Failed to sync desk change: {ex.Message}");
             }
 
             OTCLog.Msg(OTCLog.Systems.Patch, $"Desk upgraded to '{newStyle.DisplayName}' for ${cost:F0}");
+            RefreshCards();
+        }
 
-            // Refresh UI
+        private void ApplyLightingUpgrade()
+        {
+            string currentLighting = Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
+            if (_pendingLightingId == null || _pendingLightingId == currentLighting) return;
+
+            var newStyle = LightingStyle.Get(_pendingLightingId);
+            float balance = GetOnlineBalance();
+            float cost = GetLightingUpgradeCost(currentLighting, _pendingLightingId);
+
+            if (cost > 0 && balance < cost) return;
+
+            if (cost > 0)
+            {
+                try
+                {
+                    var mm = NetworkSingleton<MoneyManager>.Instance;
+                    mm?.CreateOnlineTransaction("Lighting Upgrade", -cost, 1, $"Upgraded to {newStyle.DisplayName}");
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Error(OTCLog.Systems.Patch, $"Lighting payment failed: {ex.Message}");
+                    return;
+                }
+            }
+
+            Dispensary.ApplyLightingStyle(newStyle);
+
+            try { ConfigSyncData.Instance?.PublishGameState(); }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Network, $"Failed to sync lighting change: {ex.Message}");
+            }
+
+            OTCLog.Msg(OTCLog.Systems.Patch, $"Lighting upgraded to '{newStyle.DisplayName}' for ${cost:F0}");
             RefreshCards();
         }
 
@@ -1072,6 +1348,21 @@ namespace OverTheCounter.Apps
         {
             if (currentId == targetId) return true;
             float cost = GetUpgradeCost(currentId, targetId);
+            return cost <= 0 || balance >= cost;
+        }
+
+        private static float GetLightingUpgradeCost(string fromId, string toId)
+        {
+            var from = LightingStyle.Get(fromId);
+            var to = LightingStyle.Get(toId);
+            float diff = to.Cost - from.Cost;
+            return diff > 0 ? diff : 0;
+        }
+
+        private static bool CanAffordLighting(string currentId, string targetId, float balance)
+        {
+            if (currentId == targetId) return true;
+            float cost = GetLightingUpgradeCost(currentId, targetId);
             return cost <= 0 || balance >= cost;
         }
     }

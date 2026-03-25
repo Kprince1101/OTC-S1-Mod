@@ -894,6 +894,10 @@ namespace OverTheCounter.SaveData
             // Warehouse switch states
             parts.Add($"wh_lights={BoolToStr(Logic.Placement.OTCWarehouse.AreLightsOn)}");
 
+            // Dispensary lighting style
+            if (!string.IsNullOrEmpty(Logic.Placement.Dispensary.CurrentLightingStyleId))
+                parts.Add($"disp_lighting={Logic.Placement.Dispensary.CurrentLightingStyleId}");
+
             // Checkout desk styles (per counter)
             var counters = Logic.Placement.CheckoutCounter.AllCounters;
             for (int i = 0; i < counters.Count; i++)
@@ -1004,6 +1008,15 @@ namespace OverTheCounter.SaveData
             // Warehouse switch states
             if (state.TryGetValue("wh_lights", out var wl))
                 Logic.Placement.OTCWarehouse.SetLightsFromSync(StrToBool(wl));
+
+            // Dispensary lighting style
+            if (state.TryGetValue("disp_lighting", out var dispLighting)
+                && !string.IsNullOrEmpty(dispLighting)
+                && dispLighting != Logic.Placement.Dispensary.CurrentLightingStyleId)
+            {
+                var lightStyle = Logic.Placement.LightingStyle.Get(dispLighting);
+                Logic.Placement.Dispensary.ApplyLightingStyle(lightStyle);
+            }
 
             // Checkout desk styles (per counter)
             {

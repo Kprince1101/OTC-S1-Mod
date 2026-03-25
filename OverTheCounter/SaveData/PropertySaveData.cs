@@ -97,6 +97,7 @@ namespace OverTheCounter.SaveData
     {
         public bool LightsOn;
         public bool StoreOpen;
+        public string LightingStyleId;
     }
 
     /// <summary>
@@ -177,7 +178,7 @@ namespace OverTheCounter.SaveData
                 WestvilleShack.ApplySavedState(_shackState.LightsOn, _shackState.StoreOpen);
             }
 
-            Dispensary.ApplySavedState(_dispensaryState.LightsOn, _dispensaryState.StoreOpen);
+            Dispensary.ApplySavedState(_dispensaryState.LightsOn, _dispensaryState.StoreOpen, _dispensaryState.LightingStyleId);
             OTCWarehouse.ApplySavedState(_warehouseState.LightsOn);
         }
 
@@ -204,6 +205,7 @@ namespace OverTheCounter.SaveData
 
             _dispensaryState.LightsOn = Dispensary.AreLightsOn;
             _dispensaryState.StoreOpen = Dispensary.IsStoreOpen;
+            _dispensaryState.LightingStyleId = Dispensary.CurrentLightingStyleId;
 
             _warehouseState.LightsOn = OTCWarehouse.AreLightsOn;
 
