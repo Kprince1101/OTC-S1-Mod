@@ -2,11 +2,19 @@ using OverTheCounter.Logic.Placement;
 using System.Collections.Generic;
 
 #if IL2CPP
+using Il2CppScheduleOne.Product;
 using Il2CppScheduleOne.Storage;
 using Grid = Il2CppScheduleOne.Tiles.Grid;
+using EDrugType = Il2CppScheduleOne.Product.EDrugType;
+using ProductDefinition = Il2CppScheduleOne.Product.ProductDefinition;
+using ProductItemInstance = Il2CppScheduleOne.Product.ProductItemInstance;
 #else
+using ScheduleOne.Product;
 using ScheduleOne.Storage;
 using Grid = ScheduleOne.Tiles.Grid;
+using EDrugType = ScheduleOne.Product.EDrugType;
+using ProductDefinition = ScheduleOne.Product.ProductDefinition;
+using ProductItemInstance = ScheduleOne.Product.ProductItemInstance;
 #endif
 
 namespace OverTheCounter.Utilities
@@ -91,6 +99,36 @@ namespace OverTheCounter.Utilities
         public static bool HasAnyDisplayStorage(Grid grid)
         {
             return GetDisplayStorages(grid).Count > 0;
+        }
+
+        /// <summary>
+        /// Returns true if any display storage on this grid contains a packaged product
+        /// matching the given drug type.
+        /// </summary>
+        public static bool HasDrugType(Grid grid, EDrugType drugType)
+        {
+            var storages = GetDisplayStorages(grid);
+            foreach (var storage in storages)
+            {
+                if (storage?.ItemSlots == null) continue;
+                for (int i = 0; i < storage.ItemSlots.Count; i++)
+                {
+                    var slot = storage.ItemSlots[i];
+                    if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
+
+#if IL2CPP
+                    var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
+                    var prodDef = productItem?.Definition?.TryCast<ProductDefinition>();
+#else
+                    var productItem = slot.ItemInstance as ProductItemInstance;
+                    var prodDef = productItem?.Definition as ProductDefinition;
+#endif
+                    if (prodDef != null && prodDef.DrugType == drugType
+                        && productItem.AppliedPackaging != null)
+                        return true;
+                }
+            }
+            return false;
         }
     }
 }

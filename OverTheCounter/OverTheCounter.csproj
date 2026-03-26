@@ -303,6 +303,7 @@
 		<Compile Include="Logic\CustomerInstance.cs" />
 		<Compile Include="Logic\CustomerManager.cs" />
 		<Compile Include="Logic\CheckoutProcess.cs" />
+		<Compile Include="Logic\DispensaryDealManager.cs" />
 		<Compile Include="Logic\BudtenderHUD.cs" />
 		<Compile Include="Logic\DrifterSpawner.cs" />
 		<Compile Include="Logic\DrifterInstance.cs" />
@@ -381,11 +382,13 @@
 		<Compile Include="Logic\Placement\FurnitureManager.cs" />
 		<Compile Include="Logic\Placement\OTCSupplierArea.cs" />
 		<Compile Include="Logic\Placement\OTCWarehouse.cs" />
+		<Compile Include="Logic\Placement\BuildingTarget.cs" />
 		<Compile Include="Logic\Placement\WestvilleShack.cs" />
 		<Compile Include="UI\RecipeOverlay.cs" />
 		<Compile Include="UI\TMPFactory.cs" />
 		<Compile Include="Patches\RecipePinPatch.cs" />
 		<Compile Include="Patches\CustomerStartPatch.cs" />
+		<Compile Include="Patches\DealInterceptPatch.cs" />
 	</ItemGroup>
 
 	<!-- Embedded resources -->

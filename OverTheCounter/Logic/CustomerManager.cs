@@ -9,8 +9,10 @@ using UnityEngine;
 
 #if IL2CPP
 using Il2CppScheduleOne.NPCs;
+using Grid = Il2CppScheduleOne.Tiles.Grid;
 #else
 using ScheduleOne.NPCs;
+using Grid = ScheduleOne.Tiles.Grid;
 #endif
 
 namespace OverTheCounter.Logic
@@ -24,7 +26,6 @@ namespace OverTheCounter.Logic
         public static CustomerManager Instance { get; private set; }
 
         private int _lastSpawnSlot = -1;  // tracks half-hour slots (hour*2 + 0or1)
-        private int _customerIdCounter;
         private bool _statePublishNeeded;
 
         // Customer lifecycle constants
@@ -73,14 +74,15 @@ namespace OverTheCounter.Logic
                 int spawnSlot = currentHour * 2 + (currentMinute >= 30 ? 1 : 0);
 
                 if (spawnSlot != _lastSpawnSlot && currentHour >= SpawnStartHour && currentHour < SpawnEndHour)
-                {
                     _lastSpawnSlot = spawnSlot;
-                    TrySpawnCustomer();
-                }
 
                 // Update switch messages when hour boundaries change (8am/8pm)
                 if (currentMinute == 0 && (currentHour == 8 || currentHour == 20))
                     WestvilleShack.UpdateOpenCloseSwitchMessages();
+
+                // Process deferred deals at opening time — morning rush
+                if (currentMinute == 0 && currentHour == 8)
+                    DispensaryDealManager.ProcessDeferredDeals();
 
                 ProcessCustomerLifecycles();
             }
@@ -108,52 +110,6 @@ namespace OverTheCounter.Logic
             _statePublishNeeded = true;
         }
 
-        private void TrySpawnCustomer()
-        {
-            if (!(SaveData.PropertySaveData.Instance?.IsPropertyOwned(SaveData.PropertySaveData.ShackId) ?? false))
-                return;
-
-            if (!WestvilleShack.IsStoreOpen)
-                return;
-
-            if (!CustomerSpawnPoints.HasPackagedProduct())
-                return;
-
-            if (CustomerInstance.Active.Count >= MaxActiveCustomers)
-                return;
-
-            if (CountCustomersInBuilding() >= MaxCustomersInBuilding - 1)
-                return;
-
-            try
-            {
-                int day = TimeManager.ElapsedDays;
-                int time = TimeManager.CurrentTime;
-
-                string id = $"customer_{day}_{time}_{_customerIdCounter++}";
-                int seed = id.GetHashCode() ^ UnityEngine.Random.Range(int.MinValue, int.MaxValue);
-
-                var spawnPoint = CustomerSpawnPoints.GetRandomSpawnPoint();
-                if (spawnPoint == null)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Customer, "No spawn point available for customer");
-                    return;
-                }
-
-                var customer = CustomerInstance.Create(id, seed, spawnPoint);
-                if (customer == null) return;
-
-                customer.State = CustomerState.WalkingToStore;
-                customer.WalkTo(CustomerSpawnPoints.StairApproachPosition);
-
-                _statePublishNeeded = true;
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Customer, $"TrySpawnCustomer failed: {ex.Message}");
-            }
-        }
-
         private void ProcessCustomerLifecycles()
         {
             var toRemove = new List<string>();
@@ -179,8 +135,7 @@ namespace OverTheCounter.Logic
                         {
                             customer.ArrivedAtDestination = false;
                             customer.State = CustomerState.EnteringStore;
-                            // SendToInterior handles doorway entry + A* path to room center
-                            customer.SendToInterior(CustomerSpawnPoints.RoomCenterLocal, () =>
+                            customer.SendToInterior(customer.Target.RoomCenterLocal, () =>
                             {
                                 customer.ArrivedAtDestination = true;
                             });
@@ -191,7 +146,8 @@ namespace OverTheCounter.Logic
                         if (customer.ArrivedAtDestination)
                         {
                             customer.ArrivedAtDestination = false;
-                            var browsePositions = CustomerSpawnPoints.GetInteriorBrowsePositions(out var shelfCenters);
+                            var occupied = GetOccupiedShelfPositions(customer);
+                            var browsePositions = customer.Target.GetInteriorBrowsePositions(out var shelfCenters, occupied);
                             if (browsePositions.Count > 0)
                             {
                                 customer.StartBrowsing(browsePositions, shelfCenters);
@@ -200,7 +156,7 @@ namespace OverTheCounter.Logic
                             else
                             {
                                 customer.State = CustomerState.LookingAround;
-                                customer.SendToInterior(CustomerSpawnPoints.RoomCenterLocal, () =>
+                                customer.SendToInterior(customer.Target.RoomCenterLocal, () =>
                                 {
                                     customer.ArrivedAtDestination = true;
                                 });
@@ -217,7 +173,8 @@ namespace OverTheCounter.Logic
                         {
                             customer.LookAroundEndTime = 0f;
                             customer.ArrivedAtDestination = false;
-                            var retryPositions = CustomerSpawnPoints.GetInteriorBrowsePositions(out var retryShelfCenters);
+                            var retryOccupied = GetOccupiedShelfPositions(customer);
+                            var retryPositions = customer.Target.GetInteriorBrowsePositions(out var retryShelfCenters, retryOccupied);
                             if (retryPositions.Count > 0)
                             {
                                 customer.StartBrowsing(retryPositions, retryShelfCenters);
@@ -225,7 +182,6 @@ namespace OverTheCounter.Logic
                             }
                             else
                             {
-                                // No storage — exit the store
                                 customer.State = CustomerState.ExitingStore;
                                 customer.RecallFromBuilding();
                             }
@@ -249,7 +205,7 @@ namespace OverTheCounter.Logic
                                 break;
                             }
 
-                            var bestCounter = FindBestCounter(customer.Position ?? Vector3.zero);
+                            var bestCounter = FindBestCounter(customer.Position ?? Vector3.zero, customer.Target?.Grid);
                             if (bestCounter != null)
                             {
                                 customer.State = CustomerState.CheckingOut;
@@ -257,7 +213,7 @@ namespace OverTheCounter.Logic
                                 customer.AssignedCounter = bestCounter;
                                 bestCounter.Queue.Add(customer.Id);
                                 int queueIdx = bestCounter.Queue.Count - 1;
-                                customer.SendToInterior(GetQueuePositionLocal(bestCounter, queueIdx), () =>
+                                customer.SendToInterior(GetQueuePositionLocal(bestCounter, queueIdx, customer.Target?.NavBuilder), () =>
                                 {
                                     customer.ArrivedAtDestination = true;
                                 });
@@ -306,12 +262,18 @@ namespace OverTheCounter.Logic
                         // RecallNPC handles exit via doorway — poll until NPC is outside
                         if (customer.Position.HasValue)
                         {
-                            var nav = Placement.WestvilleShack.NavBuilder;
+                            var nav = customer.Target?.NavBuilder;
                             if (nav == null || !nav.IsNPCInside(customer.GameNpc.Movement))
                             {
                                 customer.State = CustomerState.LeavingStore;
                                 customer.SetAvoidancePriority(50);
-                                customer.WalkTo(customer.SpawnPoint.Position);
+
+                                // Deal customers walk back to their warp point; random customers to spawn point
+                                var exitTarget = customer.WarpReturnPosition
+                                    ?? customer.SpawnPoint?.Position
+                                    ?? customer.Target?.ExitWalkPosition
+                                    ?? Vector3.zero;
+                                customer.WalkTo(exitTarget);
                             }
                         }
                         break;
@@ -372,6 +334,26 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Collects shelf center positions currently assigned to other browsing customers
+        /// in the same building, so new customers prefer unoccupied shelves.
+        /// </summary>
+        private static List<Vector3> GetOccupiedShelfPositions(CustomerInstance excludeCustomer)
+        {
+            var occupied = new List<Vector3>();
+            foreach (var c in CustomerInstance.Active.Values)
+            {
+                if (c == excludeCustomer) continue;
+                if (c.State != CustomerState.Browsing) continue;
+                if (c.Target != excludeCustomer.Target) continue;
+                if (c.BrowseShelfPositions == null) continue;
+
+                for (int i = 0; i < c.BrowseShelfPositions.Count; i++)
+                    occupied.Add(c.BrowseShelfPositions[i]);
+            }
+            return occupied;
+        }
+
+        /// <summary>
         /// Returns the world position for a given queue index at a specific counter.
         /// Index 0 = front (at counter), subsequent customers stand further back.
         /// </summary>
@@ -385,10 +367,10 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Returns the LOCAL position for a given queue index (for SendNPCToPosition).
         /// </summary>
-        private static Vector3 GetQueuePositionLocal(CheckoutCounterInstance counter, int queueIndex)
+        private static Vector3 GetQueuePositionLocal(CheckoutCounterInstance counter, int queueIndex,
+            S1MAPI.Building.NavigationBuilder nav)
         {
             var worldPos = GetQueuePosition(counter, queueIndex);
-            var nav = Placement.WestvilleShack.NavBuilder;
             return nav != null ? nav.WorldToLocal(worldPos) : worldPos;
         }
 
@@ -402,7 +384,7 @@ namespace OverTheCounter.Logic
                 if (!CustomerInstance.Active.TryGetValue(counter.Queue[i], out var c)) continue;
                 c.ArrivedAtDestination = false;
                 c.CheckoutArrivalTime = 0f;
-                c.SendToInterior(GetQueuePositionLocal(counter, i), () =>
+                c.SendToInterior(GetQueuePositionLocal(counter, i, c.Target?.NavBuilder), () =>
                 {
                     c.ArrivedAtDestination = true;
                 });
@@ -440,10 +422,8 @@ namespace OverTheCounter.Logic
         /// Finds the counter with the shortest queue. Random tiebreak if equal.
         /// Returns null if no counters are registered.
         /// </summary>
-        private static CheckoutCounterInstance FindBestCounter(Vector3 customerWorldPos)
+        private static CheckoutCounterInstance FindBestCounter(Vector3 customerWorldPos, Grid targetGrid)
         {
-            // Only consider counters on the shack grid with a valid world position
-            var shackGrid = WestvilleShack.ShackGrid;
             var counters = CheckoutCounter.AllCounters;
 
             int minQueue = int.MaxValue;
@@ -451,7 +431,7 @@ namespace OverTheCounter.Logic
 
             for (int i = 0; i < counters.Count; i++)
             {
-                if (counters[i].ParentGrid != shackGrid) continue;
+                if (targetGrid != null && counters[i].ParentGrid != targetGrid) continue;
 
                 // Skip counters whose GO is at the origin (not yet positioned by FishNet)
                 var cPos = counters[i].CounterPosition;

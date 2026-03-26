@@ -7,20 +7,24 @@ using UnityEngine.AI;
 
 #if IL2CPP
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Effects;
 using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Storage;
 using Il2CppScheduleOne.VoiceOver;
+using Customer = Il2CppScheduleOne.Economy.Customer;
 using ProductItemInstance = Il2CppScheduleOne.Product.ProductItemInstance;
 using ProductDefinition = Il2CppScheduleOne.Product.ProductDefinition;
 #else
 using ScheduleOne.DevUtilities;
+using ScheduleOne.Economy;
 using ScheduleOne.Effects;
 using ScheduleOne.Employees;
 using ScheduleOne.NPCs;
 using ScheduleOne.Storage;
 using ScheduleOne.VoiceOver;
+using Customer = ScheduleOne.Economy.Customer;
 using ProductItemInstance = ScheduleOne.Product.ProductItemInstance;
 using ProductDefinition = ScheduleOne.Product.ProductDefinition;
 #endif
@@ -44,6 +48,7 @@ namespace OverTheCounter.Logic
             public float QualityExpectation;    // 0.0 (Trash) to 0.75 (Premium)
             public string[] PreferredEffectIds; // 3 effect ID strings (lowercased ScriptableObject names)
             public float MaxBudgetPerItem;      // max $ they'll spend on a single product
+            public float TotalOrderBudget;      // total $ to spend this visit (deal customers only, 0 = uncapped)
             public float WeedAffinity;          // -1 to 1, drug type affinity
         }
 
@@ -108,6 +113,26 @@ namespace OverTheCounter.Logic
         public CustomerPreferences Preferences { get; private set; }
 
         // =====================================================================
+        //  Building target
+        // =====================================================================
+
+        /// <summary>The building this customer is visiting. Defaults to WestvilleShack for random customers.</summary>
+        internal BuildingTarget Target { get; private set; }
+
+        // =====================================================================
+        //  Deal customer fields
+        // =====================================================================
+
+        /// <summary>True if this customer was redirected from the vanilla deal system.</summary>
+        public bool IsDealCustomer { get; private set; }
+
+        /// <summary>The vanilla Customer component (set for deal customers only).</summary>
+        public Customer VanillaCustomer { get; private set; }
+
+        /// <summary>Position the NPC warped from — walk back here after exiting (deal customers).</summary>
+        public Vector3? WarpReturnPosition { get; private set; }
+
+        // =====================================================================
         //  Game reference
         // =====================================================================
 
@@ -135,6 +160,7 @@ namespace OverTheCounter.Logic
         // Browse tracking
         private List<Vector3> _browsePositions;
         private List<Vector3> _browseShelfPositions; // original shelf centers (for facing)
+        internal IReadOnlyList<Vector3> BrowseShelfPositions => _browseShelfPositions;
         private int _browseTargetIndex;
         private float _browsePauseEndTime;
         private Vector3? _currentWalkTarget;
@@ -170,6 +196,7 @@ namespace OverTheCounter.Logic
             public float Price;
             public int QualityLevel; // 0=Trash, 1=Poor, 2=Standard, 3=Premium, 4=Heavenly
             public int Quantity;     // how many units to buy
+            public List<string> EffectIds; // effect IDs on this product (for tip calculation)
         }
 
         /// <summary>Products the customer decided to buy after browsing all shelves.</summary>
@@ -208,12 +235,14 @@ namespace OverTheCounter.Logic
         //  Constructor + Factory
         // =====================================================================
 
-        private CustomerInstance(string id, int seed, CustomerSpawnPoints.SpawnPoint spawnPoint, NPC npc)
+        private CustomerInstance(string id, int seed, CustomerSpawnPoints.SpawnPoint spawnPoint, NPC npc,
+            BuildingTarget target = null)
         {
             Id = id;
             SpawnSeed = seed;
             SpawnPoint = spawnPoint;
             GameNpc = npc;
+            Target = target ?? WestvilleShack.Target;
             State = CustomerState.WalkingToStore;
             Preferences = GeneratePreferences(seed);
             _willVocalizeWhileBrowsing = (seed % 10) < 3; // ~30% chance
@@ -288,6 +317,134 @@ namespace OverTheCounter.Logic
 
             Active[id] = instance;
             return instance;
+        }
+
+        /// <summary>
+        /// Wraps an existing vanilla NPC (e.g., Jesse, Beth) as a deal-driven dispensary customer.
+        /// Does NOT spawn a new NPC or change appearance — keeps the real NPC's identity.
+        /// </summary>
+        internal static CustomerInstance CreateFromDealNPC(Customer vanillaCustomer, BuildingTarget target,
+            Vector3 warpReturnPosition)
+        {
+            try
+            {
+                var npc = vanillaCustomer.NPC;
+                if (npc == null)
+                {
+                    OTCLog.Error(OTCLog.Systems.Customer, "CreateFromDealNPC: vanilla Customer has no NPC");
+                    return null;
+                }
+
+                int seed = npc.FirstName.GetHashCode();
+                string id = $"deal_{npc.FirstName}_{npc.LastName}_{UnityEngine.Random.Range(0, 9999)}";
+
+                var instance = new CustomerInstance(id, seed, null, npc, target)
+                {
+                    IsDealCustomer = true,
+                    VanillaCustomer = vanillaCustomer,
+                    WarpReturnPosition = warpReturnPosition,
+                    Preferences = ExtractVanillaPreferences(vanillaCustomer)
+                };
+
+                Active[id] = instance;
+                OTCLog.Msg(OTCLog.Systems.Customer,
+                    $"Deal customer created: {npc.FirstName} {npc.LastName} → {target.Name}");
+                return instance;
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Customer, $"CreateFromDealNPC failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Extracts customer preferences from a vanilla Customer's affinity and standard data.
+        /// </summary>
+        private static CustomerPreferences ExtractVanillaPreferences(Customer customer)
+        {
+            try
+            {
+#if IL2CPP
+                var data = customer.customerData;
+#else
+                var dataField = HarmonyLib.AccessTools.Field(typeof(Customer), "customerData");
+                var data = dataField?.GetValue(customer) as ScheduleOne.Economy.CustomerData;
+#endif
+                if (data == null) return GeneratePreferences(0);
+
+                // Quality expectation from customer standards
+                float qualityExpectation = 0.3f; // default: Standard
+#if IL2CPP
+                qualityExpectation = ScheduleOne.Economy.CustomerData.GetQualityScalar(
+                    data.Standards.GetCorrespondingQuality());
+#else
+                var getQualMethod = typeof(ScheduleOne.Economy.CustomerData).GetMethod("GetQualityScalar",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                var corrQual = data.Standards.GetCorrespondingQuality();
+                if (getQualMethod != null)
+                    qualityExpectation = (float)getQualMethod.Invoke(null, new object[] { corrQual });
+#endif
+
+                // Preferred effects from customerData.PreferredProperties
+                var effectIds = new List<string>();
+                if (data.PreferredProperties != null)
+                {
+                    for (int i = 0; i < data.PreferredProperties.Count && i < 3; i++)
+                    {
+                        var effect = data.PreferredProperties[i];
+                        if (effect != null)
+                            effectIds.Add(effect.name.ToLower());
+                    }
+                }
+                // Pad to 3 effects if less
+                while (effectIds.Count < 3)
+                    effectIds.Add("calming");
+
+                // Per-item budget ceiling (max price they'll consider for a single item)
+                float budget = 80f;
+                if (data.MaxWeeklySpend > 0)
+                    budget = data.MaxWeeklySpend / Mathf.Max(1, data.MaxOrdersPerWeek);
+
+                // Total order budget — mirrors vanilla's per-order spend calculation:
+                // adjustedWeeklySpend / orderDaysPerWeek (vanilla uses GetAdjustedWeeklySpend + GetOrderDays)
+                // We approximate with MaxWeeklySpend / MaxOrdersPerWeek since we don't have
+                // relation delta easily on Mono. This gives the same ballpark as vanilla deals.
+                float totalBudget = budget;
+
+                // Weed affinity from current affinity data
+                float weedAffinity = 0.5f;
+                try
+                {
+#if IL2CPP
+                    weedAffinity = customer.currentAffinityData.GetAffinity(
+                        Il2CppScheduleOne.Product.EDrugType.Marijuana);
+#else
+                    var affinityField = HarmonyLib.AccessTools.Field(typeof(Customer), "currentAffinityData");
+                    var affinityData = affinityField?.GetValue(customer) as ScheduleOne.Economy.CustomerAffinityData;
+                    if (affinityData != null)
+                        weedAffinity = affinityData.GetAffinity(ScheduleOne.Product.EDrugType.Marijuana);
+#endif
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer, $"Failed to read weed affinity: {ex.Message}");
+                }
+
+                return new CustomerPreferences
+                {
+                    QualityExpectation = qualityExpectation,
+                    PreferredEffectIds = effectIds.ToArray(),
+                    MaxBudgetPerItem = budget,
+                    TotalOrderBudget = totalBudget,
+                    WeedAffinity = weedAffinity
+                };
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer, $"ExtractVanillaPreferences failed: {ex.Message}");
+                return GeneratePreferences(0);
+            }
         }
 
         /// <summary>
@@ -370,7 +527,7 @@ namespace OverTheCounter.Logic
         {
             if (!IsValid) return;
 
-            var nav = Placement.WestvilleShack.NavBuilder;
+            var nav = Target?.NavBuilder;
             if (nav == null)
             {
                 OTCLog.Warning(OTCLog.Systems.Customer, $"SendToInterior: NavBuilder is null for {Id}");
@@ -395,10 +552,15 @@ namespace OverTheCounter.Logic
         {
             if (!IsValid) return;
 
-            var nav = Placement.WestvilleShack.NavBuilder;
+            var nav = Target?.NavBuilder;
             if (nav == null) return;
 
             _currentWalkTarget = null; // prevent CheckStuck/EnsureMoving from fighting S1MAPI
+
+            // Snap rotation toward exit so NPC doesn't walk backward while S1MAPI rotates them
+            if (Target != null && Target.ExteriorApproachPosition != Vector3.zero)
+                FacePosition(Target.ExteriorApproachPosition);
+
             OTCLog.Msg(OTCLog.Systems.Customer, $"[Nav] RecallFromBuilding {Id} worldPos={Position} state={State}");
             nav.RecallNPC(GameNpc.Movement);
         }
@@ -646,7 +808,7 @@ namespace OverTheCounter.Logic
                 // Convert local shelf center to world for FacePosition
                 if (_browseShelfPositions != null && _browseTargetIndex < _browseShelfPositions.Count)
                 {
-                    var bt = Placement.WestvilleShack.BuildingTransform;
+                    var bt = Target?.BuildingTransform;
                     if (bt != null)
                         FacePosition(bt.TransformPoint(_browseShelfPositions[_browseTargetIndex]));
                 }
@@ -679,7 +841,7 @@ namespace OverTheCounter.Logic
 
             // _browseShelfPositions are LOCAL coords — convert to world for distance comparison
             var localShelfPos = _browseShelfPositions[_browseTargetIndex];
-            var bt = Placement.WestvilleShack.BuildingTransform;
+            var bt = Target?.BuildingTransform;
             if (bt == null) return;
             var worldShelfPos = bt.TransformPoint(localShelfPos);
 
@@ -852,13 +1014,17 @@ namespace OverTheCounter.Logic
             // 3. Sort by appeal descending
             scored.Sort((a, b) => b.appeal.CompareTo(a.appeal));
 
-            // 4. Weighted random selection (vanilla: 50% pick top, 50% random from rest)
-            int totalUnitCap = 6;
+            // 4. Selection — deal customers buy budget-driven, random customers use unit cap
+            int totalUnitCap = IsDealCustomer ? 20 : 6;
+            float remainingBudget = Preferences.TotalOrderBudget;
+            bool useBudget = IsDealCustomer && remainingBudget > 0;
             int totalUnits = 0;
             var remaining = new List<(ObservedProduct product, float appeal)>(scored);
 
             while (remaining.Count > 0 && totalUnits < totalUnitCap)
             {
+                if (useBudget && remainingBudget <= 0) break;
+
                 int pickIndex;
                 if (remaining.Count == 1 || rng.NextDouble() < 0.5)
                     pickIndex = 0; // top pick
@@ -868,10 +1034,20 @@ namespace OverTheCounter.Logic
                 var pick = remaining[pickIndex];
                 remaining.RemoveAt(pickIndex);
 
-                // High appeal (> 0.7) → buy 2 if available, else 1
-                int qty = 1;
-                if (pick.appeal > 0.7f && pick.product.AvailableQuantity >= 2)
-                    qty = 2;
+                int qty;
+                if (useBudget)
+                {
+                    // Deal customers: buy as many as budget allows from this product
+                    int canAfford = Mathf.Max(1, Mathf.FloorToInt(remainingBudget / pick.product.Price));
+                    qty = Mathf.Min(canAfford, pick.product.AvailableQuantity);
+                }
+                else
+                {
+                    // Random customers: conservative 1-2 per pick
+                    qty = 1;
+                    if (pick.appeal > 0.7f && pick.product.AvailableQuantity >= 2)
+                        qty = 2;
+                }
                 qty = Math.Min(qty, totalUnitCap - totalUnits);
 
                 SelectedProducts.Add(new SelectedProduct
@@ -881,10 +1057,12 @@ namespace OverTheCounter.Logic
                     ProductName = pick.product.ProductName,
                     Price = pick.product.Price,
                     QualityLevel = pick.product.QualityLevel,
-                    Quantity = qty
+                    Quantity = qty,
+                    EffectIds = pick.product.EffectIds
                 });
 
                 totalUnits += qty;
+                remainingBudget -= pick.product.Price * qty;
             }
         }
 
@@ -953,11 +1131,22 @@ namespace OverTheCounter.Logic
         // =====================================================================
 
         /// <summary>
-        /// Removes this customer from tracking and destroys the NPC.
+        /// Removes this customer from tracking. Destroys random-spawned NPCs;
+        /// releases deal NPCs back to vanilla behavior.
         /// </summary>
         public void Despawn()
         {
             Active.Remove(Id);
+
+            if (IsDealCustomer)
+            {
+                // Deal customers: release NPC, don't destroy. Apply cooldown reset.
+                DispensaryDealManager.ReleaseDealNPC(this);
+                if (SelectedProducts.Count == 0)
+                    DispensaryDealManager.ApplyDealCooldownOnly(this);
+                GameNpc = null;
+                return;
+            }
 
             if (GameNpc != null)
             {
@@ -974,6 +1163,12 @@ namespace OverTheCounter.Logic
         {
             foreach (var customer in Active.Values)
             {
+                if (customer.IsDealCustomer)
+                {
+                    DispensaryDealManager.ReleaseDealNPC(customer);
+                    customer.GameNpc = null;
+                    continue;
+                }
                 if (customer.GameNpc != null)
                 {
                     if (!customer.IsAdopted)

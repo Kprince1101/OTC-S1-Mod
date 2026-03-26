@@ -560,11 +560,15 @@ namespace OverTheCounter.Logic
                     else if (CheckoutCounter.AllCounters.Count > 0)
                         CheckoutCounter.AllCounters[0].DepositToRegister(totalPrice);
 
+                    // Apply deal rewards (tip, XP, relationship) for deal customers
+                    if (customer.IsDealCustomer)
+                        DispensaryDealManager.ApplyDealRewards(customer, totalPrice);
+
                     customer.CheckoutArrivalTime = 0f;
                     customer.ArrivedAtDestination = false;
                     customer.State = CustomerState.ExitingStore;
                     customer.SetAvoidancePriority(10);
-                    customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                    customer.RecallFromBuilding();
                     CustomerManager.Instance?.OnCheckoutComplete(custId);
                 }
 
@@ -638,6 +642,7 @@ namespace OverTheCounter.Logic
                         return;
 
                     // Remove from counter
+                    DisableRenderers(product.Visual);
                     UnityEngine.Object.Destroy(product.Visual);
                     Instance._counterProducts.RemoveAt(i);
                     Instance._totalPlacedPrice -= product.Price;
@@ -800,6 +805,7 @@ namespace OverTheCounter.Logic
                     if (!ReturnProduct(product))
                         return;
 
+                    DisableRenderers(product.Visual);
                     UnityEngine.Object.Destroy(product.Visual);
                     _counterProducts.RemoveAt(i);
                     _totalPlacedPrice -= product.Price;
@@ -877,6 +883,11 @@ namespace OverTheCounter.Logic
                         if (visualsSetter != null && product.ProductDef != null)
                             visualsSetter.ApplyVisuals(product.ProductDef);
                     }
+
+                    // Strip visual setter components — visuals are already applied and keeping
+                    // them alive risks native Renderer.GetMaterials crashes if anything re-triggers
+                    // ApplyVisuals on the clone (e.g. storage visual refresh, GPU driver edge case).
+                    StripVisualSetters(go);
                 }
                 catch (Exception ex)
                 {
@@ -1020,11 +1031,15 @@ namespace OverTheCounter.Logic
                 yield return null;
             }
 
-            // Destroy all product visuals
+            // Disable renderers before destroying — prevents GPU from accessing
+            // zero-scale geometry in the frame between Destroy call and actual destruction
             foreach (var p in _counterProducts)
             {
                 if (p.Visual != null)
+                {
+                    DisableRenderers(p.Visual);
                     UnityEngine.Object.Destroy(p.Visual);
+                }
             }
 
             _pickupAnimCoroutine = null;
@@ -1349,6 +1364,36 @@ namespace OverTheCounter.Logic
 
         private static void ConsumeFromSource(AvailableProduct product)
             => ConsumeFromSource(product.SourceSlot, product.HotbarIndex, product.ProductName);
+
+        /// <summary>
+        /// Removes all visual setter components from a cloned product GameObject.
+        /// After ApplyVisuals sets the correct materials, these components are no longer
+        /// needed and keeping them alive risks native Renderer crashes if re-triggered.
+        /// </summary>
+        internal static void StripVisualSetters(GameObject go)
+        {
+            if (go == null) return;
+
+            // MultiTypeVisualsSetter : MonoBehaviour (separate hierarchy from ProductVisualsSetter)
+            foreach (var multi in go.GetComponentsInChildren<MultiTypeVisualsSetter>(true))
+                UnityEngine.Object.Destroy(multi);
+
+            // ProductVisualsSetter and all subclasses (WeedVisualsSetter, MethVisualsSetter, etc.)
+            foreach (var setter in go.GetComponentsInChildren<ProductVisualsSetter>(true))
+                UnityEngine.Object.Destroy(setter);
+        }
+
+        /// <summary>
+        /// Disables all renderers on a GameObject hierarchy. Called before destroying
+        /// product visuals to prevent GPU access to zero-scale or about-to-die geometry.
+        /// </summary>
+        private static void DisableRenderers(GameObject go)
+        {
+            if (go == null) return;
+
+            foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+                r.enabled = false;
+        }
 
         /// <summary>
         /// Returns a product from the counter back to storage.
@@ -1739,12 +1784,16 @@ namespace OverTheCounter.Logic
                     OTCLog.Warning(OTCLog.Systems.Customer,$"Failed to record sale: {ex.Message}");
                 }
 
+                // Apply deal rewards (tip, XP, relationship) for deal customers
+                if (_customer.IsDealCustomer)
+                    DispensaryDealManager.ApplyDealRewards(_customer, _totalPlacedPrice);
+
                 // Signal customer to exit
                 _customer.CheckoutArrivalTime = 0f;
                 _customer.ArrivedAtDestination = false;
                 _customer.State = CustomerState.ExitingStore;
                 _customer.SetAvoidancePriority(10);
-                _customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                _customer.RecallFromBuilding();
 
                 CustomerManager.Instance?.OnCheckoutComplete(_customer.Id);
                 SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
@@ -1789,7 +1838,7 @@ namespace OverTheCounter.Logic
                     _customer.ArrivedAtDestination = false;
                     _customer.State = CustomerState.ExitingStore;
                     _customer.SetAvoidancePriority(10);
-                    _customer.WalkTo(CustomerSpawnPoints.RampBottomPosition);
+                    _customer.RecallFromBuilding();
                 }
 
                 CustomerManager.Instance?.OnCheckoutComplete(_customer.Id);
@@ -1808,7 +1857,10 @@ namespace OverTheCounter.Logic
             foreach (var item in _counterProducts)
             {
                 if (item.Visual != null)
+                {
+                    DisableRenderers(item.Visual);
                     UnityEngine.Object.Destroy(item.Visual);
+                }
             }
             _counterProducts.Clear();
 

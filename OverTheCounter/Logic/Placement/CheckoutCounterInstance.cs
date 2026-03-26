@@ -487,6 +487,8 @@ namespace OverTheCounter.Logic.Placement
                                 if (setter != null && prodDef != null)
                                     setter.ApplyVisuals(prodDef);
                             }
+
+                            CheckoutProcess.StripVisualSetters(displayGo);
                         }
                         catch { }
 

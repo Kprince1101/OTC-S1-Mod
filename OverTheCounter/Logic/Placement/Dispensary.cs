@@ -56,6 +56,16 @@ namespace OverTheCounter.Logic.Placement
 
         private static GameObject _building;
         private static NavigationBuilder _navigationBuilder;
+
+        /// <summary>S1MAPI NavigationBuilder for interior A* pathfinding.</summary>
+        internal static NavigationBuilder NavBuilder => _navigationBuilder;
+
+        /// <summary>Building root transform for world-local coordinate conversion.</summary>
+        internal static Transform BuildingTransform => _building?.transform;
+
+        /// <summary>BuildingTarget for the customer system (set after Build).</summary>
+        internal static BuildingTarget Target { get; private set; }
+
         private static ModularSwitch _lightSwitch;
         private static ModularSwitch _openCloseSwitch;
         private static GameObject _lightSwitchGo;
@@ -196,6 +206,7 @@ namespace OverTheCounter.Logic.Placement
             IsStoreOpen = false;
             AreLightsOn = false;
             DispensaryGrid = null;
+            Target = null;
             FurnitureManager.CleanupFurniture("Dispensary");
             if (_building != null) GameObject.Destroy(_building);
             _building = null;
@@ -800,6 +811,22 @@ namespace OverTheCounter.Logic.Placement
             {
                 OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to register DispensaryGrid GUID: {ex.Message}");
             }
+
+            // Build customer routing target
+            // Dispensary faces north — sliding door on north wall at local (4, 0, 16.5)
+            // Showroom center at local (7, 0, 8.5)
+            var bPos = _building.transform.position;
+            Target = new BuildingTarget
+            {
+                NavBuilder = _navigationBuilder,
+                BuildingTransform = _building.transform,
+                Grid = DispensaryGrid,
+                BuildingPosition = bPos,
+                ExteriorApproachPosition = _building.transform.TransformPoint(new Vector3(4f, 0f, 17.5f)),
+                ExitWalkPosition = _building.transform.TransformPoint(new Vector3(4f, 0f, 19f)),
+                RoomCenterWorld = _building.transform.TransformPoint(new Vector3(7f, 0f, 8.5f)),
+                Name = "Dispensary"
+            };
         }
 
         /// <summary>

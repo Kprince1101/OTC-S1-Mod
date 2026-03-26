@@ -90,6 +90,9 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>The placement grid inside the shack. Set after build.</summary>
         internal static Grid ShackGrid { get; private set; }
 
+        /// <summary>BuildingTarget for the customer system (set after Build).</summary>
+        internal static BuildingTarget Target { get; private set; }
+
         // Exterior furniture placed via MeshVault (positions are local to building root)
         private static readonly FurnitureSlot[] Furniture =
         {
@@ -131,6 +134,7 @@ namespace OverTheCounter.Logic.Placement
             IsStoreOpen = false;
             AreLightsOn = false;
             ShackGrid = null;
+            Target = null;
             if (_building != null) GameObject.Destroy(_building);
             _building = null;
             // Networked objects are NOT children of _building — destroy them explicitly.
@@ -622,6 +626,20 @@ namespace OverTheCounter.Logic.Placement
             {
                 OTCLog.Warning(OTCLog.Systems.Patch,$"Failed to register ShackGrid GUID: {ex.Message}");
             }
+
+            // Build customer routing target
+            // Shack faces east — door at local (6, 0, 1.3), stairs descend east
+            Target = new BuildingTarget
+            {
+                NavBuilder = _navigationBuilder,
+                BuildingTransform = _building.transform,
+                Grid = ShackGrid,
+                BuildingPosition = _building.transform.position,
+                ExteriorApproachPosition = CustomerSpawnPoints.StairApproachPosition,
+                ExitWalkPosition = CustomerSpawnPoints.RampBottomPosition,
+                RoomCenterWorld = CustomerSpawnPoints.RoomCenterPosition,
+                Name = "WestvilleShack"
+            };
 
             // Door and switches are spawned in SpawnNetworkedObjects() after onLoadComplete.
             // Checkout counter is spawned later via LoadManager.onLoadComplete (needs FishNet ready)
