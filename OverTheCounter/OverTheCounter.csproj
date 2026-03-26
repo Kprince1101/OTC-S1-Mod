@@ -331,9 +331,11 @@
 		<Compile Include="Quests\StaticUpgrade1Quest.cs" />
 		<Compile Include="Quests\StaticUpgrade2Quest.cs" />
 		<Compile Include="Quests\DrifterDealQuest.cs" />
+		<Compile Include="Quests\StorefrontGrowthQuest.cs" />
 		<Compile Include="Config.cs" />
 		<Compile Include="Utilities\ConfigEntry.cs" />
 		<Compile Include="Utilities\StorageFilterHelper.cs" />
+		<Compile Include="Utilities\PropertyInventory.cs" />
 		<Compile Include="Utilities\MugshotUtility.cs" />
 		<Compile Include="Utilities\OTCLog.cs" />
 		<Compile Include="SaveData\ConfigSyncData.cs" />

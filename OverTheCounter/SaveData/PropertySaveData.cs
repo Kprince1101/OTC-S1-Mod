@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using MelonLoader;
 using OverTheCounter.Logic.Placement;
+using OverTheCounter.Quests;
 using OverTheCounter.Utilities;
 using S1API.Internal.Abstraction;
 using S1API.Saveables;
@@ -251,7 +252,11 @@ namespace OverTheCounter.SaveData
                 QualityLevel = qualityLevel,
                 GameDay = gameDay
             });
+            OnSaleRecorded?.Invoke();
         }
+
+        /// <summary>Fired after each RecordSale call (host-only).</summary>
+        public static event Action OnSaleRecorded;
 
         /// <summary>Returns all recorded sales.</summary>
         public List<OtcSaleRecord> GetSalesLog() => _salesLog;
@@ -326,13 +331,39 @@ namespace OverTheCounter.SaveData
                 "Set up shop and customers will find you.");
 
             if (propertyId == ShackId)
+            {
                 WestvilleShack.UnlockDoor();
+                CreateStorefrontQuest();
+            }
             else if (propertyId == DispensaryId)
                 Dispensary.UnlockDoor();
             else if (propertyId == WarehouseId)
                 OTCWarehouse.UnlockDoor();
 
             ConfigSyncData.Instance?.PublishGameState();
+        }
+
+        private static void CreateStorefrontQuest()
+        {
+            if (StorefrontGrowthQuest.Instance != null) return;
+            try
+            {
+                var quest = (StorefrontGrowthQuest)S1API.Quests.QuestManager
+                    .CreateQuest<StorefrontGrowthQuest>();
+                if (quest == null)
+                {
+                    OTCLog.Error(OTCLog.Systems.Quest,
+                        "CreateQuest<StorefrontGrowthQuest> returned null.");
+                    return;
+                }
+                quest.Initialize();
+                quest.StartQuest();
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Quest,
+                    $"CreateStorefrontQuest failed: {ex.Message}");
+            }
         }
 
         /// <summary>Restores placed items from save data for a building. Host-only.</summary>

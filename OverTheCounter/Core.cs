@@ -38,7 +38,6 @@ namespace OverTheCounter
         private ManagerController _managerManager;
         private CustomerManager _customerManager;
 
-
         public override void OnInitializeMelon()
         {
             Config.Initialize();
@@ -398,6 +397,9 @@ namespace OverTheCounter
 
                 // Update drifter quest timers on client (OnTimeTick is host-only)
                 _drifterManager?.ClientQuestTick();
+
+                // Storefront Growth quest polling (throttled internally)
+                Quests.StorefrontGrowthQuest.Instance?.Tick();
 
             }
             catch (Exception ex)
