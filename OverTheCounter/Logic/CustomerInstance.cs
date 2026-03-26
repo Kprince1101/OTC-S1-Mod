@@ -339,7 +339,8 @@ namespace OverTheCounter.Logic
         // =====================================================================
 
         /// <summary>
-        /// Commands the NPC to walk to the given position.
+        /// Commands the NPC to walk to the given world position on EXTERIOR NavMesh.
+        /// Use only for WalkingToStore and LeavingStore (outside the building).
         /// </summary>
         public void WalkTo(Vector3 target)
         {
@@ -359,6 +360,47 @@ namespace OverTheCounter.Logic
             GameNpc.Movement.SetDestination(target, _walkCallback, 2f, 1f);
 
             ResetStuckState();
+        }
+
+        /// <summary>
+        /// Sends the NPC to a LOCAL building position via S1MAPI NavigationBuilder.
+        /// Handles doorway entry, A* interior pathing, and arrival callback.
+        /// </summary>
+        public void SendToInterior(Vector3 localTarget, Action onArrival = null)
+        {
+            if (!IsValid) return;
+
+            var nav = Placement.WestvilleShack.NavBuilder;
+            if (nav == null)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer, $"SendToInterior: NavBuilder is null for {Id}");
+                return;
+            }
+
+            ArrivedAtDestination = false;
+            _currentWalkTarget = null; // prevent CheckStuck/EnsureMoving from fighting S1MAPI
+            OTCLog.Msg(OTCLog.Systems.Customer, $"[Nav] SendToInterior {Id} localTarget={localTarget} worldPos={Position} state={State}");
+            nav.SendNPCToPosition(GameNpc.Movement, localTarget, () =>
+            {
+                OTCLog.Msg(OTCLog.Systems.Customer, $"[Nav] SendToInterior ARRIVED {Id} worldPos={Position} state={State}");
+                onArrival?.Invoke();
+            });
+        }
+
+        /// <summary>
+        /// Recalls the NPC from the building via S1MAPI NavigationBuilder.
+        /// NPC exits through the doorway and is released back to exterior NavMesh.
+        /// </summary>
+        public void RecallFromBuilding()
+        {
+            if (!IsValid) return;
+
+            var nav = Placement.WestvilleShack.NavBuilder;
+            if (nav == null) return;
+
+            _currentWalkTarget = null; // prevent CheckStuck/EnsureMoving from fighting S1MAPI
+            OTCLog.Msg(OTCLog.Systems.Customer, $"[Nav] RecallFromBuilding {Id} worldPos={Position} state={State}");
+            nav.RecallNPC(GameNpc.Movement);
         }
 
         /// <summary>
@@ -530,20 +572,21 @@ namespace OverTheCounter.Logic
         // =====================================================================
 
         /// <summary>
-        /// Initializes the browse phase with stand positions (in front of shelves)
-        /// and shelf centers (for facing). Each stand position gets a random XZ offset
+        /// Initializes the browse phase with LOCAL stand positions (in front of shelves)
+        /// and LOCAL shelf centers (for facing). Each stand position gets a random XZ offset
         /// so multiple customers don't compete for the exact same spot.
+        /// Positions are in building-local coordinates for SendNPCToPosition.
         /// </summary>
-        private const float BrowseRadius = 0.8f;
+        private const float BrowseRadius = 0.3f;
 
-        public void StartBrowsing(List<Vector3> standPositions, List<Vector3> shelfCenters)
+        public void StartBrowsing(List<Vector3> localStandPositions, List<Vector3> localShelfCenters)
         {
-            _browseShelfPositions = new List<Vector3>(shelfCenters);
-            _browsePositions = new List<Vector3>(standPositions.Count);
-            for (int i = 0; i < standPositions.Count; i++)
+            _browseShelfPositions = new List<Vector3>(localShelfCenters);
+            _browsePositions = new List<Vector3>(localStandPositions.Count);
+            for (int i = 0; i < localStandPositions.Count; i++)
             {
                 var offset = UnityEngine.Random.insideUnitCircle * BrowseRadius;
-                _browsePositions.Add(standPositions[i] + new Vector3(offset.x, 0f, offset.y));
+                _browsePositions.Add(localStandPositions[i] + new Vector3(offset.x, 0f, offset.y));
             }
 
             _seenProducts.Clear();
@@ -553,11 +596,23 @@ namespace OverTheCounter.Logic
             ArrivedAtDestination = false;
 
             if (_browsePositions.Count > 0)
-                WalkTo(_browsePositions[0]);
+                SendToInteriorBrowseTarget(0);
+        }
+
+        private void SendToInteriorBrowseTarget(int index)
+        {
+            _browseTargetIndex = index;
+            SendToInterior(_browsePositions[index], OnBrowsePositionReached);
+        }
+
+        private void OnBrowsePositionReached()
+        {
+            ArrivedAtDestination = true;
         }
 
         /// <summary>
         /// Advances the browse state machine. Returns true when all targets have been visited.
+        /// Arrival is detected via callback from SendNPCToPosition, not polling.
         /// </summary>
         public bool TickBrowsing()
         {
@@ -572,21 +627,29 @@ namespace OverTheCounter.Logic
 
                 // Pause ended — advance to next target
                 _browsePauseEndTime = 0f;
-                _browseTargetIndex++;
+                int next = _browseTargetIndex + 1;
 
-                if (_browseTargetIndex >= _browsePositions.Count)
+                if (next >= _browsePositions.Count)
                     return true;
 
                 ArrivedAtDestination = false;
-                WalkTo(_browsePositions[_browseTargetIndex]);
+                SendToInteriorBrowseTarget(next);
                 return false;
             }
 
             // Arrived at current target — face the shelf and start pause
             if (ArrivedAtDestination)
             {
+                // Stop the NPC so they stand still during the pause (prevents twitching)
+                try { GameNpc.Movement?.Stop(); } catch { }
+
+                // Convert local shelf center to world for FacePosition
                 if (_browseShelfPositions != null && _browseTargetIndex < _browseShelfPositions.Count)
-                    FacePosition(_browseShelfPositions[_browseTargetIndex]);
+                {
+                    var bt = Placement.WestvilleShack.BuildingTransform;
+                    if (bt != null)
+                        FacePosition(bt.TransformPoint(_browseShelfPositions[_browseTargetIndex]));
+                }
                 _browsePauseEndTime = Time.time + BrowsePauseDuration;
 
                 // Memorize products on this shelf (decisions come after all shelves visited)
@@ -614,7 +677,11 @@ namespace OverTheCounter.Logic
         {
             if (_browseShelfPositions == null || _browseTargetIndex >= _browseShelfPositions.Count) return;
 
-            var shelfPos = _browseShelfPositions[_browseTargetIndex];
+            // _browseShelfPositions are LOCAL coords — convert to world for distance comparison
+            var localShelfPos = _browseShelfPositions[_browseTargetIndex];
+            var bt = Placement.WestvilleShack.BuildingTransform;
+            if (bt == null) return;
+            var worldShelfPos = bt.TransformPoint(localShelfPos);
 
             try
             {
@@ -635,7 +702,7 @@ namespace OverTheCounter.Logic
                         var storage = storages[i];
                         if (storage?.transform == null) continue;
 
-                        float dist = Vector3.Distance(storage.transform.position, shelfPos);
+                        float dist = Vector3.Distance(storage.transform.position, worldShelfPos);
                         if (dist < closestDist)
                         {
                             closestDist = dist;

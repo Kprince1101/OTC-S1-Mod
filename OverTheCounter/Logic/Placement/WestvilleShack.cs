@@ -37,17 +37,21 @@ namespace OverTheCounter.Logic.Placement
     /// </summary>
     public static class WestvilleShack
     {
-        // Room dimensions (smaller than B1's 8x9)
         private const float RoomWidth = 6f;
         private const float RoomHeight = 3.5f;
         private const float RoomDepth = 5f;
         private const float FoundationHeight = 0.4f;
 
-        // SW corner of building footprint — ground slopes ~-3 to -3.5 here
         private static readonly Vector3 BuildingOrigin = new(-167.4f, -4f, 73.5f);
 
         private static GameObject _building;
         private static NavigationBuilder _navigationBuilder;
+
+        /// <summary>S1MAPI NavigationBuilder for interior A* pathfinding.</summary>
+        internal static NavigationBuilder NavBuilder => _navigationBuilder;
+
+        /// <summary>Building root transform for world↔local coordinate conversion.</summary>
+        internal static Transform BuildingTransform => _building?.transform;
         private static GameObject _lightsFolder;
         private static ModularSwitch _lightSwitch;
         private static ModularSwitch _openCloseSwitch;
@@ -590,14 +594,16 @@ namespace OverTheCounter.Logic.Placement
 
             builder.FlattenTerrain();
 
-            // Placement grid — no interior walls, just exclude exterior wall edges.
+            // Placement grid — no grid offset so exterior walls sit at tile centers
+            // on the SW edges. Without offset, NE edge tiles are 0.25m from the wall
+            // (collider doesn't reach wall), so no NE filter needed.
             ShackGrid = BuildingGridFactory.CreateGrid(_building, RoomWidth, RoomDepth, "WestvilleShack_Floor1",
                 tileFilter: (x, z) =>
                 {
-                    if (x == 0 || z == 0) return false;
+                    if (x == 0 || z == 0) return false; // west/south wall tiles
                     return true;
                 },
-                gridCellSize: builder.GridCellSize);
+                gridCellSize: 0);
             BuildingGridFactory.RegisterGrid(ShackGrid, PropertySaveData.ShackId,
                 PropertySaveData.ShackId, RebuildNavigation);
 

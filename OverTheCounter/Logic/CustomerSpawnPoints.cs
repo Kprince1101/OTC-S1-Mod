@@ -56,8 +56,18 @@ namespace OverTheCounter.Logic
         /// <summary>Just inside the door — first point on interior floor (runtime Employee NavMesh).</summary>
         public static readonly Vector3 DoorInteriorPosition = new(-162.4f, -2.9f, 74.8f);
 
-        /// <summary>Center of the room — used when no storage is placed.</summary>
+        /// <summary>Center of the room (world coords) — used when no storage is placed.</summary>
         public static readonly Vector3 RoomCenterPosition = new(-164.4f, -2.9f, 75.5f);
+
+        /// <summary>Center of the room in building-local coordinates for SendNPCToPosition.</summary>
+        public static Vector3 RoomCenterLocal
+        {
+            get
+            {
+                var nav = Placement.WestvilleShack.NavBuilder;
+                return nav != null ? nav.WorldToLocal(RoomCenterPosition) : Vector3.zero;
+            }
+        }
 
         /// <summary>Spawn points on sidewalk east of the building.</summary>
         private static readonly SpawnPoint[] _spawnPoints =
@@ -78,49 +88,55 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Finds 2-3 display cabinets inside the OTC building and returns stand positions
-        /// (in front of each shelf) along with shelf centers for facing.
+        /// Finds 2-3 display cabinets inside the OTC building and returns LOCAL stand positions
+        /// (in front of each shelf) along with LOCAL shelf centers (for facing).
+        /// All coordinates are building-local for use with SendNPCToPosition.
         /// Returns an empty list when no storage is placed (triggers LookingAround state).
         /// </summary>
-        private const string DisplayCabinetId = "displaycabinet";
-        private const float ShelfStandOffset = 1.0f;
+        private static readonly HashSet<string> ExcludedStorageIds = new()
+        {
+            "otc_checkout_counter",
+            "locker",
+        };
+        private const float ShelfStandOffset = 0.25f;
 
         public static List<Vector3> GetInteriorBrowsePositions(out List<Vector3> shelfCenters)
         {
             var standPositions = new List<Vector3>();
             shelfCenters = new List<Vector3>();
 
+            var nav = Placement.WestvilleShack.NavBuilder;
+            if (nav == null) return standPositions;
+
+            // Only scan the shack grid — not all OTC buildings
+            var shackGrid = Placement.WestvilleShack.ShackGrid;
+            if (shackGrid == null || !BuildingGridFactory.GridContainers.TryGetValue(shackGrid, out var root))
+                return standPositions;
+
             try
             {
-                // Only browse display cabinets with packaged product inside OTC buildings
-                foreach (var kvp in BuildingGridFactory.GridContainers)
+                var storages = root.GetComponentsInChildren<PlaceableStorageEntity>(true);
+                if (storages == null) return standPositions;
+
+                for (int i = 0; i < storages.Length; i++)
                 {
-                    var root = kvp.Value;
-                    if (root == null) continue;
+                    var storage = storages[i];
+                    if (storage == null || storage.transform == null) continue;
 
-                    var storages = root.GetComponentsInChildren<PlaceableStorageEntity>(true);
-                    if (storages == null) continue;
+                    // Skip excluded storage types (checkout counter, locker)
+                    var id = storage.ItemInstance?.ID;
+                    if (id == null || ExcludedStorageIds.Contains(id))
+                        continue;
 
-                    for (int i = 0; i < storages.Length; i++)
-                    {
-                        var storage = storages[i];
-                        if (storage == null || storage.transform == null) continue;
+                    // Only browse shelves that have packaged product
+                    if (!HasPackagedProductInEntity(storage.gameObject))
+                        continue;
 
-                        // Only browse display cabinets
-                        if (storage.ItemInstance == null ||
-                            storage.ItemInstance.ID != DisplayCabinetId)
-                            continue;
-
-                        // Only browse shelves that have packaged product
-                        if (!HasPackagedProductInEntity(storage.gameObject))
-                            continue;
-
-                        // Stand in front of the shelf
-                        var pos = storage.transform.position;
-                        var standPos = pos + storage.transform.forward * ShelfStandOffset;
-                        standPositions.Add(standPos);
-                        shelfCenters.Add(pos);
-                    }
+                    // Stand in front of the shelf (local coords via S1MAPI)
+                    var worldPos = storage.transform.position;
+                    var worldStandPos = worldPos + storage.transform.forward * ShelfStandOffset;
+                    standPositions.Add(nav.WorldToLocal(worldStandPos));
+                    shelfCenters.Add(nav.WorldToLocal(worldPos));
                 }
             }
             catch (System.Exception ex)
@@ -162,39 +178,37 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Returns true if any storage entity inside OTC building grids
+        /// Returns true if any storage entity on the shack grid
         /// contains at least one packaged product (ProductItemInstance with AppliedPackaging).
         /// </summary>
         public static bool HasPackagedProduct()
         {
+            var shackGrid = Placement.WestvilleShack.ShackGrid;
+            if (shackGrid == null || !BuildingGridFactory.GridContainers.TryGetValue(shackGrid, out var root))
+                return false;
+
             try
             {
-                foreach (var kvp in BuildingGridFactory.GridContainers)
+                var storages = root.GetComponentsInChildren<StorageEntity>(true);
+                if (storages == null) return false;
+
+                for (int i = 0; i < storages.Length; i++)
                 {
-                    var root = kvp.Value;
-                    if (root == null) continue;
+                    var storage = storages[i];
+                    if (storage?.ItemSlots == null) continue;
 
-                    var storages = root.GetComponentsInChildren<StorageEntity>(true);
-                    if (storages == null) continue;
-
-                    for (int i = 0; i < storages.Length; i++)
+                    for (int j = 0; j < storage.ItemSlots.Count; j++)
                     {
-                        var storage = storages[i];
-                        if (storage?.ItemSlots == null) continue;
-
-                        for (int j = 0; j < storage.ItemSlots.Count; j++)
-                        {
-                            var slot = storage.ItemSlots[j];
-                            if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
+                        var slot = storage.ItemSlots[j];
+                        if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
 
 #if IL2CPP
-                            var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
+                        var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
 #else
-                            var productItem = slot.ItemInstance as ProductItemInstance;
+                        var productItem = slot.ItemInstance as ProductItemInstance;
 #endif
-                            if (productItem != null && productItem.AppliedPackaging != null)
-                                return true;
-                        }
+                        if (productItem != null && productItem.AppliedPackaging != null)
+                            return true;
                     }
                 }
             }

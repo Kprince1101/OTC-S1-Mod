@@ -179,9 +179,11 @@ namespace OverTheCounter.Logic
                         {
                             customer.ArrivedAtDestination = false;
                             customer.State = CustomerState.EnteringStore;
-                            // NavigationBuilder auto-intercepts SetDestination — routes NPC
-                            // through doorway via A* pathfinding, no manual NavMesh switching needed.
-                            customer.WalkTo(CustomerSpawnPoints.RoomCenterPosition);
+                            // SendToInterior handles doorway entry + A* path to room center
+                            customer.SendToInterior(CustomerSpawnPoints.RoomCenterLocal, () =>
+                            {
+                                customer.ArrivedAtDestination = true;
+                            });
                         }
                         break;
 
@@ -198,7 +200,10 @@ namespace OverTheCounter.Logic
                             else
                             {
                                 customer.State = CustomerState.LookingAround;
-                                customer.WalkTo(CustomerSpawnPoints.RoomCenterPosition);
+                                customer.SendToInterior(CustomerSpawnPoints.RoomCenterLocal, () =>
+                                {
+                                    customer.ArrivedAtDestination = true;
+                                });
                             }
                         }
                         break;
@@ -222,8 +227,7 @@ namespace OverTheCounter.Logic
                             {
                                 // No storage — exit the store
                                 customer.State = CustomerState.ExitingStore;
-                                customer.SetAvoidancePriority(10);
-                                customer.WalkTo(CustomerSpawnPoints.StairApproachPosition);
+                                customer.RecallFromBuilding();
                             }
                         }
                         break;
@@ -241,8 +245,7 @@ namespace OverTheCounter.Logic
                             {
                                 customer.ShowDisappointed();
                                 customer.State = CustomerState.ExitingStore;
-                                customer.SetAvoidancePriority(10);
-                                customer.WalkTo(CustomerSpawnPoints.StairApproachPosition);
+                                customer.RecallFromBuilding();
                                 break;
                             }
 
@@ -254,14 +257,16 @@ namespace OverTheCounter.Logic
                                 customer.AssignedCounter = bestCounter;
                                 bestCounter.Queue.Add(customer.Id);
                                 int queueIdx = bestCounter.Queue.Count - 1;
-                                customer.WalkTo(GetQueuePosition(bestCounter, queueIdx));
+                                customer.SendToInterior(GetQueuePositionLocal(bestCounter, queueIdx), () =>
+                                {
+                                    customer.ArrivedAtDestination = true;
+                                });
                             }
                             else
                             {
                                 // No counter — exit the store
                                 customer.State = CustomerState.ExitingStore;
-                                customer.SetAvoidancePriority(10);
-                                customer.WalkTo(CustomerSpawnPoints.StairApproachPosition);
+                                customer.RecallFromBuilding();
                             }
                         }
                         break;
@@ -276,8 +281,7 @@ namespace OverTheCounter.Logic
                             if (!beingCheckedOut)
                             {
                                 customer.State = CustomerState.ExitingStore;
-                                customer.SetAvoidancePriority(10);
-                                customer.WalkTo(CustomerSpawnPoints.StairApproachPosition);
+                                customer.RecallFromBuilding();
                                 break;
                             }
                         }
@@ -299,13 +303,16 @@ namespace OverTheCounter.Logic
                         break;
 
                     case CustomerState.ExitingStore:
-                        if (customer.ArrivedAtDestination)
+                        // RecallNPC handles exit via doorway — poll until NPC is outside
+                        if (customer.Position.HasValue)
                         {
-                            customer.ArrivedAtDestination = false;
-                            customer.State = CustomerState.LeavingStore;
-                            // NavigationBuilder routes NPC out through doorway automatically
-                            customer.SetAvoidancePriority(50);
-                            customer.WalkTo(customer.SpawnPoint.Position);
+                            var nav = Placement.WestvilleShack.NavBuilder;
+                            if (nav == null || !nav.IsNPCInside(customer.GameNpc.Movement))
+                            {
+                                customer.State = CustomerState.LeavingStore;
+                                customer.SetAvoidancePriority(50);
+                                customer.WalkTo(customer.SpawnPoint.Position);
+                            }
                         }
                         break;
 
@@ -376,7 +383,17 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Re-walks all queued customers to their updated positions at the given counter.
+        /// Returns the LOCAL position for a given queue index (for SendNPCToPosition).
+        /// </summary>
+        private static Vector3 GetQueuePositionLocal(CheckoutCounterInstance counter, int queueIndex)
+        {
+            var worldPos = GetQueuePosition(counter, queueIndex);
+            var nav = Placement.WestvilleShack.NavBuilder;
+            return nav != null ? nav.WorldToLocal(worldPos) : worldPos;
+        }
+
+        /// <summary>
+        /// Re-sends all queued customers to their updated positions at the given counter.
         /// </summary>
         private void AdvanceQueue(CheckoutCounterInstance counter)
         {
@@ -385,7 +402,10 @@ namespace OverTheCounter.Logic
                 if (!CustomerInstance.Active.TryGetValue(counter.Queue[i], out var c)) continue;
                 c.ArrivedAtDestination = false;
                 c.CheckoutArrivalTime = 0f;
-                c.WalkTo(GetQueuePosition(counter, i));
+                c.SendToInterior(GetQueuePositionLocal(counter, i), () =>
+                {
+                    c.ArrivedAtDestination = true;
+                });
             }
 
             if (counter.Queue.Count == 0)
@@ -420,17 +440,23 @@ namespace OverTheCounter.Logic
         /// Finds the counter with the shortest queue. Random tiebreak if equal.
         /// Returns null if no counters are registered.
         /// </summary>
-        private static CheckoutCounterInstance FindBestCounter(Vector3 position)
+        private static CheckoutCounterInstance FindBestCounter(Vector3 customerWorldPos)
         {
+            // Only consider counters on the shack grid with a valid world position
+            var shackGrid = WestvilleShack.ShackGrid;
             var counters = CheckoutCounter.AllCounters;
-            if (counters.Count == 0) return null;
-            if (counters.Count == 1) return counters[0];
 
             int minQueue = int.MaxValue;
             var candidates = new List<CheckoutCounterInstance>();
 
             for (int i = 0; i < counters.Count; i++)
             {
+                if (counters[i].ParentGrid != shackGrid) continue;
+
+                // Skip counters whose GO is at the origin (not yet positioned by FishNet)
+                var cPos = counters[i].CounterPosition;
+                if (!cPos.HasValue || cPos.Value.sqrMagnitude < 1f) continue;
+
                 int qLen = counters[i].Queue.Count;
                 if (qLen < minQueue)
                 {
@@ -444,7 +470,7 @@ namespace OverTheCounter.Logic
                 }
             }
 
-            return candidates[UnityEngine.Random.Range(0, candidates.Count)];
+            return candidates.Count > 0 ? candidates[UnityEngine.Random.Range(0, candidates.Count)] : null;
         }
 
         // =====================================================================
