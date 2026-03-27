@@ -10,6 +10,12 @@ using System.IO;
 using System.Reflection;
 using UnityEngine;
 
+#if IL2CPP
+using EDrugType = Il2CppScheduleOne.Product.EDrugType;
+#else
+using EDrugType = ScheduleOne.Product.EDrugType;
+#endif
+
 namespace OverTheCounter.Quests
 {
     /// <summary>
@@ -72,7 +78,7 @@ namespace OverTheCounter.Quests
                 TriggerInternalInit();
 
                 _placeStorageEntry = AddEntry("Place a Display Cabinet or any storage in your new dispensary", ShackPosition);
-                _stockProductEntry = AddEntry("Stock your shelves with product", ShackPosition);
+                _stockProductEntry = AddEntry("Stock your shelves with packaged weed", ShackPosition);
                 _openStoreEntry = AddEntry("Open the store", ShackPosition);
                 _makeSaleEntry = AddEntry("Make your first sale", ShackPosition);
             }
@@ -121,7 +127,7 @@ namespace OverTheCounter.Quests
                             AdvanceToStage2();
                         break;
                     case 2:
-                        if (PropertyInventory.HasAnyProduct(grid))
+                        if (PropertyInventory.HasDrugType(grid, EDrugType.Marijuana))
                             AdvanceToStage3();
                         break;
                     case 3:
@@ -209,7 +215,7 @@ namespace OverTheCounter.Quests
                 // Entries aren't restored from save — rebuild them
                 QuestEntries.Clear();
                 _placeStorageEntry = AddEntry("Place a Display Cabinet or any storage in your new dispensary", ShackPosition);
-                _stockProductEntry = AddEntry("Stock your shelves with product", ShackPosition);
+                _stockProductEntry = AddEntry("Stock your shelves with packaged weed", ShackPosition);
                 _openStoreEntry = AddEntry("Open the store", ShackPosition);
                 _makeSaleEntry = AddEntry("Make your first sale", ShackPosition);
 
