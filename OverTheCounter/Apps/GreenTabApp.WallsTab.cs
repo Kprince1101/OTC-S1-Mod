@@ -2,6 +2,7 @@ using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
 using OverTheCounter.UI;
 using OverTheCounter.Utilities;
+using S1API.Misc;
 using S1API.UI;
 using System;
 using System.Linq;
@@ -269,10 +270,20 @@ namespace OverTheCounter.Apps
             if (intChanged)
                 ApplyBuildingInteriorWall(_pendingInteriorWallId);
 
-            try { ConfigSyncData.Instance?.PublishGameState(); }
-            catch (Exception ex)
+            if (NetworkHelper.IsHost)
             {
-                OTCLog.Warning(OTCLog.Systems.Network, $"Failed to sync wall change: {ex.Message}");
+                try { ConfigSyncData.Instance?.PublishGameState(); }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Network, $"Failed to sync wall change: {ex.Message}");
+                }
+            }
+            else
+            {
+                if (extChanged)
+                    ConfigSyncData.SendQuestAction($"STYLE:{_selectedBuildingId}:ext_wall:{_pendingExteriorWallId}");
+                if (intChanged)
+                    ConfigSyncData.SendQuestAction($"STYLE:{_selectedBuildingId}:int_wall:{_pendingInteriorWallId}");
             }
 
             OTCLog.Msg(OTCLog.Systems.Patch, $"Wall upgrade applied");

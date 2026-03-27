@@ -55,6 +55,7 @@ namespace OverTheCounter.Logic.Placement
         private const float ApronDepth = 0.5f;
 
         private static GameObject _building;
+        private static BuildingPartRegistry _registry;
         private static NavigationBuilder _navigationBuilder;
 
         /// <summary>S1MAPI NavigationBuilder for interior A* pathfinding.</summary>
@@ -198,6 +199,7 @@ namespace OverTheCounter.Logic.Placement
         {
             _navigationBuilder?.Remove();
             _navigationBuilder = null;
+            _registry = null;
             _lightSwitch = null;
             _openCloseSwitch = null;
             _lightSwitchGo = null;
@@ -749,6 +751,7 @@ namespace OverTheCounter.Logic.Placement
                     capMaterial: trimBlack);
 
             _building = builder.Build();
+            _registry = builder.Registry;
 
             _navigationBuilder = builder.CreateNavigationBuilder();
 
@@ -1073,9 +1076,8 @@ namespace OverTheCounter.Logic.Placement
         /// </summary>
         public static void SwapExteriorWallMaterial(Material material)
         {
-            if (_building == null || material == null) return;
-            var registry = _building.GetComponent<BuildingPartRegistry>();
-            if (registry == null) return;
+            if (_registry == null || material == null) return;
+            var registry = _registry;
             registry.SetExteriorWallMaterial(material);
         }
 
@@ -1084,9 +1086,8 @@ namespace OverTheCounter.Logic.Placement
         /// </summary>
         public static void SwapInteriorWallMaterial(Material material)
         {
-            if (_building == null || material == null) return;
-            var registry = _building.GetComponent<BuildingPartRegistry>();
-            if (registry == null) return;
+            if (_registry == null || material == null) return;
+            var registry = _registry;
             registry.SetInteriorFaceMaterial(material);
             registry.SetMaterial(BuildingPart.InteriorWalls, material);
         }
@@ -1096,9 +1097,8 @@ namespace OverTheCounter.Logic.Placement
         /// </summary>
         public static void SwapFloorMaterial(Material material)
         {
-            if (_building == null || material == null) return;
-            var registry = _building.GetComponent<BuildingPartRegistry>();
-            if (registry == null) return;
+            if (_registry == null || material == null) return;
+            var registry = _registry;
             registry.SetMaterial(BuildingPart.Floor, material);
         }
 

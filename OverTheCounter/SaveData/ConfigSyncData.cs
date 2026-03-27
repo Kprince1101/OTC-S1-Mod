@@ -802,12 +802,90 @@ namespace OverTheCounter.SaveData
                         Logic.Placement.OTCWarehouse.SetLightsFromSync(on);
                         Instance?.PublishGameState();
                     }
+                    else if (action.StartsWith("STYLE:"))
+                    {
+                        // Format: STYLE:buildingId:type:styleId
+                        var parts = action.Substring("STYLE:".Length).Split(':');
+                        if (parts.Length == 3)
+                            ApplyRemoteStyleChange(parts[0], parts[1], parts[2]);
+                    }
                     else
                     {
                         OTCLog.Warning(OTCLog.Systems.Network, $"Unknown quest action: {action}");
                     }
                     break;
             }
+        }
+
+        /// <summary>
+        /// Host-side handler for client style change requests.
+        /// Applies the style locally and publishes updated game state.
+        /// </summary>
+        private static void ApplyRemoteStyleChange(string buildingId, string styleType, string styleId)
+        {
+            bool isShack = buildingId == PropertySaveData.ShackId;
+            bool isDisp = buildingId == PropertySaveData.DispensaryId;
+            if (!isShack && !isDisp) return;
+
+            switch (styleType)
+            {
+                case "lighting":
+                    var lightStyle = Logic.Placement.LightingStyle.Get(styleId);
+                    if (lightStyle == null) return;
+                    if (isShack) Logic.Placement.WestvilleShack.ApplyLightingStyle(lightStyle);
+                    else Logic.Placement.Dispensary.ApplyLightingStyle(lightStyle);
+                    break;
+                case "ext_wall":
+                    var extWall = Logic.Placement.WallStyle.GetExterior(styleId);
+                    var extMat = S1MAPI.S1.Materials.Find(extWall.MaterialName);
+                    if (extMat == null) return;
+                    if (isShack)
+                    {
+                        Logic.Placement.WestvilleShack.CurrentExteriorWallStyleId = styleId;
+                        Logic.Placement.WestvilleShack.SwapExteriorWallMaterial(extMat);
+                    }
+                    else
+                    {
+                        Logic.Placement.Dispensary.CurrentExteriorWallStyleId = styleId;
+                        Logic.Placement.Dispensary.SwapExteriorWallMaterial(extMat);
+                    }
+                    break;
+                case "int_wall":
+                    var intWall = Logic.Placement.WallStyle.GetInterior(styleId);
+                    var intMat = S1MAPI.S1.Materials.Find(intWall.MaterialName);
+                    if (intMat == null) return;
+                    if (isShack)
+                    {
+                        Logic.Placement.WestvilleShack.CurrentInteriorWallStyleId = styleId;
+                        Logic.Placement.WestvilleShack.SwapInteriorWallMaterial(intMat);
+                    }
+                    else
+                    {
+                        Logic.Placement.Dispensary.CurrentInteriorWallStyleId = styleId;
+                        Logic.Placement.Dispensary.SwapInteriorWallMaterial(intMat);
+                    }
+                    break;
+                case "floor":
+                    var floorStyle = Logic.Placement.FloorStyle.Get(styleId);
+                    var floorMat = S1MAPI.S1.Materials.Find(floorStyle.MaterialName);
+                    if (floorMat == null) return;
+                    if (isShack)
+                    {
+                        Logic.Placement.WestvilleShack.CurrentFloorStyleId = styleId;
+                        Logic.Placement.WestvilleShack.SwapFloorMaterial(floorMat);
+                    }
+                    else
+                    {
+                        Logic.Placement.Dispensary.CurrentFloorStyleId = styleId;
+                        Logic.Placement.Dispensary.SwapFloorMaterial(floorMat);
+                    }
+                    break;
+                default:
+                    OTCLog.Warning(OTCLog.Systems.Network, $"Unknown style type: {styleType}");
+                    return;
+            }
+
+            Instance?.PublishGameState();
         }
 
         // ==================================================================

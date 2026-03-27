@@ -47,6 +47,7 @@ namespace OverTheCounter.Logic.Placement
         private static readonly Vector3 BuildingOrigin = new(-167.4f, -4f, 73.5f);
 
         private static GameObject _building;
+        private static BuildingPartRegistry _registry;
         private static NavigationBuilder _navigationBuilder;
 
         /// <summary>S1MAPI NavigationBuilder for interior A* pathfinding.</summary>
@@ -162,6 +163,7 @@ namespace OverTheCounter.Logic.Placement
         {
             _navigationBuilder?.Remove();
             _navigationBuilder = null;
+            _registry = null;
             _lightSwitch = null;
             _openCloseSwitch = null;
             Door = null;
@@ -709,6 +711,7 @@ namespace OverTheCounter.Logic.Placement
                 .AddParapetRoof(ParapetPreset.Shallow, parapetMaterial: Materials.Find("concrete light beige"), capMaterial: Materials.Find("concrete light beige"));
 
             _building = builder.Build();
+            _registry = builder.Registry;
 
             // NavMesh repairer — must be created after Build() (needs building root)
             // Use employee agent type so the indoor NavMesh is visible to employee-type agents
@@ -1046,9 +1049,8 @@ namespace OverTheCounter.Logic.Placement
         /// </summary>
         public static void SwapExteriorWallMaterial(Material material)
         {
-            if (_building == null || material == null) return;
-            var registry = _building.GetComponent<BuildingPartRegistry>();
-            if (registry == null) return;
+            if (_registry == null || material == null) return;
+            var registry = _registry;
             registry.SetExteriorWallMaterial(material);
         }
 
@@ -1057,9 +1059,8 @@ namespace OverTheCounter.Logic.Placement
         /// </summary>
         public static void SwapInteriorWallMaterial(Material material)
         {
-            if (_building == null || material == null) return;
-            var registry = _building.GetComponent<BuildingPartRegistry>();
-            if (registry == null) return;
+            if (_registry == null || material == null) return;
+            var registry = _registry;
             registry.SetInteriorFaceMaterial(material);
         }
 
@@ -1068,9 +1069,8 @@ namespace OverTheCounter.Logic.Placement
         /// </summary>
         public static void SwapFloorMaterial(Material material)
         {
-            if (_building == null || material == null) return;
-            var registry = _building.GetComponent<BuildingPartRegistry>();
-            if (registry == null) return;
+            if (_registry == null || material == null) return;
+            var registry = _registry;
             registry.SetMaterial(BuildingPart.Floor, material);
         }
     }

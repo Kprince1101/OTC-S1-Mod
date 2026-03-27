@@ -2,6 +2,7 @@ using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
 using OverTheCounter.UI;
 using OverTheCounter.Utilities;
+using S1API.Misc;
 using S1API.UI;
 using System;
 using System.Linq;
@@ -205,11 +206,16 @@ namespace OverTheCounter.Apps
 
             ApplyBuildingLighting(newStyle);
 
-            try { ConfigSyncData.Instance?.PublishGameState(); }
-            catch (Exception ex)
+            if (NetworkHelper.IsHost)
             {
-                OTCLog.Warning(OTCLog.Systems.Network, $"Failed to sync lighting change: {ex.Message}");
+                try { ConfigSyncData.Instance?.PublishGameState(); }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Network, $"Failed to sync lighting change: {ex.Message}");
+                }
             }
+            else
+                ConfigSyncData.SendQuestAction($"STYLE:{_selectedBuildingId}:lighting:{_pendingLightingId}");
 
             OTCLog.Msg(OTCLog.Systems.Patch, $"Lighting upgraded to '{newStyle.DisplayName}' for ${cost:F0}");
             RefreshCards();
