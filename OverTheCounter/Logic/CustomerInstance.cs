@@ -401,16 +401,25 @@ namespace OverTheCounter.Logic
                 while (effectIds.Count < 3)
                     effectIds.Add("calming");
 
-                // Per-item budget ceiling (max price they'll consider for a single item)
-                float budget = 80f;
-                if (data.MaxWeeklySpend > 0)
-                    budget = data.MaxWeeklySpend / Mathf.Max(1, data.MaxOrdersPerWeek);
+                // Vanilla spend scaling: Lerp(Min, Max, relationship) × rankMultiplier / ordersPerWeek
+                float normalizedRelation = 0.4f; // default (RelationDelta 2.0 / 5.0)
+                try { normalizedRelation = customer.NPC.RelationData.RelationDelta / 5f; }
+                catch { }
 
-                // Total order budget — mirrors vanilla's per-order spend calculation:
-                // adjustedWeeklySpend / orderDaysPerWeek (vanilla uses GetAdjustedWeeklySpend + GetOrderDays)
-                // We approximate with MaxWeeklySpend / MaxOrdersPerWeek since we don't have
-                // relation delta easily on Mono. This gives the same ballpark as vanilla deals.
-                float totalBudget = budget;
+                float weeklyBase = Mathf.Lerp(data.MinWeeklySpend, data.MaxWeeklySpend, normalizedRelation);
+
+                float rankMultiplier = 1f;
+                try
+                {
+                    if (S1API.Leveling.LevelManager.Exists)
+                        rankMultiplier = S1API.Leveling.LevelManager.GetOrderLimitMultiplier(
+                            S1API.Leveling.LevelManager.CurrentRank);
+                }
+                catch { }
+
+                float scaledWeekly = weeklyBase * rankMultiplier;
+                float totalBudget = scaledWeekly / Mathf.Max(1, data.MaxOrdersPerWeek);
+                float budget = totalBudget;
 
                 // Weed affinity from current affinity data
                 float weedAffinity = 0.5f;
@@ -479,14 +488,24 @@ namespace OverTheCounter.Logic
                 pool[j] = tmp;
             }
 
-            // Budget: $40-$100 (OG Kush base is ~$38/g before markup)
+            // Budget: $40-$100 base, scaled by player rank
             float budget = 40f + (float)(rng.NextDouble() * 60.0);
+            float rankMultiplier = 1f;
+            try
+            {
+                if (S1API.Leveling.LevelManager.Exists)
+                    rankMultiplier = S1API.Leveling.LevelManager.GetOrderLimitMultiplier(
+                        S1API.Leveling.LevelManager.CurrentRank);
+            }
+            catch { }
+            budget *= rankMultiplier;
 
             return new CustomerPreferences
             {
                 QualityExpectation = qualityExpectation,
                 PreferredEffectIds = new[] { pool[0], pool[1], pool[2] },
                 MaxBudgetPerItem = budget,
+                TotalOrderBudget = budget,
                 WeedAffinity = 0.8f
             };
         }
@@ -1017,7 +1036,7 @@ namespace OverTheCounter.Logic
             // 4. Selection — deal customers buy budget-driven, random customers use unit cap
             int totalUnitCap = IsDealCustomer ? 20 : 6;
             float remainingBudget = Preferences.TotalOrderBudget;
-            bool useBudget = IsDealCustomer && remainingBudget > 0;
+            bool useBudget = remainingBudget > 0;
             int totalUnits = 0;
             var remaining = new List<(ObservedProduct product, float appeal)>(scored);
 
