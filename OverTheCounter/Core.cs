@@ -40,6 +40,18 @@ namespace OverTheCounter
 
         public override void OnInitializeMelon()
         {
+            DependencyChecker.RunChecks();
+            if (DependencyChecker.HasMissingDeps)
+            {
+                LoggerInstance.Warning("Missing dependencies — mod features disabled. " +
+                    "Check the main menu for details.");
+                return;
+            }
+            OnInitializeMelonImpl();
+        }
+
+        private void OnInitializeMelonImpl()
+        {
             Config.Initialize();
             Config.SubscribeToChanges();
             CustomersApp.ApplyHireMeDefaults();
@@ -98,6 +110,17 @@ namespace OverTheCounter
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
+        {
+            if (DependencyChecker.HasMissingDeps)
+            {
+                if (sceneName == "Menu")
+                    DependencyChecker.ShowPopup();
+                return;
+            }
+            OnSceneWasLoadedImpl(buildIndex, sceneName);
+        }
+
+        private void OnSceneWasLoadedImpl(int buildIndex, string sceneName)
         {
             // Clear stale singletons on every scene transition so save data
             // from a previous save never bleeds into the next one.
@@ -179,6 +202,12 @@ namespace OverTheCounter
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)
+        {
+            if (DependencyChecker.HasMissingDeps) return;
+            OnSceneWasInitializedImpl(buildIndex, sceneName);
+        }
+
+        private void OnSceneWasInitializedImpl(int buildIndex, string sceneName)
         {
             if (sceneName == "Main")
             {
@@ -318,6 +347,12 @@ namespace OverTheCounter
 
         public override void OnLateUpdate()
         {
+            if (DependencyChecker.HasMissingDeps) return;
+            OnLateUpdateImpl();
+        }
+
+        private void OnLateUpdateImpl()
+        {
             try
             {
                 // Initialize lobby data callbacks on first tick (Steam is ready by now).
@@ -422,6 +457,12 @@ namespace OverTheCounter
         }
 
         public override void OnDeinitializeMelon()
+        {
+            if (DependencyChecker.HasMissingDeps) return;
+            OnDeinitializeMelonImpl();
+        }
+
+        private void OnDeinitializeMelonImpl()
         {
             TimeManager.OnSleepEnd -= OnSleepEnd;
             ConfigSyncData.Cleanup();
