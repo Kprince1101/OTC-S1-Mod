@@ -3,7 +3,6 @@ using OverTheCounter.SaveData;
 using OverTheCounter.UI;
 using OverTheCounter.Utilities;
 using S1API.UI;
-using S1MAPI.S1;
 using System;
 using System.Linq;
 using UnityEngine;
@@ -28,8 +27,8 @@ namespace OverTheCounter.Apps
 
         private void RefreshWallCards()
         {
-            string currentExt = Dispensary.CurrentExteriorWallStyleId ?? WallStyle.ExtDefault.Id;
-            string currentInt = Dispensary.CurrentInteriorWallStyleId ?? WallStyle.IntDefault.Id;
+            string currentExt = GetCurrentExteriorWallStyleId();
+            string currentInt = GetCurrentInteriorWallStyleId();
             _pendingExteriorWallId = currentExt;
             _pendingInteriorWallId = currentInt;
 
@@ -235,8 +234,8 @@ namespace OverTheCounter.Apps
 
         private void ApplyWallUpgrade()
         {
-            string currentExt = Dispensary.CurrentExteriorWallStyleId ?? WallStyle.ExtDefault.Id;
-            string currentInt = Dispensary.CurrentInteriorWallStyleId ?? WallStyle.IntDefault.Id;
+            string currentExt = GetCurrentExteriorWallStyleId();
+            string currentInt = GetCurrentInteriorWallStyleId();
 
             bool extChanged = _pendingExteriorWallId != null && _pendingExteriorWallId != currentExt;
             bool intChanged = _pendingInteriorWallId != null && _pendingInteriorWallId != currentInt;
@@ -265,20 +264,10 @@ namespace OverTheCounter.Apps
             }
 
             if (extChanged)
-            {
-                Dispensary.CurrentExteriorWallStyleId = _pendingExteriorWallId;
-                var style = WallStyle.GetExterior(_pendingExteriorWallId);
-                var mat = Materials.Find(style.MaterialName);
-                if (mat != null) Dispensary.SwapExteriorWallMaterial(mat);
-            }
+                ApplyBuildingExteriorWall(_pendingExteriorWallId);
 
             if (intChanged)
-            {
-                Dispensary.CurrentInteriorWallStyleId = _pendingInteriorWallId;
-                var style = WallStyle.GetInterior(_pendingInteriorWallId);
-                var mat = Materials.Find(style.MaterialName);
-                if (mat != null) Dispensary.SwapInteriorWallMaterial(mat);
-            }
+                ApplyBuildingInteriorWall(_pendingInteriorWallId);
 
             try { ConfigSyncData.Instance?.PublishGameState(); }
             catch (Exception ex)

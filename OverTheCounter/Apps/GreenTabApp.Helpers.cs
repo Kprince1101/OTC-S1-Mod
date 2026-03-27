@@ -1,6 +1,8 @@
 using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
+using S1MAPI.S1;
 using System.Collections.Generic;
+using UnityEngine;
 
 #if IL2CPP
 using Il2CppScheduleOne.DevUtilities;
@@ -52,6 +54,88 @@ namespace OverTheCounter.Apps
             catch
             {
                 return 0f;
+            }
+        }
+
+        // ==================================================================
+        //  Building-aware style accessors
+        // ==================================================================
+
+        private bool IsShackSelected => _selectedBuildingId == PropertySaveData.ShackId;
+
+        private string GetCurrentLightingStyleId() =>
+            IsShackSelected
+                ? WestvilleShack.CurrentLightingStyleId ?? LightingStyle.Default.Id
+                : Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
+
+        private string GetCurrentExteriorWallStyleId() =>
+            IsShackSelected
+                ? WestvilleShack.CurrentExteriorWallStyleId ?? WallStyle.ExtDefault.Id
+                : Dispensary.CurrentExteriorWallStyleId ?? WallStyle.ExtDefault.Id;
+
+        private string GetCurrentInteriorWallStyleId() =>
+            IsShackSelected
+                ? WestvilleShack.CurrentInteriorWallStyleId ?? WallStyle.IntDefault.Id
+                : Dispensary.CurrentInteriorWallStyleId ?? WallStyle.IntDefault.Id;
+
+        private string GetCurrentFloorStyleId() =>
+            IsShackSelected
+                ? WestvilleShack.CurrentFloorStyleId ?? FloorStyle.Default.Id
+                : Dispensary.CurrentFloorStyleId ?? FloorStyle.Default.Id;
+
+        private void ApplyBuildingLighting(LightingStyle style)
+        {
+            if (IsShackSelected)
+                WestvilleShack.ApplyLightingStyle(style);
+            else
+                Dispensary.ApplyLightingStyle(style);
+        }
+
+        private void ApplyBuildingExteriorWall(string styleId)
+        {
+            var style = WallStyle.GetExterior(styleId);
+            var mat = Materials.Find(style.MaterialName);
+            if (IsShackSelected)
+            {
+                WestvilleShack.CurrentExteriorWallStyleId = styleId;
+                if (mat != null) WestvilleShack.SwapExteriorWallMaterial(mat);
+            }
+            else
+            {
+                Dispensary.CurrentExteriorWallStyleId = styleId;
+                if (mat != null) Dispensary.SwapExteriorWallMaterial(mat);
+            }
+        }
+
+        private void ApplyBuildingInteriorWall(string styleId)
+        {
+            var style = WallStyle.GetInterior(styleId);
+            var mat = Materials.Find(style.MaterialName);
+            if (IsShackSelected)
+            {
+                WestvilleShack.CurrentInteriorWallStyleId = styleId;
+                if (mat != null) WestvilleShack.SwapInteriorWallMaterial(mat);
+            }
+            else
+            {
+                Dispensary.CurrentInteriorWallStyleId = styleId;
+                if (mat != null) Dispensary.SwapInteriorWallMaterial(mat);
+            }
+        }
+
+        private void ApplyBuildingFloor(string styleId)
+        {
+            var newStyle = FloorStyle.Get(styleId);
+            var mat = Materials.Find(newStyle.MaterialName);
+            if (IsShackSelected)
+            {
+                WestvilleShack.CurrentFloorStyleId = styleId;
+                if (mat != null) WestvilleShack.SwapFloorMaterial(mat);
+            }
+            else
+            {
+                Dispensary.CurrentFloorStyleId = styleId;
+                if (mat != null) Dispensary.SwapFloorMaterial(mat);
             }
         }
     }

@@ -57,11 +57,11 @@ namespace OverTheCounter.Logic.Placement
 
         // ---- Interior wall styles ----
 
-        public static readonly WallStyle IntDefault = new("brick_red", "Red Brick", 0f, "brick red");
-        public static readonly WallStyle IntConcreteCharcoal = new("concrete_charcoal", "Charcoal Concrete", 400f, "concrete charcoal");
-        public static readonly WallStyle IntStripesCharcoal = new("stripes_charcoal", "Charcoal Stripes", 600f, "wall stripes charcoal");
-        public static readonly WallStyle IntMetalGreen = new("metal_green", "Green Metal", 500f, "metal warehouse trim green mat");
+        public static readonly WallStyle IntDefault = new("stripes_charcoal", "Charcoal Stripes", 0f, "wall stripes charcoal");
+        public static readonly WallStyle IntBrickRed = new("brick_red", "Red Brick", 300f, "brick red");
         public static readonly WallStyle IntWhiteLighter = new("white_lighter", "White", 300f, "white lighter");
+        public static readonly WallStyle IntConcreteCharcoal = new("concrete_charcoal", "Charcoal Concrete", 400f, "concrete charcoal");
+        public static readonly WallStyle IntMetalGreen = new("metal_green", "Green Metal", 500f, "metal warehouse trim green mat");
         public static readonly WallStyle IntMansionWood = new("mansion_wood", "Mansion Wood", 1200f, "mansion_whitewood_mat");
         public static readonly WallStyle IntAlumGrey = new("alum_grey", "Aluminium Grey", 700f, "alum sheet med grey");
         public static readonly WallStyle IntTilesBlack = new("tiles_black", "Black Tiles", 500f, "tiles_black");
@@ -72,10 +72,10 @@ namespace OverTheCounter.Logic.Placement
         private static readonly Dictionary<string, WallStyle> _interiorRegistry = new()
         {
             { IntDefault.Id, IntDefault },
-            { IntConcreteCharcoal.Id, IntConcreteCharcoal },
-            { IntStripesCharcoal.Id, IntStripesCharcoal },
-            { IntMetalGreen.Id, IntMetalGreen },
+            { IntBrickRed.Id, IntBrickRed },
             { IntWhiteLighter.Id, IntWhiteLighter },
+            { IntConcreteCharcoal.Id, IntConcreteCharcoal },
+            { IntMetalGreen.Id, IntMetalGreen },
             { IntMansionWood.Id, IntMansionWood },
             { IntAlumGrey.Id, IntAlumGrey },
             { IntTilesBlack.Id, IntTilesBlack },

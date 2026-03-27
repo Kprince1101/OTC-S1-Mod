@@ -4,6 +4,7 @@ using OverTheCounter.Utilities;
 using S1MAPI.Building;
 using S1MAPI.Building.Components;
 using S1MAPI.Building.Config;
+using S1MAPI.Building.Interior;
 using S1MAPI.Building.Structural;
 using S1MAPI.Gltf;
 using S1MAPI.S1;
@@ -11,6 +12,7 @@ using S1MAPI.Utils;
 using S1API.GameTime;
 using S1API.Misc;
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
@@ -52,15 +54,48 @@ namespace OverTheCounter.Logic.Placement
 
         /// <summary>Building root transform for world↔local coordinate conversion.</summary>
         internal static Transform BuildingTransform => _building?.transform;
-        private static GameObject _lightsFolder;
         private static ModularSwitch _lightSwitch;
         private static ModularSwitch _openCloseSwitch;
         private static bool _initialized;
         private static bool _suppressSwitchSync; // prevents re-entrancy during sync apply
         // Networked objects tracked for explicit cleanup (NOT parented to _building — parenting
         // changes local position which FishNet sends to clients instead of world position).
-        private static readonly System.Collections.Generic.List<GameObject> _networkedObjects = new();
+        private static readonly List<GameObject> _networkedObjects = new();
+        private static readonly List<GameObject> _lightFixtures = new();
+        private static readonly List<LightMatSwap> _materialSwaps = new();
+        private static Color _neonEmissionColor = Color.black;
         internal static DoorController Door;
+
+        /// <summary>Tracks a renderer whose material should be swapped between on/off states.</summary>
+        private class LightMatSwap
+        {
+            public MeshRenderer Renderer;
+            public Material OnMat;
+            public Material OffMat;
+        }
+
+        /// <summary>Maps mesh base name (without _on/_off) to [onMaterial, offMaterial].</summary>
+        private static readonly Dictionary<string, string[]> _meshLightMats = new()
+        {
+            { "otc_mansion_light",            new[] { "warmbulb_on_mat",  "lightbulb_off_mat" } },
+            { "otc_flurobar",                 new[] { "warmfluro_on_mat", "fluro_off_mat" } },
+            { "otc_round_ceiling_light",      new[] { "fluro_on_mat",     "fluro_off_mat" } },
+            { "otc_wall_lantern",             new[] { "warmbulb_on_mat",  "lamppost light off mat" } },
+            { "otc_segmented_light_bar",      new[] { "warmfluro_on_mat", "segmented light off" } },
+            { "otc_industrial_hanging_light", new[] { "warmbulb_on_mat",  "lightbulb_off_mat" } },
+        };
+
+        /// <summary>Current lighting style ID.</summary>
+        public static string CurrentLightingStyleId { get; internal set; }
+
+        /// <summary>Current exterior wall style ID.</summary>
+        public static string CurrentExteriorWallStyleId { get; internal set; }
+
+        /// <summary>Current interior wall style ID.</summary>
+        public static string CurrentInteriorWallStyleId { get; internal set; }
+
+        /// <summary>Current floor style ID.</summary>
+        public static string CurrentFloorStyleId { get; internal set; }
 
         /// <summary>Whether the store is currently open for customers. Toggled by the open/close switch.</summary>
         public static bool IsStoreOpen { get; private set; }
@@ -127,7 +162,6 @@ namespace OverTheCounter.Logic.Placement
         {
             _navigationBuilder?.Remove();
             _navigationBuilder = null;
-            _lightsFolder = null;
             _lightSwitch = null;
             _openCloseSwitch = null;
             Door = null;
@@ -135,6 +169,10 @@ namespace OverTheCounter.Logic.Placement
             AreLightsOn = false;
             ShackGrid = null;
             Target = null;
+            foreach (var go in _lightFixtures)
+                if (go != null) GameObject.Destroy(go);
+            _lightFixtures.Clear();
+            _materialSwaps.Clear();
             if (_building != null) GameObject.Destroy(_building);
             _building = null;
             // Networked objects are NOT children of _building — destroy them explicitly.
@@ -142,21 +180,57 @@ namespace OverTheCounter.Logic.Placement
                 if (go != null) GameObject.Destroy(go);
             _networkedObjects.Clear();
             FurnitureManager.CleanupFurniture("WestvilleShack");
+            CurrentLightingStyleId = null;
+            CurrentExteriorWallStyleId = null;
+            CurrentInteriorWallStyleId = null;
+            CurrentFloorStyleId = null;
             _initialized = false;
             _suppressSwitchSync = false;
             _awaitingClientDoor = false;
         }
 
         /// <summary>
-        /// Enables or disables Light components under the lights folder.
+        /// Enables or disables Light components on fixture GameObjects.
         /// Keeps the GameObjects active so light fixtures remain visible.
         /// </summary>
         internal static void SetLightsEnabled(bool enabled)
         {
             AreLightsOn = enabled;
-            if (_lightsFolder == null) return;
-            foreach (var light in _lightsFolder.GetComponentsInChildren<Light>(true))
-                light.enabled = enabled;
+
+            // Toggle fixture point lights
+            foreach (var go in _lightFixtures)
+            {
+                if (go == null) continue;
+                foreach (var light in go.GetComponentsInChildren<Light>(true))
+                    light.enabled = enabled;
+            }
+
+            // Toggle neon strip emissive materials
+            foreach (var go in _lightFixtures)
+            {
+                if (go == null || go.name != "NeonStrips") continue;
+                foreach (var renderer in go.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    var mat = renderer.material;
+                    if (enabled)
+                    {
+                        mat.EnableKeyword("_EMISSION");
+                        mat.SetColor("_EmissionColor", _neonEmissionColor);
+                    }
+                    else
+                    {
+                        mat.DisableKeyword("_EMISSION");
+                    }
+                }
+            }
+
+            // Swap fixture mesh materials between on/off states
+            foreach (var swap in _materialSwaps)
+            {
+                if (swap.Renderer == null) continue;
+                var mat = enabled ? swap.OnMat : swap.OffMat;
+                if (mat != null) swap.Renderer.material = mat;
+            }
         }
 
         /// <summary>
@@ -380,6 +454,28 @@ namespace OverTheCounter.Logic.Placement
                 OTCLog.Error(OTCLog.Systems.Patch,$"Open/Close switch spawn failed: {ex.Message}");
             }
 
+            // Apply lighting style (default or saved)
+            ApplyLightingStyle(LightingStyle.Get(CurrentLightingStyleId));
+
+            // Re-apply saved wall/floor styles (may have been set before building existed)
+            if (!string.IsNullOrEmpty(CurrentExteriorWallStyleId))
+            {
+                var extStyle = WallStyle.GetExterior(CurrentExteriorWallStyleId);
+                var extMat = Materials.Find(extStyle.MaterialName);
+                if (extMat != null) SwapExteriorWallMaterial(extMat);
+            }
+            if (!string.IsNullOrEmpty(CurrentInteriorWallStyleId))
+            {
+                var intStyle = WallStyle.GetInterior(CurrentInteriorWallStyleId);
+                var intMat = Materials.Find(intStyle.MaterialName);
+                if (intMat != null) SwapInteriorWallMaterial(intMat);
+            }
+            if (!string.IsNullOrEmpty(CurrentFloorStyleId))
+            {
+                var floorStyle = FloorStyle.Get(CurrentFloorStyleId);
+                var floorMat = Materials.Find(floorStyle.MaterialName);
+                if (floorMat != null) SwapFloorMaterial(floorMat);
+            }
         }
 
         /// <summary>Client: true while waiting for the FishNet-replicated door to arrive.</summary>
@@ -467,10 +563,43 @@ namespace OverTheCounter.Logic.Placement
         }
 
         /// <summary>
-        /// Restores switch states from save data after load.
+        /// Restores switch states and styles from save data after load.
         /// </summary>
-        public static void ApplySavedState(bool lightsOn, bool storeOpen)
+        public static void ApplySavedState(bool lightsOn, bool storeOpen, string lightingStyleId = null,
+            string exteriorWallStyleId = null, string interiorWallStyleId = null, string floorStyleId = null)
         {
+            if (!string.IsNullOrEmpty(lightingStyleId))
+            {
+                if (_lightFixtures.Count > 0 && lightingStyleId != CurrentLightingStyleId)
+                    ApplyLightingStyle(LightingStyle.Get(lightingStyleId));
+                else
+                    CurrentLightingStyleId = lightingStyleId;
+            }
+
+            if (!string.IsNullOrEmpty(exteriorWallStyleId))
+            {
+                CurrentExteriorWallStyleId = exteriorWallStyleId;
+                var style = WallStyle.GetExterior(exteriorWallStyleId);
+                var mat = Materials.Find(style.MaterialName);
+                if (mat != null && _building != null) SwapExteriorWallMaterial(mat);
+            }
+
+            if (!string.IsNullOrEmpty(interiorWallStyleId))
+            {
+                CurrentInteriorWallStyleId = interiorWallStyleId;
+                var style = WallStyle.GetInterior(interiorWallStyleId);
+                var mat = Materials.Find(style.MaterialName);
+                if (mat != null && _building != null) SwapInteriorWallMaterial(mat);
+            }
+
+            if (!string.IsNullOrEmpty(floorStyleId))
+            {
+                CurrentFloorStyleId = floorStyleId;
+                var style = FloorStyle.Get(floorStyleId);
+                var mat = Materials.Find(style.MaterialName);
+                if (mat != null && _building != null) SwapFloorMaterial(mat);
+            }
+
             if (_lightSwitch != null)
             {
                 if (lightsOn) _lightSwitch.SwitchOn();
@@ -538,10 +667,12 @@ namespace OverTheCounter.Logic.Placement
 
         private static void BuildRoom()
         {
+            var intWallMat = Materials.Find("wall stripes charcoal");
             var palette = new BuildingPalette
             {
                 FloorMaterial = Materials.Find("carpet blue"),
                 WallMaterial = Materials.BrickWallRed,
+                InteriorWallMaterial = intWallMat,
                 CeilingMaterial = Materials.ConcreteLightGrey,
                 TrimMaterial = Materials.MetalDarkGrey,
             };
@@ -570,7 +701,6 @@ namespace OverTheCounter.Logic.Placement
                     east: eastOpening,
                     west: null)
                 .AddDoorFrames(Materials.Find("concrete light beige"))
-                .AddLights(intensity: 1.2f)
                 .AddFoundation(height: FoundationHeight, expandX: 0.25f, expandZ: 0.25f, material: Materials.Find("concrete light beige"))
                 .AddAmbientLighting()
                 // Door and switches are deferred to SpawnNetworkedObjects() (called from OnGameLoaded)
@@ -579,14 +709,6 @@ namespace OverTheCounter.Logic.Placement
                 .AddParapetRoof(ParapetPreset.Shallow, parapetMaterial: Materials.Find("concrete light beige"), capMaterial: Materials.Find("concrete light beige"));
 
             _building = builder.Build();
-
-            // Cache lights folder — start with Light components off (fixtures visible, no glow)
-            var lightsTransform = _building.transform.Find("Lights");
-            if (lightsTransform != null)
-            {
-                _lightsFolder = lightsTransform.gameObject;
-                SetLightsEnabled(false);
-            }
 
             // NavMesh repairer — must be created after Build() (needs building root)
             // Use employee agent type so the indoor NavMesh is visible to employee-type agents
@@ -735,6 +857,221 @@ namespace OverTheCounter.Logic.Placement
             }
 
             _navigationBuilder.Build();
+        }
+
+        // ==================================================================
+        //  Lighting style
+        // ==================================================================
+
+        /// <summary>
+        /// Applies a lighting style to the shack interior.
+        /// Destroys existing fixtures and spawns new ones.
+        /// Big fixtures: 1 ceiling light. Small fixtures (FlushMount): 2 ceiling lights.
+        /// </summary>
+        public static void ApplyLightingStyle(LightingStyle style)
+        {
+            if (_building == null) return;
+
+            // Destroy existing light fixtures
+            foreach (var go in _lightFixtures)
+            {
+                if (go != null) UnityEngine.Object.Destroy(go);
+            }
+            _lightFixtures.Clear();
+            _materialSwaps.Clear();
+
+            CurrentLightingStyleId = style.Id;
+
+            float fixtureY = style.FixtureY;
+            // Clamp fixture Y to shack ceiling height
+            if (fixtureY > RoomHeight) fixtureY = RoomHeight - 0.2f;
+
+            float midX = RoomWidth / 2f;
+            float midZ = RoomDepth / 2f;
+
+            // Small fixtures (ShowroomColumns >= 4): 2 lights spread along depth
+            // Big fixtures: 1 centered light
+            if (style.ShowroomColumns >= 4)
+            {
+                float z1 = RoomDepth * 0.3f;
+                float z2 = RoomDepth * 0.7f;
+                SpawnFixture(style.CeilingMeshId, "Shack_C0",
+                    new Vector3(midX, fixtureY, z1),
+                    style.LightOffset, style.LightColor, style.Range, style.Intensity,
+                    scale: style.FixtureScale, emissiveOverride: style.CeilingEmissiveColor);
+                SpawnFixture(style.CeilingMeshId, "Shack_C1",
+                    new Vector3(midX, fixtureY, z2),
+                    style.LightOffset, style.LightColor, style.Range, style.Intensity,
+                    scale: style.FixtureScale, emissiveOverride: style.CeilingEmissiveColor);
+            }
+            else
+            {
+                SpawnFixture(style.CeilingMeshId, "Shack_C0",
+                    new Vector3(midX, fixtureY, midZ),
+                    style.LightOffset, style.LightColor, style.Range, style.Intensity,
+                    scale: style.FixtureScale, emissiveOverride: style.CeilingEmissiveColor);
+            }
+
+            // --- Wall lights ---
+            if (style.WallMeshId != null)
+            {
+                float wallY = 2.2f;
+                var wallLightOff = new Vector3(0f, 0.1f, 0f);
+
+                // West wall (solid)
+                SpawnFixture(style.WallMeshId, "Wall_W",
+                    new Vector3(0.25f, wallY, midZ), wallLightOff, style.WallLightColor, 5f, 0.8f,
+                    rotation: Quaternion.Euler(0f, 90f, 0f));
+
+                // South wall (solid)
+                SpawnFixture(style.WallMeshId, "Wall_S",
+                    new Vector3(midX, wallY, 0.25f), wallLightOff, style.WallLightColor, 5f, 0.8f,
+                    rotation: Quaternion.Euler(0f, 0f, 0f));
+            }
+
+            // --- Neon strips ---
+            if (style.HasNeonStrips)
+            {
+                SpawnNeonStrips(style.NeonColor);
+            }
+
+            OTCLog.Msg(OTCLog.Systems.Furniture, $"Shack: applied lighting style '{style.DisplayName}' ({_lightFixtures.Count} fixtures)");
+
+            // Sync light visual state with current switch state
+            SetLightsEnabled(AreLightsOn);
+        }
+
+        private static void SpawnNeonStrips(Color neonColor)
+        {
+            if (_building == null) return;
+
+            _neonEmissionColor = neonColor * 2f;
+
+            float ceilingY = RoomHeight - 0.1f;
+            float stripH = 0.03f;
+            float stripD = 0.05f;
+            float inset = 0.15f;
+            float stripY = ceilingY - stripH / 2f;
+            var neonMat = MaterialPresets.Emissive(neonColor, 2f);
+            var neonParent = new GameObject("NeonStrips");
+            neonParent.transform.SetParent(_building.transform, false);
+            _lightFixtures.Add(neonParent);
+
+            float x0 = inset;
+            float x1 = RoomWidth - inset;
+            float z0 = inset;
+            float z1 = RoomDepth - inset;
+            float centerX = RoomWidth / 2f;
+            float centerZ = RoomDepth / 2f;
+            float roomWid = x1 - x0;
+            float roomDep = z1 - z0;
+
+            // South strip
+            var south = S1MAPI.ProceduralMesh.PrimitiveBuilder.CreateBox("Neon_S",
+                new Vector3(centerX, stripY, z0), new Vector3(roomWid, stripH, stripD),
+                neonColor, neonParent.transform);
+            south.GetComponent<MeshRenderer>().material = neonMat;
+            S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_S_L", new Vector3(0f, -0.1f, 0f),
+                neonColor, range: 4f, intensity: 0.5f, parent: south.transform);
+
+            // North strip
+            var north = S1MAPI.ProceduralMesh.PrimitiveBuilder.CreateBox("Neon_N",
+                new Vector3(centerX, stripY, z1), new Vector3(roomWid, stripH, stripD),
+                neonColor, neonParent.transform);
+            north.GetComponent<MeshRenderer>().material = neonMat;
+            S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_N_L", new Vector3(0f, -0.1f, 0f),
+                neonColor, range: 4f, intensity: 0.5f, parent: north.transform);
+
+            // West strip
+            var west = S1MAPI.ProceduralMesh.PrimitiveBuilder.CreateBox("Neon_W",
+                new Vector3(x0, stripY, centerZ), new Vector3(stripD, stripH, roomDep),
+                neonColor, neonParent.transform);
+            west.GetComponent<MeshRenderer>().material = neonMat;
+            S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_W_L", new Vector3(0f, -0.1f, 0f),
+                neonColor, range: 4f, intensity: 0.5f, parent: west.transform);
+
+            // East strip
+            var east = S1MAPI.ProceduralMesh.PrimitiveBuilder.CreateBox("Neon_E",
+                new Vector3(x1, stripY, centerZ), new Vector3(stripD, stripH, roomDep),
+                neonColor, neonParent.transform);
+            east.GetComponent<MeshRenderer>().material = neonMat;
+            S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_E_L", new Vector3(0f, -0.1f, 0f),
+                neonColor, range: 4f, intensity: 0.5f, parent: east.transform);
+        }
+
+        private static void SpawnFixture(string meshId, string label, Vector3 localPos,
+            Vector3 lightOffset, Color lightColor, float range, float intensity,
+            float scale = 1f, Quaternion? rotation = null, Color? emissiveOverride = null)
+        {
+            if (_building == null) return;
+            var rot = _building.transform.rotation * (rotation ?? Quaternion.identity);
+            var worldPos = _building.transform.TransformPoint(localPos);
+            var go = MeshVault.MeshVaultAPI.Spawn(meshId, worldPos, rot, parent: _building.transform);
+            if (go == null) return;
+            go.name = $"Light_{label}";
+            if (scale != 1f) go.transform.localScale = Vector3.one * scale;
+            S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight($"{label}_PL",
+                lightOffset, lightColor, range: range, intensity: intensity,
+                parent: go.transform);
+            _lightFixtures.Add(go);
+
+            // Record material swaps for on/off toggling
+            var baseMeshId = meshId.Replace("_on", "").Replace("_off", "");
+            if (_meshLightMats.TryGetValue(baseMeshId, out var mats))
+            {
+                Material onMat = emissiveOverride.HasValue
+                    ? MaterialPresets.Emissive(emissiveOverride.Value, 2f)
+                    : Materials.Find(mats[0]);
+                Material offMat = Materials.Find(mats[1]);
+
+                foreach (var r in go.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    var matName = r.material.name.Replace(" (Instance)", "");
+                    if (matName == mats[0] || matName == mats[1])
+                    {
+                        if (emissiveOverride.HasValue && onMat != null)
+                            r.material = onMat;
+                        _materialSwaps.Add(new LightMatSwap { Renderer = r, OnMat = onMat, OffMat = offMat });
+                    }
+                }
+            }
+        }
+
+        // ==================================================================
+        //  Wall / Floor material swapping
+        // ==================================================================
+
+        /// <summary>
+        /// Swaps exterior wall material.
+        /// </summary>
+        public static void SwapExteriorWallMaterial(Material material)
+        {
+            if (_building == null || material == null) return;
+            var registry = _building.GetComponent<BuildingPartRegistry>();
+            if (registry == null) return;
+            registry.SetExteriorWallMaterial(material);
+        }
+
+        /// <summary>
+        /// Swaps interior wall material.
+        /// </summary>
+        public static void SwapInteriorWallMaterial(Material material)
+        {
+            if (_building == null || material == null) return;
+            var registry = _building.GetComponent<BuildingPartRegistry>();
+            if (registry == null) return;
+            registry.SetInteriorFaceMaterial(material);
+        }
+
+        /// <summary>
+        /// Swaps floor material.
+        /// </summary>
+        public static void SwapFloorMaterial(Material material)
+        {
+            if (_building == null || material == null) return;
+            var registry = _building.GetComponent<BuildingPartRegistry>();
+            if (registry == null) return;
+            registry.SetMaterial(BuildingPart.Floor, material);
         }
     }
 }

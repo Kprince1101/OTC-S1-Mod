@@ -895,6 +895,16 @@ namespace OverTheCounter.SaveData
             parts.Add($"shack_lights={BoolToStr(Logic.Placement.WestvilleShack.AreLightsOn)}");
             parts.Add($"shack_open={BoolToStr(Logic.Placement.WestvilleShack.IsStoreOpen)}");
 
+            // Shack styles
+            if (!string.IsNullOrEmpty(Logic.Placement.WestvilleShack.CurrentLightingStyleId))
+                parts.Add($"shack_lighting={Logic.Placement.WestvilleShack.CurrentLightingStyleId}");
+            if (!string.IsNullOrEmpty(Logic.Placement.WestvilleShack.CurrentExteriorWallStyleId))
+                parts.Add($"shack_ext_wall={Logic.Placement.WestvilleShack.CurrentExteriorWallStyleId}");
+            if (!string.IsNullOrEmpty(Logic.Placement.WestvilleShack.CurrentInteriorWallStyleId))
+                parts.Add($"shack_int_wall={Logic.Placement.WestvilleShack.CurrentInteriorWallStyleId}");
+            if (!string.IsNullOrEmpty(Logic.Placement.WestvilleShack.CurrentFloorStyleId))
+                parts.Add($"shack_floor={Logic.Placement.WestvilleShack.CurrentFloorStyleId}");
+
             // Dispensary switch states
             parts.Add($"disp_lights={BoolToStr(Logic.Placement.Dispensary.AreLightsOn)}");
             parts.Add($"disp_open={BoolToStr(Logic.Placement.Dispensary.IsStoreOpen)}");
@@ -1022,6 +1032,54 @@ namespace OverTheCounter.SaveData
                 Logic.Placement.WestvilleShack.SetLightsFromSync(StrToBool(sl));
             if (state.TryGetValue("shack_open", out var so))
                 Logic.Placement.WestvilleShack.SetStoreOpen(StrToBool(so));
+
+            // Shack styles
+            if (state.TryGetValue("shack_lighting", out var shackLighting)
+                && !string.IsNullOrEmpty(shackLighting)
+                && shackLighting != Logic.Placement.WestvilleShack.CurrentLightingStyleId)
+            {
+                var lightStyle = Logic.Placement.LightingStyle.Get(shackLighting);
+                Logic.Placement.WestvilleShack.ApplyLightingStyle(lightStyle);
+            }
+
+            if (state.TryGetValue("shack_ext_wall", out var shackExtWall)
+                && !string.IsNullOrEmpty(shackExtWall)
+                && shackExtWall != Logic.Placement.WestvilleShack.CurrentExteriorWallStyleId)
+            {
+                var style = Logic.Placement.WallStyle.GetExterior(shackExtWall);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.WestvilleShack.SwapExteriorWallMaterial(mat);
+                    Logic.Placement.WestvilleShack.CurrentExteriorWallStyleId = shackExtWall;
+                }
+            }
+
+            if (state.TryGetValue("shack_int_wall", out var shackIntWall)
+                && !string.IsNullOrEmpty(shackIntWall)
+                && shackIntWall != Logic.Placement.WestvilleShack.CurrentInteriorWallStyleId)
+            {
+                var style = Logic.Placement.WallStyle.GetInterior(shackIntWall);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.WestvilleShack.SwapInteriorWallMaterial(mat);
+                    Logic.Placement.WestvilleShack.CurrentInteriorWallStyleId = shackIntWall;
+                }
+            }
+
+            if (state.TryGetValue("shack_floor", out var shackFloor)
+                && !string.IsNullOrEmpty(shackFloor)
+                && shackFloor != Logic.Placement.WestvilleShack.CurrentFloorStyleId)
+            {
+                var style = Logic.Placement.FloorStyle.Get(shackFloor);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.WestvilleShack.SwapFloorMaterial(mat);
+                    Logic.Placement.WestvilleShack.CurrentFloorStyleId = shackFloor;
+                }
+            }
 
             // Dispensary switch states
             if (state.TryGetValue("disp_lights", out var dl))

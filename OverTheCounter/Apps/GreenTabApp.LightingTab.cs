@@ -24,7 +24,7 @@ namespace OverTheCounter.Apps
     {
         private void RefreshLightingCards()
         {
-            string currentLighting = Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
+            string currentLighting = GetCurrentLightingStyleId();
             _pendingLightingId = currentLighting;
 
             float balance = GetOnlineBalance();
@@ -180,7 +180,7 @@ namespace OverTheCounter.Apps
 
         private void ApplyLightingUpgrade()
         {
-            string currentLighting = Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
+            string currentLighting = GetCurrentLightingStyleId();
             if (_pendingLightingId == null || _pendingLightingId == currentLighting) return;
 
             var newStyle = LightingStyle.Get(_pendingLightingId);
@@ -203,7 +203,7 @@ namespace OverTheCounter.Apps
                 }
             }
 
-            Dispensary.ApplyLightingStyle(newStyle);
+            ApplyBuildingLighting(newStyle);
 
             try { ConfigSyncData.Instance?.PublishGameState(); }
             catch (Exception ex)

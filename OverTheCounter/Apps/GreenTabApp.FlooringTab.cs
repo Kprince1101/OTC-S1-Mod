@@ -3,7 +3,6 @@ using OverTheCounter.SaveData;
 using OverTheCounter.UI;
 using OverTheCounter.Utilities;
 using S1API.UI;
-using S1MAPI.S1;
 using System;
 using System.Linq;
 using UnityEngine;
@@ -25,7 +24,7 @@ namespace OverTheCounter.Apps
     {
         private void RefreshFloorCards()
         {
-            string currentFloor = Dispensary.CurrentFloorStyleId ?? FloorStyle.Default.Id;
+            string currentFloor = GetCurrentFloorStyleId();
             _pendingFloorId = currentFloor;
 
             float balance = GetOnlineBalance();
@@ -181,7 +180,7 @@ namespace OverTheCounter.Apps
 
         private void ApplyFloorUpgrade()
         {
-            string currentFloor = Dispensary.CurrentFloorStyleId ?? FloorStyle.Default.Id;
+            string currentFloor = GetCurrentFloorStyleId();
             if (_pendingFloorId == null || _pendingFloorId == currentFloor) return;
 
             var newStyle = FloorStyle.Get(_pendingFloorId);
@@ -204,9 +203,7 @@ namespace OverTheCounter.Apps
                 }
             }
 
-            Dispensary.CurrentFloorStyleId = _pendingFloorId;
-            var mat = Materials.Find(newStyle.MaterialName);
-            if (mat != null) Dispensary.SwapFloorMaterial(mat);
+            ApplyBuildingFloor(_pendingFloorId);
 
             try { ConfigSyncData.Instance?.PublishGameState(); }
             catch (Exception ex)

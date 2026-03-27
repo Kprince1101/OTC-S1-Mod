@@ -4,7 +4,7 @@ using UnityEngine;
 namespace OverTheCounter.Logic.Placement
 {
     /// <summary>
-    /// Defines a lighting style for the dispensary interior.
+    /// Defines a lighting style for OTC building interiors.
     /// Each style specifies ceiling fixtures and optional wall/accent lights.
     /// </summary>
     public class LightingStyle
@@ -43,6 +43,9 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Local Y position for ceiling fixtures (mesh origin mount point).</summary>
         public float FixtureY { get; }
 
+        /// <summary>Scale multiplier for ceiling fixtures (1 = default mesh size).</summary>
+        public float FixtureScale { get; }
+
         public LightingStyle(string id, string displayName, float cost,
             string ceilingMeshId, Color lightColor, float range, float intensity,
             Vector3 lightOffset,
@@ -50,7 +53,8 @@ namespace OverTheCounter.Logic.Placement
             bool hasNeonStrips = false, Color? neonColor = null,
             Color? ceilingEmissiveColor = null,
             int showroomColumns = 3,
-            float fixtureY = 3.7f)
+            float fixtureY = 3.7f,
+            float fixtureScale = 1f)
         {
             Id = id;
             DisplayName = displayName;
@@ -67,6 +71,7 @@ namespace OverTheCounter.Logic.Placement
             CeilingEmissiveColor = ceilingEmissiveColor;
             ShowroomColumns = showroomColumns;
             FixtureY = fixtureY;
+            FixtureScale = fixtureScale;
         }
 
         // ---- Registry ----
@@ -108,7 +113,7 @@ namespace OverTheCounter.Logic.Placement
             "otc_industrial_hanging_light_on", new Color(1f, 0.85f, 0.55f), 7f, 1.1f,
             new Vector3(0f, -0.4f, 0f),
             wallMeshId: "otc_wall_lantern_on", wallLightColor: new Color(1f, 0.9f, 0.7f),
-            fixtureY: 4.11f);
+            fixtureY: 4.11f, fixtureScale: 0.5f);
 
         public static readonly LightingStyle Default = BrassPendant;
 

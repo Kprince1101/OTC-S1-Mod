@@ -178,7 +178,7 @@ namespace OverTheCounter.Apps
             }
             else if (_activeCategory == Category.Lighting)
             {
-                string currentLighting = Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
+                string currentLighting = GetCurrentLightingStyleId();
 
                 for (int i = 0; i < _cardEntries.Count; i++)
                 {
@@ -196,8 +196,8 @@ namespace OverTheCounter.Apps
             }
             else if (_activeCategory == Category.Walls)
             {
-                string currentExt = Dispensary.CurrentExteriorWallStyleId ?? WallStyle.ExtDefault.Id;
-                string currentInt = Dispensary.CurrentInteriorWallStyleId ?? WallStyle.IntDefault.Id;
+                string currentExt = GetCurrentExteriorWallStyleId();
+                string currentInt = GetCurrentInteriorWallStyleId();
 
                 for (int i = 0; i < _cardEntries.Count; i++)
                 {
@@ -220,7 +220,7 @@ namespace OverTheCounter.Apps
             }
             else if (_activeCategory == Category.Flooring)
             {
-                string currentFloor = Dispensary.CurrentFloorStyleId ?? FloorStyle.Default.Id;
+                string currentFloor = GetCurrentFloorStyleId();
 
                 for (int i = 0; i < _cardEntries.Count; i++)
                 {
@@ -259,19 +259,19 @@ namespace OverTheCounter.Apps
             }
             else if (_activeCategory == Category.Lighting)
             {
-                string currentLighting = Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
+                string currentLighting = GetCurrentLightingStyleId();
                 hasChange = _pendingLightingId != null && _pendingLightingId != currentLighting;
             }
             else if (_activeCategory == Category.Walls)
             {
-                string currentExt = Dispensary.CurrentExteriorWallStyleId ?? WallStyle.ExtDefault.Id;
-                string currentInt = Dispensary.CurrentInteriorWallStyleId ?? WallStyle.IntDefault.Id;
+                string currentExt = GetCurrentExteriorWallStyleId();
+                string currentInt = GetCurrentInteriorWallStyleId();
                 hasChange = (_pendingExteriorWallId != null && _pendingExteriorWallId != currentExt)
                          || (_pendingInteriorWallId != null && _pendingInteriorWallId != currentInt);
             }
             else if (_activeCategory == Category.Flooring)
             {
-                string currentFloor = Dispensary.CurrentFloorStyleId ?? FloorStyle.Default.Id;
+                string currentFloor = GetCurrentFloorStyleId();
                 hasChange = _pendingFloorId != null && _pendingFloorId != currentFloor;
             }
 
@@ -304,7 +304,7 @@ namespace OverTheCounter.Apps
             }
             else if (_activeCategory == Category.Lighting)
             {
-                string currentLighting = Dispensary.CurrentLightingStyleId ?? LightingStyle.Default.Id;
+                string currentLighting = GetCurrentLightingStyleId();
 
                 if (!CanAffordLighting(currentLighting, styleId, balance) && styleId != currentLighting)
                     return;
@@ -318,14 +318,14 @@ namespace OverTheCounter.Apps
 
                 if (isExterior)
                 {
-                    string currentExt = Dispensary.CurrentExteriorWallStyleId ?? WallStyle.ExtDefault.Id;
+                    string currentExt = GetCurrentExteriorWallStyleId();
                     if (!CanAffordWall(currentExt, actualId, balance, true) && actualId != currentExt)
                         return;
                     _pendingExteriorWallId = actualId;
                 }
                 else
                 {
-                    string currentInt = Dispensary.CurrentInteriorWallStyleId ?? WallStyle.IntDefault.Id;
+                    string currentInt = GetCurrentInteriorWallStyleId();
                     if (!CanAffordWall(currentInt, actualId, balance, false) && actualId != currentInt)
                         return;
                     _pendingInteriorWallId = actualId;
@@ -333,7 +333,7 @@ namespace OverTheCounter.Apps
             }
             else if (_activeCategory == Category.Flooring)
             {
-                string currentFloor = Dispensary.CurrentFloorStyleId ?? FloorStyle.Default.Id;
+                string currentFloor = GetCurrentFloorStyleId();
 
                 if (!CanAffordFloor(currentFloor, styleId, balance) && styleId != currentFloor)
                     return;

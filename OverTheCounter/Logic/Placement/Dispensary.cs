@@ -692,13 +692,14 @@ namespace OverTheCounter.Logic.Placement
         private static void BuildRoom()
         {
             var wallMat = Materials.Find("brick red") ?? MaterialPresets.Opaque(new Color(0.5f, 0.15f, 0.1f));
+            var intWallMat = Materials.Find("wall stripes charcoal") ?? wallMat;
             var trimBlack = MaterialPresets.Opaque(Color.black);
 
             var palette = new BuildingPalette
             {
                 FloorMaterial = Materials.WoodPlanksMediumBrown,
                 WallMaterial = wallMat,
-                InteriorWallMaterial = wallMat,
+                InteriorWallMaterial = intWallMat,
                 CeilingMaterial = Materials.ConcreteLightGrey,
                 TrimMaterial = trimBlack,
             };
@@ -729,9 +730,9 @@ namespace OverTheCounter.Logic.Placement
                 .AddCornerTrim(material: trimBlack)
                 .AddAmbientLighting()
                 // Interior wall: showroom/lobby boundary (metal glass door)
-                .AddInteriorWall(InteriorWallAxis.X, LobbyWallZ, opening: WallOpening.Door(width: 1.05f, height: 2.1f))
+                .AddInteriorWall(InteriorWallAxis.X, LobbyWallZ, opening: WallOpening.Door(width: 1.05f, height: 2.1f), material: intWallMat)
                 // Interior wall: backroom/showroom boundary (classical wooden door)
-                .AddInteriorWall(InteriorWallAxis.X, BackroomWallZ, opening: WallOpening.Door(width: 1.05f, height: 2.1f))
+                .AddInteriorWall(InteriorWallAxis.X, BackroomWallZ, opening: WallOpening.Door(width: 1.05f, height: 2.1f), material: intWallMat)
                 .AddInteriorDoorFrames(material: trimBlack)
                 .AddSlidingDoors(
                     new Vector3(RoomWidth / 2f - 3f, -0.058f, RoomDepth - 0.065f),
@@ -848,6 +849,7 @@ namespace OverTheCounter.Logic.Placement
             CurrentLightingStyleId = style.Id;
 
             float fixtureY = style.FixtureY;
+            if (fixtureY > RoomHeight) fixtureY = RoomHeight - 0.1f;
 
             // --- Room zone calculations ---
             // Backroom: Z = 0 to BackroomWallZ
@@ -874,7 +876,7 @@ namespace OverTheCounter.Logic.Placement
                 SpawnFixture(style.CeilingMeshId, $"Back_C{col}",
                     new Vector3(x, fixtureY, backMidZ),
                     style.LightOffset, style.LightColor, style.Range, style.Intensity,
-                    emissiveOverride: style.CeilingEmissiveColor);
+                    scale: style.FixtureScale, emissiveOverride: style.CeilingEmissiveColor);
             }
 
             // --- Showroom ceiling fixtures (Nx2) ---
@@ -884,11 +886,11 @@ namespace OverTheCounter.Logic.Placement
                 SpawnFixture(style.CeilingMeshId, $"Show_F{col}",
                     new Vector3(x, fixtureY, showFrontZ),
                     style.LightOffset, style.LightColor, style.Range, style.Intensity,
-                    emissiveOverride: style.CeilingEmissiveColor);
+                    scale: style.FixtureScale, emissiveOverride: style.CeilingEmissiveColor);
                 SpawnFixture(style.CeilingMeshId, $"Show_B{col}",
                     new Vector3(x, fixtureY, showBackZ),
                     style.LightOffset, style.LightColor, style.Range, style.Intensity,
-                    emissiveOverride: style.CeilingEmissiveColor);
+                    scale: style.FixtureScale, emissiveOverride: style.CeilingEmissiveColor);
             }
 
             // --- Lobby ceiling fixtures (Nx1) ---
@@ -898,7 +900,7 @@ namespace OverTheCounter.Logic.Placement
                 SpawnFixture(style.CeilingMeshId, $"Lobby_C{col}",
                     new Vector3(x, fixtureY, lobbyMidZ),
                     style.LightOffset, style.LightColor, style.Range, style.Intensity,
-                    emissiveOverride: style.CeilingEmissiveColor);
+                    scale: style.FixtureScale, emissiveOverride: style.CeilingEmissiveColor);
             }
 
             // --- Wall lights (all rooms) ---

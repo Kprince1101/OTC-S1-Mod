@@ -88,6 +88,10 @@ namespace OverTheCounter.SaveData
     {
         public bool LightsOn;
         public bool StoreOpen;
+        public string LightingStyleId;
+        public string ExteriorWallStyleId;
+        public string InteriorWallStyleId;
+        public string FloorStyleId;
     }
 
     /// <summary>
@@ -181,7 +185,10 @@ namespace OverTheCounter.SaveData
             if (IsPropertyOwned(ShackId))
             {
                 WestvilleShack.UnlockDoor();
-                WestvilleShack.ApplySavedState(_shackState.LightsOn, _shackState.StoreOpen);
+                WestvilleShack.ApplySavedState(_shackState.LightsOn, _shackState.StoreOpen,
+                    _shackState.LightingStyleId,
+                    _shackState.ExteriorWallStyleId, _shackState.InteriorWallStyleId,
+                    _shackState.FloorStyleId);
             }
 
             if (IsPropertyOwned(DispensaryId))
@@ -220,6 +227,10 @@ namespace OverTheCounter.SaveData
         {
             _shackState.LightsOn = WestvilleShack.AreLightsOn;
             _shackState.StoreOpen = WestvilleShack.IsStoreOpen;
+            _shackState.LightingStyleId = WestvilleShack.CurrentLightingStyleId;
+            _shackState.ExteriorWallStyleId = WestvilleShack.CurrentExteriorWallStyleId;
+            _shackState.InteriorWallStyleId = WestvilleShack.CurrentInteriorWallStyleId;
+            _shackState.FloorStyleId = WestvilleShack.CurrentFloorStyleId;
 
             _dispensaryState.LightsOn = Dispensary.AreLightsOn;
             _dispensaryState.StoreOpen = Dispensary.IsStoreOpen;
