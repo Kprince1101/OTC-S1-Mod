@@ -138,63 +138,68 @@ namespace OverTheCounter.UI
 
         private void Update()
         {
-            // Hide minimap during loading screens / menus
-            if (Player.Local == null)
-            {
-                if (_canvasObj != null) _canvasObj.SetActive(false);
-                return;
-            }
-
-            // Wait for loading screen to fully close (covers S1API mugshots, other mods, etc.)
+            PerfTracker.Begin("MinimapOverlay");
             try
             {
-                var loadingScreen = Singleton<LoadingScreen>.Instance;
-                if (loadingScreen != null && loadingScreen.IsOpen)
+                // Hide minimap during loading screens / menus
+                if (Player.Local == null)
                 {
                     if (_canvasObj != null) _canvasObj.SetActive(false);
                     return;
                 }
+
+                // Wait for loading screen to fully close (covers S1API mugshots, other mods, etc.)
+                try
+                {
+                    var loadingScreen = Singleton<LoadingScreen>.Instance;
+                    if (loadingScreen != null && loadingScreen.IsOpen)
+                    {
+                        if (_canvasObj != null) _canvasObj.SetActive(false);
+                        return;
+                    }
+                }
+                catch { }
+
+                if (_canvasObj != null && !_canvasObj.activeSelf) _canvasObj.SetActive(true);
+
+                // Hot-reload: rebuild if config changed
+                if (_canvasObj != null && ConfigChanged())
+                {
+                    int savedZoom = _zoom;
+                    DestroyMinimap();
+                    _zoom = savedZoom;
+                    _visible = _zoom > 0;
+                    SnapshotConfig();
+                }
+
+                // Live-update zoom when preferred zoom config changes
+                int preferredZoom = Mathf.Clamp(Config.MinimapDefaultZoom.Value, 1, 3);
+                if (_visible && _zoom != preferredZoom && _mapRect != null)
+                {
+                    _zoom = preferredZoom;
+                    _displaySize = ZoomSizes[_zoom];
+                    _mapRect.sizeDelta = new Vector2(_displaySize, _displaySize);
+                }
+
+                // React to MinimapEnabled being toggled via config/ModsApp
+                if (Config.MinimapEnabled.Value && !_visible)
+                {
+                    _zoom = Mathf.Clamp(Config.MinimapDefaultZoom.Value, 1, 3);
+                    _visible = true;
+                }
+                else if (!Config.MinimapEnabled.Value && _visible)
+                {
+                    DestroyMinimap();
+                    _visible = false;
+                }
+
+                if (Input.GetKeyDown(_toggleKey) && !ScheduleOne.GameInput.IsTyping)
+                    ToggleMinimap();
+
+                if (_visible)
+                    UpdateMinimap();
             }
-            catch { }
-
-            if (_canvasObj != null && !_canvasObj.activeSelf) _canvasObj.SetActive(true);
-
-            // Hot-reload: rebuild if config changed
-            if (_canvasObj != null && ConfigChanged())
-            {
-                int savedZoom = _zoom;
-                DestroyMinimap();
-                _zoom = savedZoom;
-                _visible = _zoom > 0;
-                SnapshotConfig();
-            }
-
-            // Live-update zoom when preferred zoom config changes
-            int preferredZoom = Mathf.Clamp(Config.MinimapDefaultZoom.Value, 1, 3);
-            if (_visible && _zoom != preferredZoom && _mapRect != null)
-            {
-                _zoom = preferredZoom;
-                _displaySize = ZoomSizes[_zoom];
-                _mapRect.sizeDelta = new Vector2(_displaySize, _displaySize);
-            }
-
-            // React to MinimapEnabled being toggled via config/ModsApp
-            if (Config.MinimapEnabled.Value && !_visible)
-            {
-                _zoom = Mathf.Clamp(Config.MinimapDefaultZoom.Value, 1, 3);
-                _visible = true;
-            }
-            else if (!Config.MinimapEnabled.Value && _visible)
-            {
-                DestroyMinimap();
-                _visible = false;
-            }
-
-            if (Input.GetKeyDown(_toggleKey) && !ScheduleOne.GameInput.IsTyping)
-                ToggleMinimap();
-
-            if (_visible)
-                UpdateMinimap();
+            finally { PerfTracker.End("MinimapOverlay"); }
         }
 
         private void SnapshotConfig()

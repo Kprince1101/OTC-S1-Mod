@@ -104,6 +104,7 @@ namespace OverTheCounter
         public static ConfigEntry<bool> QuestVerboseLogging;
         public static ConfigEntry<bool> NotificationVerboseLogging;
         public static ConfigEntry<bool> PatchVerboseLogging;
+        public static ConfigEntry<bool> ProfilingEnabled;
 
         // ── Minimap ──
         private static MelonPreferences_Category _minimap;
@@ -159,6 +160,7 @@ namespace OverTheCounter
             "QuestVerboseLogging",
             "NotificationVerboseLogging",
             "PatchVerboseLogging",
+            "ProfilingEnabled",
             "VerboseLogging",
             "MinimapEnabled",
             "MinimapSize",
@@ -352,6 +354,8 @@ namespace OverTheCounter
                 "Enable detailed notification system logging"));
             PatchVerboseLogging = Register(_debug.CreateEntry("PatchVerboseLogging", false, "Verbose: Patch",
                 "Enable detailed Harmony patch logging"));
+            ProfilingEnabled = Register(_debug.CreateEntry("ProfilingEnabled", false, "Performance Profiling",
+                "Write periodic performance reports to UserData/OTC_PerfReport.txt"));
 
             // ── Minimap POIs ──
             _minimapPoi = MelonPreferences.CreateCategory("OverTheCounter_MinimapPOI", "Minimap POIs");

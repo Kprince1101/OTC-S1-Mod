@@ -339,6 +339,7 @@
 		<Compile Include="Utilities\PropertyInventory.cs" />
 		<Compile Include="Utilities\MugshotUtility.cs" />
 		<Compile Include="Utilities\OTCLog.cs" />
+		<Compile Include="Utilities\PerfTracker.cs" />
 		<Compile Include="SaveData\ConfigSyncData.cs" />
 		<Compile Include="SaveData\NetworkSyncBridge.cs" />
 		<Compile Include="SaveData\NetworkP2PBridge.cs" />

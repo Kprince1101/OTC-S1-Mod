@@ -362,34 +362,50 @@ namespace OverTheCounter
 
         private void OnLateUpdateImpl()
         {
+            PerfTracker.BeginFrame();
             try
             {
                 // Initialize lobby data callbacks on first tick (Steam is ready by now).
                 // Must run on both host and client, independent of Saveable lifecycle.
+                PerfTracker.Begin("NetworkInit");
                 ConfigSyncData.EnsureNetworkReady();
+                PerfTracker.End("NetworkInit");
 
                 // Process incoming SyncVar messages (both host and client).
+                PerfTracker.Begin("SyncMessages");
                 ConfigSyncData.ProcessMessages();
+                PerfTracker.End("SyncMessages");
 
+                PerfTracker.Begin("SaveDataTicks");
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
                 StaticSaveData.Instance?.Tick();
                 BellaSaveData.Instance?.Tick();
                 ManagerSaveData.Instance?.Tick();
+                PerfTracker.End("SaveDataTicks");
 
                 // Retry pending NPC adoptions on client (FishNet timing)
+                PerfTracker.Begin("AdoptionRetries");
                 _drifterManager?.RetryPendingAdoptions();
                 _customerManager?.RetryPendingAdoptions();
                 ManagerInstance.RetryPendingAdoptions();
+                PerfTracker.End("AdoptionRetries");
+
+                PerfTracker.Begin("ManagerAI");
 
                 // Immediate wage payment when cash is deposited (host only)
+                PerfTracker.Begin("ManagerAI.Wages");
                 _managerManager?.CheckImmediateWages();
+                PerfTracker.End("ManagerAI.Wages");
 
                 // Resume interrupted manager walks (e.g. after dialogue)
+                PerfTracker.Begin("ManagerAI.EnsureMoving");
                 foreach (var mgr in ManagerInstance.Active.Values)
                     mgr.EnsureMoving();
+                PerfTracker.End("ManagerAI.EnsureMoving");
 
                 // Tick supply + distribution run behaviours (host only)
+                PerfTracker.Begin("ManagerAI.SupplyDistribution");
                 if (NetworkHelper.IsHost)
                 {
                     foreach (var mgr in ManagerInstance.Active.Values)
@@ -397,7 +413,14 @@ namespace OverTheCounter
                         mgr.SupplyBehaviour?.Tick();
                         mgr.DistributionBehaviour?.Tick();
                     }
+                }
+                PerfTracker.End("ManagerAI.SupplyDistribution");
 
+                PerfTracker.End("ManagerAI");
+
+                PerfTracker.Begin("NetworkPublish");
+                if (NetworkHelper.IsHost)
+                {
                     // Publish pending text messages to client via dedicated message SyncVars
                     if (ManagerInstance.HasPendingMessages)
                         ConfigSyncData.Instance?.PublishManagerMessages();
@@ -414,14 +437,18 @@ namespace OverTheCounter
                         ConfigSyncData.Instance?.PublishManagerState();
                     }
                 }
+                PerfTracker.End("NetworkPublish");
 
                 // Client: poll for FishNet-replicated doors arriving in buildings
+                PerfTracker.Begin("ClientDoorSetup");
                 if (!NetworkHelper.IsHost)
                 {
                     Logic.Placement.WestvilleShack.TickClientDoorSetup();
                     Logic.Placement.Dispensary.TickClientDoorSetup();
                 }
+                PerfTracker.End("ClientDoorSetup");
 
+                PerfTracker.Begin("Checkout");
                 // Interactive checkout process (camera, clicks, payment)
                 CheckoutProcess.Instance?.Tick();
                 CheckoutProcess.TryStartCheckout(); // Both host and client (internal routing)
@@ -434,22 +461,28 @@ namespace OverTheCounter
                 // Right-click product pickup while checkout is paused
                 if (CheckoutProcess.Instance?.IsPaused == true)
                     CheckoutProcess.TryPickupCounterProduct();
+                PerfTracker.End("Checkout");
 
                 // Periodic POS display refresh (2-second throttle for availability updates)
+                PerfTracker.Begin("ScreenTicks");
                 foreach (var counter in Logic.Placement.CheckoutCounter.AllCounters)
                     counter.Screen?.Tick();
+                PerfTracker.End("ScreenTicks");
 
                 // Update drifter quest timers on client (OnTimeTick is host-only)
+                PerfTracker.Begin("QuestTicks");
                 _drifterManager?.ClientQuestTick();
 
                 // Storefront Growth quest polling (throttled internally)
                 Quests.StorefrontGrowthQuest.Instance?.Tick();
+                PerfTracker.End("QuestTicks");
 
             }
             catch (Exception ex)
             {
                 OTCLog.Error(OTCLog.Systems.Patch, $"Error in OnLateUpdate: {ex.Message}\n{ex.StackTrace}");
             }
+            PerfTracker.EndFrame();
         }
 
         /// <summary>
@@ -479,6 +512,7 @@ namespace OverTheCounter
 
         private void OnDeinitializeMelonImpl()
         {
+            PerfTracker.WriteReport();
             TimeManager.OnSleepEnd -= OnSleepEnd;
             ConfigSyncData.Cleanup();
             _notificationManager?.Cleanup();
