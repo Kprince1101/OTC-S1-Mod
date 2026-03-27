@@ -584,13 +584,15 @@ namespace OverTheCounter.Logic.Placement
         //  Cleanup
         // =================================================================
 
-        /// <summary>Cleans up all counter instances and resets registry. Definition persists.</summary>
+        /// <summary>Cleans up all counter instances and resets registry + definition.</summary>
         public static void Cleanup()
         {
             foreach (var counter in _counters)
                 counter.Cleanup();
             _counters.Clear();
-            // Don't clear _counterDef — it persists across scene loads
+            // Must clear _counterDef so Register() re-adds it to the game Registry,
+            // which clears "runtime items" on scene transitions.
+            _counterDef = null;
         }
     }
 }

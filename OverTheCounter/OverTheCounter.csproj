@@ -389,6 +389,7 @@
 		<Compile Include="UI\DependencyChecker.cs" />
 		<Compile Include="Patches\RecipePinPatch.cs" />
 		<Compile Include="Patches\CustomerStartPatch.cs" />
+		<Compile Include="Patches\ActionListPatch.cs" />
 		<Compile Include="Patches\DealInterceptPatch.cs" />
 	</ItemGroup>
 

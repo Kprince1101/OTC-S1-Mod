@@ -68,6 +68,9 @@ namespace OverTheCounter.NPCs
         {
             try
             {
+                // Movement may be null during load (OnSleepEnd fires before NPC is fully initialized)
+                if (Movement == null) return;
+
                 // Pre-snap position to NavMesh surface so the Warp RPC sends
                 // the correct ground-level Y to clients. Without this, clients
                 // with a disabled NavMeshAgent receive the raw SpawnPosition Y

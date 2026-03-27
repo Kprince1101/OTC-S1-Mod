@@ -85,6 +85,7 @@ namespace OverTheCounter
             RecipePinPatch.Apply(HarmonyInstance);
             SupplierWarehousePatch.Apply(HarmonyInstance);
             SaveManagerPatch.Apply(HarmonyInstance);
+            ActionListPatch.Apply(HarmonyInstance);
 
             TimeManager.OnSleepEnd += OnSleepEnd;
 
@@ -120,6 +121,8 @@ namespace OverTheCounter
             OnSceneWasLoadedImpl(buildIndex, sceneName);
         }
 
+        private static bool _meshVaultRegistered;
+
         private void OnSceneWasLoadedImpl(int buildIndex, string sceneName)
         {
             // Clear stale singletons on every scene transition so save data
@@ -135,6 +138,7 @@ namespace OverTheCounter
             StaticUpgrade2Quest.ResetInstance();
             VicIntroQuest.ResetInstance();
             BellaProtocolQuest.ResetInstance();
+            StorefrontGrowthQuest.ResetInstance();
             Patches.BellaSummonPatch.Reset();
 
             // WORKAROUND: S1API bug — SaveableAutoRegistry never clears cached instances
@@ -213,33 +217,36 @@ namespace OverTheCounter
             {
                 MeshVault.MeshVaultAPI.Init();
 
-                // Register OTC custom meshes (e.g. resized dealership desk)
-                try
+                // Register OTC custom meshes + decals (only once — MeshVault persists across scenes)
+                if (!_meshVaultRegistered)
                 {
-                    var meshBytes = S1MAPI.Utils.EmbeddedResourceLoader.LoadBytes(
-                        "OverTheCounter.Resources.MeshDatabase.json",
-                        System.Reflection.Assembly.GetExecutingAssembly());
-                    if (meshBytes != null)
-                        MeshVault.MeshVaultAPI.RegisterMeshes(
-                            "otc", "OverTheCounter",
-                            System.Text.Encoding.UTF8.GetString(meshBytes));
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Patch, $"OTC mesh registration failed: {ex.Message}");
-                }
+                    _meshVaultRegistered = true;
+                    try
+                    {
+                        var meshBytes = S1MAPI.Utils.EmbeddedResourceLoader.LoadBytes(
+                            "OverTheCounter.Resources.MeshDatabase.json",
+                            System.Reflection.Assembly.GetExecutingAssembly());
+                        if (meshBytes != null)
+                            MeshVault.MeshVaultAPI.RegisterMeshes(
+                                "otc", "OverTheCounter",
+                                System.Text.Encoding.UTF8.GetString(meshBytes));
+                    }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Patch, $"OTC mesh registration failed: {ex.Message}");
+                    }
 
-                // Register OTC decals from embedded resources
-                try
-                {
-                    MeshVault.MeshVaultAPI.RegisterDecals(
-                        "otc", "OverTheCounter",
-                        System.Reflection.Assembly.GetExecutingAssembly(),
-                        "OverTheCounter.Resources.MeshVaultDecals.");
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Patch, $"OTC decal registration failed: {ex.Message}");
+                    try
+                    {
+                        MeshVault.MeshVaultAPI.RegisterDecals(
+                            "otc", "OverTheCounter",
+                            System.Reflection.Assembly.GetExecutingAssembly(),
+                            "OverTheCounter.Resources.MeshVaultDecals.");
+                    }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Patch, $"OTC decal registration failed: {ex.Message}");
+                    }
                 }
 
                 Logic.Placement.CheckoutCounter.Register();
@@ -272,6 +279,7 @@ namespace OverTheCounter
                     lm.onLoadComplete.RemoveListener((UnityEngine.Events.UnityAction)OnGameLoaded);
                     lm.onLoadComplete.AddListener((UnityEngine.Events.UnityAction)OnGameLoaded);
                     _loadHooked = true;
+                    OTCLog.Msg(OTCLog.Systems.Patch, "Hooked LoadManager.onLoadComplete");
                 }
                 else
                     OTCLog.Warning(OTCLog.Systems.Patch, "LoadManager.Instance is null — cannot hook onLoadComplete");
@@ -282,6 +290,7 @@ namespace OverTheCounter
                     lm.onLoadComplete.RemoveListener(OnGameLoaded);
                     lm.onLoadComplete.AddListener(OnGameLoaded);
                     _loadHooked = true;
+                    OTCLog.Msg(OTCLog.Systems.Patch, "Hooked LoadManager.onLoadComplete");
                 }
                 else
                     OTCLog.Warning(OTCLog.Systems.Patch, "LoadManager.Instance is null — cannot hook onLoadComplete");
@@ -452,6 +461,12 @@ namespace OverTheCounter
         private static void OnSleepEnd(int minutesSkipped)
         {
             if (!NetworkHelper.IsHost) return;
+#if IL2CPP
+            var lm = Il2CppScheduleOne.DevUtilities.Singleton<Il2CppScheduleOne.Persistence.LoadManager>.Instance;
+#else
+            var lm = ScheduleOne.Persistence.LoadManager.Instance;
+#endif
+            if (lm == null || !lm.IsGameLoaded) return;
             StaticNPC.Instance?.WarpToSpawn();
             BellaNPC.Instance?.ReInjectIntoBuilding();
         }
