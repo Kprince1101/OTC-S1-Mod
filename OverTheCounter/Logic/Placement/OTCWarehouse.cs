@@ -138,6 +138,9 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Root transform of the warehouse building, or null if not built.</summary>
         public static Transform BuildingTransform => _building?.transform;
 
+        /// <summary>Whether the garage door is currently open (or should be).</summary>
+        public static bool IsDoorOpen => _doorShouldBeOpen;
+
         /// <summary>Whether the interior lights are currently on.</summary>
         public static bool AreLightsOn { get; private set; }
 
@@ -577,6 +580,21 @@ namespace OverTheCounter.Logic.Placement
         /// so this just exists for PurchaseProperty dispatch consistency.
         /// </summary>
         public static void UnlockDoor() { }
+
+        /// <summary>Returns a world position just outside the garage door (on valid outdoor NavMesh).</summary>
+        public static Vector3 GetDoorExteriorPosition()
+        {
+            // Door is on east wall (x=Width), centered on z. 2m east of the door = outside the carving zone.
+            return Origin + new Vector3(Width + 2f, -FoundationHeight, Depth / 2f);
+        }
+
+        /// <summary>Disables or enables the garage door collider (lets NPCs walk through).</summary>
+        public static void SetDoorColliderEnabled(bool enabled)
+        {
+            if (_garageDoor == null) return;
+            var col = _garageDoor.GetComponent<Collider>();
+            if (col != null) col.enabled = enabled;
+        }
 
         private static IEnumerator DoorProximityRoutine()
         {

@@ -84,6 +84,7 @@ namespace OverTheCounter
             GraffitiPatch.Apply(HarmonyInstance);
             RecipePinPatch.Apply(HarmonyInstance);
             SupplierWarehousePatch.Apply(HarmonyInstance);
+            SupplierFleePatch.Apply(HarmonyInstance);
             SaveManagerPatch.Apply(HarmonyInstance);
             ActionListPatch.Apply(HarmonyInstance);
 

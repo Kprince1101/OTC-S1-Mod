@@ -46,6 +46,7 @@ namespace OverTheCounter.Logic.Placement
         private static readonly float[] StandYRotations = { 90f, 90f, 40f, 0f };
 
         private static readonly List<SupplierLocation> _locations = new List<SupplierLocation>();
+        private static readonly Dictionary<Supplier, int> _assignedSuppliers = new Dictionary<Supplier, int>();
         private static Transform _warehouseTransform;
         private static bool _initialized;
         private static bool _routineActive;
@@ -75,6 +76,10 @@ namespace OverTheCounter.Logic.Placement
         {
             return _deliveryBay?.gameObject;
         }
+
+        /// <summary>Returns true if the given supplier is currently assigned to a warehouse stand.</summary>
+        public static bool IsWarehouseSupplier(Supplier supplier) =>
+            supplier != null && _assignedSuppliers.ContainsKey(supplier);
 
         /// <summary>Creates supplier stands and starts the idle-warp routine.</summary>
         public static void Initialize(Transform warehouseTransform)
@@ -114,6 +119,7 @@ namespace OverTheCounter.Logic.Placement
         {
             _routineActive = false;
             _locations.Clear();
+            _assignedSuppliers.Clear();
             _deliveryBay = null;
             _warehouseTransform = null;
             _initialized = false;
@@ -137,7 +143,7 @@ namespace OverTheCounter.Logic.Placement
             // SupplierStandPoint — where the NPC stands + faces
             var standPointGO = new GameObject("SupplierStandPoint");
             standPointGO.transform.SetParent(locGO.transform);
-            standPointGO.transform.localPosition = Vector3.zero;
+            standPointGO.transform.localPosition = new Vector3(-0.5f, 0f, 0f);
             standPointGO.transform.localRotation = Quaternion.Euler(0, 90, 0);
 
             // POI on a disabled child — SetMainText still works (just stores string),
@@ -180,25 +186,17 @@ namespace OverTheCounter.Logic.Placement
             int slot = GetSlotForSupplier(supplier);
             if (slot < 0) return;
 
+            _assignedSuppliers[supplier] = slot;
+
             var location = _locations[slot];
             var standPoint = location.SupplierStandPoint;
 
-            // Switch to employee NavMesh so the agent can exist on the indoor surface
-            try
-            {
-                var agent = supplier.GetComponent<NavMeshAgent>();
-                if (agent != null && ManagerSpawner.TryGetEmployeeNavMeshSettings(
-                        out int empAgentType, out int empAreaMask))
-                {
-                    agent.agentTypeID = empAgentType;
-                    agent.areaMask = empAreaMask;
-                }
-            }
-            catch { }
+            // Warp to just outside the doorway (on valid outdoor NavMesh, not inside carved zone)
+            var doorExterior = OTCWarehouse.GetDoorExteriorPosition();
+            supplier.Movement.Warp(doorExterior);
+            // Navigate in via S1MAPI's interior pathfinding (must use 4-param overload)
+            supplier.Movement.SetDestination(standPoint.position, null, 1f, 1f);
 
-            // Position the supplier
-            supplier.Movement.Warp(standPoint.position);
-            supplier.Movement.FaceDirection(standPoint.forward, 0f);
             supplier.SetVisible(true, false);
 
             // Show GenericContainer (table, props) and set POI text
@@ -240,6 +238,7 @@ namespace OverTheCounter.Logic.Placement
         public static void CleanupWarehouseSupplier(Supplier supplier)
         {
             if (supplier == null) return;
+            _assignedSuppliers.Remove(supplier);
 
             for (int i = 0; i < _locations.Count; i++)
             {
@@ -506,11 +505,18 @@ namespace OverTheCounter.Logic.Placement
 
             SetupGenericContainers();
             SetupDeliveryBay();
+            // Wait a frame for Unity to process new colliders before rebuilding nav
+            yield return null;
+            OTCWarehouse.RebuildNavigation();
+
+            // Disable door collider so suppliers can walk through
+            OTCWarehouse.SetDoorColliderEnabled(false);
 
             while (_routineActive && _initialized)
             {
                 try
                 {
+                    bool anySent = false;
                     var suppliers = FindAllSuppliers();
                     for (int i = 0; i < suppliers.Count && i < _locations.Count; i++)
                     {
@@ -521,16 +527,41 @@ namespace OverTheCounter.Logic.Placement
                         if (supplier.Status == Supplier.ESupplierStatus.Idle
                             && !supplier.isVisible)
                         {
+                            OTCWarehouse.SetDoorColliderEnabled(false);
                             WarpSupplierToWarehouse(supplier);
+                            anySent = true;
+                        }
+                        // Re-warp assigned suppliers that drifted from their stand
+                        else if (_assignedSuppliers.TryGetValue(supplier, out int slot)
+                            && supplier.Status == Supplier.ESupplierStatus.Idle
+                            && slot < _locations.Count)
+                        {
+                            var stand = _locations[slot].SupplierStandPoint;
+                            float dist = Vector3.Distance(supplier.transform.position, stand.position);
+                            if (dist > 3f)
+                            {
+                                OTCWarehouse.SetDoorColliderEnabled(false);
+                                WarpSupplierToWarehouse(supplier);
+                                anySent = true;
+                            }
+                            else if (dist < 1.5f)
+                            {
+                                // Arrived — face the correct direction
+                                supplier.Movement.FaceDirection(stand.forward, 0f);
+                            }
                         }
                     }
+
+                    // Re-enable door collider after suppliers have had time to enter
+                    if (!anySent)
+                        OTCWarehouse.SetDoorColliderEnabled(true);
                 }
                 catch (Exception ex)
                 {
                     OTCLog.Warning(OTCLog.Systems.Patch, $"IdleSupplierWarpRoutine: {ex.Message}");
                 }
 
-                yield return new WaitForSeconds(30f);
+                yield return new WaitForSeconds(10f);
             }
         }
     }
