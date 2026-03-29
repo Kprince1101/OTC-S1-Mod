@@ -326,6 +326,7 @@
 		<Compile Include="UI\SmartStashOverlayUI.cs" />
 		<Compile Include="UI\HandoverFillUI.cs" />
 		<Compile Include="Patches\StorageMenuPatch.cs" />
+		<Compile Include="Patches\GameProfilerPatches.cs" />
 		<Compile Include="SaveData\VicSaveData.cs" />
 		<Compile Include="SaveData\StaticSaveData.cs" />
 		<Compile Include="SaveData\PropertySaveData.cs" />

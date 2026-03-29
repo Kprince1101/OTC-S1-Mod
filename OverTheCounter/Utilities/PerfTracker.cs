@@ -210,6 +210,8 @@ namespace OverTheCounter.Utilities
                 sb.AppendLine("── Notes ──────────────────────────────────────────────");
                 sb.AppendLine("  Frame Time measures OTC's OnLateUpdate only, not the");
                 sb.AppendLine("  full game frame. Regions are subsections within it.");
+                sb.AppendLine("  Game.* regions measure vanilla game Update() methods.");
+                sb.AppendLine("  NPC/vehicle regions fire per-instance (calls = entities x frames).");
                 sb.AppendLine("  GC alloc is process-wide (not OTC-specific).");
 
                 if (_notes.Count > 0)

@@ -87,6 +87,7 @@ namespace OverTheCounter
             SupplierFleePatch.Apply(HarmonyInstance);
             SaveManagerPatch.Apply(HarmonyInstance);
             ActionListPatch.Apply(HarmonyInstance);
+            GameProfilerPatches.Apply(HarmonyInstance);
 
             TimeManager.OnSleepEnd += OnSleepEnd;
             TimeManager.OnDayPass += OnDayPass;
