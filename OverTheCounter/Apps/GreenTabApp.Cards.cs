@@ -24,8 +24,9 @@ namespace OverTheCounter.Apps
         {
             float contentLeft = NAV_WIDTH_FRAC + SIDEBAR_WIDTH_FRAC;
 
-            // Scroll view container
+            // Scroll view container (hidden when not on Customize tab)
             var scrollContainer = UIFactory.Panel("CardScrollContainer", parent, Color.clear);
+            _cardScrollContainer = scrollContainer;
             var scrollContRect = scrollContainer.GetComponent<RectTransform>();
             scrollContRect.anchorMin = new Vector2(contentLeft, 0);
             scrollContRect.anchorMax = Vector2.one;
@@ -78,6 +79,7 @@ namespace OverTheCounter.Apps
             float contentLeft = NAV_WIDTH_FRAC + SIDEBAR_WIDTH_FRAC;
 
             var footer = UIFactory.Panel("Footer", parent, FooterBg);
+            _footerPanel = footer;
             var footerRect = footer.GetComponent<RectTransform>();
             footerRect.anchorMin = new Vector2(contentLeft, 0);
             footerRect.anchorMax = new Vector2(1, 0);
@@ -96,7 +98,7 @@ namespace OverTheCounter.Apps
 
             // Balance label — top-left inside panel
             var balLabel = TMPFactory.Text("BalLabel", "CURRENT BALANCE",
-                balPanel.transform, 10, TextAlignmentOptions.Left);
+                balPanel.transform, 15, TextAlignmentOptions.Left);
             balLabel.color = TextMuted;
             var balLabelRect = balLabel.gameObject.GetComponent<RectTransform>();
             balLabelRect.anchorMin = new Vector2(0, 0.55f);
@@ -117,7 +119,7 @@ namespace OverTheCounter.Apps
             // Apply button — right side inside panel
             var (applyMask, applyBtnComp, applyLabel) = TMPFactory.RoundedButtonWithLabel(
                 "ApplyBtn", "APPLY", balPanel.transform,
-                AccentGreenDark, 100, 30, 13, Color.white);
+                AccentGreenDark, 100, 30, 15, Color.white);
             var applyMaskRect = applyMask.GetComponent<RectTransform>();
             applyMaskRect.anchorMin = new Vector2(1, 0.5f);
             applyMaskRect.anchorMax = new Vector2(1, 0.5f);

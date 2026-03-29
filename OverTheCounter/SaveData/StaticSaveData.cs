@@ -1,4 +1,5 @@
 using MelonLoader;
+using OverTheCounter.Logic.Placement;
 using OverTheCounter.NPCs;
 using OverTheCounter.Quests;
 using S1API.GameTime;

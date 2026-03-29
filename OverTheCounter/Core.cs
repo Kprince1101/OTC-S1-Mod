@@ -89,6 +89,7 @@ namespace OverTheCounter
             ActionListPatch.Apply(HarmonyInstance);
 
             TimeManager.OnSleepEnd += OnSleepEnd;
+            TimeManager.OnDayPass += OnDayPass;
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
                 OTCLog.Warning(OTCLog.Systems.Network, "SteamNetworkLib not installed — multiplayer sync disabled. " +
@@ -513,10 +514,31 @@ namespace OverTheCounter
             OnDeinitializeMelonImpl();
         }
 
+        /// <summary>Daily property maintenance: inventory snapshots and sales log trimming.</summary>
+        private static void OnDayPass()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            var psd = PropertySaveData.Instance;
+            if (psd == null) return;
+
+            // Snapshot total inventory for the overview chart
+            int total = 0;
+            if (psd.IsPropertyOwned(PropertySaveData.ShackId))
+                total += PropertyInventory.GetTotalProductCount(WestvilleShack.ShackGrid);
+            if (psd.IsPropertyOwned(PropertySaveData.DispensaryId))
+                total += PropertyInventory.GetTotalProductCount(Dispensary.DispensaryGrid);
+            psd.RecordInventorySnapshot(TimeManager.ElapsedDays, total);
+
+            // Trim sales log to last 7 days
+            psd.TrimSalesLog(TimeManager.ElapsedDays);
+        }
+
         private void OnDeinitializeMelonImpl()
         {
             PerfTracker.WriteReport();
             TimeManager.OnSleepEnd -= OnSleepEnd;
+            TimeManager.OnDayPass -= OnDayPass;
             ConfigSyncData.Cleanup();
             _notificationManager?.Cleanup();
             _desperationManager?.Cleanup();

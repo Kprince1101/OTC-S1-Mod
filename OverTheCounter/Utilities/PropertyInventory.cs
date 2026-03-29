@@ -20,17 +20,19 @@ using ProductItemInstance = ScheduleOne.Product.ProductItemInstance;
 namespace OverTheCounter.Utilities
 {
     /// <summary>
-    /// Shared inventory utility for OTC buildings. Enumerates display storage
-    /// (shelves, cabinets, tables, etc.) while excluding checkout counter storage.
+    /// Shared inventory utility for OTC buildings. Enumerates storage entities
+    /// with optional filtering of private storage (checkout counters, lockers).
     /// Used by both StorefrontGrowthQuest and the GreenTab POS app.
     /// </summary>
     public static class PropertyInventory
     {
         /// <summary>
-        /// Returns all StorageEntity instances on a building grid,
-        /// excluding checkout counter storage.
+        /// Returns StorageEntity instances on a building grid.
+        /// When includePrivate is false (default), excludes checkout counter storage
+        /// so only browsable/display storage is returned (shelves, cabinets, tables).
+        /// When true, returns ALL storage including counters and lockers.
         /// </summary>
-        public static List<StorageEntity> GetDisplayStorages(Grid grid)
+        public static List<StorageEntity> GetStorages(Grid grid, bool includePrivate = false)
         {
             var result = new List<StorageEntity>();
             if (grid == null) return result;
@@ -39,6 +41,13 @@ namespace OverTheCounter.Utilities
 
             var allStorages = root.GetComponentsInChildren<StorageEntity>(true);
             if (allStorages == null) return result;
+
+            if (includePrivate)
+            {
+                foreach (var s in allStorages)
+                    if (s != null) result.Add(s);
+                return result;
+            }
 
             // Build exclusion set from all checkout counters
             var counterStorages = new HashSet<StorageEntity>();
@@ -54,7 +63,13 @@ namespace OverTheCounter.Utilities
         }
 
         /// <summary>
-        /// Returns true if any non-counter storage on this grid contains at least one item.
+        /// Returns all display (non-private) StorageEntity instances on a building grid.
+        /// Convenience wrapper matching the old GetDisplayStorages signature.
+        /// </summary>
+        public static List<StorageEntity> GetDisplayStorages(Grid grid) => GetStorages(grid, includePrivate: false);
+
+        /// <summary>
+        /// Returns true if any browsable storage on this grid contains at least one item.
         /// </summary>
         public static bool HasAnyProduct(Grid grid)
         {
@@ -73,12 +88,13 @@ namespace OverTheCounter.Utilities
         }
 
         /// <summary>
-        /// Returns the total item count across all non-counter storage on this grid.
+        /// Returns the total item count across storage on this grid.
+        /// When includePrivate is true, includes checkout counter and locker storage.
         /// </summary>
-        public static int GetTotalProductCount(Grid grid)
+        public static int GetTotalProductCount(Grid grid, bool includePrivate = false)
         {
             int total = 0;
-            var storages = GetDisplayStorages(grid);
+            var storages = GetStorages(grid, includePrivate);
             foreach (var storage in storages)
             {
                 if (storage.ItemSlots == null) continue;

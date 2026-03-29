@@ -369,6 +369,15 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Returns the tip amount for a deal customer. Non-deal customers return 0.
+        /// </summary>
+        internal static float GetTipAmount(CustomerInstance customer, float saleTotal)
+        {
+            if (customer == null || !customer.IsDealCustomer) return 0f;
+            return CalculateTip(customer, saleTotal);
+        }
+
+        /// <summary>
         /// Calculates tip as a percentage of sale total based on preferred effect matches.
         /// 0 matches = 0%, 1 = 25%, 2 = 50%, 3 = 100%.
         /// </summary>

@@ -80,7 +80,7 @@ namespace OverTheCounter.Apps
 
             // Name label
             var nameLabel = TMPFactory.Text($"Name_{style.Id}", style.DisplayName,
-                card.transform, 12, TextAlignmentOptions.Left, FontStyles.Bold);
+                card.transform, 15, TextAlignmentOptions.Left, FontStyles.Bold);
             nameLabel.color = Color.white;
             var nameRect = nameLabel.gameObject.GetComponent<RectTransform>();
             nameRect.anchorMin = Vector2.zero;
@@ -91,7 +91,7 @@ namespace OverTheCounter.Apps
             // Price label
             string priceStr = style.Cost <= 0 ? "FREE" : $"${style.Cost:F0}";
             var priceLabel = TMPFactory.Text($"Price_{style.Id}", priceStr,
-                card.transform, 11, TextAlignmentOptions.Left);
+                card.transform, 15, TextAlignmentOptions.Left);
             priceLabel.color = style.Cost <= 0 ? AccentGreen : TextMuted;
             var priceRect = priceLabel.gameObject.GetComponent<RectTransform>();
             priceRect.anchorMin = Vector2.zero;
@@ -108,11 +108,11 @@ namespace OverTheCounter.Apps
                 badgeRect.anchorMin = new Vector2(1, 1);
                 badgeRect.anchorMax = new Vector2(1, 1);
                 badgeRect.pivot = new Vector2(1, 1);
-                badgeRect.sizeDelta = new Vector2(60, 16);
+                badgeRect.sizeDelta = new Vector2(72, 22);
                 badgeRect.anchoredPosition = new Vector2(-4, -4);
 
                 var badgeText = TMPFactory.Text("EquippedText", "EQUIPPED",
-                    equippedBadge.transform, 9, TextAlignmentOptions.Center, FontStyles.Bold);
+                    equippedBadge.transform, 15, TextAlignmentOptions.Center, FontStyles.Bold);
                 badgeText.color = Color.white;
                 var btRect = badgeText.gameObject.GetComponent<RectTransform>();
                 btRect.anchorMin = Vector2.zero;
@@ -153,7 +153,7 @@ namespace OverTheCounter.Apps
             }
 
             var lockText = TMPFactory.Text("LockText", "INSUFFICIENT FUNDS",
-                lockOverlay.transform, 10, TextAlignmentOptions.Center, FontStyles.Bold);
+                lockOverlay.transform, 15, TextAlignmentOptions.Center, FontStyles.Bold);
             lockText.color = new Color(0.9f, 0.3f, 0.3f);
             var lockTextRect = lockText.gameObject.GetComponent<RectTransform>();
             lockTextRect.anchorMin = new Vector2(0, 0);

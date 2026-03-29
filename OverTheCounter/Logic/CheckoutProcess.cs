@@ -538,7 +538,19 @@ namespace OverTheCounter.Logic
                     if (saveData != null)
                     {
                         int gameDay = S1API.GameTime.TimeManager.ElapsedDays;
+                        int gameHour = S1API.GameTime.TimeManager.CurrentTime;
+                        string custName = null;
+                        CustomerInstance tipCustomer = null;
+                        if (CustomerInstance.Active.TryGetValue(custId, out var custLookup))
+                        {
+                            custName = custLookup.GameNpc?.fullName ?? custId;
+                            tipCustomer = custLookup;
+                        }
+                        float tip = DispensaryDealManager.GetTipAmount(tipCustomer, totalPrice);
+                        string txId = saveData.NextTransactionId();
+                        string buildingId = custLookup?.AssignedCounter?.BuildingId;
                         var items = parts[2].Split('~');
+                        bool tipRecorded = false;
                         foreach (var item in items)
                         {
                             var fields = item.Split(',');
@@ -546,7 +558,9 @@ namespace OverTheCounter.Logic
                             float.TryParse(fields[2], System.Globalization.NumberStyles.Float,
                                 System.Globalization.CultureInfo.InvariantCulture, out float price);
                             int.TryParse(fields[3], out int quality);
-                            saveData.RecordSale(fields[0], fields[1], 1, price, quality, gameDay);
+                            saveData.RecordSale(fields[0], fields[1], 1, price, quality, gameDay,
+                                custName, gameHour, txId, tipRecorded ? 0f : tip, buildingId);
+                            tipRecorded = true;
                         }
                     }
                 }
@@ -1767,6 +1781,12 @@ namespace OverTheCounter.Logic
                     if (saveData != null)
                     {
                         int gameDay = S1API.GameTime.TimeManager.ElapsedDays;
+                        int gameHour = S1API.GameTime.TimeManager.CurrentTime;
+                        string custName = _customer?.GameNpc?.fullName ?? "Unknown";
+                        string txId = saveData.NextTransactionId();
+                        float tip = DispensaryDealManager.GetTipAmount(_customer, _totalPlacedPrice);
+                        string buildingId = _counter?.BuildingId;
+                        bool tipRecorded = false;
                         foreach (var product in _counterProducts)
                         {
                             saveData.RecordSale(
@@ -1775,7 +1795,13 @@ namespace OverTheCounter.Logic
                                 1,
                                 product.Price,
                                 product.QualityLevel,
-                                gameDay);
+                                gameDay,
+                                custName,
+                                gameHour,
+                                txId,
+                                tipRecorded ? 0f : tip,
+                                buildingId);
+                            tipRecorded = true;
                         }
                     }
                 }

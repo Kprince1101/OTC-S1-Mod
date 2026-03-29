@@ -1,6 +1,7 @@
 using OverTheCounter.UI;
 using S1API.UI;
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -15,11 +16,24 @@ namespace OverTheCounter.Apps
     public partial class GreenTabApp
     {
         // ==================================================================
-        //  Left navigation bar (SALES, INVENTORY, EMPLOYEES, CUSTOMIZE)
+        //  Left navigation bar (OVERVIEW, SALES, INVENTORY, EMPLOYEES, CUSTOMIZE)
         // ==================================================================
+
+        private readonly List<NavTabRef> _navTabs = new();
+
+        private struct NavTabRef
+        {
+            public AppTab Tab;
+            public Image OuterImage;
+            public Image InnerImage;
+            public Image IconImage;
+            public TextMeshProUGUI Label;
+        }
 
         private void BuildNavBar(Transform parent)
         {
+            _navTabs.Clear();
+
             var nav = UIFactory.Panel("NavBar", parent, NavBg);
             var navRect = nav.GetComponent<RectTransform>();
             navRect.anchorMin = Vector2.zero;
@@ -27,28 +41,33 @@ namespace OverTheCounter.Apps
             navRect.offsetMin = Vector2.zero;
             navRect.offsetMax = new Vector2(0, -HEADER_HEIGHT);
 
+            // VerticalLayoutGroup for automatic square-button stacking
+            var vlg = nav.AddComponent<VerticalLayoutGroup>();
+            vlg.spacing = 4f;
+            vlg.padding = new RectOffset(20, 20, 8, 0);
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = false;
+            vlg.childAlignment = TextAnchor.UpperCenter;
+
             string[] tabs = { "SALES", "INVENTORY", "EMPLOYEES", "CUSTOMIZE" };
-            float btnSize = 66f;
-            float gap = 6f;
             float borderW = 2f;
-            float padTop = 8f;
 
             for (int i = 0; i < tabs.Length; i++)
             {
-                bool isActive = tabs[i] == "CUSTOMIZE";
-
-                // Float to top
-                float yPos = -(padTop + i * (btnSize + gap));
+                var appTab = NavTabOrder[i];
+                bool isActive = appTab == _activeTab;
 
                 // Outer container — rounded, green border for active
                 var tabOuter = RoundedPanel($"NavTab_{tabs[i]}", nav.transform,
                     isActive ? AccentGreen : Color.clear);
-                var outerRect = tabOuter.GetComponent<RectTransform>();
-                outerRect.anchorMin = new Vector2(0.5f, 1);
-                outerRect.anchorMax = new Vector2(0.5f, 1);
-                outerRect.pivot = new Vector2(0.5f, 1);
-                outerRect.sizeDelta = new Vector2(btnSize, btnSize);
-                outerRect.anchoredPosition = new Vector2(0, yPos);
+                var outerImg = tabOuter.GetComponent<Image>();
+
+                // AspectRatioFitter makes each button square (height = width)
+                var arf = tabOuter.AddComponent<AspectRatioFitter>();
+                arf.aspectMode = AspectRatioFitter.AspectMode.WidthControlsHeight;
+                arf.aspectRatio = 1f;
 
                 // Inner fill — rounded
                 Color innerBg = isActive ? new Color(0.06f, 0.12f, 0.06f) : Color.clear;
@@ -58,35 +77,90 @@ namespace OverTheCounter.Apps
                 innerRect.anchorMax = Vector2.one;
                 innerRect.offsetMin = isActive ? new Vector2(borderW, borderW) : Vector2.zero;
                 innerRect.offsetMax = isActive ? new Vector2(-borderW, -borderW) : Vector2.zero;
+                var innerImg = tabInner.GetComponent<Image>();
 
-                // Icon — centered in upper portion, ~half button width
+                // Icon — centered in upper portion
+                Image iconImg = null;
                 var iconSprite = LoadIcon(NavIconNames[i]);
                 if (iconSprite != null)
                 {
                     var iconGo = new GameObject($"NavIcon_{tabs[i]}");
                     iconGo.transform.SetParent(tabInner.transform, false);
-                    var iconImg = iconGo.AddComponent<Image>();
+                    iconImg = iconGo.AddComponent<Image>();
                     iconImg.sprite = iconSprite;
                     iconImg.preserveAspect = true;
                     iconImg.color = isActive ? AccentGreen : TextDim;
                     var iconRect = iconGo.GetComponent<RectTransform>();
-                    iconRect.anchorMin = new Vector2(0.28f, 0.38f);
-                    iconRect.anchorMax = new Vector2(0.72f, 0.82f);
+                    iconRect.anchorMin = new Vector2(0.30f, 0.45f);
+                    iconRect.anchorMax = new Vector2(0.70f, 0.90f);
                     iconRect.offsetMin = Vector2.zero;
                     iconRect.offsetMax = Vector2.zero;
                 }
 
                 // Label — small text at bottom
                 var label = TMPFactory.Text($"NavLabel_{tabs[i]}", tabs[i],
-                    tabInner.transform, 8, TextAlignmentOptions.Bottom,
+                    tabInner.transform, 15, TextAlignmentOptions.Bottom,
                     isActive ? FontStyles.Bold : FontStyles.Normal);
                 label.color = isActive ? AccentGreen : TextDim;
+                label.enableAutoSizing = true;
+                label.fontSizeMin = 8;
+                label.fontSizeMax = 15;
                 var labelRect = label.gameObject.GetComponent<RectTransform>();
                 labelRect.anchorMin = Vector2.zero;
-                labelRect.anchorMax = new Vector2(1, 0.34f);
-                labelRect.offsetMin = new Vector2(2, 3);
-                labelRect.offsetMax = new Vector2(-2, 0);
+                labelRect.anchorMax = new Vector2(1, 0.42f);
+                labelRect.offsetMin = new Vector2(3, 1);
+                labelRect.offsetMax = new Vector2(-3, 0);
+
+                // Click handler
+                var tabBtn = tabOuter.AddComponent<Button>();
+                tabBtn.targetGraphic = outerImg;
+                var capturedTab = appTab;
+                tabBtn.onClick.AddListener(new Action(() => SwitchTab(capturedTab)));
+
+                _navTabs.Add(new NavTabRef
+                {
+                    Tab = appTab,
+                    OuterImage = outerImg,
+                    InnerImage = innerImg,
+                    IconImage = iconImg,
+                    Label = label
+                });
             }
+        }
+
+        /// <summary>Updates nav bar visuals to reflect the active tab.</summary>
+        private void UpdateNavVisuals()
+        {
+            float borderW = 2f;
+            for (int i = 0; i < _navTabs.Count; i++)
+            {
+                var navTab = _navTabs[i];
+                bool isActive = navTab.Tab == _activeTab;
+
+                if (navTab.OuterImage != null)
+                    navTab.OuterImage.color = isActive ? AccentGreen : Color.clear;
+
+                if (navTab.InnerImage != null)
+                {
+                    navTab.InnerImage.color = isActive ? new Color(0.06f, 0.12f, 0.06f) : Color.clear;
+                    var innerRect = navTab.InnerImage.GetComponent<RectTransform>();
+                    innerRect.offsetMin = isActive ? new Vector2(borderW, borderW) : Vector2.zero;
+                    innerRect.offsetMax = isActive ? new Vector2(-borderW, -borderW) : Vector2.zero;
+                }
+
+                if (navTab.IconImage != null)
+                    navTab.IconImage.color = isActive ? AccentGreen : TextDim;
+
+                if (navTab.Label != null)
+                {
+                    navTab.Label.color = isActive ? AccentGreen : TextDim;
+                    navTab.Label.fontStyle = isActive ? FontStyles.Bold : FontStyles.Normal;
+                }
+            }
+
+            // Show logo underline only when Overview is active
+            if (_logoUnderline != null)
+                _logoUnderline.SetActive(_activeTab == AppTab.Overview);
         }
 
         // ==================================================================
@@ -108,7 +182,7 @@ namespace OverTheCounter.Apps
 
             // Sidebar title
             var title = TMPFactory.Text("SidebarTitle", "<b>CUSTOMIZATION</b>",
-                sidebar.transform, 13, TextAlignmentOptions.TopLeft);
+                sidebar.transform, 15, TextAlignmentOptions.TopLeft);
             title.color = TextMuted;
             var titleRect = title.gameObject.GetComponent<RectTransform>();
             titleRect.anchorMin = new Vector2(0, 1);
@@ -232,35 +306,58 @@ namespace OverTheCounter.Apps
             topRect.sizeDelta = new Vector2(0, HEADER_HEIGHT);
             topRect.anchoredPosition = Vector2.zero;
 
-            // Logo icon
+            // Logo + title — clickable, navigates to Overview
+            var logoBtn = UIFactory.Panel("LogoButton", topBar.transform, Color.clear);
+            var logoBtnRect = logoBtn.GetComponent<RectTransform>();
+            logoBtnRect.anchorMin = Vector2.zero;
+            logoBtnRect.anchorMax = new Vector2(0.4f, 1);
+            logoBtnRect.offsetMin = Vector2.zero;
+            logoBtnRect.offsetMax = Vector2.zero;
+
             float titleLeft = 12f;
             var logoSprite = LoadIcon("GreenTabLogo");
             if (logoSprite != null)
             {
                 var logoGo = new GameObject("TopBarLogo");
-                logoGo.transform.SetParent(topBar.transform, false);
+                logoGo.transform.SetParent(logoBtn.transform, false);
                 var logoImg = logoGo.AddComponent<Image>();
                 logoImg.sprite = logoSprite;
                 logoImg.preserveAspect = true;
                 logoImg.color = AccentGreen;
+                logoImg.raycastTarget = false;
                 var logoRect = logoGo.GetComponent<RectTransform>();
-                logoRect.anchorMin = new Vector2(0, 0.15f);
-                logoRect.anchorMax = new Vector2(0, 0.85f);
+                logoRect.anchorMin = new Vector2(0, 0.08f);
+                logoRect.anchorMax = new Vector2(0, 0.92f);
                 logoRect.pivot = new Vector2(0, 0.5f);
-                logoRect.sizeDelta = new Vector2(22, 0);
-                logoRect.anchoredPosition = new Vector2(12, 0);
-                titleLeft = 40f;
+                logoRect.sizeDelta = new Vector2(32, 0);
+                logoRect.anchoredPosition = new Vector2(8, 0);
+                titleLeft = 46f;
             }
 
             // "GreenTab POS" title
             var title = TMPFactory.Text("TopBarTitle", "<b>GreenTab POS</b>",
-                topBar.transform, 15, TextAlignmentOptions.Left, FontStyles.Bold);
+                logoBtn.transform, 15, TextAlignmentOptions.Left, FontStyles.Bold);
             title.color = AccentGreen;
+            title.raycastTarget = false;
             var titleRect = title.gameObject.GetComponent<RectTransform>();
             titleRect.anchorMin = Vector2.zero;
-            titleRect.anchorMax = new Vector2(0.5f, 1);
+            titleRect.anchorMax = Vector2.one;
             titleRect.offsetMin = new Vector2(titleLeft, 0);
             titleRect.offsetMax = Vector2.zero;
+
+            var logoBtnComp = logoBtn.AddComponent<Button>();
+            logoBtnComp.targetGraphic = logoBtn.GetComponent<Image>();
+            logoBtnComp.onClick.AddListener(new Action(() => SwitchTab(AppTab.Overview)));
+
+            // Green underline — visible when Overview tab is active
+            _logoUnderline = UIFactory.Panel("LogoUnderline", logoBtn.transform, AccentGreen);
+            var ulRect = _logoUnderline.GetComponent<RectTransform>();
+            ulRect.anchorMin = new Vector2(0, 0);
+            ulRect.anchorMax = new Vector2(0, 0);
+            ulRect.pivot = new Vector2(0.5f, 0);
+            ulRect.sizeDelta = new Vector2(130, 2);
+            ulRect.anchoredPosition = new Vector2(80, 4);
+            _logoUnderline.SetActive(_activeTab == AppTab.Overview);
 
             // Property selector (right side) — subtle rounded box
             var propBorder = RoundedPanel("PropBorder", topBar.transform,
@@ -281,8 +378,8 @@ namespace OverTheCounter.Apps
             propRect.offsetMax = new Vector2(-1, -1);
 
             _propertyDropdownText = TMPFactory.Text("PropText",
-                GetBuildingDisplayName(_selectedBuildingId) + " ▼",
-                propBtn.transform, 12, TextAlignmentOptions.Center);
+                GetBuildingDisplayName(_selectedBuildingId) + " \u25BC",
+                propBtn.transform, 15, TextAlignmentOptions.Center);
             _propertyDropdownText.color = new Color(0.88f, 0.88f, 0.88f);
             var propTextRect = _propertyDropdownText.gameObject.GetComponent<RectTransform>();
             propTextRect.anchorMin = Vector2.zero;
@@ -316,7 +413,7 @@ namespace OverTheCounter.Apps
             if (_dropdownPanel != null) UnityEngine.Object.Destroy(_dropdownPanel);
 
             var buildings = GetOwnedBuildings();
-            if (buildings.Count <= 1) return;
+            if (buildings.Count == 0) return;
 
             // Transparent full-screen blocker catches clicks outside the dropdown
             _dropdownBlocker = UIFactory.Panel("DropdownBlocker", _rootPanel.transform,
@@ -330,12 +427,12 @@ namespace OverTheCounter.Apps
             _dropdownPanel = RoundedPanel("DropdownPanel", _rootPanel.transform, DropdownBg);
             _dropdownPanel.transform.SetAsLastSibling();
             var dpRect = _dropdownPanel.GetComponent<RectTransform>();
-            // Position: top-right, just below header
             dpRect.anchorMin = new Vector2(1, 1);
             dpRect.anchorMax = new Vector2(1, 1);
             dpRect.pivot = new Vector2(1, 1);
             float rowHeight = 28f;
-            float panelHeight = buildings.Count * rowHeight + 6;
+            int totalRows = buildings.Count + 1; // +1 for "All Properties"
+            float panelHeight = totalRows * rowHeight + 6;
             dpRect.sizeDelta = new Vector2(155, panelHeight);
             dpRect.anchoredPosition = new Vector2(-8, -(HEADER_HEIGHT + 2));
 
@@ -343,6 +440,30 @@ namespace OverTheCounter.Apps
             outline.effectColor = new Color(0.25f, 0.25f, 0.25f);
             outline.effectDistance = new Vector2(1, -1);
 
+            // "All Properties" row at top
+            var allRow = RoundedPanel("DropdownRow_All", _dropdownPanel.transform,
+                _selectedBuildingId == AllPropertiesId ? CardSelected : Color.clear);
+            var allRowRect = allRow.GetComponent<RectTransform>();
+            allRowRect.anchorMin = new Vector2(0, 1);
+            allRowRect.anchorMax = new Vector2(1, 1);
+            allRowRect.pivot = new Vector2(0.5f, 1);
+            allRowRect.sizeDelta = new Vector2(0, rowHeight);
+            allRowRect.anchoredPosition = new Vector2(0, -3);
+
+            var allLabel = TMPFactory.Text("DropdownLabel_All", "All Properties",
+                allRow.transform, 15, TextAlignmentOptions.Center);
+            allLabel.color = new Color(0.88f, 0.88f, 0.88f);
+            var allLabelRect = allLabel.gameObject.GetComponent<RectTransform>();
+            allLabelRect.anchorMin = Vector2.zero;
+            allLabelRect.anchorMax = Vector2.one;
+            allLabelRect.offsetMin = new Vector2(6, 0);
+            allLabelRect.offsetMax = new Vector2(-6, 0);
+
+            var allBtn = allRow.AddComponent<Button>();
+            allBtn.targetGraphic = allRow.GetComponent<Image>();
+            allBtn.onClick.AddListener(new Action(() => SelectBuilding(AllPropertiesId)));
+
+            // Individual building rows
             for (int i = 0; i < buildings.Count; i++)
             {
                 var bid = buildings[i];
@@ -353,11 +474,11 @@ namespace OverTheCounter.Apps
                 rowRect.anchorMax = new Vector2(1, 1);
                 rowRect.pivot = new Vector2(0.5f, 1);
                 rowRect.sizeDelta = new Vector2(0, rowHeight);
-                rowRect.anchoredPosition = new Vector2(0, -(3 + i * rowHeight));
+                rowRect.anchoredPosition = new Vector2(0, -(3 + (i + 1) * rowHeight));
 
                 var label = TMPFactory.Text($"DropdownLabel_{i}",
                     GetBuildingDisplayName(bid),
-                    row.transform, 11, TextAlignmentOptions.Center);
+                    row.transform, 15, TextAlignmentOptions.Center);
                 label.color = new Color(0.88f, 0.88f, 0.88f);
                 var labelRect = label.gameObject.GetComponent<RectTransform>();
                 labelRect.anchorMin = Vector2.zero;
@@ -402,10 +523,12 @@ namespace OverTheCounter.Apps
             _selectedBuildingId = buildingId;
 
             if (_propertyDropdownText != null)
-                _propertyDropdownText.text = GetBuildingDisplayName(_selectedBuildingId) + " ▼";
+                _propertyDropdownText.text = GetBuildingDisplayName(_selectedBuildingId) + " \u25BC";
 
             HideDropdown();
-            RefreshCards();
+
+            // Refresh active tab with new building context
+            SwitchTab(_activeTab);
         }
     }
 }

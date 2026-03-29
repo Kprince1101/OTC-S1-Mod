@@ -129,7 +129,31 @@ namespace OverTheCounter.SaveData
         public int Quantity;
         public float PricePerUnit;
         public int QualityLevel;
+        /// <summary>In-game day number when the sale occurred.</summary>
         public int GameDay;
+        /// <summary>Customer NPC name (e.g. "Peter File").</summary>
+        public string CustomerName;
+        /// <summary>24h time int when the sale occurred (e.g. 1330 = 1:30 PM).</summary>
+        public int GameHour;
+        /// <summary>Groups line items belonging to the same checkout transaction.</summary>
+        public string TransactionId;
+        /// <summary>Tip amount paid by the customer for this line item.</summary>
+        public float TipAmount;
+        /// <summary>Building ID where the sale took place (e.g. "westville_shack").</summary>
+        public string BuildingId;
+    }
+
+    /// <summary>
+    /// Daily snapshot of total inventory count across all OTC buildings.
+    /// Used by the GreenTab POS overview chart.
+    /// </summary>
+    [Serializable]
+    public class OtcInventorySnapshot
+    {
+        /// <summary>In-game day number when the snapshot was taken.</summary>
+        public int GameDay;
+        /// <summary>Total product count across all owned OTC buildings.</summary>
+        public int TotalCount;
     }
 
     /// <summary>
@@ -162,6 +186,9 @@ namespace OverTheCounter.SaveData
 
         [SaveableField("otc_sales_log")]
         private List<OtcSaleRecord> _salesLog = new();
+
+        [SaveableField("otc_inventory_snapshots")]
+        private List<OtcInventorySnapshot> _inventorySnapshots = new();
 
         [SaveableField("otc_register_balance")]
         private float _registerBalance;
@@ -253,7 +280,8 @@ namespace OverTheCounter.SaveData
         // ==================================================================
 
         /// <summary>Records a product sale for analytics.</summary>
-        public void RecordSale(string productId, string productName, int quantity, float pricePerUnit, int qualityLevel, int gameDay)
+        public void RecordSale(string productId, string productName, int quantity, float pricePerUnit, int qualityLevel, int gameDay,
+            string customerName = null, int gameHour = 0, string transactionId = null, float tipAmount = 0f, string buildingId = null)
         {
             _salesLog.Add(new OtcSaleRecord
             {
@@ -262,16 +290,64 @@ namespace OverTheCounter.SaveData
                 Quantity = quantity,
                 PricePerUnit = pricePerUnit,
                 QualityLevel = qualityLevel,
-                GameDay = gameDay
+                GameDay = gameDay,
+                CustomerName = customerName,
+                GameHour = gameHour,
+                TransactionId = transactionId,
+                TipAmount = tipAmount,
+                BuildingId = buildingId
             });
             OnSaleRecorded?.Invoke();
         }
+
+        private int _txCounter;
+
+        /// <summary>Returns a unique transaction ID for grouping products from the same checkout.</summary>
+        public string NextTransactionId() => $"tx_{_txCounter++}";
 
         /// <summary>Fired after each RecordSale call (host-only).</summary>
         public static event Action OnSaleRecorded;
 
         /// <summary>Returns all recorded sales.</summary>
         public List<OtcSaleRecord> GetSalesLog() => _salesLog;
+
+        /// <summary>Removes sales older than 7 days from the current day.</summary>
+        public void TrimSalesLog(int currentDay)
+        {
+            int cutoff = currentDay - 7;
+            _salesLog.RemoveAll(s => s.GameDay < cutoff);
+        }
+
+        // ==================================================================
+        // Inventory snapshots (for GreenTab overview chart)
+        // ==================================================================
+
+        private const int MaxSnapshotDays = 7;
+
+        /// <summary>Records a daily inventory snapshot. Keeps only the last 7 days.</summary>
+        public void RecordInventorySnapshot(int gameDay, int totalCount)
+        {
+            // Update existing entry for this day, or append new
+            var existing = _inventorySnapshots.FirstOrDefault(s => s.GameDay == gameDay);
+            if (existing != null)
+            {
+                existing.TotalCount = totalCount;
+                return;
+            }
+
+            _inventorySnapshots.Add(new OtcInventorySnapshot
+            {
+                GameDay = gameDay,
+                TotalCount = totalCount
+            });
+
+            // Trim to last 7 entries
+            while (_inventorySnapshots.Count > MaxSnapshotDays)
+                _inventorySnapshots.RemoveAt(0);
+        }
+
+        /// <summary>Returns all inventory snapshots (up to 7 days).</summary>
+        public List<OtcInventorySnapshot> GetInventorySnapshots() => _inventorySnapshots;
 
         // ==================================================================
         // Property record access

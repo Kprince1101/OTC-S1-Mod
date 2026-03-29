@@ -21,17 +21,21 @@ using TMPro;
 namespace OverTheCounter.Apps
 {
     /// <summary>
-    /// GreenTab POS — phone app for dispensary customization.
-    /// Horizontal orientation. Supports desk, wall, floor, and lighting upgrades.
+    /// GreenTab POS — phone app for dispensary management.
+    /// Horizontal orientation. Overview dashboard, sales, inventory, employees, and customization tabs.
     /// Split across partial files:
-    ///   GreenTabApp.cs            — core, fields, lifecycle, utilities
-    ///   GreenTabApp.Navigation.cs — nav bar, sidebar, top bar, dropdown
-    ///   GreenTabApp.Cards.cs      — card grid, footer, refresh, click routing
-    ///   GreenTabApp.DeskTab.cs    — desk style cards + purchase logic
-    ///   GreenTabApp.LightingTab.cs— lighting style cards + purchase logic
-    ///   GreenTabApp.WallsTab.cs   — wall style cards (exterior + interior)
-    ///   GreenTabApp.FlooringTab.cs— floor style cards + purchase logic
-    ///   GreenTabApp.Helpers.cs    — balance, counter, building lookups
+    ///   GreenTabApp.cs             — core, fields, lifecycle, tab system
+    ///   GreenTabApp.Navigation.cs  — nav bar, sidebar, top bar, dropdown
+    ///   GreenTabApp.Cards.cs       — card grid, footer, refresh, click routing (Customize tab)
+    ///   GreenTabApp.DeskTab.cs     — desk style cards + purchase logic
+    ///   GreenTabApp.LightingTab.cs — lighting style cards + purchase logic
+    ///   GreenTabApp.WallsTab.cs    — wall style cards (exterior + interior)
+    ///   GreenTabApp.FlooringTab.cs — floor style cards + purchase logic
+    ///   GreenTabApp.Helpers.cs     — balance, counter, building lookups
+    ///   GreenTabApp.OverviewTab.cs — overview dashboard with line charts
+    ///   GreenTabApp.SalesTab.cs    — sales log table
+    ///   GreenTabApp.InventoryTab.cs— per-building inventory view
+    ///   GreenTabApp.EmployeesTab.cs— employees placeholder
     /// </summary>
     public partial class GreenTabApp : PhoneApp
     {
@@ -44,9 +48,9 @@ namespace OverTheCounter.Apps
         protected override Sprite IconSprite => LoadIcon("GreenTabIcon");
 
         // ---- Layout constants ----
-        private const float NAV_WIDTH_FRAC = 0.08f;
+        private const float NAV_WIDTH_FRAC = 0.12f;
         private const float SIDEBAR_WIDTH_FRAC = 0.22f;
-        private const float HEADER_HEIGHT = 36f;
+        private const float HEADER_HEIGHT = 52f;
         private const float FOOTER_HEIGHT = 52f;
         private const float CARD_WIDTH = 140f;
         private const float CARD_HEIGHT = 110f;
@@ -70,7 +74,10 @@ namespace OverTheCounter.Apps
         private static readonly Color TopBarBg = new(0.09f, 0.09f, 0.09f);     // #171717 slight lift
         private static readonly Color DropdownBg = new(0.14f, 0.14f, 0.14f);   // #242424 dropdown surface
 
-        // ---- Category sidebar ----
+        // ---- Top-level app tabs ----
+        internal enum AppTab { Overview, Sales, Inventory, Employees, Customize }
+
+        // ---- Category sidebar (Customize tab only) ----
         private enum Category { CheckoutDesk, Walls, Flooring, Lighting }
 
         private static readonly (Category cat, string label, bool locked)[] Categories =
@@ -81,7 +88,12 @@ namespace OverTheCounter.Apps
             (Category.Lighting, "Lighting", false), // set true to gate behind unlock
         };
 
-        // ---- State ----
+        // ---- Tab state ----
+        private const string AllPropertiesId = "all";
+        private AppTab _activeTab = AppTab.Overview;
+        private readonly Dictionary<AppTab, GameObject> _tabPanels = new();
+
+        // ---- Customize tab state ----
         private Category _activeCategory = Category.CheckoutDesk;
         private string _selectedBuildingId;
         private string _pendingStyleId;
@@ -96,6 +108,8 @@ namespace OverTheCounter.Apps
         private GameObject _landingPanel;
         private Transform _sidebarParent;
         private GameObject _sidebarPanel;
+        private GameObject _footerPanel;
+        private GameObject _cardScrollContainer;
         private Transform _cardGrid;
         private TextMeshProUGUI _balanceText;
         private TextMeshProUGUI _propertyDropdownText;
@@ -106,6 +120,7 @@ namespace OverTheCounter.Apps
         private GameObject _dropdownPanel;
         private GameObject _dropdownBlocker;
         private bool _dropdownOpen;
+        private GameObject _logoUnderline;
         private bool _wasOpen;
 
         // Card tracking for refresh
@@ -200,6 +215,10 @@ namespace OverTheCounter.Apps
         private static readonly string[] NavIconNames =
             { "SalesIcon", "InventoryIcon", "EmployeesIcon", "CustomizeIcon" };
 
+        // ---- AppTab values matching NavIconNames order ----
+        private static readonly AppTab[] NavTabOrder =
+            { AppTab.Sales, AppTab.Inventory, AppTab.Employees, AppTab.Customize };
+
         // ---- Category icon names (order matches Categories array) ----
         private static readonly string[] CatIconNames =
             { "CatDeskIcon", "CatWallsIcon", "CatFlooringIcon", "CatLightingIcon" };
@@ -270,21 +289,85 @@ namespace OverTheCounter.Apps
         {
             _rootPanel = UIFactory.Panel("GreenTabRoot", container.transform, BgDark, fullAnchor: true);
 
-            // Pick initial building — first owned one that has a counter
-            _selectedBuildingId = GetOwnedBuildings().FirstOrDefault() ?? PropertySaveData.ShackId;
+            // Pick initial building
+            _selectedBuildingId = AllPropertiesId;
 
             BuildTopBar(_rootPanel.transform);
             BuildNavBar(_rootPanel.transform);
+
+            // Customize tab components (sidebar, card area, footer)
             BuildSidebar(_rootPanel.transform);
             BuildCardArea(_rootPanel.transform);
             BuildFooter(_rootPanel.transform);
+
+            // Other tab panels
+            BuildOverviewPanel(_rootPanel.transform);
+            BuildSalesPanel(_rootPanel.transform);
+            BuildInventoryPanel(_rootPanel.transform);
+            BuildEmployeesPanel(_rootPanel.transform);
+
             BuildLandingPage(_rootPanel.transform);
 
             UpdateLandingVisibility();
-            RefreshCards();
-            RefreshFooter();
+            SwitchTab(AppTab.Overview);
 
+            CreateTooltipOverlay();
             MelonCoroutines.Start(AppUpdateLoop());
+        }
+
+        /// <summary>Switches the active tab, showing/hiding panels as needed.</summary>
+        internal void SwitchTab(AppTab tab)
+        {
+            _activeTab = tab;
+
+            // Show/hide Customize-only components
+            bool isCustomize = tab == AppTab.Customize;
+            if (_sidebarPanel != null) _sidebarPanel.SetActive(isCustomize);
+            if (_footerPanel != null) _footerPanel.SetActive(isCustomize);
+            if (_cardScrollContainer != null) _cardScrollContainer.SetActive(isCustomize);
+
+            // Show/hide each tab panel
+            foreach (var kvp in _tabPanels)
+            {
+                if (kvp.Value != null)
+                    kvp.Value.SetActive(kvp.Key == tab);
+            }
+
+            // Refresh the active tab's data
+            switch (tab)
+            {
+                case AppTab.Overview:
+                    RefreshOverview();
+                    break;
+                case AppTab.Sales:
+                    RefreshSales();
+                    break;
+                case AppTab.Inventory:
+                    RefreshInventory();
+                    break;
+                case AppTab.Employees:
+                    if (_empTitleLabel != null)
+                    {
+                        string empName = GetBuildingDisplayName(_selectedBuildingId);
+                        _empTitleLabel.text = $"<b>{empName}</b>  <color=#9E9E9E><size=90%>Select another property via dropdown</size></color>";
+                    }
+                    break;
+                case AppTab.Customize:
+                    if (_selectedBuildingId == AllPropertiesId)
+                    {
+                        var custBuildings = GetOwnedBuildings();
+                        if (custBuildings.Count > 0)
+                            _selectedBuildingId = custBuildings[0];
+                        if (_propertyDropdownText != null)
+                            _propertyDropdownText.text = GetBuildingDisplayName(_selectedBuildingId) + " \u25BC";
+                    }
+                    RefreshCards();
+                    RefreshFooter();
+                    UpdateCardVisuals();
+                    break;
+            }
+
+            UpdateNavVisuals();
         }
 
         private void BuildLandingPage(Transform parent)
@@ -327,35 +410,177 @@ namespace OverTheCounter.Apps
             if (_landingPanel != null) _landingPanel.SetActive(!hasStore);
         }
 
+        // ==================================================================
+        //  Shared tooltip overlay (renders above phone UI)
+        // ==================================================================
+
+        private GameObject _tooltipCanvas;
+        private GameObject _sharedTooltip;
+        private TextMeshProUGUI _sharedTooltipText;
+        private Camera _tooltipHitCam;
+
+        private void CreateTooltipOverlay()
+        {
+            _tooltipCanvas = new GameObject("OTC_GreenTabTooltip");
+            var canvas = _tooltipCanvas.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 101;
+            var scaler = _tooltipCanvas.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 0.5f;
+            _tooltipCanvas.AddComponent<GraphicRaycaster>();
+            UnityEngine.Object.DontDestroyOnLoad(_tooltipCanvas);
+
+            _sharedTooltip = new GameObject("Tooltip");
+            _sharedTooltip.transform.SetParent(_tooltipCanvas.transform, false);
+            var rt = _sharedTooltip.AddComponent<RectTransform>();
+            rt.pivot = new Vector2(0.5f, 0f);
+
+            var bg = _sharedTooltip.AddComponent<Image>();
+            bg.color = new Color(0.05f, 0.05f, 0.05f, 0.95f);
+            bg.raycastTarget = false;
+
+            var hlg = _sharedTooltip.AddComponent<HorizontalLayoutGroup>();
+            hlg.padding = new RectOffset(10, 10, 6, 6);
+            hlg.childControlWidth = true;
+            hlg.childControlHeight = true;
+
+            _sharedTooltipText = TMPFactory.Text("TooltipText", "", _sharedTooltip.transform,
+                15, TextAlignmentOptions.TopLeft);
+            _sharedTooltipText.color = new Color(0.9f, 0.9f, 0.9f);
+            _sharedTooltipText.raycastTarget = false;
+            TMPFactory.SetWrapping(_sharedTooltipText, true);
+            var le = _sharedTooltipText.gameObject.AddComponent<LayoutElement>();
+            le.preferredWidth = 280f;
+
+            var fitter = _sharedTooltip.AddComponent<ContentSizeFitter>();
+            fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            _sharedTooltip.SetActive(false);
+            _tooltipCanvas.SetActive(false);
+        }
+
+        // ==================================================================
+        //  Update loop
+        // ==================================================================
+
         private IEnumerator AppUpdateLoop()
         {
+            float refreshTimer = 0f;
+            const float REFRESH_INTERVAL = 3f;
+
             while (true)
             {
-                yield return new WaitForSeconds(0.5f);
+                yield return null;
 
                 bool isOpen;
                 try { isOpen = IsOpen(); } catch { isOpen = false; }
 
+                // Tooltip hover (every frame while open)
+                if (isOpen)
+                {
+                    try
+                    {
+                        List<(RectTransform, string)> entries = null;
+                        if (_activeTab == AppTab.Sales) entries = _salesTooltipEntries;
+                        else if (_activeTab == AppTab.Overview) entries = _overviewTooltipEntries;
+                        else if (_activeTab == AppTab.Inventory) entries = _inventoryTooltipEntries;
+
+                        if (entries != null && entries.Count > 0)
+                            UpdateTooltipHover(entries);
+                        else
+                            HideTooltip();
+                    }
+                    catch { }
+                }
+                else
+                {
+                    HideTooltip();
+                    if (_tooltipCanvas != null && _tooltipCanvas.activeSelf)
+                        _tooltipCanvas.SetActive(false);
+                }
+
                 if (isOpen && !_wasOpen)
                 {
-                    // App just opened — refresh ownership, balance, and card visuals
                     UpdateLandingVisibility();
 
                     var buildings = GetOwnedBuildings();
-                    if (buildings.Count > 0 && !buildings.Contains(_selectedBuildingId))
+                    if (_selectedBuildingId != AllPropertiesId && buildings.Count > 0 && !buildings.Contains(_selectedBuildingId))
                     {
-                        _selectedBuildingId = buildings[0];
+                        _selectedBuildingId = AllPropertiesId;
                         if (_propertyDropdownText != null)
                             _propertyDropdownText.text = GetBuildingDisplayName(_selectedBuildingId) + " \u25BC";
                     }
 
-                    RefreshCards();
-                    RefreshFooter();
-                    UpdateCardVisuals();
+                    SwitchTab(_activeTab);
+                    refreshTimer = 0f;
+                }
+
+                // Periodic refresh (every 3 seconds)
+                if (isOpen)
+                {
+                    refreshTimer += UnityEngine.Time.deltaTime;
+                    if (refreshTimer >= REFRESH_INTERVAL)
+                    {
+                        refreshTimer = 0f;
+                        try { RefreshActiveTab(); }
+                        catch { }
+                    }
                 }
 
                 _wasOpen = isOpen;
             }
+        }
+
+        private void RefreshActiveTab()
+        {
+            switch (_activeTab)
+            {
+                case AppTab.Overview: RefreshOverview(); break;
+                case AppTab.Sales: RefreshSales(); break;
+                case AppTab.Inventory: RefreshInventory(); break;
+                case AppTab.Customize: RefreshCards(); break;
+            }
+        }
+
+        private void UpdateTooltipHover(List<(RectTransform rect, string text)> entries)
+        {
+            if (_sharedTooltip == null || entries == null) { HideTooltip(); return; }
+
+            // Resolve hit-test camera from phone canvas (once, cached)
+            if (_tooltipHitCam == null && entries.Count > 0 && entries[0].rect != null)
+            {
+                var canvas = entries[0].rect.GetComponentInParent<Canvas>();
+                if (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+                    _tooltipHitCam = canvas.worldCamera;
+            }
+
+            bool found = false;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var entry = entries[i];
+                if (entry.rect != null &&
+                    RectTransformUtility.RectangleContainsScreenPoint(entry.rect, Input.mousePosition, _tooltipHitCam))
+                {
+                    if (_tooltipCanvas != null) _tooltipCanvas.SetActive(true);
+                    _sharedTooltip.SetActive(true);
+                    _sharedTooltipText.text = entry.text;
+                    // ScreenSpaceOverlay: position directly in screen coords
+                    _sharedTooltip.GetComponent<RectTransform>().position =
+                        (Vector2)Input.mousePosition + new Vector2(0, 24);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) HideTooltip();
+        }
+
+        private void HideTooltip()
+        {
+            if (_sharedTooltip != null && _sharedTooltip.activeSelf)
+                _sharedTooltip.SetActive(false);
         }
     }
 }
