@@ -129,6 +129,7 @@ namespace OverTheCounter
         public static ConfigEntry<bool> MinimapShowRank;
         public static ConfigEntry<bool> MinimapShowCompass;
         public static ConfigEntry<bool> MinimapShowEdgeIndicators;
+        public static ConfigEntry<bool> MinimapPerfLimit;
 
         // ── Minimap POIs ──
         private static MelonPreferences_Category _minimapPoi;
@@ -189,6 +190,7 @@ namespace OverTheCounter
             "MinimapShowRank",
             "MinimapShowCompass",
             "MinimapShowEdgeIndicators",
+            "MinimapPerfLimit",
             "RecipePinEnabled"
         };
 
@@ -427,6 +429,8 @@ namespace OverTheCounter
                 "Show Compass", "Display N/S/E/W cardinal direction labels on the minimap edge"));
             MinimapShowEdgeIndicators = Register(_minimap.CreateEntry("MinimapShowEdgeIndicators", true,
                 "Edge Indicators", "Show POI icons pinned to the minimap edge for off-screen points of interest"));
+            MinimapPerfLimit = Register(_minimap.CreateEntry("MinimapPerfLimit", true,
+                "Performance Limiting", "Adaptively reduce minimap update rate to limit CPU usage"));
         }
 
         private static ConfigEntry<float> Register(MelonPreferences_Entry<float> entry)

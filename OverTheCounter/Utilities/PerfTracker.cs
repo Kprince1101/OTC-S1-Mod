@@ -25,6 +25,7 @@ namespace OverTheCounter.Utilities
         private static readonly Dictionary<string, RegionStats> _regions = new();
         private static readonly Dictionary<string, long> _pending = new();
         private static readonly List<string> _regionOrder = new();
+        private static readonly Dictionary<string, string> _notes = new();
 
         // Frame tracking
         private static long _frameStartTick;
@@ -137,6 +138,15 @@ namespace OverTheCounter.Utilities
             }
         }
 
+        /// <summary>
+        /// Set a freeform note that appears in the report's Notes section.
+        /// Persists across report cycles until explicitly cleared or overwritten.
+        /// </summary>
+        public static void SetNote(string key, string value) => _notes[key] = value;
+
+        /// <summary>Remove a note by key.</summary>
+        public static void ClearNote(string key) => _notes.Remove(key);
+
         /// <summary>Write the report to disk and reset all counters.</summary>
         public static void WriteReport()
         {
@@ -201,6 +211,13 @@ namespace OverTheCounter.Utilities
                 sb.AppendLine("  Frame Time measures OTC's OnLateUpdate only, not the");
                 sb.AppendLine("  full game frame. Regions are subsections within it.");
                 sb.AppendLine("  GC alloc is process-wide (not OTC-specific).");
+
+                if (_notes.Count > 0)
+                {
+                    sb.AppendLine();
+                    foreach (var kvp in _notes)
+                        sb.AppendLine($"  [{kvp.Key}] {kvp.Value}");
+                }
 
                 File.WriteAllText(ReportPath, sb.ToString());
                 OTCLog.Msg(OTCLog.Systems.General, $"Perf report written to {ReportPath}");

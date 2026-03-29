@@ -374,6 +374,7 @@
 		<Compile Include="Patches\SupplierWarehousePatch.cs" />
 		<Compile Include="Patches\SupplierFleePatch.cs" />
 		<Compile Include="UI\MinimapOverlay.cs" />
+		<Compile Include="UI\MinimapPerfLimiter.cs" />
 		<Compile Include="Logic\Placement\BuildingGridFactory.cs" />
 		<Compile Include="Logic\Placement\BuildingPlacementPatch.cs" />
 		<Compile Include="Logic\Placement\BuildingSignage.cs" />

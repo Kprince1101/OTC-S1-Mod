@@ -117,6 +117,9 @@ namespace OverTheCounter.UI
         private bool _cfgUse24Hour;
         private bool _cfgShowRank;
 
+        // Performance limiting — see MinimapPerfLimiter for algorithm details
+        private readonly MinimapPerfLimiter _perfLimiter = new();
+
         public static void Register()
         {
 #if IL2CPP
@@ -197,7 +200,17 @@ namespace OverTheCounter.UI
                     ToggleMinimap();
 
                 if (_visible)
+                {
+                    if (_perfLimiter.ShouldSkipExpensiveUpdate())
+                    {
+                        UpdateMinimap();
+                        return;
+                    }
+
+                    _perfLimiter.BeginTiming();
                     UpdateMinimap();
+                    _perfLimiter.EndTiming();
+                }
             }
             finally { PerfTracker.End("MinimapOverlay"); }
         }
@@ -934,6 +947,13 @@ namespace OverTheCounter.UI
 
                 UpdateCompassLabels(yRot);
 
+                // Performance limiter: on throttled frames, skip expensive POI/clone work
+                if (!_perfLimiter.IsFullUpdate)
+                {
+                    UpdateMinimapDisplays();
+                    return;
+                }
+
                 // Refresh POI cache periodically
                 if (_cachedPOIs == null || Time.time - _lastPOIRefresh > 5f)
                 {
@@ -1230,89 +1250,94 @@ namespace OverTheCounter.UI
                     }
                 }
 
-                // Live-update border color (no rebuild needed)
-                if (_borderImage != null && Config.MinimapBorderColor != null)
-                    _borderImage.color = Config.MinimapBorderColor.Value;
-
-                // Update time/day display
-                if (_timeText != null)
-                {
-                    try
-                    {
-                        if (_cfgUse24Hour)
-                        {
-                            int t = TimeManager.CurrentTime;
-                            _timeText.text = $"{t / 100:D2}:{t % 100:D2}";
-                        }
-                        else
-                        {
-                            _timeText.text = TimeManager.GetFormatted12HourTime();
-                        }
-                    }
-                    catch { _timeText.text = ""; }
-                }
-
-                if (_dayText != null)
-                {
-                    try
-                    {
-                        int dayIdx = (int)TimeManager.CurrentDay;
-                        _dayText.text = (dayIdx >= 0 && dayIdx < ShortDayNames.Length)
-                            ? ShortDayNames[dayIdx]
-                            : TimeManager.CurrentDay.ToString().Substring(0, 3);
-                    }
-                    catch { _dayText.text = ""; }
-                }
-
-                // Keep player marker on top
-                if (_playerMarkerRect != null)
-                    _playerMarkerRect.transform.SetAsLastSibling();
-
-                // Update rank/XP bar
-                if (_rankText != null)
-                {
-                    try
-                    {
-                        if (LevelManager.Exists)
-                        {
-                            var rank = LevelManager.Rank;
-                            int tier = LevelManager.Tier;
-                            int rankIdx = (int)rank;
-                            string rankName = rankIdx >= 0 && rankIdx < RankNames.Length
-                                ? RankNames[rankIdx]
-                                : rank.ToString();
-                            string tierStr = tier >= 1 && tier <= 5 ? RomanTiers[tier] : tier.ToString();
-                            _rankText.text = $"{rankName} {tierStr}";
-
-                            int xp = LevelManager.XP;
-                            bool tierChanged = _lastKnownTier >= 0 && tier > _lastKnownTier;
-                            int tierDelta = tierChanged ? tier - _lastKnownTier : 0;
-
-                            if (_lastKnownXP >= 0 && xp > _lastKnownXP)
-                                SpawnXPDrop(xp - _lastKnownXP, tierChanged, tierDelta);
-                            else if (tierChanged)
-                                SpawnXPDrop(0, true, tierDelta); // XP already reset; standalone level drop
-
-                            _lastKnownXP = xp;
-                            _lastKnownTier = tier;
-
-                            float xpToNext = LevelManager.XPToNextTier;
-                            float ratio = xpToNext > 0 ? Mathf.Clamp01(xp / xpToNext) : 1f;
-                            if (_xpBarFill != null)
-                                _xpBarFill.rectTransform.anchorMax = new Vector2(ratio, 1f);
-                            if (_xpText != null)
-                                _xpText.text = $"{xp} / {Mathf.RoundToInt(xpToNext)} XP";
-                        }
-                    }
-                    catch { }
-                }
-
-                UpdateXPDrops();
+                UpdateMinimapDisplays();
             }
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Patch, $"UpdateMinimap: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Cheap per-frame updates: border color, time/day text, rank/XP bar, XP drop animations.
+        /// Called every frame (including throttled frames) so displays stay smooth.
+        /// </summary>
+        private void UpdateMinimapDisplays()
+        {
+            if (_borderImage != null && Config.MinimapBorderColor != null)
+                _borderImage.color = Config.MinimapBorderColor.Value;
+
+            if (_timeText != null)
+            {
+                try
+                {
+                    if (_cfgUse24Hour)
+                    {
+                        int t = TimeManager.CurrentTime;
+                        _timeText.text = $"{t / 100:D2}:{t % 100:D2}";
+                    }
+                    else
+                    {
+                        _timeText.text = TimeManager.GetFormatted12HourTime();
+                    }
+                }
+                catch { _timeText.text = ""; }
+            }
+
+            if (_dayText != null)
+            {
+                try
+                {
+                    int dayIdx = (int)TimeManager.CurrentDay;
+                    _dayText.text = (dayIdx >= 0 && dayIdx < ShortDayNames.Length)
+                        ? ShortDayNames[dayIdx]
+                        : TimeManager.CurrentDay.ToString().Substring(0, 3);
+                }
+                catch { _dayText.text = ""; }
+            }
+
+            if (_playerMarkerRect != null)
+                _playerMarkerRect.transform.SetAsLastSibling();
+
+            if (_rankText != null)
+            {
+                try
+                {
+                    if (LevelManager.Exists)
+                    {
+                        var rank = LevelManager.Rank;
+                        int tier = LevelManager.Tier;
+                        int rankIdx = (int)rank;
+                        string rankName = rankIdx >= 0 && rankIdx < RankNames.Length
+                            ? RankNames[rankIdx]
+                            : rank.ToString();
+                        string tierStr = tier >= 1 && tier <= 5 ? RomanTiers[tier] : tier.ToString();
+                        _rankText.text = $"{rankName} {tierStr}";
+
+                        int xp = LevelManager.XP;
+                        bool tierChanged = _lastKnownTier >= 0 && tier > _lastKnownTier;
+                        int tierDelta = tierChanged ? tier - _lastKnownTier : 0;
+
+                        if (_lastKnownXP >= 0 && xp > _lastKnownXP)
+                            SpawnXPDrop(xp - _lastKnownXP, tierChanged, tierDelta);
+                        else if (tierChanged)
+                            SpawnXPDrop(0, true, tierDelta);
+
+                        _lastKnownXP = xp;
+                        _lastKnownTier = tier;
+
+                        float xpToNext = LevelManager.XPToNextTier;
+                        float ratio = xpToNext > 0 ? Mathf.Clamp01(xp / xpToNext) : 1f;
+                        if (_xpBarFill != null)
+                            _xpBarFill.rectTransform.anchorMax = new Vector2(ratio, 1f);
+                        if (_xpText != null)
+                            _xpText.text = $"{xp} / {Mathf.RoundToInt(xpToNext)} XP";
+                    }
+                }
+                catch { }
+            }
+
+            UpdateXPDrops();
         }
 
         /// <summary>
