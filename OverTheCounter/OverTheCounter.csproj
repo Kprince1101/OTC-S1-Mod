@@ -306,6 +306,7 @@
 		<Compile Include="Logic\CustomerSpawnPoints.cs" />
 		<Compile Include="Logic\CustomerInstance.cs" />
 		<Compile Include="Logic\CustomerManager.cs" />
+		<Compile Include="Logic\QueueSlotCalculator.cs" />
 		<Compile Include="Logic\CheckoutProcess.cs" />
 		<Compile Include="Logic\DispensaryDealManager.cs" />
 		<Compile Include="Logic\BudtenderHUD.cs" />
@@ -338,6 +339,9 @@
 		<Compile Include="Quests\StaticUpgrade2Quest.cs" />
 		<Compile Include="Quests\DrifterDealQuest.cs" />
 		<Compile Include="Quests\StorefrontGrowthQuest.cs" />
+		<Compile Include="Quests\BuildingAlertQuest.cs" />
+		<Compile Include="Quests\ShackAlertQuest.cs" />
+		<Compile Include="Quests\DispensaryAlertQuest.cs" />
 		<Compile Include="Config.cs" />
 		<Compile Include="Utilities\ConfigEntry.cs" />
 		<Compile Include="Utilities\StorageFilterHelper.cs" />

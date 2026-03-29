@@ -1,4 +1,5 @@
 using OverTheCounter.Logic.Placement;
+using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1API.GameTime;
@@ -35,7 +36,6 @@ namespace OverTheCounter.Logic
         private const int SpawnEndHour = 20;
         private const float DespawnDistance = 30f;
 
-        private const float QueueSpacing = 1.0f;
 
         // Client-side adoption
         private readonly Dictionary<string, PendingAdoption> _pendingAdoptions = new();
@@ -95,6 +95,7 @@ namespace OverTheCounter.Logic
         private void OnDayPass()
         {
             _lastSpawnSlot = -1;
+            DispensaryDealManager.OnDayPass();
             foreach (var counter in CheckoutCounter.AllCounters)
             {
                 counter.Queue.Clear();
@@ -135,6 +136,7 @@ namespace OverTheCounter.Logic
                         {
                             customer.ArrivedAtDestination = false;
                             customer.State = CustomerState.EnteringStore;
+                            customer.DisableObstacleAvoidance();
                             customer.SendToInterior(customer.Target.RoomCenterLocal, () =>
                             {
                                 customer.ArrivedAtDestination = true;
@@ -210,10 +212,15 @@ namespace OverTheCounter.Logic
                             {
                                 customer.State = CustomerState.CheckingOut;
                                 customer.CheckoutStartHour = TimeManager.CurrentTime / 100;
+                                customer.CheckoutStartTime = TimeManager.CurrentTime;
                                 customer.AssignedCounter = bestCounter;
+                                if (customer.Target?.Name == "WestvilleShack")
+                                    ShackAlertQuest.EnsureExists();
+                                else
+                                    DispensaryAlertQuest.EnsureExists();
                                 bestCounter.Queue.Add(customer.Id);
                                 int queueIdx = bestCounter.Queue.Count - 1;
-                                customer.SendToInterior(GetQueuePositionLocal(bestCounter, queueIdx, customer.Target?.NavBuilder), () =>
+                                customer.SendToInterior(GetQueuePositionLocal(bestCounter, queueIdx, customer.Target), () =>
                                 {
                                     customer.ArrivedAtDestination = true;
                                 });
@@ -242,18 +249,38 @@ namespace OverTheCounter.Logic
                             }
                         }
 
-                        // Only the front-of-queue customer is eligible for checkout
+                        // Face the counter when arriving at any queue position
                         var assignedCounter = customer.AssignedCounter;
-                        if (assignedCounter != null && assignedCounter.Queue.Count > 0 &&
-                            assignedCounter.Queue[0] == customer.Id)
+                        if (assignedCounter != null && customer.ArrivedAtDestination && customer.CheckoutArrivalTime == 0f)
                         {
-                            if (customer.ArrivedAtDestination && customer.CheckoutArrivalTime == 0f)
+                            var counterPos1 = assignedCounter.CounterPosition;
+                            bool isFront = assignedCounter.Queue.Count > 0 &&
+                                           assignedCounter.Queue[0] == customer.Id;
+
+                            if (isFront)
                             {
                                 customer.CheckoutArrivalTime = Time.time;
-                                var counterPos1 = assignedCounter.CounterPosition;
                                 if (counterPos1.HasValue)
                                     customer.FaceAndAnimate(counterPos1.Value);
                                 assignedCounter.Screen?.ShowCheckoutInfo(customer.SelectedProducts);
+                            }
+                            else
+                            {
+                                // Mark as faced so we don't repeat; use -1 to distinguish from front
+                                customer.CheckoutArrivalTime = -1f;
+
+                                // Face the person ahead in line (use their actual NPC position)
+                                int myIdx = assignedCounter.Queue.IndexOf(customer.Id);
+                                if (myIdx > 0)
+                                {
+                                    string aheadId = assignedCounter.Queue[myIdx - 1];
+                                    if (CustomerInstance.Active.TryGetValue(aheadId, out var ahead) && ahead.Position.HasValue)
+                                        customer.FaceToward(ahead.Position.Value);
+                                    else if (counterPos1.HasValue)
+                                        customer.FaceToward(counterPos1.Value);
+                                }
+                                else if (counterPos1.HasValue)
+                                    customer.FaceToward(counterPos1.Value);
                             }
                         }
                         break;
@@ -266,6 +293,7 @@ namespace OverTheCounter.Logic
                             if (nav == null || !nav.IsNPCInside(customer.GameNpc.Movement))
                             {
                                 customer.State = CustomerState.LeavingStore;
+                                customer.RestoreObstacleAvoidance();
                                 customer.SetAvoidancePriority(50);
 
                                 // Deal customers walk back to their warp point; random customers to spawn point
@@ -354,24 +382,27 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Returns the world position for a given queue index at a specific counter.
-        /// Index 0 = front (at counter), subsequent customers stand further back.
-        /// </summary>
-        private static Vector3 GetQueuePosition(CheckoutCounterInstance counter, int queueIndex)
-        {
-            var counterPos = counter.CounterPosition.Value;
-            var counterForward = counter.CounterTransform.forward;
-            return counterPos - counterForward * (1.0f + queueIndex * QueueSpacing);
-        }
-
-        /// <summary>
-        /// Returns the LOCAL position for a given queue index (for SendNPCToPosition).
+        /// Returns the LOCAL queue position for a given index, using cached BFS queue slots.
+        /// Falls back to dogpiling on the last slot if index exceeds available slots.
         /// </summary>
         private static Vector3 GetQueuePositionLocal(CheckoutCounterInstance counter, int queueIndex,
-            S1MAPI.Building.NavigationBuilder nav)
+            BuildingTarget target)
         {
-            var worldPos = GetQueuePosition(counter, queueIndex);
-            return nav != null ? nav.WorldToLocal(worldPos) : worldPos;
+            if (target == null) return Vector3.zero;
+
+            var slots = counter.CachedQueueSlots;
+            if (slots == null || slots.Count == 0)
+            {
+                slots = QueueSlotCalculator.Compute(target, counter);
+                counter.CachedQueueSlots = slots;
+            }
+
+            if (slots.Count == 0) return Vector3.zero;
+            if (queueIndex < slots.Count)
+                return slots[queueIndex];
+
+            // Dogpile: stand on last valid slot
+            return slots[slots.Count - 1];
         }
 
         /// <summary>
@@ -384,7 +415,7 @@ namespace OverTheCounter.Logic
                 if (!CustomerInstance.Active.TryGetValue(counter.Queue[i], out var c)) continue;
                 c.ArrivedAtDestination = false;
                 c.CheckoutArrivalTime = 0f;
-                c.SendToInterior(GetQueuePositionLocal(counter, i, c.Target?.NavBuilder), () =>
+                c.SendToInterior(GetQueuePositionLocal(counter, i, c.Target), () =>
                 {
                     c.ArrivedAtDestination = true;
                 });
@@ -471,8 +502,8 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Serializes all active customers for SyncVar transmission.
         /// Format: "id:seed:spawnIdx:state:netObjId;id2:seed2:..."
-        /// CheckingOut customers include counter index and optional products:
-        /// "id:seed:spawnIdx:state:netObjId:counterIdx:prodId,pkgId,qty,name,price,quality~prod2~..."
+        /// CheckingOut customers include counter index, start time, and optional products:
+        /// "id:seed:spawnIdx:state:netObjId:counterIdx:startTime:prodId,pkgId,qty,name,price,quality~prod2~..."
         /// </summary>
         public string SerializeCustomerState()
         {
@@ -489,7 +520,7 @@ namespace OverTheCounter.Logic
                 if (c.State == CustomerState.CheckingOut)
                 {
                     int counterIdx = CheckoutCounter.GetCounterIndex(c.AssignedCounter);
-                    entry += $":{counterIdx}";
+                    entry += $":{counterIdx}:{c.CheckoutStartTime}";
 
                     if (c.SelectedProducts.Count > 0)
                     {
@@ -536,14 +567,17 @@ namespace OverTheCounter.Logic
                     var state = (CustomerState)stateInt;
                     hostCustomers.Add(customerId);
 
-                    // Parse counter index (6th field) and products (7th field) for CheckingOut
+                    // Parse counter index (6th), checkout start time (7th), products (8th) for CheckingOut
                     int counterIdx = -1;
+                    int checkoutStartTime = 0;
                     List<CustomerInstance.SelectedProduct> products = null;
                     if (parts.Length > 5)
                     {
                         int.TryParse(parts[5], out counterIdx);
-                        if (parts.Length > 6 && !string.IsNullOrEmpty(parts[6]))
-                            products = ParseSelectedProducts(parts[6]);
+                        if (parts.Length > 6)
+                            int.TryParse(parts[6], out checkoutStartTime);
+                        if (parts.Length > 7 && !string.IsNullOrEmpty(parts[7]))
+                            products = ParseSelectedProducts(parts[7]);
                     }
 
                     // Already tracked — update state, counter assignment, and products
@@ -552,6 +586,8 @@ namespace OverTheCounter.Logic
                         existing.State = state;
                         if (counterIdx >= 0)
                             existing.AssignedCounter = CheckoutCounter.GetCounterByIndex(counterIdx);
+                        if (checkoutStartTime > 0)
+                            existing.CheckoutStartTime = checkoutStartTime;
                         if (products != null && products.Count > 0 && existing.SelectedProducts.Count == 0)
                         {
                             existing.SelectedProducts.Clear();
@@ -579,6 +615,8 @@ namespace OverTheCounter.Logic
                         {
                             if (counterIdx >= 0)
                                 adopted.AssignedCounter = CheckoutCounter.GetCounterByIndex(counterIdx);
+                            if (checkoutStartTime > 0)
+                                adopted.CheckoutStartTime = checkoutStartTime;
                             if (products != null)
                                 adopted.SelectedProducts.AddRange(products);
                         }

@@ -114,6 +114,12 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Customer IDs queued at this counter (index 0 = front).</summary>
         internal List<string> Queue { get; } = new();
 
+        /// <summary>Cached BFS queue positions in local space. Null = not yet computed.</summary>
+        internal List<Vector3> CachedQueueSlots;
+
+        /// <summary>Invalidates cached queue positions (e.g. after furniture moved).</summary>
+        internal void InvalidateQueueCache() => CachedQueueSlots = null;
+
         /// <summary>Steam ID of the player currently checking out at this counter, or empty.</summary>
         internal string LockHolder { get; set; } = "";
 

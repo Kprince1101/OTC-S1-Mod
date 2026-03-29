@@ -480,6 +480,10 @@ namespace OverTheCounter
 
                 // Storefront Growth quest polling (throttled internally)
                 Quests.StorefrontGrowthQuest.Instance?.Tick();
+
+                // Store alert quests — checkout waiting timers (per building)
+                Quests.ShackAlertQuest.Instance?.Tick();
+                Quests.DispensaryAlertQuest.Instance?.Tick();
                 PerfTracker.End("QuestTicks");
 
             }
@@ -546,6 +550,8 @@ namespace OverTheCounter
             _drifterManager?.Cleanup();
             _managerManager?.Cleanup();
             _customerManager?.Cleanup();
+            Quests.ShackAlertQuest.Instance?.Dismiss();
+            Quests.DispensaryAlertQuest.Instance?.Dismiss();
         }
 
         /// <summary>

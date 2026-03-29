@@ -180,6 +180,9 @@ namespace OverTheCounter.Logic
         /// <summary>Game hour (0-23) when the customer joined the checkout queue.</summary>
         public int CheckoutStartHour { get; set; }
 
+        /// <summary>Full HHMM game time when the customer joined the checkout queue (minute precision).</summary>
+        public int CheckoutStartTime { get; set; }
+
         /// <summary>The counter this customer is queued at, or null.</summary>
         internal CheckoutCounterInstance AssignedCounter { get; set; }
 
@@ -733,6 +736,15 @@ namespace OverTheCounter.Logic
             GameNpc.SetAnimationTrigger_Networked(null, "GrabItem");
         }
 
+        public void FaceToward(Vector3 target)
+        {
+            if (!IsValid) return;
+            var dir = target - GameNpc.transform.position;
+            dir.y = 0f;
+            if (dir.sqrMagnitude > 0.001f)
+                GameNpc.Movement?.FaceDirection(dir, 0.3f);
+        }
+
         /// <summary>
         /// Sets the NPC's avoidance priority. Lower values = higher importance
         /// (pushes other agents aside). Default civilian NPCs are ~50.
@@ -744,6 +756,39 @@ namespace OverTheCounter.Logic
                 var agent = GameNpc?.Movement?.Agent;
                 if (agent != null)
                     agent.avoidancePriority = priority;
+            }
+            catch { }
+        }
+
+        private int _savedAvoidanceType = -1;
+
+        /// <summary>
+        /// Disables NavMeshAgent obstacle avoidance so NPCs don't block each other
+        /// in tight building interiors. Saves the current type for restoration.
+        /// </summary>
+        public void DisableObstacleAvoidance()
+        {
+            try
+            {
+                var agent = GameNpc?.Movement?.Agent;
+                if (agent == null) return;
+                _savedAvoidanceType = (int)agent.obstacleAvoidanceType;
+                agent.obstacleAvoidanceType = UnityEngine.AI.ObstacleAvoidanceType.NoObstacleAvoidance;
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Restores the NPC's obstacle avoidance type to what it was before entering the building.
+        /// </summary>
+        public void RestoreObstacleAvoidance()
+        {
+            try
+            {
+                var agent = GameNpc?.Movement?.Agent;
+                if (agent == null || _savedAvoidanceType < 0) return;
+                agent.obstacleAvoidanceType = (UnityEngine.AI.ObstacleAvoidanceType)_savedAvoidanceType;
+                _savedAvoidanceType = -1;
             }
             catch { }
         }

@@ -121,7 +121,7 @@ namespace OverTheCounter.Patches
             }
 
             // Find a building that stocks the matching drug type (physical shelf stock)
-            var target = DispensaryDealManager.FindAvailableBuilding(drugType);
+            var target = DispensaryDealManager.FindAvailableBuilding(drugType, customer.NPC.Region);
             if (target == null)
                 return false;
 

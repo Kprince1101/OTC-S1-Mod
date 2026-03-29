@@ -8,6 +8,7 @@ using UnityEngine;
 #if IL2CPP
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.Map;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Product;
 using Customer = Il2CppScheduleOne.Economy.Customer;
@@ -16,6 +17,7 @@ using NPCSpeedController = Il2CppScheduleOne.NPCs.NPCSpeedController;
 #else
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Economy;
+using ScheduleOne.Map;
 using ScheduleOne.NPCs;
 using ScheduleOne.Product;
 using Customer = ScheduleOne.Economy.Customer;
@@ -53,6 +55,9 @@ namespace OverTheCounter.Logic
         /// <summary>Deals deferred to opening time (NPCs whose cooldown fired in the pre-open window).</summary>
         private static readonly List<DeferredDeal> _deferredDeals = new();
 
+        /// <summary>Number of customers redirected to the shack today.</summary>
+        private static int _shackDailyCount;
+
         private struct DeferredDeal
         {
             public Customer Customer;
@@ -69,11 +74,12 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Finds the best available OTC building that stocks a matching drug type.
         /// Dispensary is always preferred over Shack when both are available.
+        /// Shack is region-locked to Northtown/Westville and has a daily customer cap.
         /// Returns null if no building qualifies.
         /// </summary>
-        internal static BuildingTarget FindAvailableBuilding(EDrugType drugType)
+        internal static BuildingTarget FindAvailableBuilding(EDrugType drugType, EMapRegion npcRegion)
         {
-            // Check Dispensary first (preferred)
+            // Check Dispensary first (preferred) — no region lock, no daily cap
             if (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.DispensaryId) == true
                 && Dispensary.IsStoreOpen
                 && Dispensary.Target != null
@@ -82,16 +88,27 @@ namespace OverTheCounter.Logic
                 return Dispensary.Target;
             }
 
-            // Fall back to Shack
+            // Fall back to Shack — region-locked + daily cap
             if (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) == true
                 && WestvilleShack.IsStoreOpen
                 && WestvilleShack.Target != null
+                && IsRegionAllowedForShack(npcRegion)
+                && _shackDailyCount < Config.ShackDailyCustomerCap.Value
                 && PropertyInventory.HasDrugType(WestvilleShack.ShackGrid, drugType))
             {
                 return WestvilleShack.Target;
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Returns true if the NPC's region is allowed at the Westville Shack.
+        /// Only Northtown and Westville NPCs can shop at the shack.
+        /// </summary>
+        private static bool IsRegionAllowedForShack(EMapRegion region)
+        {
+            return region == EMapRegion.Northtown || region == EMapRegion.Westville;
         }
 
         // ─────────────────────────────────────────────────────────
@@ -151,11 +168,34 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Returns true if any open building could serve this NPC's region at opening time.
+        /// </summary>
+        private static bool CouldAnyBuildingServe(EMapRegion npcRegion)
+        {
+            // Dispensary has no region lock — any NPC can go there
+            if (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.DispensaryId) == true
+                && Dispensary.IsStoreOpen)
+                return true;
+
+            // Shack is region-locked
+            if (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) == true
+                && WestvilleShack.IsStoreOpen
+                && IsRegionAllowedForShack(npcRegion))
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
         /// Queues a deal for redirect at opening time. Resets the vanilla cooldown so
         /// the NPC doesn't text for a deal in the meantime.
         /// </summary>
         internal static bool DeferDeal(Customer customer, EDrugType drugType)
         {
+            // Don't defer if no building could serve this NPC's region
+            if (!CouldAnyBuildingServe(customer.NPC.Region))
+                return false;
+
             _deferredDeals.Add(new DeferredDeal { Customer = customer, DrugType = drugType });
             ResetDealCooldown(customer);
 
@@ -183,7 +223,7 @@ namespace OverTheCounter.Logic
                     if (deal.Customer?.NPC == null) continue;
                     if (IsNpcRedirected(deal.Customer.NPC.ID)) continue;
 
-                    var target = FindAvailableBuilding(deal.DrugType);
+                    var target = FindAvailableBuilding(deal.DrugType, deal.Customer.NPC.Region);
                     if (target == null)
                     {
                         OTCLog.Msg(OTCLog.Systems.Customer,
@@ -258,11 +298,15 @@ namespace OverTheCounter.Logic
 
             ActiveDealCustomerIds.Add(customer.Id);
 
+            // Track shack daily count
+            if (target.Name == "WestvilleShack")
+                _shackDailyCount++;
+
             // Start walking to the building entrance
             customer.WalkTo(target.ExteriorApproachPosition);
 
             OTCLog.Msg(OTCLog.Systems.Customer,
-                $"Redirected {vanillaCustomer.NPC.fullName} to {target.Name} for {drugType} deal (warp: {warpPos.Value})");
+                $"Redirected {vanillaCustomer.NPC.fullName} to {target.Name} for {drugType} deal (warp: {warpPos.Value}, shackDaily: {_shackDailyCount})");
 
             return true;
         }
@@ -575,12 +619,19 @@ namespace OverTheCounter.Logic
                 $"Released deal NPC {npc?.fullName} back to vanilla behavior");
         }
 
+        /// <summary>Resets daily counters. Called from CustomerManager.OnDayPass().</summary>
+        internal static void OnDayPass()
+        {
+            _shackDailyCount = 0;
+        }
+
         /// <summary>Clears all tracking state.</summary>
         internal static void Cleanup()
         {
             ActiveDealCustomerIds.Clear();
             RedirectedNpcIds.Clear();
             _deferredDeals.Clear();
+            _shackDailyCount = 0;
         }
     }
 }

@@ -54,16 +54,17 @@ namespace OverTheCounter
         public static ConfigEntry<int> StaticTier2MethGrams;
         public static ConfigEntry<float> StaticTier3BankCost;
         public static ConfigEntry<int> StaticTier3PremiumMethGrams;
+
+        // ── World ──
+        private static MelonPreferences_Category _world;
         public static ConfigEntry<float> ShackPurchasePrice;
         public static ConfigEntry<float> WarehousePurchasePrice;
         public static ConfigEntry<float> DispensaryPurchasePrice;
 
-        // ── World ──
-        private static MelonPreferences_Category _world;
-
         public static ConfigEntry<int> StackSizeMultiplier;
         public static ConfigEntry<bool> GraffitiReEdit;
         public static ConfigEntry<bool> RecipePinEnabled;
+        public static ConfigEntry<int> ShackDailyCustomerCap;
 
         // ── Desperation System ──
         private static MelonPreferences_Category _desperation;
@@ -263,15 +264,15 @@ namespace OverTheCounter
                 "Bank transfer cost for the Enterprise upgrade"));
             StaticTier3PremiumMethGrams = Register(_subscription.CreateEntry("StaticTier3PremiumMethGrams", 10, "Tier 3 Premium Meth Grams",
                 "Grams of premium meth required for Enterprise upgrade"));
-            ShackPurchasePrice = Register(_subscription.CreateEntry("ShackPurchasePrice", 5000f, "Shack Purchase Price",
-                "Bank transfer cost for the Westville Shack property"));
-            WarehousePurchasePrice = Register(_subscription.CreateEntry("WarehousePurchasePrice", 18000f, "Warehouse Purchase Price",
-                "Bank transfer cost for the Warehouse property"));
-            DispensaryPurchasePrice = Register(_subscription.CreateEntry("DispensaryPurchasePrice", 30000f, "Dispensary Purchase Price",
-                "Bank transfer cost for the Big Dispensary property"));
-
             // ── World ──
             _world = MelonPreferences.CreateCategory("OverTheCounter_World", "World");
+
+            ShackPurchasePrice = Register(_world.CreateEntry("ShackPurchasePrice", 5000f, "Shack Purchase Price",
+                "Bank transfer cost for the Westville Shack property"));
+            WarehousePurchasePrice = Register(_world.CreateEntry("WarehousePurchasePrice", 18000f, "Warehouse Purchase Price",
+                "Bank transfer cost for the Warehouse property"));
+            DispensaryPurchasePrice = Register(_world.CreateEntry("DispensaryPurchasePrice", 30000f, "Dispensary Purchase Price",
+                "Bank transfer cost for the Big Dispensary property"));
 
             StackSizeMultiplier = Register(_world.CreateEntry("StackSizeMultiplier", 1,
                 "Stack Size Multiplier",
@@ -290,6 +291,9 @@ namespace OverTheCounter
                 "Recipe Pin",
                 "Show a Pin Recipe button in the Product Manager app. " +
                 "Pins a draggable overlay showing the full mixing chain for a product."));
+
+            ShackDailyCustomerCap = Register(_world.CreateEntry("ShackDailyCustomerCap", 12, "Shack Daily Customer Cap",
+                "Maximum customers redirected to the Westville Shack per day"));
 
             // ── Desperation System ──
             _desperation = MelonPreferences.CreateCategory("OverTheCounter", "Desperation System");
