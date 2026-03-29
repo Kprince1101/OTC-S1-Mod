@@ -325,6 +325,60 @@ namespace OverTheCounter.SaveData
             });
         }
 
+        /// <summary>Creates the warehouse property record and adds the listing to the message thread.</summary>
+        public void EnsureWarehouseListing()
+        {
+            GetOrCreateProperty(WarehouseId);
+
+            var thread = StaticThreadSaveData.Instance;
+            if (thread == null) return;
+
+            thread.AddMessage("warehouse_intro",
+                "Got a proposition. I know a warehouse, shared space, few people store " +
+                "product there. Nobody asks questions. You could set up in the extra bay, " +
+                "move your harder stuff through it. Less heat than a storefront. Interested?");
+
+            thread.AddEmbed(new OtcPropertyMessage
+            {
+                Id = $"{WarehouseId}_card",
+                EmbedTitle = "Warehouse",
+                EmbedDescription = "Shared warehouse space. Low-profile distribution point " +
+                                   "for products that draw attention.",
+                EmbedItems = new List<string> { $"${Config.WarehousePurchasePrice.Value:N0}" },
+                EmbedLocation = "Westville",
+                EmbedImageResource = "OverTheCounter.Resources.WarehousePhoto.png",
+                EmbedButtonLabel = $"Pay ${Config.WarehousePurchasePrice.Value:N0}",
+                EmbedButtonAction = "purchase_warehouse"
+            });
+        }
+
+        /// <summary>Creates the dispensary property record and adds the listing to the message thread.</summary>
+        public void EnsureDispensaryListing()
+        {
+            GetOrCreateProperty(DispensaryId);
+
+            var thread = StaticThreadSaveData.Instance;
+            if (thread == null) return;
+
+            thread.AddMessage("dispensary_intro",
+                "One more thing. Contact of mine has a bigger dispensary available. " +
+                "Proper setup with more space, more storage, more customers. Good for " +
+                "scaling the legal side while the warehouse handles the rest.");
+
+            thread.AddEmbed(new OtcPropertyMessage
+            {
+                Id = $"{DispensaryId}_card",
+                EmbedTitle = "Big Dispensary",
+                EmbedDescription = "Full-size dispensary. More floor space, storage, " +
+                                   "and customer capacity.",
+                EmbedItems = new List<string> { $"${Config.DispensaryPurchasePrice.Value:N0}" },
+                EmbedLocation = "Westville",
+                EmbedImageResource = "OverTheCounter.Resources.DispensaryPhoto.png",
+                EmbedButtonLabel = $"Pay ${Config.DispensaryPurchasePrice.Value:N0}",
+                EmbedButtonAction = "purchase_dispensary"
+            });
+        }
+
         // ==================================================================
         // Purchase
         // ==================================================================

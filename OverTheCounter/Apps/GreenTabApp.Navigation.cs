@@ -315,7 +315,7 @@ namespace OverTheCounter.Apps
             if (_dropdownBlocker != null) UnityEngine.Object.Destroy(_dropdownBlocker);
             if (_dropdownPanel != null) UnityEngine.Object.Destroy(_dropdownPanel);
 
-            var buildings = GetBuildingsWithCounters();
+            var buildings = GetOwnedBuildings();
             if (buildings.Count <= 1) return;
 
             // Transparent full-screen blocker catches clicks outside the dropdown

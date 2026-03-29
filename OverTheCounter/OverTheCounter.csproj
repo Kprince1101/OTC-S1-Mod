@@ -411,6 +411,8 @@
 		<EmbeddedResource Include="Resources\CashRegister.glb"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\CheckoutCounter.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\ShackPhoto.png" Condition="Exists('Resources\ShackPhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\DispensaryPhoto.png" Condition="Exists('Resources\DispensaryPhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\WarehousePhoto.png" Condition="Exists('Resources\WarehousePhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\MeshDatabase.json"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\MeshVaultDecals\*.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\GreenTabPOS\*.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>

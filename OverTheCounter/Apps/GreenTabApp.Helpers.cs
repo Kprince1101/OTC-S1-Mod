@@ -16,15 +16,22 @@ namespace OverTheCounter.Apps
 {
     public partial class GreenTabApp
     {
-        /// <summary>Returns all building IDs that currently have at least one counter.</summary>
-        private static List<string> GetBuildingsWithCounters()
+        /// <summary>All building IDs that can appear in the GreenTab dropdown.</summary>
+        private static readonly string[] AllBuildingIds =
         {
-            var seen = new HashSet<string>();
+            PropertySaveData.ShackId,
+            Dispensary.DispensaryId,
+        };
+
+        /// <summary>Returns owned building IDs eligible for GreenTab customization.</summary>
+        private static List<string> GetOwnedBuildings()
+        {
+            var psd = PropertySaveData.Instance;
             var result = new List<string>();
-            foreach (var counter in CheckoutCounter.AllCounters)
+            if (psd == null) return result;
+            foreach (var bid in AllBuildingIds)
             {
-                var bid = counter.BuildingId;
-                if (bid != null && seen.Add(bid))
+                if (psd.IsPropertyOwned(bid))
                     result.Add(bid);
             }
             return result;

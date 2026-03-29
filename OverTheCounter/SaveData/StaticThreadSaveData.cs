@@ -164,6 +164,12 @@ namespace OverTheCounter.SaveData
                 bool shackExists = PropertySaveData.Instance?.GetProperty(PropertySaveData.ShackId) != null;
                 if (shackExists)
                     StaticSaveData.Instance.ActivateThread("shack");
+                bool warehouseExists = PropertySaveData.Instance?.GetProperty(PropertySaveData.WarehouseId) != null;
+                if (warehouseExists)
+                    StaticSaveData.Instance.ActivateThread("warehouse");
+                bool dispensaryExists = PropertySaveData.Instance?.GetProperty(PropertySaveData.DispensaryId) != null;
+                if (dispensaryExists)
+                    StaticSaveData.Instance.ActivateThread("dispensary");
             }
 
             // Preserve which messages the host has already read
@@ -172,6 +178,10 @@ namespace OverTheCounter.SaveData
 
             bool shackListed = PropertySaveData.Instance?.GetProperty(PropertySaveData.ShackId) != null;
             bool shackOwned = PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) ?? false;
+            bool warehouseListed = PropertySaveData.Instance?.GetProperty(PropertySaveData.WarehouseId) != null;
+            bool warehouseOwned = PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.WarehouseId) ?? false;
+            bool dispensaryListed = PropertySaveData.Instance?.GetProperty(PropertySaveData.DispensaryId) != null;
+            bool dispensaryOwned = PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.DispensaryId) ?? false;
 
             ReconstructClientThread(
                 introCompleted: StaticSaveData.Instance.IntroCompleted,
@@ -186,6 +196,10 @@ namespace OverTheCounter.SaveData
                 upgradeAccepted: StaticSaveData.Instance.UpgradeAccepted,
                 upgradeMoneyPaid: StaticSaveData.Instance.UpgradeMoneyPaid,
                 upgradeProductDelivered: StaticSaveData.Instance.UpgradeProductDelivered,
+                warehouseListed: warehouseListed,
+                warehouseOwned: warehouseOwned,
+                dispensaryListed: dispensaryListed,
+                dispensaryOwned: dispensaryOwned,
                 threadOrder: StaticSaveData.Instance.ThreadOrder);
 
             // Restore seen state so previously-read messages don't show as unread
@@ -205,6 +219,8 @@ namespace OverTheCounter.SaveData
             bool tier1MoneyPaid = false, bool tier1ProductDelivered = false,
             bool upgradeAccepted = false,
             bool upgradeMoneyPaid = false, bool upgradeProductDelivered = false,
+            bool warehouseListed = false, bool warehouseOwned = false,
+            bool dispensaryListed = false, bool dispensaryOwned = false,
             string threadOrder = "")
         {
             _messages.Clear();
@@ -414,6 +430,110 @@ namespace OverTheCounter.SaveData
                 }
             }
 
+            // ── Warehouse thread: property listing ─────────────────────────
+            if (warehouseListed)
+            {
+                _messages.Add(new OtcPropertyMessage
+                {
+                    Id = "warehouse_intro", Sender = "static", ThreadId = "warehouse",
+                    Text = "Got a proposition. I know a warehouse, shared space, few people store " +
+                           "product there. Nobody asks questions. You could set up in the extra bay, " +
+                           "move your harder stuff through it. Less heat than a storefront. Interested?"
+                });
+
+                var warehouseEmbed = new OtcPropertyMessage
+                {
+                    Id = $"{PropertySaveData.WarehouseId}_card",
+                    Sender = "static",
+                    IsEmbed = true,
+                    ThreadId = "warehouse",
+                    EmbedTitle = "Warehouse",
+                    EmbedDescription = "Shared warehouse space. Low-profile distribution point " +
+                                       "for products that draw attention.",
+                    EmbedItems = new List<string> { $"${Config.WarehousePurchasePrice.Value:N0}" },
+                    EmbedLocation = "Westville",
+                    EmbedImageResource = "OverTheCounter.Resources.WarehousePhoto.png",
+                    EmbedButtonLabel = $"Pay ${Config.WarehousePurchasePrice.Value:N0}",
+                    EmbedButtonAction = "purchase_warehouse"
+                };
+                if (warehouseOwned)
+                {
+                    warehouseEmbed.EmbedStatus = "SOLD";
+                    warehouseEmbed.EmbedButtonLabel = null;
+                    warehouseEmbed.EmbedButtonAction = null;
+                }
+                _messages.Add(warehouseEmbed);
+
+                if (warehouseOwned)
+                {
+                    _messages.Add(new OtcPropertyMessage
+                    {
+                        Id = $"{PropertySaveData.WarehouseId}_purchase_reply",
+                        Sender = "player", ThreadId = "warehouse",
+                        Text = "I'll take the space."
+                    });
+                    _messages.Add(new OtcPropertyMessage
+                    {
+                        Id = $"{PropertySaveData.WarehouseId}_purchased",
+                        Sender = "static", ThreadId = "warehouse",
+                        Text = "It's yours. Bay's open, no cameras. Keep it clean and " +
+                               "nobody bothers you."
+                    });
+                }
+            }
+
+            // ── Dispensary thread: property listing ────────────────────────
+            if (dispensaryListed)
+            {
+                _messages.Add(new OtcPropertyMessage
+                {
+                    Id = "dispensary_intro", Sender = "static", ThreadId = "dispensary",
+                    Text = "One more thing. Contact of mine has a bigger dispensary available. " +
+                           "Proper setup with more space, more storage, more customers. Good for " +
+                           "scaling the legal side while the warehouse handles the rest."
+                });
+
+                var dispensaryEmbed = new OtcPropertyMessage
+                {
+                    Id = $"{PropertySaveData.DispensaryId}_card",
+                    Sender = "static",
+                    IsEmbed = true,
+                    ThreadId = "dispensary",
+                    EmbedTitle = "Big Dispensary",
+                    EmbedDescription = "Full-size dispensary. More floor space, storage, " +
+                                       "and customer capacity.",
+                    EmbedItems = new List<string> { $"${Config.DispensaryPurchasePrice.Value:N0}" },
+                    EmbedLocation = "Westville",
+                    EmbedImageResource = "OverTheCounter.Resources.DispensaryPhoto.png",
+                    EmbedButtonLabel = $"Pay ${Config.DispensaryPurchasePrice.Value:N0}",
+                    EmbedButtonAction = "purchase_dispensary"
+                };
+                if (dispensaryOwned)
+                {
+                    dispensaryEmbed.EmbedStatus = "SOLD";
+                    dispensaryEmbed.EmbedButtonLabel = null;
+                    dispensaryEmbed.EmbedButtonAction = null;
+                }
+                _messages.Add(dispensaryEmbed);
+
+                if (dispensaryOwned)
+                {
+                    _messages.Add(new OtcPropertyMessage
+                    {
+                        Id = $"{PropertySaveData.DispensaryId}_purchase_reply",
+                        Sender = "player", ThreadId = "dispensary",
+                        Text = "Let's do it."
+                    });
+                    _messages.Add(new OtcPropertyMessage
+                    {
+                        Id = $"{PropertySaveData.DispensaryId}_purchased",
+                        Sender = "static", ThreadId = "dispensary",
+                        Text = "Done deal. Bigger operation, bigger returns. " +
+                               "Get it set up and watch the foot traffic roll in."
+                    });
+                }
+            }
+
             // ── Reorder threads by saved activation order ────────────────
             if (!string.IsNullOrEmpty(threadOrder))
             {
@@ -439,7 +559,7 @@ namespace OverTheCounter.SaveData
                         orderedIds.Add(id);
 
                 // Fallback: append threads not in saved order using default ordering
-                string[] defaultOrder = { "crm", "upgrade1", "upgrade2", "shack" };
+                string[] defaultOrder = { "crm", "upgrade1", "upgrade2", "shack", "warehouse", "dispensary" };
                 foreach (var id in defaultOrder)
                     if (buckets.ContainsKey(id) && !orderedIds.Contains(id))
                         orderedIds.Add(id);

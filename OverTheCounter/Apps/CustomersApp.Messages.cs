@@ -48,6 +48,7 @@ namespace OverTheCounter.Apps
 
         // Collapsible thread state
         private readonly System.Collections.Generic.Dictionary<string, bool> _threadCollapsed = new();
+        private readonly System.Collections.Generic.HashSet<string> _autoCollapsedOnce = new();
         private readonly System.Collections.Generic.Dictionary<string, RectTransform> _threadContainers = new();
         private string _scrollToThread;
 
@@ -222,6 +223,8 @@ namespace OverTheCounter.Apps
             _embedActions ??= new System.Collections.Generic.Dictionary<string, Action>
             {
                 ["purchase_shack"] = OnPurchaseShack,
+                ["purchase_warehouse"] = OnPurchaseWarehouse,
+                ["purchase_dispensary"] = OnPurchaseDispensary,
                 ["accept_intro"] = OnAcceptIntro,
                 ["accept_upgrade"] = OnAcceptUpgrade,
                 ["purchase_tier1_money"] = OnPurchaseTier1Money,
@@ -587,12 +590,17 @@ namespace OverTheCounter.Apps
                     "upgrade1" => "Private Server",
                     "upgrade2" => "Enterprise Tier",
                     "shack" => "Westville Shack",
+                    "warehouse" => "Warehouse",
+                    "dispensary" => "Big Dispensary",
                     _ => threadId
                 };
 
                 // Completed when the last embed has a final status and nothing pending after it
                 string status = lastEmbedStatus;
                 bool isCompleted = !string.IsNullOrEmpty(status) && !hasPendingAction && !hasInProgressEmbed;
+                // Auto-collapse once when thread first completes, then respect user preference
+                if (isCompleted && _autoCollapsedOnce.Add(threadId))
+                    _threadCollapsed.Remove(threadId);
                 bool collapsed = _threadCollapsed.TryGetValue(threadId, out bool userPref) ? userPref : isCompleted;
 
                 // Create thread container
@@ -1110,6 +1118,8 @@ namespace OverTheCounter.Apps
             switch (action)
             {
                 case "purchase_shack": return Config.ShackPurchasePrice.Value;
+                case "purchase_warehouse": return Config.WarehousePurchasePrice.Value;
+                case "purchase_dispensary": return Config.DispensaryPurchasePrice.Value;
                 case "purchase_tier1_money": return Config.StaticTier1BankCost.Value;
                 case "purchase_upgrade_money":
                     int tier = (StaticSaveData.Instance?.CrmTier ?? 0) + 1;
@@ -1134,6 +1144,42 @@ namespace OverTheCounter.Apps
                 ConfigSyncData.SendQuestAction("PURCHASE_WESTVILLE_SHACK");
 
             // Rebuild thread to show confirmation
+            PopulateThread(snapToBottom: false);
+        }
+
+        private void OnPurchaseWarehouse()
+        {
+            if (PropertySaveData.Instance == null) return;
+            if (PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.WarehouseId)) return;
+
+            float price = Config.WarehousePurchasePrice.Value;
+            if (Money.GetOnlineBalance() < price)
+                return;
+
+            Money.CreateOnlineTransaction("OTC Property", -price, 1f, "Static Services");
+            PropertySaveData.Instance.PurchaseProperty(PropertySaveData.WarehouseId);
+
+            if (!NetworkHelper.IsHost)
+                ConfigSyncData.SendQuestAction("PURCHASE_WAREHOUSE");
+
+            PopulateThread(snapToBottom: false);
+        }
+
+        private void OnPurchaseDispensary()
+        {
+            if (PropertySaveData.Instance == null) return;
+            if (PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.DispensaryId)) return;
+
+            float price = Config.DispensaryPurchasePrice.Value;
+            if (Money.GetOnlineBalance() < price)
+                return;
+
+            Money.CreateOnlineTransaction("OTC Property", -price, 1f, "Static Services");
+            PropertySaveData.Instance.PurchaseProperty(PropertySaveData.DispensaryId);
+
+            if (!NetworkHelper.IsHost)
+                ConfigSyncData.SendQuestAction("PURCHASE_DISPENSARY");
+
             PopulateThread(snapToBottom: false);
         }
 

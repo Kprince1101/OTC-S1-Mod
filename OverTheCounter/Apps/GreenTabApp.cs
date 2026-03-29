@@ -93,6 +93,7 @@ namespace OverTheCounter.Apps
 
         // ---- UI refs ----
         private GameObject _rootPanel;
+        private GameObject _landingPanel;
         private Transform _sidebarParent;
         private GameObject _sidebarPanel;
         private Transform _cardGrid;
@@ -105,6 +106,7 @@ namespace OverTheCounter.Apps
         private GameObject _dropdownPanel;
         private GameObject _dropdownBlocker;
         private bool _dropdownOpen;
+        private bool _wasOpen;
 
         // Card tracking for refresh
         private readonly List<CardEntry> _cardEntries = new();
@@ -268,32 +270,91 @@ namespace OverTheCounter.Apps
         {
             _rootPanel = UIFactory.Panel("GreenTabRoot", container.transform, BgDark, fullAnchor: true);
 
-            // Pick initial building — first one that has a counter
-            _selectedBuildingId = GetBuildingsWithCounters().FirstOrDefault() ?? PropertySaveData.ShackId;
+            // Pick initial building — first owned one that has a counter
+            _selectedBuildingId = GetOwnedBuildings().FirstOrDefault() ?? PropertySaveData.ShackId;
 
             BuildTopBar(_rootPanel.transform);
             BuildNavBar(_rootPanel.transform);
             BuildSidebar(_rootPanel.transform);
             BuildCardArea(_rootPanel.transform);
             BuildFooter(_rootPanel.transform);
+            BuildLandingPage(_rootPanel.transform);
 
+            UpdateLandingVisibility();
             RefreshCards();
             RefreshFooter();
 
-            // Balance shows $0 at creation time because MoneyManager isn't ready yet.
-            // Poll until it's available, then refresh.
-            MelonCoroutines.Start(RefreshWhenMoneyReady());
+            MelonCoroutines.Start(AppUpdateLoop());
         }
 
-        private IEnumerator RefreshWhenMoneyReady()
+        private void BuildLandingPage(Transform parent)
         {
-            // MoneyManager.Instance may exist early but balance isn't populated yet.
-            // Poll for a few seconds to catch when balance becomes available.
-            for (int i = 0; i < 10; i++)
+            _landingPanel = UIFactory.Panel("LandingPage", parent, BgDark, fullAnchor: true);
+            _landingPanel.transform.SetAsLastSibling();
+
+            // Icon
+            var iconSprite = LoadIcon("GreenTabLogo");
+            if (iconSprite != null)
             {
-                yield return new WaitForSeconds(1f);
-                RefreshFooter();
-                UpdateCardVisuals();
+                var iconGo = new GameObject("LandingIcon");
+                iconGo.transform.SetParent(_landingPanel.transform, false);
+                var iconImg = iconGo.AddComponent<Image>();
+                iconImg.sprite = iconSprite;
+                iconImg.preserveAspect = true;
+                iconImg.color = AccentGreen;
+                var iconRect = iconGo.GetComponent<RectTransform>();
+                iconRect.anchorMin = new Vector2(0.5f, 0.55f);
+                iconRect.anchorMax = new Vector2(0.5f, 0.55f);
+                iconRect.pivot = new Vector2(0.5f, 0.5f);
+                iconRect.sizeDelta = new Vector2(48, 48);
+            }
+
+            // Message
+            var msg = TMPFactory.Text("LandingMsg",
+                "No properties available yet.\n\nPurchase a property through Static's messages to start customizing.",
+                _landingPanel.transform, 16, TextAlignmentOptions.Center);
+            msg.color = TextMuted;
+            var msgRect = msg.gameObject.GetComponent<RectTransform>();
+            msgRect.anchorMin = new Vector2(0.2f, 0.25f);
+            msgRect.anchorMax = new Vector2(0.8f, 0.52f);
+            msgRect.offsetMin = Vector2.zero;
+            msgRect.offsetMax = Vector2.zero;
+        }
+
+        private void UpdateLandingVisibility()
+        {
+            bool hasStore = GetOwnedBuildings().Count > 0;
+            if (_landingPanel != null) _landingPanel.SetActive(!hasStore);
+        }
+
+        private IEnumerator AppUpdateLoop()
+        {
+            while (true)
+            {
+                yield return new WaitForSeconds(0.5f);
+
+                bool isOpen;
+                try { isOpen = IsOpen(); } catch { isOpen = false; }
+
+                if (isOpen && !_wasOpen)
+                {
+                    // App just opened — refresh ownership, balance, and card visuals
+                    UpdateLandingVisibility();
+
+                    var buildings = GetOwnedBuildings();
+                    if (buildings.Count > 0 && !buildings.Contains(_selectedBuildingId))
+                    {
+                        _selectedBuildingId = buildings[0];
+                        if (_propertyDropdownText != null)
+                            _propertyDropdownText.text = GetBuildingDisplayName(_selectedBuildingId) + " \u25BC";
+                    }
+
+                    RefreshCards();
+                    RefreshFooter();
+                    UpdateCardVisuals();
+                }
+
+                _wasOpen = isOpen;
             }
         }
     }

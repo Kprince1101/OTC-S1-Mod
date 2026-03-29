@@ -876,6 +876,29 @@ namespace OverTheCounter.SaveData
                 ConfigSyncData.Instance?.PublishGameState();
             }
 
+            // Warehouse listing - offered after shack is owned
+            if (PropertySaveData.Instance != null
+                && PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.ShackId)
+                && PropertySaveData.Instance.GetProperty(PropertySaveData.WarehouseId) == null)
+            {
+                ActivateThread("warehouse");
+                PropertySaveData.Instance.EnsureWarehouseListing();
+                StaticThreadSaveData.Instance?.ReconcileHostThread();
+                ConfigSyncData.Instance?.PublishGameState();
+            }
+
+            // Dispensary listing - offered one tick after warehouse listing exists
+            if (PropertySaveData.Instance != null
+                && PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.ShackId)
+                && PropertySaveData.Instance.GetProperty(PropertySaveData.WarehouseId) != null
+                && PropertySaveData.Instance.GetProperty(PropertySaveData.DispensaryId) == null)
+            {
+                ActivateThread("dispensary");
+                PropertySaveData.Instance.EnsureDispensaryListing();
+                StaticThreadSaveData.Instance?.ReconcileHostThread();
+                ConfigSyncData.Instance?.PublishGameState();
+            }
+
             // Dead drop product detection - auto-consume when enough product is dropped off
             CheckDeadDropProduct();
         }

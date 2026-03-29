@@ -55,6 +55,8 @@ namespace OverTheCounter
         public static ConfigEntry<float> StaticTier3BankCost;
         public static ConfigEntry<int> StaticTier3PremiumMethGrams;
         public static ConfigEntry<float> ShackPurchasePrice;
+        public static ConfigEntry<float> WarehousePurchasePrice;
+        public static ConfigEntry<float> DispensaryPurchasePrice;
 
         // ── World ──
         private static MelonPreferences_Category _world;
@@ -261,6 +263,10 @@ namespace OverTheCounter
                 "Grams of premium meth required for Enterprise upgrade"));
             ShackPurchasePrice = Register(_subscription.CreateEntry("ShackPurchasePrice", 5000f, "Shack Purchase Price",
                 "Bank transfer cost for the Westville Shack property"));
+            WarehousePurchasePrice = Register(_subscription.CreateEntry("WarehousePurchasePrice", 18000f, "Warehouse Purchase Price",
+                "Bank transfer cost for the Warehouse property"));
+            DispensaryPurchasePrice = Register(_subscription.CreateEntry("DispensaryPurchasePrice", 30000f, "Dispensary Purchase Price",
+                "Bank transfer cost for the Big Dispensary property"));
 
             // ── World ──
             _world = MelonPreferences.CreateCategory("OverTheCounter_World", "World");
