@@ -43,8 +43,26 @@ namespace OverTheCounter.SaveData
         [SaveableField("static_upgrade_available")]
         private bool _upgradeAvailable;
 
+        [SaveableField("static_upgrade_accepted")]
+        private bool _upgradeAccepted;
+
         [SaveableField("static_early_visit_seen")]
         private bool _earlyVisitSeen;
+
+        [SaveableField("static_tier1_money_paid")]
+        private bool _tier1MoneyPaid;
+
+        [SaveableField("static_tier1_product_delivered")]
+        private bool _tier1ProductDelivered;
+
+        [SaveableField("static_upgrade_money_paid")]
+        private bool _upgradeMoneyPaid;
+
+        [SaveableField("static_upgrade_product_delivered")]
+        private bool _upgradeProductDelivered;
+
+        [SaveableField("static_thread_order")]
+        private string _threadOrder = "";
 
         private int _tickCounter;
         private const int TICK_INTERVAL = 300;
@@ -87,7 +105,25 @@ namespace OverTheCounter.SaveData
         public int SaasNextPaymentDay => _saasNextPaymentDay;
         public int DayPassCount => _dayPassCount;
         public bool UpgradeAvailable => _upgradeAvailable;
+        public bool UpgradeAccepted => _upgradeAccepted;
         public bool EarlyVisitSeen => _earlyVisitSeen;
+        public bool Tier1MoneyPaid => _tier1MoneyPaid;
+        public bool Tier1ProductDelivered => _tier1ProductDelivered;
+        public bool UpgradeMoneyPaid => _upgradeMoneyPaid;
+        public bool UpgradeProductDelivered => _upgradeProductDelivered;
+        public string ThreadOrder => _threadOrder ?? "";
+
+        /// <summary>
+        /// Appends a thread ID to the activation order if not already present.
+        /// </summary>
+        public void ActivateThread(string threadId)
+        {
+            if (string.IsNullOrEmpty(threadId)) return;
+            var parts = (_threadOrder ?? "").Split(',');
+            foreach (var p in parts)
+                if (p == threadId) return;
+            _threadOrder = string.IsNullOrEmpty(_threadOrder) ? threadId : _threadOrder + "," + threadId;
+        }
 
         public StaticSaveData()
         {
@@ -145,7 +181,9 @@ namespace OverTheCounter.SaveData
             int effectiveStage = _crmTier >= 1 ? 3 : _introCompleted ? 2 : _questTriggered ? 1 : 0;
 
             // Don't create quests that are already fully complete — no UI to show.
-            if (effectiveStage > 0 && effectiveStage < 3 && StaticIntroQuest.Instance == null)
+            // Also skip if _questCreated is set - OnCreated (which sets Instance) runs
+            // on the next frame via Unity Start(), so Instance may still be null.
+            if (effectiveStage > 0 && effectiveStage < 3 && !_questCreated && StaticIntroQuest.Instance == null)
             {
                 try
                 {
@@ -166,7 +204,7 @@ namespace OverTheCounter.SaveData
             }
 
             // ── Upgrade 1 quest (tier 1→2) ──
-            if (_crmTier == 1 && _saasActive && StaticUpgrade1Quest.Instance == null)
+            if (_crmTier == 1 && _saasActive && _upgradeAccepted && StaticUpgrade1Quest.Instance == null)
             {
                 try { CreateUpgradeQuest(); created = true; }
                 catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: upgrade1 quest creation failed: {ex.Message}"); }
@@ -178,7 +216,7 @@ namespace OverTheCounter.SaveData
             }
 
             // ── Upgrade 2 quest (tier 2→3) ──
-            if (_crmTier == 2 && _saasActive && StaticUpgrade2Quest.Instance == null)
+            if (_crmTier == 2 && _saasActive && _upgradeAccepted && StaticUpgrade2Quest.Instance == null)
             {
                 try { CreateUpgradeQuest(); created = true; }
                 catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: upgrade2 quest creation failed: {ex.Message}"); }
@@ -291,34 +329,6 @@ namespace OverTheCounter.SaveData
                 catch (Exception) { }
             }
 
-            // Check ATM trigger (either peer can hit the deposit threshold)
-            if (!_questTriggered)
-            {
-                try
-                {
-                    if (ScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value)
-                    {
-                        _questTriggered = true;
-                        CreateOrResumeQuest();
-
-                        if (NetworkHelper.IsHost)
-                        {
-                            TrySendIntroText();
-                            ConfigSyncData.Instance?.PublishGameState();
-                        }
-                        else
-                        {
-                            ConfigSyncData.SendQuestAction("STATIC_ATM_TRIGGERED");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.NPC, $"ATM check failed: {ex.Message}");
-                }
-                return;
-            }
-
             // Keep dialogue fresh once triggered
             try
             {
@@ -370,7 +380,12 @@ namespace OverTheCounter.SaveData
             bool? saasActive = null,
             bool? upgradeAvailable = null,
             int saasNextPaymentDay = -1,
-            int dayPassCount = -1)
+            int dayPassCount = -1,
+            bool? tier1MoneyPaid = null,
+            bool? tier1ProductDelivered = null,
+            bool? upgradeAccepted = null,
+            bool? upgradeMoneyPaid = null,
+            bool? upgradeProductDelivered = null)
         {
             bool changed = false;
 
@@ -432,7 +447,13 @@ namespace OverTheCounter.SaveData
             if (upgradeAvailable.HasValue && upgradeAvailable.Value != _upgradeAvailable)
             {
                 _upgradeAvailable = upgradeAvailable.Value;
-                if (_upgradeAvailable)
+                changed = true;
+            }
+
+            if (upgradeAccepted.HasValue && upgradeAccepted.Value != _upgradeAccepted)
+            {
+                _upgradeAccepted = upgradeAccepted.Value;
+                if (_upgradeAccepted)
                     CreateUpgradeQuest();
                 changed = true;
             }
@@ -446,6 +467,27 @@ namespace OverTheCounter.SaveData
             if (dayPassCount >= 0 && dayPassCount != _dayPassCount)
             {
                 _dayPassCount = dayPassCount;
+                changed = true;
+            }
+
+            if (tier1MoneyPaid.HasValue && tier1MoneyPaid.Value != _tier1MoneyPaid)
+            {
+                _tier1MoneyPaid = tier1MoneyPaid.Value;
+                changed = true;
+            }
+            if (tier1ProductDelivered.HasValue && tier1ProductDelivered.Value != _tier1ProductDelivered)
+            {
+                _tier1ProductDelivered = tier1ProductDelivered.Value;
+                changed = true;
+            }
+            if (upgradeMoneyPaid.HasValue && upgradeMoneyPaid.Value != _upgradeMoneyPaid)
+            {
+                _upgradeMoneyPaid = upgradeMoneyPaid.Value;
+                changed = true;
+            }
+            if (upgradeProductDelivered.HasValue && upgradeProductDelivered.Value != _upgradeProductDelivered)
+            {
+                _upgradeProductDelivered = upgradeProductDelivered.Value;
                 changed = true;
             }
 
@@ -477,7 +519,7 @@ namespace OverTheCounter.SaveData
                 var staticNpc = S1API.Entities.NPC.All?.FirstOrDefault(n => n.ID == "static_casino_fixer");
                 if (staticNpc != null)
                 {
-                    staticNpc.SendTextMessage("y0ur comm channels are unencrypted. that's a liability.\n\ncome to the cas1no, top floor, after 4. we'll talk there. future comms go through the 0TC app.\n\n\u2014 ST4T1C");
+                    staticNpc.SendTextMessage("y0ur comm channels are unencrypted. that's a liability.\n\nopen the 0TC app. i left you a message.\n\n\u2014 ST4T1C");
                     _needsIntroText = false;
                 }
                 else
@@ -516,18 +558,19 @@ namespace OverTheCounter.SaveData
                 OTCLog.Error(OTCLog.Systems.NPC, $"OnIntroCompleted quest completion failed: {ex.Message}");
             }
 
-            StaticThreadSaveData.Instance?.AddEmbed(new OtcPropertyMessage
-            {
-                Id = "software_offer",
-                EmbedTitle = "Software Package",
-                EmbedDescription = "Encrypted comms and customer management tools.",
-                EmbedItems = new System.Collections.Generic.List<string>
-                {
-                    $"${Config.StaticTier1BankCost.Value:N0}",
-                    $"{Config.StaticTier1WeedGrams.Value}g Weed"
-                },
-                EmbedLocation = "Casino"
-            });
+            // Thread is rebuilt from state flags - no manual embed add needed.
+            _dialogueStale = true;
+            ConfigSyncData.Instance?.PublishGameState();
+        }
+
+        /// <summary>
+        /// Called when the player accepts the upgrade offer via the "What's the catch?" response.
+        /// </summary>
+        public void AcceptUpgrade()
+        {
+            if (_upgradeAccepted || !_upgradeAvailable) return;
+            _upgradeAccepted = true;
+            CreateUpgradeQuest();
             _dialogueStale = true;
             ConfigSyncData.Instance?.PublishGameState();
         }
@@ -545,15 +588,25 @@ namespace OverTheCounter.SaveData
 
             try
             {
-                StaticIntroQuest.Instance?.CompleteObj2();
+                StaticIntroQuest.Instance?.CompleteObj3();
             }
             catch (Exception ex)
             {
                 OTCLog.Error(OTCLog.Systems.NPC, $"PurchaseInitial quest completion failed: {ex.Message}");
             }
 
-            StaticThreadSaveData.Instance?.SetEmbedStatus("software_offer", "PURCHASED");
+            // Thread is rebuilt from state flags - embed status set automatically.
             _dialogueStale = true;
+
+            // Offer the next upgrade immediately (player must accept before paying)
+            if (_crmTier < 3 && !_upgradeAvailable)
+            {
+                _upgradeAvailable = true;
+                _upgradeAccepted = false;
+                ActivateThread("upgrade1");
+                SendUpgradeOfferText();
+            }
+
             ConfigSyncData.Instance?.PublishGameState();
         }
 
@@ -568,6 +621,7 @@ namespace OverTheCounter.SaveData
             int previousTier = _crmTier;
             _crmTier++;
             _upgradeAvailable = false;
+            _upgradeAccepted = false;
 
             try
             {
@@ -581,9 +635,116 @@ namespace OverTheCounter.SaveData
                 OTCLog.Error(OTCLog.Systems.NPC, $"PurchaseUpgrade quest completion failed: {ex.Message}");
             }
 
-            StaticThreadSaveData.Instance?.SetEmbedStatus("upgrade_offer", "PURCHASED");
+            // Thread is rebuilt from state flags - embed status set automatically.
             _dialogueStale = true;
+
+            // Offer the next upgrade immediately (player must accept before paying)
+            if (_crmTier < 3 && !_upgradeAvailable)
+            {
+                _upgradeAvailable = true;
+                _upgradeAccepted = false;
+                ActivateThread("upgrade2");
+                SendUpgradeOfferText();
+            }
+
             ConfigSyncData.Instance?.PublishGameState();
+        }
+
+        // ── Split purchase: tier 1 (money + weed) ────────────────────────
+
+        /// <summary>
+        /// Marks the money portion of the tier 1 purchase as paid.
+        /// If product was already delivered, completes the purchase automatically.
+        /// </summary>
+        public void PayTier1Money()
+        {
+            if (_tier1MoneyPaid || _crmTier >= 1) return;
+            _tier1MoneyPaid = true;
+
+            try { StaticIntroQuest.Instance?.CompletePay(); }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"CompletePay failed: {ex.Message}"); }
+
+            ConfigSyncData.Instance?.PublishGameState();
+
+            if (_tier1ProductDelivered)
+                CompleteTier1Purchase();
+        }
+
+        /// <summary>
+        /// Marks the product portion of the tier 1 purchase as delivered.
+        /// If money was already paid, completes the purchase automatically.
+        /// </summary>
+        public void ConfirmTier1Product()
+        {
+            if (_tier1ProductDelivered || _crmTier >= 1) return;
+            _tier1ProductDelivered = true;
+
+            try { StaticIntroQuest.Instance?.CompleteDropOff(); }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"CompleteDropOff failed: {ex.Message}"); }
+
+            ConfigSyncData.Instance?.PublishGameState();
+
+            if (_tier1MoneyPaid)
+                CompleteTier1Purchase();
+        }
+
+        private void CompleteTier1Purchase()
+        {
+            PurchaseInitial();
+        }
+
+        // ── Split purchase: upgrade (money + meth) ───────────────────────
+
+        /// <summary>
+        /// Marks the money portion of the upgrade purchase as paid.
+        /// If product was already delivered, completes the upgrade automatically.
+        /// </summary>
+        public void PayUpgradeMoney()
+        {
+            if (_upgradeMoneyPaid || _crmTier >= 3 || !_upgradeAvailable) return;
+            _upgradeMoneyPaid = true;
+
+            try
+            {
+                if (_crmTier == 1) StaticUpgrade1Quest.Instance?.CompletePay();
+                else if (_crmTier == 2) StaticUpgrade2Quest.Instance?.CompletePay();
+            }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Upgrade CompletePay failed: {ex.Message}"); }
+
+            ConfigSyncData.Instance?.PublishGameState();
+
+            if (_upgradeProductDelivered)
+                CompleteUpgradePurchase();
+        }
+
+        /// <summary>
+        /// Marks the product portion of the upgrade purchase as delivered.
+        /// If money was already paid, completes the upgrade automatically.
+        /// </summary>
+        public void ConfirmUpgradeProduct()
+        {
+            if (_upgradeProductDelivered || _crmTier >= 3 || !_upgradeAvailable) return;
+            _upgradeProductDelivered = true;
+
+            try
+            {
+                if (_crmTier == 1) StaticUpgrade1Quest.Instance?.CompleteDropOff();
+                else if (_crmTier == 2) StaticUpgrade2Quest.Instance?.CompleteDropOff();
+            }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Upgrade CompleteDropOff failed: {ex.Message}"); }
+
+            ConfigSyncData.Instance?.PublishGameState();
+
+            if (_upgradeMoneyPaid)
+                CompleteUpgradePurchase();
+        }
+
+        private void CompleteUpgradePurchase()
+        {
+            PurchaseUpgrade();
+            // Reset flags for the next tier's upgrade cycle
+            _upgradeMoneyPaid = false;
+            _upgradeProductDelivered = false;
         }
 
         public bool ReactivateSubscription()
@@ -653,6 +814,19 @@ namespace OverTheCounter.SaveData
                     catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Remote PurchaseUpgrade quest failed: {ex.Message}"); }
                     break;
 
+                case "STATIC_ACCEPT_UPGRADE":
+                    _upgradeAccepted = true;
+                    CreateUpgradeQuest();
+                    break;
+
+                case "STATIC_PAY_TIER1":
+                    PayTier1Money();
+                    break;
+
+                case "STATIC_PAY_UPGRADE":
+                    PayUpgradeMoney();
+                    break;
+
                 case "STATIC_REACTIVATE":
                     _saasActive = true;
                     _saasNextPaymentDay = _dayPassCount + Config.SaasCycleDays.Value;
@@ -679,24 +853,31 @@ namespace OverTheCounter.SaveData
         {
             if (!NetworkHelper.IsHost) return;
 
-            // 1:00 PM intro trigger — Static texts about encrypted comms
+            // 1:00 PM CRM intro trigger - Static texts about encrypted comms
             if (!_questTriggered && TimeManager.CurrentTime >= 1300)
             {
                 _questTriggered = true;
+                ActivateThread("crm");
                 CreateOrResumeQuest();
                 TrySendIntroText();
+                StaticThreadSaveData.Instance?.ReconcileHostThread();
                 ConfigSyncData.Instance?.PublishGameState();
             }
 
-            // Property listing appears in OTC app once player has $5k in bank
-            if (_questTriggered
+            // Shack listing - independent of CRM quest, just needs 1 PM + enough money
+            if (TimeManager.CurrentTime >= 1300
                 && PropertySaveData.Instance != null
                 && PropertySaveData.Instance.GetProperty(PropertySaveData.ShackId) == null
-                && Money.GetOnlineBalance() >= 5000f)
+                && Money.GetOnlineBalance() >= Config.ShackPurchasePrice.Value)
             {
+                ActivateThread("shack");
                 PropertySaveData.Instance.EnsureShackListing();
+                StaticThreadSaveData.Instance?.ReconcileHostThread();
                 ConfigSyncData.Instance?.PublishGameState();
             }
+
+            // Dead drop product detection - auto-consume when enough product is dropped off
+            CheckDeadDropProduct();
         }
 
         /// <summary>
@@ -731,8 +912,9 @@ namespace OverTheCounter.SaveData
                         if (_crmTier < 3 && !_upgradeAvailable)
                         {
                             _upgradeAvailable = true;
+                            _upgradeAccepted = false;
+                            ActivateThread(_crmTier == 1 ? "upgrade1" : "upgrade2");
                             SendUpgradeOfferText();
-                            CreateUpgradeQuest();
                         }
                     }
                     else
@@ -748,6 +930,65 @@ namespace OverTheCounter.SaveData
                 {
                     OTCLog.Error(OTCLog.Systems.NPC, $"CheckSubscriptionStatus failed: {ex.Message}");
                 }
+            }
+        }
+
+        /// <summary>
+        /// Checks the casino dead drop for required product and auto-consumes it.
+        /// </summary>
+        private void CheckDeadDropProduct()
+        {
+            try
+            {
+                // Tier 1: packaged weed
+                if (_introCompleted && _crmTier == 0 && !_tier1ProductDelivered)
+                {
+                    int weedGrams = Logic.Placement.CasinoDeadDrop.CountPackagedWeed();
+                    if (weedGrams >= Config.StaticTier1WeedGrams.Value)
+                    {
+                        Logic.Placement.CasinoDeadDrop.ClearWeed(Config.StaticTier1WeedGrams.Value);
+                        ConfirmTier1Product();
+                        SendOtcToast("Product received. Package verified.");
+                    }
+                }
+
+                // Upgrade: packaged meth (or premium meth for tier 3)
+                if (_upgradeAvailable && !_upgradeProductDelivered)
+                {
+                    int targetTier = _crmTier + 1;
+                    if (targetTier == 2)
+                    {
+                        int methGrams = Logic.Placement.CasinoDeadDrop.CountPackagedMeth();
+                        if (methGrams >= Config.StaticTier2MethGrams.Value)
+                        {
+                            Logic.Placement.CasinoDeadDrop.ClearMeth(Config.StaticTier2MethGrams.Value);
+                            ConfirmUpgradeProduct();
+                            SendOtcToast("Product received. Package verified.");
+                        }
+                    }
+                    else if (targetTier == 3)
+                    {
+#if IL2CPP
+                        int methGrams = Logic.Placement.CasinoDeadDrop.CountPackagedMeth(Il2CppScheduleOne.ItemFramework.EQuality.Premium);
+#else
+                        int methGrams = Logic.Placement.CasinoDeadDrop.CountPackagedMeth(ScheduleOne.ItemFramework.EQuality.Premium);
+#endif
+                        if (methGrams >= Config.StaticTier3PremiumMethGrams.Value)
+                        {
+#if IL2CPP
+                            Logic.Placement.CasinoDeadDrop.ClearMeth(Config.StaticTier3PremiumMethGrams.Value, Il2CppScheduleOne.ItemFramework.EQuality.Premium);
+#else
+                            Logic.Placement.CasinoDeadDrop.ClearMeth(Config.StaticTier3PremiumMethGrams.Value, ScheduleOne.ItemFramework.EQuality.Premium);
+#endif
+                            ConfirmUpgradeProduct();
+                            SendOtcToast("Product received. Package verified.");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.NPC, $"CheckDeadDropProduct failed: {ex.Message}");
             }
         }
 
@@ -794,11 +1035,8 @@ namespace OverTheCounter.SaveData
 
         private void SendUpgradeOfferText()
         {
-            int targetTier = _crmTier + 1;
-            if (targetTier < 2 || targetTier > 3) return;
-
-            StaticThreadSaveData.Instance?.AddOrUpdateEmbed(
-                StaticThreadSaveData.BuildUpgradeEmbed(targetTier));
+            // Thread is rebuilt from state flags - publish triggers reconstruction.
+            ConfigSyncData.Instance?.PublishGameState();
         }
 
         private void SendOtcToast(string subtitle)

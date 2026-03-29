@@ -201,6 +201,7 @@ namespace OverTheCounter
             Logic.Placement.Dispensary.Cleanup();
             Logic.Placement.OTCWarehouse.Cleanup();
             Logic.Placement.OTCSupplierArea.Cleanup();
+            Logic.Placement.CasinoDeadDrop.Cleanup();
             CheckoutProcess.ResetStatic();
             BuildingGridFactory.Cleanup();
             _loadHooked = false;
@@ -320,6 +321,7 @@ namespace OverTheCounter
                 Logic.Placement.OTCWarehouse.SpawnNetworkedObjects();
 
                 Logic.Placement.CheckoutCounter.AddToShop();
+                Logic.Placement.CasinoDeadDrop.Initialize();
                 CheckoutProcess.InitP2P();
 
                 // Suppress per-item navigation rebuilds during batch restore —

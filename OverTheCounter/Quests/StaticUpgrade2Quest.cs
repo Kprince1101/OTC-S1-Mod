@@ -1,12 +1,9 @@
-using MelonLoader.Utils;
+using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1API.Quests;
-using S1API.Quests.Constants;
 using S1API.Saveables;
-using S1API.Utils;
 using System;
-using System.IO;
-using System.Reflection;
+using OverTheCounter.Logic.Placement;
 using UnityEngine;
 
 namespace OverTheCounter.Quests
@@ -14,48 +11,28 @@ namespace OverTheCounter.Quests
     public class StaticUpgrade2Quest : Quest
     {
         protected override string Title => "Full Scale";
-        protected override string Description => "Static has the final tier-3 enterprise upgrade available. Bring premium meth and go all in.";
+        protected override string Description => "Static has the final tier-3 enterprise upgrade available. Pay and deliver via the OTC app.";
         protected override bool AutoBegin => false;
-        protected override Sprite QuestIcon => ImageUtils.LoadImage(
-            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "CrimeWareQuest.png"));
+        protected override Sprite QuestIcon => QuestIconHelper.Load();
 
         [SaveableField("static_upgrade2_stage")]
-        private int _stage; // 0=not started, 1=active, 2=done
+        private int _stage; // 0=not started, 1=pay+drop, 2=done
 
-        private QuestEntry _bringSuppliesEntry;
+        private QuestEntry _payEntry;
+        private QuestEntry _dropOffEntry;
 
         public static StaticUpgrade2Quest Instance { get; private set; }
         internal static void ResetInstance() => Instance = null;
 
         public int Stage => _stage;
 
-        private static readonly Vector3 StaticPosition = new Vector3(13.72f, 5.16f, 95.96f);
-
-        private void TriggerInternalInit()
-        {
-            try
-            {
-                var s1QuestField = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (s1QuestField == null) return;
-
-                var s1Quest = s1QuestField.GetValue(this) as ScheduleOne.Quests.Quest;
-                if (s1Quest == null) return;
-
-                s1Quest.InitializeQuest(Title, Description, Array.Empty<ScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Quest, $"TriggerInternalInit failed: {ex.Message}");
-            }
-        }
 
         public void Initialize()
         {
             try
             {
-                TriggerInternalInit();
-
-                _bringSuppliesEntry = AddEntry(GetSuppliesText(), StaticPosition);
+                _payEntry = AddEntry(GetPayText());
+                _dropOffEntry = AddEntry(GetDropOffText(), CasinoDeadDrop.Position);
             }
             catch (Exception ex)
             {
@@ -63,13 +40,18 @@ namespace OverTheCounter.Quests
             }
         }
 
-        private static string GetSuppliesText() =>
-            $"Bring Static ${Config.StaticTier3BankCost.Value:N0} and {Config.StaticTier3PremiumMethGrams.Value} grams of premium meth";
+        private static string GetPayText() =>
+            $"Pay ${Config.StaticTier3BankCost.Value:N0} via OTC app";
+
+        private static string GetDropOffText() =>
+            $"Drop off {Config.StaticTier3PremiumMethGrams.Value}g premium meth at the casino dead drop";
 
         public void RefreshEntryText()
         {
-            if (_bringSuppliesEntry != null && _stage >= 1 && _stage < 2)
-                _bringSuppliesEntry.Title = GetSuppliesText();
+            if (_payEntry != null && _stage >= 1 && _stage < 2)
+                _payEntry.Title = GetPayText();
+            if (_dropOffEntry != null && _stage >= 1 && _stage < 2)
+                _dropOffEntry.Title = GetDropOffText();
         }
 
         public void StartQuest()
@@ -78,7 +60,9 @@ namespace OverTheCounter.Quests
             {
                 _stage = 1;
                 Begin();
-                _bringSuppliesEntry?.Begin();
+                _payEntry?.Begin();
+                _dropOffEntry?.Begin();
+                QuestPoiFixer.FixPosition(_dropOffEntry, CasinoDeadDrop.Position);
             }
             catch (Exception ex)
             {
@@ -91,14 +75,29 @@ namespace OverTheCounter.Quests
             try
             {
                 _stage = 2;
-                _bringSuppliesEntry?.Begin();
-                _bringSuppliesEntry?.Complete();
+                _payEntry?.Begin();
+                _payEntry?.Complete();
+                _dropOffEntry?.Begin();
+                _dropOffEntry?.Complete();
                 Complete();
             }
             catch (Exception ex)
             {
                 OTCLog.Error(OTCLog.Systems.Quest, $"CompleteObj1 failed: {ex.Message}");
             }
+        }
+
+        public void CompletePay()
+        {
+            _payEntry?.Begin();
+            _payEntry?.Complete();
+            _dropOffEntry?.Begin(); // Now show dead drop marker
+        }
+
+        public void CompleteDropOff()
+        {
+            _dropOffEntry?.Begin();
+            _dropOffEntry?.Complete();
         }
 
         protected override void OnCreated()
@@ -114,16 +113,29 @@ namespace OverTheCounter.Quests
 
             try
             {
-                // Entries aren't restored from save — rebuild them
                 QuestEntries.Clear();
-                _bringSuppliesEntry = AddEntry(GetSuppliesText(), StaticPosition);
+                _payEntry = AddEntry(GetPayText());
+                _dropOffEntry = AddEntry(GetDropOffText(), CasinoDeadDrop.Position);
 
-                // Restore entry states based on saved stage
                 if (_stage >= 1)
-                    _bringSuppliesEntry?.Begin();
+                {
+                    _payEntry?.Begin();
+                    _dropOffEntry?.Begin();
+                    QuestPoiFixer.FixPosition(_dropOffEntry, CasinoDeadDrop.Position);
+                }
+
+                if (_stage >= 1 && _stage < 2 && StaticSaveData.Instance != null)
+                {
+                    if (StaticSaveData.Instance.UpgradeMoneyPaid)
+                        CompletePay(); // Also begins _dropOffEntry
+                    if (StaticSaveData.Instance.UpgradeProductDelivered)
+                        CompleteDropOff();
+                }
+
                 if (_stage >= 2)
                 {
-                    _bringSuppliesEntry?.Complete();
+                    _payEntry?.Complete();
+                    _dropOffEntry?.Complete();
                     Complete();
                 }
             }

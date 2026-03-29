@@ -382,6 +382,7 @@
 		<Compile Include="Logic\Placement\ComputerScreen.cs" />
 		<Compile Include="Logic\Placement\Dispensary.cs" />
 		<Compile Include="Logic\Placement\FurnitureManager.cs" />
+		<Compile Include="Logic\Placement\CasinoDeadDrop.cs" />
 		<Compile Include="Logic\Placement\OTCSupplierArea.cs" />
 		<Compile Include="Logic\Placement\OTCWarehouse.cs" />
 		<Compile Include="Logic\Placement\BuildingTarget.cs" />

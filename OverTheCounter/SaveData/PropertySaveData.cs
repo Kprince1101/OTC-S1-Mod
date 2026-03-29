@@ -41,6 +41,7 @@ namespace OverTheCounter.SaveData
         public string Sender;
         public string Text;
         public bool IsEmbed;
+        public string ThreadId;  // Groups messages into collapsible threads
 
         // Embed fields — only used when IsEmbed = true
         public string EmbedTitle;

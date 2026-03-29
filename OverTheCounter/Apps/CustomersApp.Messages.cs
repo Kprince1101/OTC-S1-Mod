@@ -2,6 +2,7 @@ using S1API.Money;
 using S1API.UI;
 using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
+using OverTheCounter.UI;
 using OverTheCounter.Utilities;
 using System;
 using System.Reflection;
@@ -11,9 +12,11 @@ using UnityEngine.UI;
 #if IL2CPP
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.UI;
+using Il2CppTMPro;
 #else
 using ScheduleOne.DevUtilities;
 using ScheduleOne.UI;
+using TMPro;
 #endif
 
 namespace OverTheCounter.Apps
@@ -26,21 +29,39 @@ namespace OverTheCounter.Apps
         private static readonly Color CardBg = new Color(0.12f, 0.15f, 0.2f);
         private static readonly Color CardBorder = new Color(0.25f, 0.55f, 0.45f);
         private static readonly Color BuyBtnColor = new Color(0.15f, 0.5f, 0.35f);
+        private static readonly Color BuyBtnDisabledColor = new Color(0.45f, 0.2f, 0.2f);
         private static readonly Color SoldColor = new Color(0.35f, 0.35f, 0.35f);
         private static readonly Color SidebarBg = new Color(0.06f, 0.07f, 0.09f);
         private static readonly Color SidebarSelectedBg = new Color(0.12f, 0.14f, 0.18f);
         private static readonly Color AvatarBg = new Color(0.15f, 0.35f, 0.25f);
         private static readonly Color SeparatorColor = new Color(0.2f, 0.22f, 0.26f);
+        private static readonly Color PlayerBubbleBg = new Color(0.14f, 0.16f, 0.26f);
+        private static readonly Color PlayerTextColor = new Color(0.70f, 0.82f, 0.95f);
+
+        // Thread layout edges (shared by embeds, bubbles, response options)
+        private const float ThreadLeft = 0.04f;
+        private const float ThreadRight = 0.96f;
 
         // Thread view refs (for rebuild after purchase)
         private RectTransform _threadViewRect;
         private ScrollRect _threadScroll;
+
+        // Collapsible thread state
+        private readonly System.Collections.Generic.Dictionary<string, bool> _threadCollapsed = new();
+        private readonly System.Collections.Generic.Dictionary<string, RectTransform> _threadContainers = new();
+        private string _scrollToThread;
+
+        // Thread header color
+        private static readonly Color ThreadHeaderBg = new Color(0.10f, 0.12f, 0.16f);
+        private static readonly Color ThreadHeaderActiveTint = new Color(0.55f, 0.85f, 0.65f);
+        private static readonly Color ThreadHeaderCompletedTint = new Color(0.45f, 0.45f, 0.45f);
 
         // Cached sprites
         private readonly System.Collections.Generic.Dictionary<string, Sprite> _embedImageCache = new();
         private Image _sidebarMugshotImage;
         private int _lastNotifiedCount;
         private int _lastSeenCount;
+        private int _lastPopulatedHash;
 
         // Button action handlers keyed by EmbedButtonAction string
         private System.Collections.Generic.Dictionary<string, Action> _embedActions;
@@ -60,15 +81,23 @@ namespace OverTheCounter.Apps
         {
             if (_messageBadge == null) return;
 
+            // Rebuild messages from current state so count is accurate
+            StaticThreadSaveData.Instance?.ReconcileHostThread();
             int messageCount = StaticThreadSaveData.Instance?.MessageCount ?? 0;
 
-            // If overlay is open, auto-read new messages and refresh thread
-            if (_messagesOverlay != null && messageCount > _lastSeenCount)
+            // If overlay is open, refresh thread when content changes
+            if (_messagesOverlay != null)
             {
-                _lastSeenCount = messageCount;
-                _lastNotifiedCount = messageCount; // suppress toast while viewing
+                if (messageCount > _lastSeenCount)
+                {
+                    _lastSeenCount = messageCount;
+                    _lastNotifiedCount = messageCount;
+                }
                 StaticThreadSaveData.Instance?.MarkAllSeen();
-                PopulateThread();
+
+                int hash = ComputeThreadHash();
+                if (hash != _lastPopulatedHash)
+                    PopulateThread(snapToBottom: false);
             }
 
             bool hasUnread = messageCount > _lastSeenCount;
@@ -192,12 +221,27 @@ namespace OverTheCounter.Apps
             // Initialize button action handlers
             _embedActions ??= new System.Collections.Generic.Dictionary<string, Action>
             {
-                ["purchase_shack"] = OnPurchaseShack
+                ["purchase_shack"] = OnPurchaseShack,
+                ["accept_intro"] = OnAcceptIntro,
+                ["accept_upgrade"] = OnAcceptUpgrade,
+                ["purchase_tier1_money"] = OnPurchaseTier1Money,
+                ["purchase_upgrade_money"] = OnPurchaseUpgradeMoney
             };
 
-            // Hide tab pages
+            // Hide tab pages and deselect all tabs
             _managersPage?.SetActive(false);
             _customersPage?.SetActive(false);
+            if (_managersTabImage != null) _managersTabImage.color = Color.clear;
+            if (_employeesTabImage != null) _employeesTabImage.color = Color.clear;
+            if (_customersTabImage != null) _customersTabImage.color = Color.clear;
+            if (_managersTabUnderline != null) _managersTabUnderline.color = Color.clear;
+            if (_employeesTabUnderline != null) _employeesTabUnderline.color = Color.clear;
+            if (_customersTabUnderline != null) _customersTabUnderline.color = Color.clear;
+            if (_managersTabText != null) { _managersTabText.text = "Managers"; _managersTabText.color = new Color(0.55f, 0.55f, 0.55f); }
+            if (_employeesTabText != null) { _employeesTabText.text = "Employees"; _employeesTabText.color = new Color(0.55f, 0.55f, 0.55f); }
+            if (_customersTabText != null) { _customersTabText.text = "Customers"; _customersTabText.color = new Color(0.55f, 0.55f, 0.55f); }
+            if (_msgTabUnderline != null) _msgTabUnderline.color = TabUnderlineColor;
+            if (_msgBtnImage != null) _msgBtnImage.color = ActiveTabBg;
 
             _messagesOverlay = UIFactory.Panel("MessagesOverlay", _rootPanel.transform, MsgBg);
             var rect = _messagesOverlay.GetComponent<RectTransform>();
@@ -280,6 +324,7 @@ namespace OverTheCounter.Apps
             _threadViewRect = null;
             _threadScroll = null;
             _sidebarMugshotImage = null;
+            _threadContainers.Clear();
             _parallaxPhotos.Clear();
         }
 
@@ -383,15 +428,7 @@ namespace OverTheCounter.Apps
             panelRect.offsetMin = new Vector2(1, 0); // 1px past separator
             panelRect.offsetMax = Vector2.zero;
 
-            // Scroll area — fills the entire thread panel (no redundant header)
-            var scrollArea = UIFactory.Panel("ScrollArea", threadPanel.transform, Color.clear);
-            var scrollAreaRect = scrollArea.GetComponent<RectTransform>();
-            scrollAreaRect.anchorMin = Vector2.zero;
-            scrollAreaRect.anchorMax = Vector2.one;
-            scrollAreaRect.offsetMin = Vector2.zero;
-            scrollAreaRect.offsetMax = Vector2.zero;
-
-            _threadViewRect = UIFactory.ScrollableVerticalList("ThreadScroll", scrollArea.transform, out _threadScroll);
+            _threadViewRect = UIFactory.ScrollableVerticalList("ThreadScroll", threadPanel.transform, out _threadScroll);
 
             // Constrain scroll (same as Managers/Customers pages)
             var scrollRt = _threadScroll.GetComponent<RectTransform>();
@@ -424,10 +461,43 @@ namespace OverTheCounter.Apps
         // Thread Content
         // ==================================================================
 
-        private void PopulateThread()
+        private int ComputeThreadHash()
+        {
+            var messages = StaticThreadSaveData.Instance?.GetMessages();
+            if (messages == null) return 0;
+            int hash = messages.Count;
+            float balance = Money.GetOnlineBalance();
+            for (int i = 0; i < messages.Count; i++)
+            {
+                var m = messages[i];
+                hash = hash * 31 + (m.Text?.GetHashCode() ?? 0);
+                hash = hash * 31 + (m.EmbedStatus?.GetHashCode() ?? 0);
+                hash = hash * 31 + (m.EmbedButtonLabel?.GetHashCode() ?? 0);
+                if (m.EmbedItems != null)
+                    foreach (var item in m.EmbedItems)
+                        hash = hash * 31 + (item?.GetHashCode() ?? 0);
+                // Track affordability so button color updates when balance changes
+                if (!string.IsNullOrEmpty(m.EmbedButtonAction))
+                {
+                    float cost = GetActionCost(m.EmbedButtonAction);
+                    hash = hash * 31 + (balance >= cost ? 1 : 0);
+                }
+            }
+            return hash;
+        }
+
+        private void PopulateThread(bool snapToBottom = true)
         {
             if (_threadViewRect == null || _threadScroll == null) return;
+
+            // Save scroll position before rebuild (ClearChildren destroys content)
+            float savedScrollPos = _threadScroll.verticalNormalizedPosition;
+
+            // Rebuild message list from current state flags before rendering
+            StaticThreadSaveData.Instance?.ReconcileHostThread();
+
             _parallaxPhotos.Clear();
+            _threadContainers.Clear();
 
             var content = _threadScroll.content;
             ClearChildren(content);
@@ -454,40 +524,308 @@ namespace OverTheCounter.Apps
             var messages = StaticThreadSaveData.Instance?.GetMessages()
                 ?? new System.Collections.Generic.List<OtcPropertyMessage>();
 
-            for (int i = 0; i < messages.Count; i++)
-            {
-                if (i == _unreadDividerIndex)
-                    AddUnreadDivider(content);
+            // Group messages into sequential thread runs
+            var threadGroups = new System.Collections.Generic.List<(string threadId, System.Collections.Generic.List<OtcPropertyMessage> msgs)>();
+            string currentThreadId = "\x01"; // sentinel — never matches any real ThreadId
+            System.Collections.Generic.List<OtcPropertyMessage> currentGroup = null;
 
-                var msg = messages[i];
-                if (msg.IsEmbed)
-                    AddEmbed(content, msg);
+            foreach (var msg in messages)
+            {
+                string tid = msg.ThreadId;
+                if (tid != currentThreadId)
+                {
+                    currentGroup = new System.Collections.Generic.List<OtcPropertyMessage>();
+                    threadGroups.Add((tid, currentGroup));
+                    currentThreadId = tid;
+                }
+                currentGroup.Add(msg);
+            }
+
+            int flatIndex = 0;
+            foreach (var (threadId, group) in threadGroups)
+            {
+                if (threadId == null)
+                {
+                    // Inline messages — no thread container
+                    foreach (var msg in group)
+                    {
+                        if (flatIndex == _unreadDividerIndex)
+                            AddUnreadDivider(content);
+                        flatIndex++;
+
+                        if (msg.IsEmbed)
+                            AddEmbed(content, msg);
+                        else
+                            AddBubble(content, msg.Text ?? "", msg.Sender);
+                    }
+                    continue;
+                }
+
+                // Determine thread metadata — track what the LAST embed looks like
+                bool hasPendingAction = false;
+                bool hasInProgressEmbed = false;
+                string lastEmbedStatus = null;
+                OtcPropertyMessage threadResponse = null;
+
+                foreach (var msg in group)
+                {
+                    if (msg.Sender == "player_option") { threadResponse = msg; }
+                    if (msg.IsEmbed)
+                    {
+                        // Each new embed resets — only the last embed's state matters
+                        lastEmbedStatus = msg.EmbedStatus;
+                        hasPendingAction = !string.IsNullOrEmpty(msg.EmbedButtonAction);
+                        hasInProgressEmbed = msg.EmbedItems != null && msg.EmbedItems.Count > 0
+                            && string.IsNullOrEmpty(msg.EmbedStatus) && string.IsNullOrEmpty(msg.EmbedButtonAction);
+                    }
+                }
+
+                // Thread title from lookup table
+                string title = threadId switch
+                {
+                    "crm" => "CRM Software",
+                    "upgrade1" => "Private Server",
+                    "upgrade2" => "Enterprise Tier",
+                    "shack" => "Westville Shack",
+                    _ => threadId
+                };
+
+                // Completed when the last embed has a final status and nothing pending after it
+                string status = lastEmbedStatus;
+                bool isCompleted = !string.IsNullOrEmpty(status) && !hasPendingAction && !hasInProgressEmbed;
+                bool collapsed = _threadCollapsed.TryGetValue(threadId, out bool userPref) ? userPref : isCompleted;
+
+                // Create thread container
+                var container = CreateThreadContainer(content, threadId, title, status, collapsed, isCompleted);
+
+                if (!collapsed)
+                {
+                    var threadContent = container.Find("ThreadContent");
+                    foreach (var msg in group)
+                    {
+                        if (flatIndex == _unreadDividerIndex)
+                            AddUnreadDivider(threadContent);
+                        flatIndex++;
+
+                        if (msg.Sender == "player_option")
+                            continue; // rendered as response button below
+
+                        if (msg.IsEmbed)
+                            AddEmbed(threadContent, msg);
+                        else
+                            AddBubble(threadContent, msg.Text ?? "", msg.Sender);
+                    }
+
+                    // Render response button inside thread (skip if completed)
+                    if (threadResponse != null && !isCompleted)
+                        AddResponseButton(threadContent, threadResponse);
+                }
                 else
-                    AddBubble(content, msg.Text ?? "");
+                {
+                    flatIndex += group.Count;
+                }
+            }
+
+            // Update hash
+            _lastPopulatedHash = ComputeThreadHash();
+
+            // Scroll handling — force full layout rebuild so ContentSizeFitters propagate
+            Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+            Canvas.ForceUpdateCanvases();
+            if (_scrollToThread != null && _threadContainers.TryGetValue(_scrollToThread, out var targetRect))
+            {
+                _scrollToThread = null;
+                ScrollToThread(targetRect);
+            }
+            else if (snapToBottom)
+            {
+                if (_threadScroll != null)
+                    _threadScroll.verticalNormalizedPosition = 0f;
+            }
+            else
+            {
+                // Restore scroll position after rebuild
+                _threadScroll.verticalNormalizedPosition = savedScrollPos;
             }
         }
 
-        private void AddBubble(Transform parent, string text)
+        private Transform CreateThreadContainer(Transform parent, string threadId, string title, string status, bool collapsed, bool isCompleted)
         {
+            var containerGo = UIFactory.Panel($"Thread_{threadId}", parent, Color.clear);
+            var containerRect = containerGo.GetComponent<RectTransform>();
+
+            // Track for scroll-to-thread
+            _threadContainers[threadId] = containerRect;
+
+            // VLG to stack header + content
+            var containerVlg = containerGo.AddComponent<VerticalLayoutGroup>();
+            containerVlg.spacing = 0;
+            containerVlg.padding = new RectOffset(0, 0, 0, 0);
+            containerVlg.childForceExpandWidth = true;
+            containerVlg.childForceExpandHeight = false;
+            containerVlg.childControlWidth = true;
+            containerVlg.childControlHeight = true;
+
+            var containerCsf = containerGo.AddComponent<ContentSizeFitter>();
+            containerCsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            // ── Thread Header ──
+            var headerGo = UIFactory.Panel("ThreadHeader", containerGo.transform, ThreadHeaderBg);
+            var headerLe = headerGo.AddComponent<LayoutElement>();
+            headerLe.minHeight = 36;
+            headerLe.preferredHeight = 36;
+
+            // Chevron
+            var chevronTmp = TMPFactory.Text("Chevron", collapsed ? "\u25BA" : "\u25BC", headerGo.transform, 16, TextAlignmentOptions.Left);
+            var chevronRect = chevronTmp.gameObject.GetComponent<RectTransform>();
+            chevronRect.anchorMin = new Vector2(0, 0);
+            chevronRect.anchorMax = new Vector2(0, 1);
+            chevronRect.pivot = new Vector2(0, 0.5f);
+            chevronRect.sizeDelta = new Vector2(28, 0);
+            chevronRect.anchoredPosition = new Vector2(10, 0);
+            chevronTmp.color = isCompleted ? ThreadHeaderCompletedTint : ThreadHeaderActiveTint;
+
+            // Title
+            var titleTmp = TMPFactory.Text("Title", $"<b>{title}</b>", headerGo.transform, 17, TextAlignmentOptions.Left);
+            var titleRect = titleTmp.gameObject.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0, 0);
+            titleRect.anchorMax = new Vector2(0.7f, 1);
+            titleRect.offsetMin = new Vector2(34, 0);
+            titleRect.offsetMax = Vector2.zero;
+            titleTmp.color = isCompleted ? ThreadHeaderCompletedTint : ThreadHeaderActiveTint;
+
+            // Status badge (right-aligned, completed only)
+            if (isCompleted && !string.IsNullOrEmpty(status))
+            {
+                var statusTmp = TMPFactory.Text("Status", status, headerGo.transform, 15, TextAlignmentOptions.Right);
+                var statusRect = statusTmp.gameObject.GetComponent<RectTransform>();
+                statusRect.anchorMin = new Vector2(0.7f, 0);
+                statusRect.anchorMax = new Vector2(1, 1);
+                statusRect.offsetMin = Vector2.zero;
+                statusRect.offsetMax = new Vector2(-10, 0);
+                statusTmp.color = ThreadHeaderCompletedTint;
+            }
+
+            // Click handler
+            string capturedId = threadId;
+            headerGo.AddComponent<Button>().onClick.AddListener(new Action(() =>
+            {
+                _threadCollapsed[capturedId] = !collapsed;
+                PopulateThread(snapToBottom: false);
+            }));
+
+            // ── Thread Content ──
+            var contentGo = UIFactory.Panel("ThreadContent", containerGo.transform, Color.clear);
+            var contentVlg = contentGo.AddComponent<VerticalLayoutGroup>();
+            contentVlg.spacing = 8;
+            contentVlg.padding = new RectOffset(0, 0, 4, 8);
+            contentVlg.childForceExpandWidth = true;
+            contentVlg.childForceExpandHeight = false;
+            contentVlg.childControlWidth = true;
+            contentVlg.childControlHeight = true;
+
+            var contentCsf = contentGo.AddComponent<ContentSizeFitter>();
+            contentCsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            contentGo.SetActive(!collapsed);
+
+            return containerGo.transform;
+        }
+
+        private void AddResponseButton(Transform parent, OtcPropertyMessage option)
+        {
+            var wrapper = UIFactory.Panel("ResponseWrapper", parent, Color.clear);
+            var wrapperLe = wrapper.AddComponent<LayoutElement>();
+            wrapperLe.minHeight = 48;
+            wrapperLe.preferredHeight = 48;
+
+            // Bubble - right-aligned, auto-width via ContentSizeFitter
+            var bubble = UIFactory.Panel("ResponseBubble", wrapper.transform, new Color(0.10f, 0.30f, 0.24f));
+            var bubbleRect = bubble.GetComponent<RectTransform>();
+            bubbleRect.anchorMin = new Vector2(1, 0.5f);
+            bubbleRect.anchorMax = new Vector2(1, 0.5f);
+            bubbleRect.pivot = new Vector2(1, 0.5f);
+            bubbleRect.anchoredPosition = new Vector2(-14, 0);
+            bubbleRect.sizeDelta = new Vector2(0, 36);
+
+            var hlg = bubble.AddComponent<HorizontalLayoutGroup>();
+            hlg.padding = new RectOffset(18, 18, 0, 0);
+            hlg.childAlignment = TextAnchor.MiddleCenter;
+            hlg.childForceExpandWidth = false;
+            hlg.childControlWidth = true;
+
+            var bubbleCsf = bubble.AddComponent<ContentSizeFitter>();
+            bubbleCsf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            string actionKey = option.EmbedButtonAction;
+            string targetThread = option.ThreadId;
+            bubble.AddComponent<Button>().onClick.AddListener(new Action(() =>
+            {
+                _scrollToThread = targetThread;
+                if (_embedActions != null && _embedActions.TryGetValue(actionKey, out var handler))
+                    handler();
+            }));
+
+            var btnLabel = TMPFactory.Text("Label", $"<b>{option.EmbedButtonLabel}</b>", bubble.transform, 18, TextAlignmentOptions.Center);
+            btnLabel.color = new Color(0.6f, 0.95f, 0.75f);
+        }
+
+        private void ScrollToThread(RectTransform threadRect)
+        {
+            if (_threadScroll == null || threadRect == null) return;
+
+            var contentRect = _threadScroll.content;
+            float contentHeight = contentRect.rect.height;
+            float viewportHeight = _threadScroll.viewport != null
+                ? _threadScroll.viewport.rect.height
+                : _threadScroll.GetComponent<RectTransform>().rect.height;
+
+            if (contentHeight <= viewportHeight)
+            {
+                _threadScroll.verticalNormalizedPosition = 1f;
+                return;
+            }
+
+            // anchoredPosition.y is pivot-relative — compute actual top edge, with margin
+            float threadTop = Mathf.Max(0f, -(threadRect.anchoredPosition.y + threadRect.rect.height * threadRect.pivot.y) - 10f);
+            float threadHeight = threadRect.rect.height;
+            float scrollRange = contentHeight - viewportHeight;
+
+            float targetY;
+            if (threadHeight <= viewportHeight)
+                targetY = threadTop; // thread fits: show header at top
+            else
+                targetY = threadTop + threadHeight - viewportHeight; // too tall: show bottom at viewport bottom
+
+            _threadScroll.verticalNormalizedPosition = 1f - Mathf.Clamp01(targetY / scrollRange);
+        }
+
+        private void AddBubble(Transform parent, string text, string sender)
+        {
+            bool isPlayer = sender == "player";
+
             var wrapper = UIFactory.Panel("BubbleWrapper", parent, new Color(0, 0, 0, 0));
             var wrapperLe = wrapper.AddComponent<LayoutElement>();
             wrapperLe.minHeight = 80;
             wrapperLe.preferredHeight = 80;
 
-            var bubble = UIFactory.Panel("Bubble", wrapper.transform, BubbleBg);
+            var bubble = UIFactory.Panel("Bubble", wrapper.transform, isPlayer ? PlayerBubbleBg : BubbleBg);
             var bubbleRect = bubble.GetComponent<RectTransform>();
-            bubbleRect.anchorMin = new Vector2(0.15f, 0);
-            bubbleRect.anchorMax = new Vector2(0.85f, 1);
+            bubbleRect.anchorMin = new Vector2(isPlayer ? 0.28f : ThreadLeft, 0);
+            bubbleRect.anchorMax = new Vector2(isPlayer ? ThreadRight : 0.72f, 1);
             bubbleRect.offsetMin = Vector2.zero;
             bubbleRect.offsetMax = Vector2.zero;
 
-            var msgText = UIFactory.Text("Text", text, bubble.transform, 18, TextAnchor.UpperLeft);
-            var textRect = msgText.gameObject.GetComponent<RectTransform>();
+            var msgTmp = TMPFactory.Text("Text", text, bubble.transform, 18,
+                isPlayer ? TextAlignmentOptions.TopRight : TextAlignmentOptions.TopLeft);
+            var textRect = msgTmp.gameObject.GetComponent<RectTransform>();
             textRect.anchorMin = Vector2.zero;
             textRect.anchorMax = Vector2.one;
             textRect.offsetMin = new Vector2(14, 10);
             textRect.offsetMax = new Vector2(-14, -10);
-            msgText.color = new Color(0.78f, 0.92f, 0.82f);
+            msgTmp.color = isPlayer ? PlayerTextColor : new Color(0.78f, 0.92f, 0.82f);
+            TMPFactory.SetWrapping(msgTmp, true);
         }
 
         private void AddUnreadDivider(Transform parent)
@@ -534,12 +872,12 @@ namespace OverTheCounter.Apps
             float photoHeight = hasPhoto ? 220f : 0f;
             float titleHeight = 29f;
             float descHeight = hasPhoto ? 52f : 24f;
-            float itemsHeight = !hasStatus && hasItems ? msg.EmbedItems.Count * 29f : 0f;
+            float itemsHeight = hasItems ? msg.EmbedItems.Count * 29f : 0f;
             float locationHeight = !hasStatus && hasLocation ? 29f : 0f;
             float statusHeight = hasStatus ? 39f : 0f;
             float buttonHeight = hasButton ? 42f : 0f;
-            float cardHeight = 16f + photoHeight
-                + titleHeight + (hasStatus ? statusHeight : descHeight + itemsHeight + locationHeight)
+            float cardHeight = 16f + photoHeight + titleHeight + statusHeight
+                + (hasStatus ? itemsHeight : descHeight + itemsHeight + locationHeight)
                 + buttonHeight;
 
             var wrapper = UIFactory.Panel("EmbedWrapper", parent, new Color(0, 0, 0, 0));
@@ -547,9 +885,8 @@ namespace OverTheCounter.Apps
             wrapperLe.minHeight = cardHeight;
             wrapperLe.preferredHeight = cardHeight;
 
-            // 60% card width for all embeds
-            float cardInsetMin = 0.20f;
-            float cardInsetMax = 0.80f;
+            float cardInsetMin = ThreadLeft;
+            float cardInsetMax = ThreadRight;
 
             var card = UIFactory.Panel("EmbedCard", wrapper.transform, CardBg);
             var cardRect = card.GetComponent<RectTransform>();
@@ -617,7 +954,6 @@ namespace OverTheCounter.Apps
 
             if (hasStatus)
             {
-                // Status replaces all content below title
                 var statusText = UIFactory.Text("Status", $"<b>{msg.EmbedStatus}</b>", card.transform, hasPhoto ? 26 : 21, TextAnchor.MiddleCenter);
                 var statusRect = statusText.gameObject.GetComponent<RectTransform>();
                 statusRect.anchorMin = new Vector2(0, 1);
@@ -626,6 +962,7 @@ namespace OverTheCounter.Apps
                 statusRect.sizeDelta = new Vector2(0, 34);
                 statusRect.anchoredPosition = new Vector2(0, -y);
                 statusText.color = SoldColor;
+                y += statusHeight;
             }
             else
             {
@@ -661,26 +998,30 @@ namespace OverTheCounter.Apps
                     descText.color = hasPhoto ? new Color(0.55f, 0.7f, 0.6f) : new Color(0.5f, 0.6f, 0.55f);
                     y += descHeight + 4f;
                 }
+            }
 
-                // Items list
-                if (hasItems)
+            // Items list - shown in both active and completed states
+            if (hasItems)
+            {
+                foreach (var item in msg.EmbedItems)
                 {
-                    foreach (var item in msg.EmbedItems)
-                    {
-                        var itemText = UIFactory.Text("Item", $"  \u2022  {item}", card.transform, 18, TextAnchor.UpperLeft);
-                        var itemRect = itemText.gameObject.GetComponent<RectTransform>();
-                        itemRect.anchorMin = new Vector2(0, 1);
-                        itemRect.anchorMax = new Vector2(1, 1);
-                        itemRect.pivot = new Vector2(0, 1);
-                        itemRect.sizeDelta = new Vector2(0, 24);
-                        itemRect.anchoredPosition = new Vector2(0, -y);
-                        itemRect.offsetMin = new Vector2(textInset, itemRect.offsetMin.y);
-                        itemRect.offsetMax = new Vector2(-8, itemRect.offsetMax.y);
-                        itemText.color = new Color(0.9f, 0.9f, 0.6f);
-                        y += 29f;
-                    }
+                    bool struck = item.StartsWith("<s>");
+                    var itemTmp = TMPFactory.Text("Item", $"  \u2022  {item}", card.transform, 18, TextAlignmentOptions.TopLeft);
+                    var itemRect = itemTmp.gameObject.GetComponent<RectTransform>();
+                    itemRect.anchorMin = new Vector2(0, 1);
+                    itemRect.anchorMax = new Vector2(1, 1);
+                    itemRect.pivot = new Vector2(0, 1);
+                    itemRect.sizeDelta = new Vector2(0, 24);
+                    itemRect.anchoredPosition = new Vector2(0, -y);
+                    itemRect.offsetMin = new Vector2(textInset, itemRect.offsetMin.y);
+                    itemRect.offsetMax = new Vector2(-8, itemRect.offsetMax.y);
+                    itemTmp.color = struck ? new Color(0.55f, 0.55f, 0.45f) : new Color(0.9f, 0.9f, 0.6f);
+                    y += 29f;
                 }
+            }
 
+            if (!hasStatus)
+            {
                 // Location (at bottom for non-photo embeds)
                 if (!hasPhoto && hasLocation)
                 {
@@ -699,17 +1040,21 @@ namespace OverTheCounter.Apps
                 // Button
                 if (hasButton)
                 {
-                    var btnPanel = UIFactory.Panel("EmbedBtn", card.transform, BuyBtnColor);
+                    float actionCost = GetActionCost(msg.EmbedButtonAction);
+                    bool canAfford = actionCost <= 0 || Money.GetOnlineBalance() >= actionCost;
+                    var btnPanel = UIFactory.Panel("EmbedBtn", card.transform, canAfford ? BuyBtnColor : BuyBtnDisabledColor);
                     var btnRect = btnPanel.GetComponent<RectTransform>();
                     btnRect.anchorMin = new Vector2(1, 0);
                     btnRect.anchorMax = new Vector2(1, 0);
                     btnRect.pivot = new Vector2(1, 0);
-                    btnRect.sizeDelta = new Vector2(112, 38);
+                    btnRect.sizeDelta = new Vector2(150, 38);
                     btnRect.anchoredPosition = new Vector2(-12, 8);
 
                     string actionKey = msg.EmbedButtonAction;
+                    string embedThread = msg.ThreadId;
                     btnPanel.AddComponent<Button>().onClick.AddListener(new Action(() =>
                     {
+                        _scrollToThread = embedThread;
                         if (_embedActions != null && _embedActions.TryGetValue(actionKey, out var handler))
                             handler();
                     }));
@@ -760,6 +1105,19 @@ namespace OverTheCounter.Apps
         // Purchase
         // ==================================================================
 
+        private static float GetActionCost(string action)
+        {
+            switch (action)
+            {
+                case "purchase_shack": return Config.ShackPurchasePrice.Value;
+                case "purchase_tier1_money": return Config.StaticTier1BankCost.Value;
+                case "purchase_upgrade_money":
+                    int tier = (StaticSaveData.Instance?.CrmTier ?? 0) + 1;
+                    return tier == 2 ? Config.StaticTier2BankCost.Value : Config.StaticTier3BankCost.Value;
+                default: return 0;
+            }
+        }
+
         private void OnPurchaseShack()
         {
             if (PropertySaveData.Instance == null) return;
@@ -776,7 +1134,86 @@ namespace OverTheCounter.Apps
                 ConfigSyncData.SendQuestAction("PURCHASE_WESTVILLE_SHACK");
 
             // Rebuild thread to show confirmation
-            PopulateThread();
+            PopulateThread(snapToBottom: false);
+        }
+
+        private void OnAcceptIntro()
+        {
+            if (StaticSaveData.Instance == null) return;
+            if (StaticSaveData.Instance.IntroCompleted) return;
+
+            if (NetworkHelper.IsHost)
+            {
+                StaticSaveData.Instance.OnIntroCompleted();
+            }
+            else
+            {
+                ConfigSyncData.SendQuestAction("STATIC_INTRO_COMPLETED");
+            }
+
+            PopulateThread(snapToBottom: false);
+        }
+
+        private void OnAcceptUpgrade()
+        {
+            if (StaticSaveData.Instance == null) return;
+            if (StaticSaveData.Instance.UpgradeAccepted || !StaticSaveData.Instance.UpgradeAvailable) return;
+
+            if (NetworkHelper.IsHost)
+            {
+                StaticSaveData.Instance.AcceptUpgrade();
+            }
+            else
+            {
+                ConfigSyncData.SendQuestAction("STATIC_ACCEPT_UPGRADE");
+            }
+
+            PopulateThread(snapToBottom: false);
+        }
+
+        private void OnPurchaseTier1Money()
+        {
+            if (StaticSaveData.Instance == null) return;
+            if (StaticSaveData.Instance.Tier1MoneyPaid || StaticSaveData.Instance.CrmTier >= 1) return;
+
+            float cost = Config.StaticTier1BankCost.Value;
+            if (Money.GetOnlineBalance() < cost) return;
+
+            Money.CreateOnlineTransaction("OTC License", -cost, 1f, "Static Services");
+
+            if (NetworkHelper.IsHost)
+            {
+                StaticSaveData.Instance.PayTier1Money();
+            }
+            else
+            {
+                ConfigSyncData.SendQuestAction("STATIC_PAY_TIER1");
+            }
+
+            PopulateThread(snapToBottom: false);
+        }
+
+        private void OnPurchaseUpgradeMoney()
+        {
+            if (StaticSaveData.Instance == null) return;
+            if (StaticSaveData.Instance.UpgradeMoneyPaid || !StaticSaveData.Instance.UpgradeAvailable) return;
+
+            int targetTier = StaticSaveData.Instance.CrmTier + 1;
+            float cost = targetTier == 2 ? Config.StaticTier2BankCost.Value : Config.StaticTier3BankCost.Value;
+            if (Money.GetOnlineBalance() < cost) return;
+
+            Money.CreateOnlineTransaction("OTC Upgrade", -cost, 1f, "Static Services");
+
+            if (NetworkHelper.IsHost)
+            {
+                StaticSaveData.Instance.PayUpgradeMoney();
+            }
+            else
+            {
+                ConfigSyncData.SendQuestAction("STATIC_PAY_UPGRADE");
+            }
+
+            PopulateThread(snapToBottom: false);
         }
     }
 }

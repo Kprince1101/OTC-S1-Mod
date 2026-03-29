@@ -939,8 +939,15 @@ namespace OverTheCounter.SaveData
                 parts.Add($"static_tier={StaticSaveData.Instance.CrmTier}");
                 parts.Add($"static_saas={BoolToStr(StaticSaveData.Instance.SaasActive)}");
                 parts.Add($"static_upgrade={BoolToStr(StaticSaveData.Instance.UpgradeAvailable)}");
+                parts.Add($"static_upg_accepted={BoolToStr(StaticSaveData.Instance.UpgradeAccepted)}");
                 parts.Add($"static_next_payment={StaticSaveData.Instance.SaasNextPaymentDay}");
                 parts.Add($"static_day_pass={StaticSaveData.Instance.DayPassCount}");
+                parts.Add($"static_t1_money={BoolToStr(StaticSaveData.Instance.Tier1MoneyPaid)}");
+                parts.Add($"static_t1_product={BoolToStr(StaticSaveData.Instance.Tier1ProductDelivered)}");
+                parts.Add($"static_upg_money={BoolToStr(StaticSaveData.Instance.UpgradeMoneyPaid)}");
+                parts.Add($"static_upg_product={BoolToStr(StaticSaveData.Instance.UpgradeProductDelivered)}");
+                if (!string.IsNullOrEmpty(StaticSaveData.Instance.ThreadOrder))
+                    parts.Add($"static_thread_order={StaticSaveData.Instance.ThreadOrder}");
             }
 
             if (PropertySaveData.Instance != null)
@@ -1023,8 +1030,14 @@ namespace OverTheCounter.SaveData
                 int tier = state.TryGetValue("static_tier", out var tierStr) && int.TryParse(tierStr, out var tierVal) ? tierVal : -1;
                 bool? saas = state.TryGetValue("static_saas", out var s) ? StrToBool(s) : (bool?)null;
                 bool? upgrade = state.TryGetValue("static_upgrade", out var u) ? StrToBool(u) : (bool?)null;
+                bool? upgAccepted = state.TryGetValue("static_upg_accepted", out var ua) ? StrToBool(ua) : (bool?)null;
                 int nextPayment = state.TryGetValue("static_next_payment", out var npStr) && int.TryParse(npStr, out var npVal) ? npVal : -1;
                 int dayPass = state.TryGetValue("static_day_pass", out var dpStr) && int.TryParse(dpStr, out var dpVal) ? dpVal : -1;
+
+                bool? t1Money = state.TryGetValue("static_t1_money", out var t1m) ? StrToBool(t1m) : (bool?)null;
+                bool? t1Product = state.TryGetValue("static_t1_product", out var t1p) ? StrToBool(t1p) : (bool?)null;
+                bool? upgMoney = state.TryGetValue("static_upg_money", out var um) ? StrToBool(um) : (bool?)null;
+                bool? upgProduct = state.TryGetValue("static_upg_product", out var up) ? StrToBool(up) : (bool?)null;
 
                 StaticSaveData.Instance.ApplyHostState(
                     questTriggered: triggered,
@@ -1033,7 +1046,12 @@ namespace OverTheCounter.SaveData
                     saasActive: saas,
                     upgradeAvailable: upgrade,
                     saasNextPaymentDay: nextPayment,
-                    dayPassCount: dayPass);
+                    dayPassCount: dayPass,
+                    tier1MoneyPaid: t1Money,
+                    tier1ProductDelivered: t1Product,
+                    upgradeAccepted: upgAccepted,
+                    upgradeMoneyPaid: upgMoney,
+                    upgradeProductDelivered: upgProduct);
             }
 
             {
@@ -1055,6 +1073,14 @@ namespace OverTheCounter.SaveData
                 int crmTier = state.TryGetValue("static_tier", out var st) && int.TryParse(st, out var stVal) ? stVal : 0;
                 bool saasActive = state.TryGetValue("static_saas", out var ss) && StrToBool(ss);
                 bool upgradeAvail = state.TryGetValue("static_upgrade", out var su) && StrToBool(su);
+                bool upgAccepted2 = state.TryGetValue("static_upg_accepted", out var rua) && StrToBool(rua);
+
+                bool t1MoneyPaid = state.TryGetValue("static_t1_money", out var rt1m) && StrToBool(rt1m);
+                bool t1ProductDelivered = state.TryGetValue("static_t1_product", out var rt1p) && StrToBool(rt1p);
+                bool upgMoneyPaid = state.TryGetValue("static_upg_money", out var rum) && StrToBool(rum);
+                bool upgProductDelivered = state.TryGetValue("static_upg_product", out var rup) && StrToBool(rup);
+                bool questTriggered2 = state.TryGetValue("static_triggered", out var qt2) && StrToBool(qt2);
+                string threadOrder = state.TryGetValue("static_thread_order", out var toVal) ? toVal : "";
 
                 if (StaticThreadSaveData.Instance != null)
                 {
@@ -1064,7 +1090,14 @@ namespace OverTheCounter.SaveData
                         saasActive: saasActive,
                         upgradeAvailable: upgradeAvail,
                         shackListed: shackListed,
-                        shackOwned: shackOwned);
+                        shackOwned: shackOwned,
+                        questTriggered: questTriggered2,
+                        tier1MoneyPaid: t1MoneyPaid,
+                        tier1ProductDelivered: t1ProductDelivered,
+                        upgradeAccepted: upgAccepted2,
+                        upgradeMoneyPaid: upgMoneyPaid,
+                        upgradeProductDelivered: upgProductDelivered,
+                        threadOrder: threadOrder);
                 }
                 else
                 {

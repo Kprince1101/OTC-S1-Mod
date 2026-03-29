@@ -86,14 +86,80 @@ namespace OverTheCounter.Apps
             rightRect.offsetMin = new Vector2(2, 0);
             rightRect.offsetMax = Vector2.zero;
 
-            // ── Scroll view inside left panel ──
+            // ── Search bar inside left panel ──
+            var searchBarObj = UIFactory.Panel("SearchBar", leftPanel.transform, new Color(0.18f, 0.18f, 0.18f));
+            var searchBarRt = searchBarObj.GetComponent<RectTransform>();
+            searchBarRt.anchorMin = new Vector2(0, 1);
+            searchBarRt.anchorMax = new Vector2(1, 1);
+            searchBarRt.pivot = new Vector2(0.5f, 1);
+            searchBarRt.anchoredPosition = Vector2.zero;
+            searchBarRt.sizeDelta = new Vector2(0, 28);
+
+            var searchViewport = UIFactory.Panel("Viewport", searchBarObj.transform, Color.clear);
+            var svRt = searchViewport.GetComponent<RectTransform>();
+            svRt.anchorMin = Vector2.zero;
+            svRt.anchorMax = Vector2.one;
+            svRt.offsetMin = new Vector2(8, 0);
+            svRt.offsetMax = new Vector2(-8, 0);
+            searchViewport.AddComponent<RectMask2D>();
+
+            var searchText = TMPFactory.Text("Text", "", searchViewport.transform, 15, TextAlignmentOptions.Left);
+            searchText.color = Color.white;
+            var stRt = searchText.rectTransform;
+            stRt.anchorMin = Vector2.zero;
+            stRt.anchorMax = Vector2.one;
+            stRt.offsetMin = Vector2.zero;
+            stRt.offsetMax = Vector2.zero;
+
+            var searchPlaceholder = TMPFactory.Text("Placeholder", "Search customers...", searchViewport.transform, 15, TextAlignmentOptions.Left);
+            searchPlaceholder.color = new Color(0.4f, 0.4f, 0.4f);
+            searchPlaceholder.fontStyle = FontStyles.Italic;
+            var spRt = searchPlaceholder.rectTransform;
+            spRt.anchorMin = Vector2.zero;
+            spRt.anchorMax = Vector2.one;
+            spRt.offsetMin = Vector2.zero;
+            spRt.offsetMax = Vector2.zero;
+
+            var searchInput = searchBarObj.AddComponent<TMP_InputField>();
+            searchInput.textViewport = svRt;
+            searchInput.textComponent = searchText;
+            searchInput.placeholder = searchPlaceholder;
+            searchInput.fontAsset = searchText.font;
+            searchInput.pointSize = 15;
+            searchInput.onValueChanged.AddListener(new Action<string>(text =>
+            {
+                _customerSearchText = text;
+                if (_customersContentParent != null)
+                {
+                    ClearChildren(_customersContentParent);
+                    PopulateCustomerList(_customersContentParent);
+                }
+            }));
+            searchInput.onSelect.AddListener(new Action<string>(_ =>
+            {
+#if IL2CPP
+                Il2CppScheduleOne.GameInput.IsTyping = true;
+#else
+                ScheduleOne.GameInput.IsTyping = true;
+#endif
+            }));
+            searchInput.onDeselect.AddListener(new Action<string>(_ =>
+            {
+#if IL2CPP
+                Il2CppScheduleOne.GameInput.IsTyping = false;
+#else
+                ScheduleOne.GameInput.IsTyping = false;
+#endif
+            }));
+
+            // ── Scroll view inside left panel (below search bar) ──
             var contentRect = UIFactory.ScrollableVerticalList("CustomerScroll", leftPanel.transform, out ScrollRect scrollRect);
             _customersScrollRect = scrollRect.GetComponent<RectTransform>();
             _customersScroll = scrollRect;
             _customersScrollRect.anchorMin = Vector2.zero;
             _customersScrollRect.anchorMax = Vector2.one;
             _customersScrollRect.offsetMin = Vector2.zero;
-            _customersScrollRect.offsetMax = Vector2.zero;
+            _customersScrollRect.offsetMax = new Vector2(0, -28);
 
             var contentLayout = contentRect.GetComponent<VerticalLayoutGroup>();
             if (contentLayout != null)
@@ -297,8 +363,14 @@ namespace OverTheCounter.Apps
                 foreach (var c in locked) displayList.Add(new CustomerDisplayData { Customer = c, IsLocked = true });
             }
 
-            var grouped = displayList
-                .Where(d => d.Customer != null && d.Customer.NPC != null)
+            var filtered = displayList
+                .Where(d => d.Customer != null && d.Customer.NPC != null);
+
+            if (!string.IsNullOrEmpty(_customerSearchText))
+                filtered = filtered.Where(d =>
+                    d.Customer.NPC.fullName.IndexOf(_customerSearchText, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            var grouped = filtered
                 .GroupBy(d => d.Customer.NPC.Region)
                 .OrderBy(g => g.Key);
 
@@ -311,6 +383,10 @@ namespace OverTheCounter.Apps
         private void CreateNeighborhoodSection(Transform parent, string regionName, List<CustomerDisplayData> dataList, int effectiveTier, EMapRegion region)
         {
             bool regionUnlocked = IsRegionUnlocked(effectiveTier, region);
+
+            // When searching, skip locked regions entirely (no headers, no cartel bars)
+            if (!regionUnlocked && !string.IsNullOrEmpty(_customerSearchText))
+                return;
 
             if (!regionUnlocked)
             {
