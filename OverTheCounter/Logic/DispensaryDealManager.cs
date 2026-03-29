@@ -278,6 +278,9 @@ namespace OverTheCounter.Logic
             // Reset deal cooldown immediately so ShouldTryGenerateDeal() returns false next tick
             ResetDealCooldown(vanillaCustomer);
 
+            // Capture original position BEFORE warp — NPC walks back here after checkout
+            var preWarpPosition = vanillaCustomer.NPC.transform.position;
+
             // Warp NPC to the chosen point
             vanillaCustomer.NPC.Movement.Warp(warpPos.Value);
 
@@ -289,7 +292,7 @@ namespace OverTheCounter.Logic
             }
 
             // Create deal CustomerInstance wrapping the vanilla NPC
-            var customer = CustomerInstance.CreateFromDealNPC(vanillaCustomer, target, warpPos.Value);
+            var customer = CustomerInstance.CreateFromDealNPC(vanillaCustomer, target, preWarpPosition);
             if (customer == null)
             {
                 OTCLog.Warning(OTCLog.Systems.Customer, $"Redirect failed: CreateFromDealNPC returned null for {vanillaCustomer.NPC.fullName}");
