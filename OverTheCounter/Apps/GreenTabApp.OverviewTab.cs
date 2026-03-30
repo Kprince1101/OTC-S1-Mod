@@ -692,7 +692,7 @@ namespace OverTheCounter.Apps
                 nameLabel.overflowMode = TextOverflowModes.Ellipsis;
                 var nlRect = nameLabel.gameObject.GetComponent<RectTransform>();
                 nlRect.anchorMin = Vector2.zero;
-                nlRect.anchorMax = new Vector2(0.60f, 1);
+                nlRect.anchorMax = new Vector2(0.50f, 1);
                 nlRect.offsetMin = new Vector2(6, 0);
                 nlRect.offsetMax = new Vector2(-4, 0);
                 _overviewTooltipEntries.Add((nlRect, name));
@@ -703,14 +703,96 @@ namespace OverTheCounter.Apps
                     15, TextAlignmentOptions.Right, FontStyles.Bold);
                 statusLabel.color = statusColor;
                 var slRect = statusLabel.gameObject.GetComponent<RectTransform>();
-                slRect.anchorMin = new Vector2(0.60f, 0);
-                slRect.anchorMax = Vector2.one;
+                slRect.anchorMin = new Vector2(0.50f, 0);
+                slRect.anchorMax = new Vector2(0.78f, 1);
                 slRect.offsetMin = new Vector2(4, 0);
-                slRect.offsetMax = new Vector2(-6, 0);
+                slRect.offsetMax = new Vector2(-4, 0);
+
+                // Open/Close toggle switch
+                string bid = buildings[i];
+                CreateStoreToggle(row.transform, bid);
 
                 if (i < buildings.Count - 1)
                     AddHLine(_overviewPropertyListContainer, yPos - rowH);
             }
+        }
+
+        // ==================================================================
+        //  Store toggle
+        // ==================================================================
+
+        private static readonly Color ToggleOnColor = new(0.30f, 0.69f, 0.31f);   // AccentGreen
+        private static readonly Color ToggleOffColor = new(0.9f, 0.3f, 0.3f);     // Red
+
+        private static bool GetStoreOpenState(string buildingId) =>
+            buildingId == PropertySaveData.ShackId
+                ? WestvilleShack.IsStoreOpen
+                : Dispensary.IsStoreOpen;
+
+        private void CreateStoreToggle(Transform parent, string buildingId)
+        {
+            bool isOn = GetStoreOpenState(buildingId);
+            float trackW = 36f, trackH = 18f, thumbSize = 14f;
+            float thumbPad = (trackH - thumbSize) * 0.5f;
+
+            // Track (pill background)
+            var trackGo = new GameObject($"Toggle_{buildingId}");
+            trackGo.AddComponent<RectTransform>();
+            trackGo.AddComponent<CanvasRenderer>();
+            trackGo.AddComponent<Image>();
+            trackGo.AddComponent<Button>();
+            trackGo.transform.SetParent(parent, false);
+            var trackRect = trackGo.GetComponent<RectTransform>();
+            trackRect.anchorMin = new Vector2(1, 0.5f);
+            trackRect.anchorMax = new Vector2(1, 0.5f);
+            trackRect.pivot = new Vector2(1, 0.5f);
+            trackRect.sizeDelta = new Vector2(trackW, trackH);
+            trackRect.anchoredPosition = new Vector2(-6, 0);
+
+            var trackImg = trackGo.GetComponent<Image>();
+            trackImg.sprite = TMPFactory.GetRoundedSprite();
+            trackImg.type = Image.Type.Sliced;
+            trackImg.color = isOn ? ToggleOnColor : ToggleOffColor;
+
+            // Thumb (white circle)
+            var thumbGo = new GameObject("Thumb");
+            thumbGo.AddComponent<RectTransform>();
+            thumbGo.AddComponent<CanvasRenderer>();
+            thumbGo.AddComponent<Image>();
+            thumbGo.transform.SetParent(trackGo.transform, false);
+            var thumbRect = thumbGo.GetComponent<RectTransform>();
+            thumbRect.anchorMin = new Vector2(isOn ? 1 : 0, 0.5f);
+            thumbRect.anchorMax = new Vector2(isOn ? 1 : 0, 0.5f);
+            thumbRect.pivot = new Vector2(isOn ? 1 : 0, 0.5f);
+            thumbRect.sizeDelta = new Vector2(thumbSize, thumbSize);
+            thumbRect.anchoredPosition = new Vector2(isOn ? -thumbPad : thumbPad, 0);
+
+            var thumbImg = thumbGo.GetComponent<Image>();
+            thumbImg.sprite = TMPFactory.GetRoundedSprite();
+            thumbImg.type = Image.Type.Sliced;
+            thumbImg.color = Color.white;
+
+            // Click handler
+            var btn = trackGo.GetComponent<Button>();
+            btn.transition = Selectable.Transition.None;
+            btn.onClick.AddListener(
+#if IL2CPP
+                (UnityEngine.Events.UnityAction)(() =>
+#else
+                () =>
+#endif
+            {
+                bool newState = !GetStoreOpenState(buildingId);
+                if (buildingId == PropertySaveData.ShackId)
+                    WestvilleShack.ToggleStoreFromUI(newState);
+                else
+                    Dispensary.ToggleStoreFromUI(newState);
+                RefreshPropertyRows();
+            }
+#if IL2CPP
+            )
+#endif
+            );
         }
 
         // ==================================================================

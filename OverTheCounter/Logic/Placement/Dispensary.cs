@@ -648,6 +648,16 @@ namespace OverTheCounter.Logic.Placement
             finally { _suppressSwitchSync = false; }
         }
 
+        /// <summary>Toggle store state from GreenTab UI and sync over network.</summary>
+        public static void ToggleStoreFromUI(bool open)
+        {
+            SetStoreOpen(open);
+            if (NetworkHelper.IsHost)
+                ConfigSyncData.Instance?.PublishGameState();
+            else
+                ConfigSyncData.SendQuestAction($"DISP_STORE:{(open ? 1 : 0)}");
+        }
+
         /// <summary>Updates the open/close switch interaction messages based on current state.</summary>
         public static void UpdateOpenCloseSwitchMessages()
         {
