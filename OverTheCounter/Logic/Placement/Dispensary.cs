@@ -781,6 +781,8 @@ namespace OverTheCounter.Logic.Placement
 
             _navigationBuilder.Build();
 
+            UI.MapBuildingOverlay.Register(BuildingOrigin, RoomWidth, RoomDepth);
+
             // Placement grid — showroom + backroom only (exclude lobby Z >= LobbyWallZ)
             // Also exclude exterior wall edge tiles and backroom wall row.
             int lobbyTileZ = (int)(LobbyWallZ / 0.5f);

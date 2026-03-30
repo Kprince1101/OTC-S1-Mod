@@ -198,6 +198,7 @@ namespace OverTheCounter
 
 #endif
             // Permanent building cleanup
+            MapBuildingOverlay.Clear();
             Logic.Placement.CheckoutCounter.Cleanup();
             Logic.Placement.WestvilleShack.Cleanup();
             Logic.Placement.Dispensary.Cleanup();
@@ -351,6 +352,10 @@ namespace OverTheCounter
                 Logic.Placement.WestvilleShack.RebuildNavigation();
                 Logic.Placement.Dispensary.RebuildNavigation();
                 Logic.Placement.OTCWarehouse.RebuildNavigation();
+
+                // Paint OTC building footprints onto map sprite (phone map + minimap)
+                if (!MapBuildingOverlay.PaintBuildings())
+                    OTCLog.Warning(OTCLog.Systems.Patch, "MapBuildingOverlay.PaintBuildings failed — MapApp or MapPositionUtility not ready");
             }
             catch (Exception ex)
             {

@@ -860,6 +860,8 @@ namespace OverTheCounter.Logic.Placement
             }
 
             _navigationBuilder.Build();
+
+            UI.MapBuildingOverlay.Register(BuildingOrigin, RoomWidth, RoomDepth);
         }
 
         // ==================================================================

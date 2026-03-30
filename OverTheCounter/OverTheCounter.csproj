@@ -378,6 +378,7 @@
 		<Compile Include="Patches\SafeTypeLoadPatch.cs" />
 		<Compile Include="Patches\SupplierWarehousePatch.cs" />
 		<Compile Include="Patches\SupplierFleePatch.cs" />
+		<Compile Include="UI\MapBuildingOverlay.cs" />
 		<Compile Include="UI\MinimapOverlay.cs" />
 		<Compile Include="UI\MinimapPerfLimiter.cs" />
 		<Compile Include="Logic\Placement\BuildingGridFactory.cs" />
