@@ -278,14 +278,17 @@ namespace OverTheCounter.Quests
             int currentTime = TimeManager.CurrentTime;
             int currentMins = (currentTime / 100) * 60 + (currentTime % 100);
 
+            int totalWaiting = 0;
+            int nearestDeadline = int.MaxValue;
+
             foreach (var counter in CheckoutCounter.AllCounters)
             {
                 if (counter.Queue.Count == 0) continue;
                 if (counter.BuildingId != BuildingId) continue;
 
-                // Future: skip if counter.AssignedCashier != null
+                totalWaiting += counter.Queue.Count;
 
-                // Get front customer's start time
+                // Get front customer's start time for deadline tracking
                 string frontId = counter.Queue[0];
                 if (!CustomerInstance.Active.TryGetValue(frontId, out var frontCustomer))
                     continue;
@@ -298,10 +301,16 @@ namespace OverTheCounter.Quests
                 if (remaining < 0) remaining += 1440; // midnight wrap
                 if (remaining > 240) remaining = 0;   // past deadline
 
+                if (remaining < nearestDeadline)
+                    nearestDeadline = remaining;
+            }
+
+            if (totalWaiting > 0)
+            {
                 _alerts.Add(new AlertInfo
                 {
-                    QueueCount = counter.Queue.Count,
-                    MinutesRemaining = remaining
+                    QueueCount = totalWaiting,
+                    MinutesRemaining = nearestDeadline == int.MaxValue ? 240 : nearestDeadline
                 });
             }
         }

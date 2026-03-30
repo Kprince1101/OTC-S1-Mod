@@ -85,8 +85,9 @@ namespace OverTheCounter.Logic
             public string ProductId;
             public string PackagingId;
             public string ProductName;
-            public float Price;
+            public float Price;         // per-package price
             public int QualityLevel;
+            public int UnitCount;       // product units in this package (baggie=1, jar=5, brick=20)
             public ItemSlot SourceSlot;     // storage slot to consume from (null if from player inventory)
             public int HotbarIndex;         // player hotbar index (-1 if from storage)
         }
@@ -97,8 +98,9 @@ namespace OverTheCounter.Logic
             public string ProductId;
             public string PackagingId;
             public string ProductName;
-            public float Price;
+            public float Price;         // per-package price
             public int QualityLevel;
+            public int UnitCount;       // product units in this package (baggie=1, jar=5, brick=20)
             public GameObject VisualPrefab;
             public ProductDefinition ProductDef;
             public ItemSlot SourceSlot;     // storage slot to consume from (null if from player inventory)
@@ -144,11 +146,11 @@ namespace OverTheCounter.Logic
         // Products available for placement (from storage/inventory search)
         private readonly List<AvailableProduct> _availableProducts = new();
 
-        // Tracking which requested products are missing (not found anywhere)
+        // Tracking which requested products are missing (not found anywhere), keyed by ProductId
         private readonly HashSet<string> _missingProductKeys = new();
 
-        // Tracking which requested products have been placed on counter
-        private readonly HashSet<string> _placedProductKeys = new();
+        // Tracking placed product units on counter, keyed by ProductId → units placed
+        private readonly Dictionary<string, int> _placedUnitCounts = new();
 
         // Whether the "Complete Sale" button has been shown for a partial order
         private bool _completeBtnShown;
@@ -660,13 +662,14 @@ namespace OverTheCounter.Logic
                     UnityEngine.Object.Destroy(product.Visual);
                     Instance._counterProducts.RemoveAt(i);
                     Instance._totalPlacedPrice -= product.Price;
-                    Instance._placedProductKeys.Remove($"{product.ProductId}:{product.PackagingId}");
+                    if (Instance._placedUnitCounts.TryGetValue(product.ProductId, out int pu))
+                        Instance._placedUnitCounts[product.ProductId] = Math.Max(0, pu - product.UnitCount);
 
                     // Update POS display
                     Instance._counter.Screen?.ShowBudtendingStatus(
                         Instance._customer.SelectedProducts,
                         Instance._missingProductKeys,
-                        Instance._placedProductKeys,
+                        Instance._placedUnitCounts,
                         Instance._totalPlacedPrice);
                     return;
                 }
@@ -823,7 +826,8 @@ namespace OverTheCounter.Logic
                     UnityEngine.Object.Destroy(product.Visual);
                     _counterProducts.RemoveAt(i);
                     _totalPlacedPrice -= product.Price;
-                    _placedProductKeys.Remove($"{product.ProductId}:{product.PackagingId}");
+                    if (_placedUnitCounts.TryGetValue(product.ProductId, out int pu2))
+                        _placedUnitCounts[product.ProductId] = Math.Max(0, pu2 - product.UnitCount);
 
                     // Re-search available products and refresh HUD
                     SearchAndShowAvailable();
@@ -844,9 +848,10 @@ namespace OverTheCounter.Logic
             SpawnProductOnCounter(available);
             ConsumeFromSource(available);
 
-            // Track placement
+            // Track placement (unit-based)
             _totalPlacedPrice += available.Price;
-            _placedProductKeys.Add($"{available.ProductId}:{available.PackagingId}");
+            _placedUnitCounts.TryGetValue(available.ProductId, out int prev);
+            _placedUnitCounts[available.ProductId] = prev + available.UnitCount;
 
             // Remove sprite from HUD
             BudtenderHUD.RemoveItem(index);
@@ -935,6 +940,7 @@ namespace OverTheCounter.Logic
                 ProductName = product.ProductName,
                 Price = product.Price,
                 QualityLevel = product.QualityLevel,
+                UnitCount = product.UnitCount,
                 SourceSlot = product.SourceSlot,
                 HotbarIndex = product.HotbarIndex
             });
@@ -954,7 +960,7 @@ namespace OverTheCounter.Logic
             _counter.Screen?.ShowBudtendingStatus(
                 _customer.SelectedProducts,
                 _missingProductKeys,
-                _placedProductKeys,
+                _placedUnitCounts,
                 _totalPlacedPrice);
         }
 
@@ -1132,7 +1138,8 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Searches counter storage then player inventory for requested products.
         /// Populates _availableProducts and _missingProductKeys.
-        /// Accounts for products already on the counter from previous placement.
+        /// Uses greedy packaging: prefers largest package that fits (jar before baggies).
+        /// SelectedProduct.Quantity is in raw product UNITS, not packages.
         /// </summary>
         private void SearchAndShowAvailable()
         {
@@ -1145,45 +1152,59 @@ namespace OverTheCounter.Logic
 
             try
             {
-                // Build lookup of already-placed quantities
-                var placedCounts = new Dictionary<string, int>();
-                foreach (var cp in _counterProducts)
-                {
-                    string key = $"{cp.ProductId}:{cp.PackagingId}";
-                    placedCounts.TryGetValue(key, out int count);
-                    placedCounts[key] = count + 1;
-                }
-
-                // Get counter storage
                 StorageEntity counterStorage = _counter?.CounterStorageEntity;
 
                 foreach (var selection in requested)
                 {
-                    string key = $"{selection.ProductId}:{selection.PackagingId}";
-                    int qty = selection.Quantity > 0 ? selection.Quantity : 1;
+                    int unitsNeeded = selection.Quantity > 0 ? selection.Quantity : 1;
 
-                    // Subtract already-placed count
-                    placedCounts.TryGetValue(key, out int alreadyPlaced);
-                    int remaining = qty - alreadyPlaced;
+                    // Subtract already-placed units
+                    _placedUnitCounts.TryGetValue(selection.ProductId, out int alreadyPlaced);
+                    int unitsRemaining = unitsNeeded - alreadyPlaced;
+                    if (unitsRemaining <= 0) continue;
 
-                    if (remaining <= 0) continue;
+                    // Collect all candidate packages matching this ProductId (any packaging)
+                    var candidates = new List<(ItemSlot slot, int hotbarIdx, string pkgId, int mult,
+                        int available, ProductDefinition prodDef, GameObject visual)>();
 
-                    int found = 0;
-
-                    // Search counter storage first
                     if (counterStorage?.ItemSlots != null)
+                        CollectCandidatesFromStorage(counterStorage, selection.ProductId, candidates);
+                    CollectCandidatesFromInventory(selection.ProductId, candidates);
+
+                    // Sort by packaging multiplier descending (brick=20 > jar=5 > baggie=1)
+                    candidates.Sort((a, b) => b.mult.CompareTo(a.mult));
+
+                    // Greedy fill: largest packaging first, floor division (never overshoot)
+                    int unitsFound = 0;
+                    foreach (var c in candidates)
                     {
-                        found += SearchStorage(counterStorage, selection, remaining - found);
+                        if (unitsFound >= unitsRemaining) break;
+
+                        int pkgsNeeded = (unitsRemaining - unitsFound) / c.mult;
+                        int pkgsToTake = Math.Min(pkgsNeeded, c.available);
+                        if (pkgsToTake <= 0) continue;
+
+                        for (int u = 0; u < pkgsToTake; u++)
+                        {
+                            _availableProducts.Add(new AvailableProduct
+                            {
+                                ProductId = selection.ProductId,
+                                PackagingId = c.pkgId,
+                                ProductName = selection.ProductName,
+                                Price = selection.Price * c.mult, // per-package price
+                                QualityLevel = selection.QualityLevel,
+                                UnitCount = c.mult,
+                                VisualPrefab = c.visual,
+                                ProductDef = c.prodDef,
+                                SourceSlot = c.hotbarIdx < 0 ? c.slot : null,
+                                HotbarIndex = c.hotbarIdx
+                            });
+                            unitsFound += c.mult;
+                        }
                     }
 
-                    // Then search player inventory
-                    if (found < remaining)
-                    {
-                        found += SearchPlayerInventory(selection, remaining - found);
-                    }
-
-                    if (found < remaining)
-                        _missingProductKeys.Add(key);
+                    if (unitsFound < unitsRemaining)
+                        _missingProductKeys.Add(selection.ProductId);
                 }
             }
             catch (Exception ex)
@@ -1192,13 +1213,14 @@ namespace OverTheCounter.Logic
             }
         }
 
-        /// <summary>Searches a StorageEntity for matching products. Returns count found.</summary>
-        private int SearchStorage(StorageEntity storage, SelectedProduct selection, int maxNeeded)
+        /// <summary>Collects candidate packages from a StorageEntity matching productId.</summary>
+        private static void CollectCandidatesFromStorage(StorageEntity storage, string productId,
+            List<(ItemSlot slot, int hotbarIdx, string pkgId, int mult, int available,
+                ProductDefinition prodDef, GameObject visual)> candidates)
         {
-            if (storage?.ItemSlots == null || maxNeeded <= 0) return 0;
-            int found = 0;
+            if (storage?.ItemSlots == null) return;
 
-            for (int j = 0; j < storage.ItemSlots.Count && found < maxNeeded; j++)
+            for (int j = 0; j < storage.ItemSlots.Count; j++)
             {
                 var slot = storage.ItemSlots[j];
                 if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
@@ -1221,54 +1243,32 @@ namespace OverTheCounter.Logic
                 }
                 catch { }
 
-                string slotProductId = prodDef?.ID;
-                string slotPackagingId = productItem.AppliedPackaging?.ID;
+                if (prodDef?.ID != productId) continue;
 
-                if (slotProductId != selection.ProductId || slotPackagingId != selection.PackagingId)
-                    continue;
-
-                // Found a match — add one unit per available quantity up to maxNeeded
-                int canTake = Mathf.Min(slot.Quantity, maxNeeded - found);
-                for (int u = 0; u < canTake; u++)
+                GameObject visualPrefab = null;
+                try
                 {
-                    GameObject visualPrefab = null;
-                    try
-                    {
-                        var stored = productItem.StoredItem;
-                        if (stored != null) visualPrefab = stored.gameObject;
-                    }
-                    catch { }
-
-                    _availableProducts.Add(new AvailableProduct
-                    {
-                        ProductId = selection.ProductId,
-                        PackagingId = selection.PackagingId,
-                        ProductName = selection.ProductName,
-                        Price = selection.Price,
-                        QualityLevel = selection.QualityLevel,
-                        VisualPrefab = visualPrefab,
-                        ProductDef = prodDef,
-                        SourceSlot = slot,
-                        HotbarIndex = -1
-                    });
-                    found++;
+                    var stored = productItem.StoredItem;
+                    if (stored != null) visualPrefab = stored.gameObject;
                 }
+                catch { }
+
+                candidates.Add((slot, -1, productItem.AppliedPackaging.ID,
+                    productItem.AppliedPackaging.Quantity, slot.Quantity, prodDef, visualPrefab));
             }
-            return found;
         }
 
-        /// <summary>Searches player hotbar for matching products. Returns count found.</summary>
-        private int SearchPlayerInventory(SelectedProduct selection, int maxNeeded)
+        /// <summary>Collects candidate packages from player hotbar matching productId.</summary>
+        private static void CollectCandidatesFromInventory(string productId,
+            List<(ItemSlot slot, int hotbarIdx, string pkgId, int mult, int available,
+                ProductDefinition prodDef, GameObject visual)> candidates)
         {
-            if (maxNeeded <= 0) return 0;
-            int found = 0;
-
             try
             {
                 var inventory = PlayerSingleton<PlayerInventory>.Instance;
-                if (inventory?.hotbarSlots == null) return 0;
+                if (inventory?.hotbarSlots == null) return;
 
-                for (int i = 0; i < inventory.hotbarSlots.Count && found < maxNeeded; i++)
+                for (int i = 0; i < inventory.hotbarSlots.Count; i++)
                 {
                     var slot = inventory.hotbarSlots[i];
                     if (slot?.ItemInstance == null) continue;
@@ -1291,11 +1291,7 @@ namespace OverTheCounter.Logic
                     }
                     catch { }
 
-                    string slotProductId = prodDef?.ID;
-                    string slotPackagingId = productItem.AppliedPackaging?.ID;
-
-                    if (slotProductId != selection.ProductId || slotPackagingId != selection.PackagingId)
-                        continue;
+                    if (prodDef?.ID != productId) continue;
 
                     GameObject visualPrefab = null;
                     try
@@ -1305,32 +1301,14 @@ namespace OverTheCounter.Logic
                     }
                     catch { }
 
-                    // Take multiple units from the same slot if qty > 1
-                    int canTake = Mathf.Min(slot.Quantity, maxNeeded - found);
-                    for (int u = 0; u < canTake; u++)
-                    {
-                        _availableProducts.Add(new AvailableProduct
-                        {
-                            ProductId = selection.ProductId,
-                            PackagingId = selection.PackagingId,
-                            ProductName = selection.ProductName,
-                            Price = selection.Price,
-                            QualityLevel = selection.QualityLevel,
-                            VisualPrefab = visualPrefab,
-                            ProductDef = prodDef,
-                            SourceSlot = null,
-                            HotbarIndex = i
-                        });
-                        found++;
-                    }
+                    candidates.Add((slot, i, productItem.AppliedPackaging.ID,
+                        productItem.AppliedPackaging.Quantity, slot.Quantity, prodDef, visualPrefab));
                 }
             }
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Customer,$"SearchPlayerInventory failed: {ex.Message}");
             }
-
-            return found;
         }
 
         /// <summary>Consumes one unit from the product's source (storage slot or player hotbar).</summary>
@@ -1526,7 +1504,7 @@ namespace OverTheCounter.Logic
             _counter.Screen?.ShowBudtendingStatus(
                 _customer.SelectedProducts,
                 _missingProductKeys,
-                _placedProductKeys,
+                _placedUnitCounts,
                 _totalPlacedPrice);
         }
 

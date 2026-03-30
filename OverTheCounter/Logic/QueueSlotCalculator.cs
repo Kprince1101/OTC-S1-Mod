@@ -27,20 +27,21 @@ namespace OverTheCounter.Logic
             float cellSize = nav.CellSize;
             if (cellSize <= 0f) return results;
 
-            // Start 1.0m behind counter in local coords
+            // Start 1.0m behind counter in local coords — do NOT snap to grid
+            // so the first slot is always a consistent distance from the counter.
             var counterWorld = counter.CounterPosition.Value;
             var behindWorld = counterWorld - counter.CounterTransform.forward * 1.0f;
-            var startLocal = nav.WorldToLocal(behindWorld);
-            startLocal = SnapToGrid(startLocal, cellSize);
+            var slot0Local = nav.WorldToLocal(behindWorld);
 
-            if (!nav.IsWalkable(startLocal))
-                startLocal = nav.NearestWalkableCell(startLocal);
+            // Only snap if the raw position isn't walkable
+            if (!nav.IsWalkable(slot0Local))
+                slot0Local = nav.NearestWalkableCell(slot0Local);
 
             var usedCells = new HashSet<(int, int)>();
-            usedCells.Add(GridKey(startLocal, cellSize));
-            results.Add(startLocal);
+            usedCells.Add(GridKey(slot0Local, cellSize));
+            results.Add(slot0Local);
 
-            OTCLog.Msg(OTCLog.Systems.Customer, $"[Queue] cellSize={cellSize:F2} start={startLocal}");
+            OTCLog.Msg(OTCLog.Systems.Customer, $"[Queue] cellSize={cellSize:F2} start={slot0Local}");
 
             Vector3[] offsets =
             {
@@ -52,10 +53,17 @@ namespace OverTheCounter.Logic
 
             float minSpacingSqr = MinSpacing * MinSpacing;
 
+            // For BFS, snap slot0 to grid so the BFS has a valid starting cell
+            var bfsOrigin = SnapToGrid(slot0Local, cellSize);
+            if (!nav.IsWalkable(bfsOrigin))
+                bfsOrigin = nav.NearestWalkableCell(bfsOrigin);
+            usedCells.Add(GridKey(bfsOrigin, cellSize));
+
             // Chain: each slot is found by BFS from the PREVIOUS slot
             while (results.Count < MaxSlots)
             {
-                var next = FindNextSlot(results[results.Count - 1], usedCells, nav, cellSize, offsets, minSpacingSqr);
+                var bfsFrom = results.Count == 1 ? bfsOrigin : results[results.Count - 1];
+                var next = FindNextSlot(bfsFrom, usedCells, nav, cellSize, offsets, minSpacingSqr);
                 if (!next.HasValue) break;
                 usedCells.Add(GridKey(next.Value, cellSize));
                 results.Add(next.Value);

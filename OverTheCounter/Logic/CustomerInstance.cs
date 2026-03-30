@@ -211,10 +211,11 @@ namespace OverTheCounter.Logic
             public string ProductId;
             public string PackagingId;
             public string ProductName;
-            public float Price;
-            public float MarketValue;
+            public float Price;           // per-unit price
+            public float MarketValue;     // per-unit market value
             public int QualityLevel;
-            public int AvailableQuantity;
+            public int AvailableQuantity; // packages on shelf (converted to units during dedup)
+            public int PkgMultiplier;     // units per package (baggie=1, jar=5, brick=20)
             public List<string> EffectIds;
         }
         private readonly List<ObservedProduct> _seenProducts = new();
@@ -979,6 +980,7 @@ namespace OverTheCounter.Logic
                             MarketValue = prodDef.MarketValue,
                             QualityLevel = (int)productItem.Quality,
                             AvailableQuantity = slot.Quantity,
+                            PkgMultiplier = productItem.AppliedPackaging.Quantity,
                             EffectIds = effectIds
                         });
                     }
@@ -1000,19 +1002,22 @@ namespace OverTheCounter.Logic
             if (_seenProducts.Count == 0)
                 return;
 
-            // 1. Deduplicate by ProductId — keep best quality, sum available quantity
+            // 1. Deduplicate by ProductId — keep best quality, sum available UNITS across all packagings
             var unique = new Dictionary<string, ObservedProduct>();
             foreach (var obs in _seenProducts)
             {
+                int units = obs.AvailableQuantity * obs.PkgMultiplier;
                 if (unique.TryGetValue(obs.ProductId, out var existing))
                 {
                     var updated = obs.QualityLevel > existing.QualityLevel ? obs : existing;
-                    updated.AvailableQuantity = existing.AvailableQuantity + obs.AvailableQuantity;
+                    updated.AvailableQuantity = existing.AvailableQuantity + units;
                     unique[obs.ProductId] = updated;
                 }
                 else
                 {
-                    unique[obs.ProductId] = obs;
+                    var entry = obs;
+                    entry.AvailableQuantity = units;
+                    unique[obs.ProductId] = entry;
                 }
             }
 
@@ -1078,7 +1083,28 @@ namespace OverTheCounter.Logic
             // 3. Sort by appeal descending
             scored.Sort((a, b) => b.appeal.CompareTo(a.appeal));
 
-            // 4. Selection — deal customers buy budget-driven, random customers use unit cap
+            // 4. Track observed packaging multipliers per product
+            //    pkgMults: all distinct multipliers seen (e.g. [1, 5] for baggies+jars)
+            //    Random customers coin-flip between these when choosing qty.
+            //    minMult: smallest observed (qty must be a multiple of this — only jars? must buy 5,10,15)
+            var pkgMults = new Dictionary<string, List<int>>();
+            var minMult = new Dictionary<string, int>();
+            foreach (var obs in _seenProducts)
+            {
+                if (!pkgMults.TryGetValue(obs.ProductId, out var list))
+                {
+                    list = new List<int>();
+                    pkgMults[obs.ProductId] = list;
+                }
+                if (!list.Contains(obs.PkgMultiplier))
+                    list.Add(obs.PkgMultiplier);
+                if (!minMult.TryGetValue(obs.ProductId, out var mn) || obs.PkgMultiplier < mn)
+                    minMult[obs.ProductId] = obs.PkgMultiplier;
+            }
+
+            // 5. Selection — deal customers buy budget-driven, random customers use unit cap
+            //    Quantities are in raw product UNITS (not packages).
+            //    Customers don't care about packaging — checkout determines that.
             int totalUnitCap = IsDealCustomer ? 20 : 6;
             float remainingBudget = Preferences.TotalOrderBudget;
             bool useBudget = remainingBudget > 0;
@@ -1098,28 +1124,47 @@ namespace OverTheCounter.Logic
                 var pick = remaining[pickIndex];
                 remaining.RemoveAt(pickIndex);
 
+                // Get observed packaging sizes for this product (e.g. [1, 5] for baggies+jars)
+                var mults = pkgMults.TryGetValue(pick.product.ProductId, out var ml) ? ml : null;
+
                 int qty;
                 if (useBudget)
                 {
-                    // Deal customers: buy as many as budget allows from this product
+                    // Deal customers: buy as many units as budget allows
                     int canAfford = Mathf.Max(1, Mathf.FloorToInt(remainingBudget / pick.product.Price));
                     qty = Mathf.Min(canAfford, pick.product.AvailableQuantity);
                 }
                 else
                 {
-                    // Random customers: conservative 1-2 per pick
-                    qty = 1;
-                    if (pick.appeal > 0.7f && pick.product.AvailableQuantity >= 2)
-                        qty = 2;
+                    // Random customers: coin-flip between observed packaging sizes
+                    // Saw jars+baggies? 50/50 pick between 5 and 1 as the step.
+                    // High appeal → grab 2 of that packaging size.
+                    int step = (mults != null && mults.Count > 0)
+                        ? mults[rng.Next(mults.Count)]
+                        : 1;
+                    qty = step;
+                    if (pick.appeal > 0.7f && pick.product.AvailableQuantity >= step * 2)
+                        qty = step * 2;
+                    qty = Math.Min(qty, pick.product.AvailableQuantity);
                 }
                 qty = Math.Min(qty, totalUnitCap - totalUnits);
+                if (qty <= 0) continue;
+
+                // Round qty down to a multiple of the smallest observed packaging
+                // (only saw jars? can only order 5, 10, 15... not 1 or 3)
+                int minStep = minMult.TryGetValue(pick.product.ProductId, out var ms) ? ms : 1;
+                if (minStep > 1)
+                {
+                    qty = (qty / minStep) * minStep;
+                    if (qty <= 0) continue;
+                }
 
                 SelectedProducts.Add(new SelectedProduct
                 {
                     ProductId = pick.product.ProductId,
-                    PackagingId = pick.product.PackagingId,
+                    PackagingId = null, // customer doesn't care — checkout determines packaging
                     ProductName = pick.product.ProductName,
-                    Price = pick.product.Price,
+                    Price = pick.product.Price, // per-unit price
                     QualityLevel = pick.product.QualityLevel,
                     Quantity = qty,
                     EffectIds = pick.product.EffectIds

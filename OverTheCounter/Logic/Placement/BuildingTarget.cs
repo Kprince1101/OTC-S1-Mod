@@ -58,6 +58,17 @@ namespace OverTheCounter.Logic.Placement
             "locker",
         };
 
+        /// <summary>Storage ID substrings that exclude from browsing (e.g. "storagecloset" matches all closet sizes).</summary>
+        private static readonly string[] ExcludedStorageSubstrings = { "storagecloset" };
+
+        /// <summary>
+        /// Optional browse zone in building-local Z. Only storage within this range
+        /// is eligible for browsing. Null = no restriction (entire building).
+        /// Used to keep customers out of backrooms.
+        /// </summary>
+        public float? BrowseZoneMinZ;
+        public float? BrowseZoneMaxZ;
+
         private const float ShelfStandOffset = 0.25f;
 
         /// <summary>
@@ -92,10 +103,30 @@ namespace OverTheCounter.Logic.Placement
                     if (id == null || ExcludedStorageIds.Contains(id))
                         continue;
 
+                    // Substring exclusion (e.g. all closet variants)
+                    bool substringExcluded = false;
+                    for (int s = 0; s < ExcludedStorageSubstrings.Length; s++)
+                    {
+                        if (id.Contains(ExcludedStorageSubstrings[s]))
+                        {
+                            substringExcluded = true;
+                            break;
+                        }
+                    }
+                    if (substringExcluded) continue;
+
                     if (!HasPackagedProductInEntity(storage.gameObject))
                         continue;
 
+                    // Browse zone restriction (e.g. keep customers out of backroom)
                     var worldPos = storage.transform.position;
+                    if (BrowseZoneMinZ.HasValue || BrowseZoneMaxZ.HasValue)
+                    {
+                        var localPos = NavBuilder.WorldToLocal(worldPos);
+                        if (BrowseZoneMinZ.HasValue && localPos.z < BrowseZoneMinZ.Value) continue;
+                        if (BrowseZoneMaxZ.HasValue && localPos.z > BrowseZoneMaxZ.Value) continue;
+                    }
+
                     var worldStandPos = worldPos + storage.transform.forward * ShelfStandOffset;
                     standPositions.Add(NavBuilder.WorldToLocal(worldStandPos));
                     shelfCenters.Add(NavBuilder.WorldToLocal(worldPos));

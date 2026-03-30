@@ -67,7 +67,7 @@ namespace OverTheCounter.Logic.Placement
         private List<CustomerInstance.SelectedProduct> _sortedProducts;
         private HashSet<string> _fulfilledKeys = new();
         private HashSet<string> _missingKeys = new();
-        private HashSet<string> _placedKeys = new();
+        private Dictionary<string, int> _placedUnitCounts = new();
         private int _scrollOffset;
         private object _scrollCoroutine;
         private object _blinkCoroutine;
@@ -253,7 +253,7 @@ namespace OverTheCounter.Logic.Placement
             StopAnimations();
             _allProducts = new List<CustomerInstance.SelectedProduct>(products);
             _isBudtending = false;
-            _placedKeys = new HashSet<string>();
+            _placedUnitCounts = new Dictionary<string, int>();
             _placedTotal = 0f;
             _scrollOffset = 0;
 
@@ -275,7 +275,7 @@ namespace OverTheCounter.Logic.Placement
         public void ShowBudtendingStatus(
             List<CustomerInstance.SelectedProduct> products,
             HashSet<string> missingKeys,
-            HashSet<string> placedKeys,
+            Dictionary<string, int> placedUnitCounts,
             float placedTotal)
         {
             if (_checkoutPanel == null) return;
@@ -284,8 +284,14 @@ namespace OverTheCounter.Logic.Placement
             _allProducts = new List<CustomerInstance.SelectedProduct>(products);
             _isBudtending = true;
             _missingKeys = missingKeys ?? new HashSet<string>();
-            _placedKeys = placedKeys ?? new HashSet<string>();
-            _fulfilledKeys = new HashSet<string>(_placedKeys);
+            _placedUnitCounts = placedUnitCounts ?? new Dictionary<string, int>();
+            _fulfilledKeys = new HashSet<string>();
+            // Build fulfilled keys from unit counts vs requested quantities
+            foreach (var p in products)
+            {
+                if (_placedUnitCounts.TryGetValue(p.ProductId, out int placed) && placed >= p.Quantity)
+                    _fulfilledKeys.Add(p.ProductId);
+            }
             _placedTotal = placedTotal;
             _scrollOffset = 0;
 
@@ -360,17 +366,17 @@ namespace OverTheCounter.Logic.Placement
 
                 foreach (var product in _allProducts)
                 {
-                    string key = $"{product.ProductId}:{product.PackagingId}";
+                    string key = product.ProductId;
                     int needed = product.Quantity > 0 ? product.Quantity : 1;
-                    int found = 0;
+                    int units = 0;
 
                     if (counterStorage?.ItemSlots != null)
-                        found += CountMatchingProducts(counterStorage, product.ProductId, product.PackagingId);
+                        units += CountMatchingUnits(counterStorage, product.ProductId);
 
-                    if (found < needed)
-                        found += CountPlayerInventory(product.ProductId, product.PackagingId);
+                    if (units < needed)
+                        units += CountPlayerInventoryUnits(product.ProductId);
 
-                    if (found >= needed)
+                    if (units >= needed)
                         _fulfilledKeys.Add(key);
                     else
                         _missingKeys.Add(key);
@@ -382,10 +388,11 @@ namespace OverTheCounter.Logic.Placement
             }
         }
 
-        private static int CountMatchingProducts(StorageEntity storage, string productId, string packagingId)
+        /// <summary>Counts total product UNITS in storage matching productId (any packaging).</summary>
+        private static int CountMatchingUnits(StorageEntity storage, string productId)
         {
             if (storage?.ItemSlots == null) return 0;
-            int count = 0;
+            int units = 0;
 
             for (int j = 0; j < storage.ItemSlots.Count; j++)
             {
@@ -410,15 +417,16 @@ namespace OverTheCounter.Logic.Placement
                 }
                 catch { }
 
-                if (prodDef?.ID == productId && productItem.AppliedPackaging?.ID == packagingId)
-                    count += slot.Quantity;
+                if (prodDef?.ID == productId)
+                    units += slot.Quantity * productItem.AppliedPackaging.Quantity;
             }
-            return count;
+            return units;
         }
 
-        private static int CountPlayerInventory(string productId, string packagingId)
+        /// <summary>Counts total product UNITS in player hotbar matching productId (any packaging).</summary>
+        private static int CountPlayerInventoryUnits(string productId)
         {
-            int count = 0;
+            int units = 0;
             try
             {
                 var inventory = PlayerSingleton<PlayerInventory>.Instance;
@@ -447,12 +455,12 @@ namespace OverTheCounter.Logic.Placement
                     }
                     catch { }
 
-                    if (prodDef?.ID == productId && productItem.AppliedPackaging?.ID == packagingId)
-                        count += slot.Quantity;
+                    if (prodDef?.ID == productId)
+                        units += slot.Quantity * productItem.AppliedPackaging.Quantity;
                 }
             }
             catch { }
-            return count;
+            return units;
         }
 
         // =================================================================
@@ -468,8 +476,8 @@ namespace OverTheCounter.Logic.Placement
 
             foreach (var product in _allProducts)
             {
-                string key = $"{product.ProductId}:{product.PackagingId}";
-                bool isFulfilled = _fulfilledKeys.Contains(key) || _placedKeys.Contains(key);
+                string key = product.ProductId;
+                bool isFulfilled = _fulfilledKeys.Contains(key);
                 if (isFulfilled)
                     fulfilled.Add(product);
                 else
@@ -527,9 +535,9 @@ namespace OverTheCounter.Logic.Placement
                         var row = _productRows[i];
                         row.Root.SetActive(true);
 
-                        string key = $"{product.ProductId}:{product.PackagingId}";
+                        string key = product.ProductId;
                         bool isMissing = _missingKeys.Contains(key);
-                        bool isFulfilled = _fulfilledKeys.Contains(key) || _placedKeys.Contains(key);
+                        bool isFulfilled = _fulfilledKeys.Contains(key);
 
                         if (isFulfilled)
                             row.Background.color = RowBgHighlight;
@@ -561,9 +569,12 @@ namespace OverTheCounter.Logic.Placement
                         try
                         {
                             var iconMgr = Singleton<ProductIconManager>.Instance;
-                            if (iconMgr != null && product.ProductId != null && product.PackagingId != null)
+                            if (iconMgr != null && product.ProductId != null)
                             {
-                                var sprite = iconMgr.GetIcon(product.ProductId, product.PackagingId, true);
+                                // PackagingId may be null (customer doesn't care about packaging)
+                                // Fall back to "baggie" for icon lookup
+                                string pkgId = product.PackagingId ?? "baggie";
+                                var sprite = iconMgr.GetIcon(product.ProductId, pkgId, true);
                                 if (sprite != null)
                                 {
                                     row.Icon.sprite = sprite;
@@ -663,7 +674,7 @@ namespace OverTheCounter.Logic.Placement
             _sortedProducts = null;
             _fulfilledKeys = new HashSet<string>();
             _missingKeys = new HashSet<string>();
-            _placedKeys = new HashSet<string>();
+            _placedUnitCounts = new Dictionary<string, int>();
         }
 
         // =====================================================================
