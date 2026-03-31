@@ -842,6 +842,7 @@ namespace OverTheCounter.Logic.Placement
                 ExitWalkPosition = _building.transform.TransformPoint(new Vector3(4f, 0f, 19f)),
                 RoomCenterWorld = _building.transform.TransformPoint(new Vector3(7f, 0f, 8.5f)),
                 Name = "Dispensary",
+                BuildingId = DispensaryId,
                 BrowseZoneMinZ = BackroomWallZ,  // exclude backroom (Z < 4.75)
                 BrowseZoneMaxZ = LobbyWallZ,     // exclude lobby (Z > 12.2)
             };

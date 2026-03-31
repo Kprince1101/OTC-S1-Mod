@@ -1,4 +1,5 @@
 using OverTheCounter.Logic.Placement;
+using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using System.Collections.Generic;
 using UnityEngine;
@@ -7,19 +8,22 @@ using UnityEngine;
 using Il2CppScheduleOne.ObjectScripts;
 using Il2CppScheduleOne.Product;
 using Il2CppScheduleOne.Storage;
+using Il2CppScheduleOne.Economy;
 using ProductItemInstance = Il2CppScheduleOne.Product.ProductItemInstance;
 #else
 using ScheduleOne.ObjectScripts;
 using ScheduleOne.Product;
 using ScheduleOne.Storage;
+using ScheduleOne.Economy;
 using ProductItemInstance = ScheduleOne.Product.ProductItemInstance;
 #endif
 
 namespace OverTheCounter.Logic
 {
     /// <summary>
-    /// Spawn/despawn locations and interior browse positions for store customers
-    /// near the Westville Shack.
+    /// Spawn/despawn locations and interior browse positions for store customers.
+    /// Each OTC building gets 5 nearby vanilla DeliveryLocation spawn points,
+    /// discovered at runtime by proximity to the building center.
     /// </summary>
     public static class CustomerSpawnPoints
     {
@@ -69,22 +73,145 @@ namespace OverTheCounter.Logic
             }
         }
 
-        /// <summary>Spawn points on sidewalk east of the building.</summary>
-        private static readonly SpawnPoint[] _spawnPoints =
+        // OTCWarehouse: origin (66.4, 0.25, -34.0), 12.7 x 10.2m
+        private static readonly Vector3 WarehouseCenterPosition = new(72.75f, 0.25f, -28.9f);
+
+        // Dispensary: origin set at runtime, but spawn points are hardcoded around its known location
+        private static readonly SpawnPoint[] DispensarySpawnPoints =
         {
-            new("East_Near",  new Vector3(-151.0f, -3.5f, 72.0f), Quaternion.Euler(0f, 270f, 0f)),
-            new("East_Mid",   new Vector3(-149.0f, -3.5f, 78.0f), Quaternion.Euler(0f, 270f, 0f)),
-            new("East_Far",   new Vector3(-146.0f, -3.5f, 75.0f), Quaternion.Euler(0f, 270f, 0f)),
+            new("Disp_SE",    new Vector3(95.6f,  0.1f, -23.8f), Quaternion.Euler(0f, 0f, 0f)),
+            new("Disp_East",  new Vector3(70.2f,  0.1f, -7.0f),  Quaternion.Euler(0f, 0f, 0f)),
+            new("Disp_NE",    new Vector3(70.8f,  0.1f, 29.2f),  Quaternion.Euler(0f, 180f, 0f)),
+            new("Disp_North", new Vector3(95.5f,  0.1f, 37.5f),  Quaternion.Euler(0f, 180f, 0f)),
+            new("Disp_NW",    new Vector3(118.5f, 0.1f, 37.3f),  Quaternion.Euler(0f, 180f, 0f)),
         };
 
+        // Dynamic pools — 5 nearest vanilla DeliveryLocation TeleportPoints per building
+        private static List<SpawnPoint> _dynamicShackPoints;
+        private static List<SpawnPoint> _dynamicWarehousePoints;
+        private static SpawnPoint[] _allSpawnPointsCached;
+
+        private static List<SpawnPoint> ShackPoints
+        {
+            get
+            {
+                if (_dynamicShackPoints == null)
+                    _dynamicShackPoints = FindNearbyVanillaSpawnPoints(RoomCenterPosition, 5, "Shack_");
+                return _dynamicShackPoints;
+            }
+        }
+
+        private static List<SpawnPoint> WarehousePoints
+        {
+            get
+            {
+                if (_dynamicWarehousePoints == null)
+                    _dynamicWarehousePoints = FindNearbyVanillaSpawnPoints(WarehouseCenterPosition, 5, "Warehouse_");
+                return _dynamicWarehousePoints;
+            }
+        }
+
+        private static SpawnPoint[] AllSpawnPoints
+        {
+            get
+            {
+                if (_allSpawnPointsCached == null)
+                {
+                    var list = new List<SpawnPoint>();
+                    list.AddRange(DispensarySpawnPoints);
+                    list.AddRange(ShackPoints);
+                    list.AddRange(WarehousePoints);
+                    _allSpawnPointsCached = list.ToArray();
+                }
+                return _allSpawnPointsCached;
+            }
+        }
+
+        /// <summary>Resets dynamic spawn point caches. Call on scene change.</summary>
+        internal static void Cleanup()
+        {
+            _dynamicShackPoints = null;
+            _dynamicWarehousePoints = null;
+            _allSpawnPointsCached = null;
+        }
+
+        private static List<SpawnPoint> FindNearbyVanillaSpawnPoints(Vector3 origin, int count, string prefix)
+        {
+            var results = new List<SpawnPoint>();
+            var allLocations = new List<DeliveryLocation>();
+
+#if IL2CPP
+            var locs = UnityEngine.Object.FindObjectsOfType<DeliveryLocation>();
+            if (locs != null)
+            {
+                for (int i = 0; i < locs.Length; i++)
+                {
+                    var loc = locs[i];
+                    if (loc != null && loc.TeleportPoint != null)
+                    {
+                        allLocations.Add(loc);
+                    }
+                }
+            }
+#else
+            var locs = UnityEngine.Object.FindObjectsOfType<DeliveryLocation>();
+            if (locs != null)
+            {
+                foreach (var loc in locs)
+                {
+                    if (loc != null && loc.TeleportPoint != null)
+                    {
+                        allLocations.Add(loc);
+                    }
+                }
+            }
+#endif
+
+            // Sort by distance to origin USING TELEPORT POINT (Point A)
+            allLocations.Sort((a, b) =>
+            {
+                // We use TeleportPoint because it represents the hidden spawn location (Point A)
+                float distA = Vector3.Distance(origin, a.TeleportPoint.position);
+                float distB = Vector3.Distance(origin, b.TeleportPoint.position);
+                return distA.CompareTo(distB);
+            });
+
+            int limit = Mathf.Min(count, allLocations.Count);
+            for (int i = 0; i < limit; i++)
+            {
+                var loc = allLocations[i];
+                var pt = loc.TeleportPoint; // Point A (hidden spawn)
+                float dist = Vector3.Distance(origin, pt.position);
+                OTCLog.Msg(OTCLog.Systems.Customer,
+                    $"SpawnPoint {prefix}{i}: {loc.name} at ({pt.position.x:F1}, {pt.position.y:F1}, {pt.position.z:F1}) dist={dist:F0}");
+                results.Add(new SpawnPoint($"{prefix}{i}", pt.position, pt.rotation));
+            }
+
+            OTCLog.Msg(OTCLog.Systems.Customer,
+                $"Found {results.Count} spawn points for {prefix} (from {allLocations.Count} total DeliveryLocations)");
+            return results;
+        }
 
         /// <summary>
-        /// Picks a random spawn point for a new customer.
+        /// Picks a random spawn point for a customer targeting the specified building.
+        /// Falls back to shack points for unknown building IDs.
         /// </summary>
-        public static SpawnPoint GetRandomSpawnPoint()
+        public static SpawnPoint GetRandomSpawnPoint(string buildingId = null)
         {
-            if (_spawnPoints.Length == 0) return null;
-            return _spawnPoints[UnityEngine.Random.Range(0, _spawnPoints.Length)];
+            if (buildingId == Placement.Dispensary.DispensaryId)
+                return PickRandom(DispensarySpawnPoints);
+
+            if (buildingId == PropertySaveData.WarehouseId)
+                return PickRandom(WarehousePoints);
+
+            // Default: shack
+            return PickRandom(ShackPoints);
+        }
+
+        private static SpawnPoint PickRandom(IList<SpawnPoint> points)
+        {
+            if (points == null || points.Count == 0) return null;
+            return points[UnityEngine.Random.Range(0, points.Count)];
         }
 
         /// <summary>
@@ -160,9 +287,10 @@ namespace OverTheCounter.Logic
         public static int GetSpawnPointIndex(SpawnPoint point)
         {
             if (point == null) return 0;
-            for (int i = 0; i < _spawnPoints.Length; i++)
+            var points = AllSpawnPoints;
+            for (int i = 0; i < points.Length; i++)
             {
-                if (_spawnPoints[i] == point) return i;
+                if (points[i] == point) return i;
             }
             return 0;
         }
@@ -172,9 +300,10 @@ namespace OverTheCounter.Logic
         /// </summary>
         public static SpawnPoint GetSpawnPointByIndex(int index)
         {
-            if (_spawnPoints.Length == 0) return null;
-            index = Mathf.Clamp(index, 0, _spawnPoints.Length - 1);
-            return _spawnPoints[index];
+            var points = AllSpawnPoints;
+            if (points.Length == 0) return null;
+            index = Mathf.Clamp(index, 0, points.Length - 1);
+            return points[index];
         }
 
         /// <summary>

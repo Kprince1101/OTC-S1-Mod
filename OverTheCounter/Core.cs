@@ -214,6 +214,7 @@ namespace OverTheCounter
             Logic.Placement.OTCSupplierArea.Cleanup();
             Logic.Placement.CasinoDeadDrop.Cleanup();
             CheckoutProcess.ResetStatic();
+            CustomerSpawnPoints.Cleanup();
             BuildingGridFactory.Cleanup();
             _loadHooked = false;
         }

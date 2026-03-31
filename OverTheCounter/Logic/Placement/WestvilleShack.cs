@@ -770,7 +770,8 @@ namespace OverTheCounter.Logic.Placement
                 ExteriorApproachPosition = CustomerSpawnPoints.StairApproachPosition,
                 ExitWalkPosition = CustomerSpawnPoints.RampBottomPosition,
                 RoomCenterWorld = CustomerSpawnPoints.RoomCenterPosition,
-                Name = "WestvilleShack"
+                Name = "WestvilleShack",
+                BuildingId = SaveData.PropertySaveData.ShackId
             };
 
             // Door and switches are spawned in SpawnNetworkedObjects() after onLoadComplete.

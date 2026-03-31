@@ -47,6 +47,9 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Building name for logging.</summary>
         public string Name;
 
+        /// <summary>Unique building identifier (e.g. PropertySaveData.ShackId, Dispensary.DispensaryId).</summary>
+        public string BuildingId;
+
         /// <summary>Room center in building-local coordinates for SendNPCToPosition.</summary>
         public Vector3 RoomCenterLocal =>
             NavBuilder != null ? NavBuilder.WorldToLocal(RoomCenterWorld) : Vector3.zero;

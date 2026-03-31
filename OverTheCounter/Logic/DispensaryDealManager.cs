@@ -257,11 +257,11 @@ namespace OverTheCounter.Logic
                 return false;
             }
 
-            // Find warp point
-            var warpPos = GetRandomNearbyWarpPoint(target.BuildingPosition);
-            if (!warpPos.HasValue)
+            // Find spawn point from our hard-coded/dynamic list
+            var spawnPoint = CustomerSpawnPoints.GetRandomSpawnPoint(target.BuildingId);
+            if (spawnPoint == null)
             {
-                OTCLog.Warning(OTCLog.Systems.Customer, $"Redirect failed: no warp points found near {target.Name}");
+                OTCLog.Warning(OTCLog.Systems.Customer, $"Redirect failed: no spawn points found for {target.Name}");
                 return false;
             }
 
@@ -278,8 +278,9 @@ namespace OverTheCounter.Logic
             // Capture original position BEFORE warp — NPC walks back here after checkout
             var preWarpPosition = vanillaCustomer.NPC.transform.position;
 
-            // Warp NPC to the chosen point
-            vanillaCustomer.NPC.Movement.Warp(warpPos.Value);
+            // Warp NPC to the chosen spawn point
+            vanillaCustomer.NPC.Movement.Warp(spawnPoint.Position);
+            vanillaCustomer.NPC.Movement.FaceDirection(spawnPoint.Rotation * Vector3.forward);
 
             // Apply rush speed if close to closing time
             if (ShouldRush())
@@ -306,7 +307,7 @@ namespace OverTheCounter.Logic
             customer.WalkTo(target.ExteriorApproachPosition);
 
             OTCLog.Msg(OTCLog.Systems.Customer,
-                $"Redirected {vanillaCustomer.NPC.fullName} to {target.Name} for {drugType} deal (warp: {warpPos.Value}, shackDaily: {_shackDailyCount})");
+                $"Redirected {vanillaCustomer.NPC.fullName} to {target.Name} for {drugType} deal (warp: {spawnPoint.Position}, shackDaily: {_shackDailyCount})");
 
             return true;
         }
