@@ -1,3 +1,4 @@
+using MelonLoader;
 using S1API.Money;
 using S1API.UI;
 using OverTheCounter.Logic.Placement;
@@ -104,6 +105,15 @@ namespace OverTheCounter.Apps
             bool hasUnread = messageCount > _lastSeenCount;
             _messageBadge.SetActive(hasUnread);
 
+            // Start/stop pulse coroutine based on unread state
+            if (hasUnread && _badgePulseCoroutine == null)
+                _badgePulseCoroutine = MelonCoroutines.Start(BadgePulseRoutine());
+            else if (!hasUnread && _badgePulseCoroutine != null)
+            {
+                MelonCoroutines.Stop(_badgePulseCoroutine);
+                _badgePulseCoroutine = null;
+            }
+
             // Update sidebar mugshot each tick (S1API replaces default icon async)
             if (_sidebarMugshotImage != null)
             {
@@ -126,6 +136,27 @@ namespace OverTheCounter.Apps
                         GetAppIcon(), 5f, true);
                 }
                 catch { }
+            }
+        }
+
+        private System.Collections.IEnumerator BadgePulseRoutine()
+        {
+            var bright = new Color(0.9f, 0.15f, 0.15f, 1f);
+            var dim = new Color(0.9f, 0.15f, 0.15f, 0.35f);
+            var badgeTransform = _messageBadge?.GetComponent<RectTransform>();
+            while (true)
+            {
+                if (_messageBadgeImage == null || badgeTransform == null) yield break;
+                float t = Mathf.PingPong(Time.time * 2f, 1f);
+
+                // Alpha pulse
+                _messageBadgeImage.color = Color.Lerp(dim, bright, t);
+
+                // Scale pulse (1.0x → 1.5x)
+                float scale = Mathf.Lerp(1f, 1.5f, t);
+                badgeTransform.localScale = new Vector3(scale, scale, 1f);
+
+                yield return null;
             }
         }
 

@@ -164,6 +164,8 @@ namespace OverTheCounter.Apps
         // Messages overlay
         internal GameObject _messagesOverlay;
         private GameObject _messageBadge;
+        private Image _messageBadgeImage;
+        private object _badgePulseCoroutine;
 
         public static CustomersApp Instance { get; private set; }
 
@@ -610,14 +612,24 @@ namespace OverTheCounter.Apps
             msgUlRect.sizeDelta = new Vector2(0, 2);
             _msgTabUnderline = msgUnderline.GetComponent<Image>();
 
-            // Red notification badge
+            // Red notification badge (pulsing)
             _messageBadge = UIFactory.Panel("MsgBadge", msgBtn.transform, new Color(0.9f, 0.15f, 0.15f));
+            _messageBadgeImage = _messageBadge.GetComponent<Image>();
             var badgeRect = _messageBadge.GetComponent<RectTransform>();
             badgeRect.anchorMin = new Vector2(1, 1);
             badgeRect.anchorMax = new Vector2(1, 1);
             badgeRect.pivot = new Vector2(1, 1);
-            badgeRect.sizeDelta = new Vector2(8, 8);
-            badgeRect.anchoredPosition = new Vector2(-2, -2);
+            badgeRect.sizeDelta = new Vector2(12, 12);
+            badgeRect.anchoredPosition = new Vector2(-1, -1);
+
+            // Red glow around the dot
+            var shadow = _messageBadge.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0.9f, 0.1f, 0.1f, 0.6f);
+            shadow.effectDistance = new Vector2(0, 0);
+            var outline = _messageBadge.AddComponent<Outline>();
+            outline.effectColor = new Color(0.9f, 0.1f, 0.1f, 0.4f);
+            outline.effectDistance = new Vector2(2, 2);
+
             _messageBadge.SetActive(false);
 
         }
