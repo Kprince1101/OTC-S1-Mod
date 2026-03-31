@@ -205,6 +205,8 @@ namespace OverTheCounter.SaveData
 
         protected override void OnLoaded()
         {
+            OTCLog.Msg(OTCLog.Systems.General,
+                $"PropertySaveData.OnLoaded — salesLog={_salesLog?.Count ?? -1} entries");
             Instance = this;
 
             try { ConfigSyncData.ApplyPendingGameState(); }
