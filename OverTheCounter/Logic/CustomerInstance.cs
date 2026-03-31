@@ -112,6 +112,10 @@ namespace OverTheCounter.Logic
         public CustomerSpawnPoints.SpawnPoint SpawnPoint { get; }
         public CustomerPreferences Preferences { get; private set; }
 
+        /// <summary>0.0 to 1.0 — how many products the budtender recommends.
+        /// Random customers: seeded random. Deal customers: vanilla relationship level.</summary>
+        public float Familiarity { get; private set; }
+
         // =====================================================================
         //  Building target
         // =====================================================================
@@ -249,6 +253,7 @@ namespace OverTheCounter.Logic
             Target = target ?? WestvilleShack.Target;
             State = CustomerState.WalkingToStore;
             Preferences = GeneratePreferences(seed);
+            Familiarity = (float)new System.Random(seed + 5501).NextDouble();
             _willVocalizeWhileBrowsing = (seed % 10) < 3; // ~30% chance
         }
 
@@ -342,12 +347,18 @@ namespace OverTheCounter.Logic
                 int seed = npc.FirstName.GetHashCode();
                 string id = $"deal_{npc.FirstName}_{npc.LastName}_{UnityEngine.Random.Range(0, 9999)}";
 
+                // Extract relationship as familiarity (0-1 range)
+                float familiarity = 0.5f;
+                try { familiarity = Mathf.Clamp01(vanillaCustomer.NPC.RelationData.RelationDelta / 5f); }
+                catch { }
+
                 var instance = new CustomerInstance(id, seed, null, npc, target)
                 {
                     IsDealCustomer = true,
                     VanillaCustomer = vanillaCustomer,
                     WarpReturnPosition = warpReturnPosition,
-                    Preferences = ExtractVanillaPreferences(vanillaCustomer)
+                    Preferences = ExtractVanillaPreferences(vanillaCustomer),
+                    Familiarity = familiarity
                 };
 
                 Active[id] = instance;
@@ -586,6 +597,20 @@ namespace OverTheCounter.Logic
 
             OTCLog.Msg(OTCLog.Systems.Customer, $"[Nav] RecallFromBuilding {Id} worldPos={Position} state={State}");
             nav.RecallNPC(GameNpc.Movement);
+        }
+
+        /// <summary>
+        /// Re-sends the customer to a world position after a nav rebuild.
+        /// Called by SafeRebuildNavigation to restore NPC position after S1MAPI's
+        /// Rebuild() releases all tracked NPCs.
+        /// </summary>
+        internal void ResendToPosition(Vector3 worldPos)
+        {
+            var nav = Target?.NavBuilder;
+            if (nav == null || GameNpc?.Movement == null) return;
+
+            var localTarget = nav.WorldToLocal(worldPos);
+            nav.SendNPCToPosition(GameNpc.Movement, localTarget, null);
         }
 
         /// <summary>
@@ -899,12 +924,12 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Scans the display cabinet nearest to the current browse shelf position
         /// and memorizes all products. No scoring — just observing.
+        /// (Legacy — used only if browsing is ever re-enabled.)
         /// </summary>
         private void ObserveShelf()
         {
             if (_browseShelfPositions == null || _browseTargetIndex >= _browseShelfPositions.Count) return;
 
-            // _browseShelfPositions are LOCAL coords — convert to world for distance comparison
             var localShelfPos = _browseShelfPositions[_browseTargetIndex];
             var bt = Target?.BuildingTransform;
             if (bt == null) return;
@@ -912,7 +937,6 @@ namespace OverTheCounter.Logic
 
             try
             {
-                // Find the closest display cabinet storage entity to this shelf position
                 StorageEntity closestStorage = null;
                 float closestDist = float.MaxValue;
 
@@ -938,59 +962,117 @@ namespace OverTheCounter.Logic
                     }
                 }
 
-                if (closestStorage?.ItemSlots == null) return;
-
-                for (int j = 0; j < closestStorage.ItemSlots.Count; j++)
-                {
-                    var slot = closestStorage.ItemSlots[j];
-                    if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
-
-#if IL2CPP
-                    var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
-#else
-                    var productItem = slot.ItemInstance as ProductItemInstance;
-#endif
-                    if (productItem == null || productItem.AppliedPackaging == null) continue;
-
-                    try
-                    {
-#if IL2CPP
-                        var prodDef = productItem.Definition?.TryCast<ProductDefinition>();
-#else
-                        var prodDef = productItem.Definition as ProductDefinition;
-#endif
-                        if (prodDef == null) continue;
-
-                        var effectIds = new List<string>();
-                        if (prodDef.Properties != null)
-                        {
-                            for (int ei = 0; ei < prodDef.Properties.Count; ei++)
-                            {
-                                var e = prodDef.Properties[ei];
-                                if (e != null) effectIds.Add(e.name.ToLower());
-                            }
-                        }
-
-                        _seenProducts.Add(new ObservedProduct
-                        {
-                            ProductId = prodDef.ID,
-                            PackagingId = productItem.AppliedPackaging?.ID,
-                            ProductName = prodDef.name ?? "Product",
-                            Price = prodDef.Price > 0 ? prodDef.Price : prodDef.MarketValue,
-                            MarketValue = prodDef.MarketValue,
-                            QualityLevel = (int)productItem.Quality,
-                            AvailableQuantity = slot.Quantity,
-                            PkgMultiplier = productItem.AppliedPackaging.Quantity,
-                            EffectIds = effectIds
-                        });
-                    }
-                    catch { }
-                }
+                if (closestStorage != null)
+                    ScanStorageEntity(closestStorage);
             }
             catch (Exception ex)
             {
-                OTCLog.Warning(OTCLog.Systems.Customer,$"ObserveShelf failed for {Id}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer, $"ObserveShelf failed for {Id}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Scans a single StorageEntity and adds all packaged products to _seenProducts.
+        /// </summary>
+        private void ScanStorageEntity(StorageEntity storage)
+        {
+            if (storage?.ItemSlots == null) return;
+
+            for (int j = 0; j < storage.ItemSlots.Count; j++)
+            {
+                var slot = storage.ItemSlots[j];
+                if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
+
+#if IL2CPP
+                var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                var productItem = slot.ItemInstance as ProductItemInstance;
+#endif
+                if (productItem == null || productItem.AppliedPackaging == null) continue;
+
+                try
+                {
+#if IL2CPP
+                    var prodDef = productItem.Definition?.TryCast<ProductDefinition>();
+#else
+                    var prodDef = productItem.Definition as ProductDefinition;
+#endif
+                    if (prodDef == null) continue;
+
+                    var effectIds = new List<string>();
+                    if (prodDef.Properties != null)
+                    {
+                        for (int ei = 0; ei < prodDef.Properties.Count; ei++)
+                        {
+                            var e = prodDef.Properties[ei];
+                            if (e != null) effectIds.Add(e.name.ToLower());
+                        }
+                    }
+
+                    _seenProducts.Add(new ObservedProduct
+                    {
+                        ProductId = prodDef.ID,
+                        PackagingId = productItem.AppliedPackaging?.ID,
+                        ProductName = prodDef.name ?? "Product",
+                        Price = prodDef.Price > 0 ? prodDef.Price : prodDef.MarketValue,
+                        MarketValue = prodDef.MarketValue,
+                        QualityLevel = (int)productItem.Quality,
+                        AvailableQuantity = slot.Quantity,
+                        PkgMultiplier = productItem.AppliedPackaging.Quantity,
+                        EffectIds = effectIds
+                    });
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>
+        /// Scans a list of storage entities and memorizes all products.
+        /// Used by the budtender recommendation system instead of physical browsing.
+        /// </summary>
+        internal void ObserveFromStorageList(List<(StorageEntity entity, Vector3 worldPos)> storages)
+        {
+            _seenProducts.Clear();
+            SelectedProducts.Clear();
+            foreach (var (storage, _) in storages)
+            {
+                try { ScanStorageEntity(storage); }
+                catch { }
+            }
+        }
+
+        /// <summary>
+        /// Limits _seenProducts to only N unique products based on Familiarity.
+        /// Low familiarity = fewer recommendations; 1.0 = full menu.
+        /// </summary>
+        internal void FilterByFamiliarity()
+        {
+            var uniqueIds = new HashSet<string>();
+            foreach (var p in _seenProducts)
+                uniqueIds.Add(p.ProductId);
+
+            int totalUnique = uniqueIds.Count;
+            if (totalUnique <= 2) return; // 2 or fewer — show everything
+
+            int recommendCount = Mathf.Clamp(
+                Mathf.RoundToInt(Mathf.Lerp(2f, totalUnique, Familiarity)),
+                2, totalUnique);
+
+            if (recommendCount >= totalUnique) return; // sees everything
+
+            // Randomly select which product IDs the budtender "mentions"
+            var rng = new System.Random(SpawnSeed + 8831);
+            var allIds = new List<string>(uniqueIds);
+            for (int i = allIds.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (allIds[i], allIds[j]) = (allIds[j], allIds[i]);
+            }
+            var recommendedIds = new HashSet<string>();
+            for (int i = 0; i < recommendCount; i++)
+                recommendedIds.Add(allIds[i]);
+
+            _seenProducts.RemoveAll(p => !recommendedIds.Contains(p.ProductId));
         }
 
         /// <summary>
@@ -1209,7 +1291,7 @@ namespace OverTheCounter.Logic
         //  Voice setup
         // =====================================================================
 
-        private static void SetVoiceDatabase(NPC npc, int seed)
+        internal static void SetVoiceDatabase(NPC npc, int seed)
         {
             try
             {

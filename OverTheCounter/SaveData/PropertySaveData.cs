@@ -193,6 +193,12 @@ namespace OverTheCounter.SaveData
         [SaveableField("otc_register_balance")]
         private float _registerBalance;
 
+        [SaveableField("otc_budtenders")]
+        private string _budtenderState = "";
+
+        /// <summary>Saved budtender state for deferred restore after counters are placed.</summary>
+        public string BudtenderSaveState => _budtenderState;
+
         /// <summary>Singleton instance, set during construction or load.</summary>
         public static PropertySaveData Instance { get; private set; }
 
@@ -275,6 +281,9 @@ namespace OverTheCounter.SaveData
             _registerBalance = 0f;
             foreach (var counter in CheckoutCounter.AllCounters)
                 _registerBalance += counter.RegisterBalance;
+
+            // Capture budtender state
+            _budtenderState = Logic.BudtenderController.Serialize();
         }
 
         // ==================================================================

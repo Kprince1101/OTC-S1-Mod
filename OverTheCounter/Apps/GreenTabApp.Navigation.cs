@@ -64,10 +64,10 @@ namespace OverTheCounter.Apps
                     isActive ? AccentGreen : Color.clear);
                 var outerImg = tabOuter.GetComponent<Image>();
 
-                // AspectRatioFitter makes each button square (height = width)
+                // AspectRatioFitter keeps buttons compact (slightly taller than wide)
                 var arf = tabOuter.AddComponent<AspectRatioFitter>();
                 arf.aspectMode = AspectRatioFitter.AspectMode.WidthControlsHeight;
-                arf.aspectRatio = 1f;
+                arf.aspectRatio = 1.25f;
 
                 // Inner fill — rounded
                 Color innerBg = isActive ? new Color(0.06f, 0.12f, 0.06f) : Color.clear;
@@ -91,8 +91,8 @@ namespace OverTheCounter.Apps
                     iconImg.preserveAspect = true;
                     iconImg.color = isActive ? AccentGreen : TextDim;
                     var iconRect = iconGo.GetComponent<RectTransform>();
-                    iconRect.anchorMin = new Vector2(0.30f, 0.45f);
-                    iconRect.anchorMax = new Vector2(0.70f, 0.90f);
+                    iconRect.anchorMin = new Vector2(0.30f, 0.38f);
+                    iconRect.anchorMax = new Vector2(0.70f, 0.82f);
                     iconRect.offsetMin = Vector2.zero;
                     iconRect.offsetMax = Vector2.zero;
                 }
@@ -104,12 +104,12 @@ namespace OverTheCounter.Apps
                 label.color = isActive ? AccentGreen : TextDim;
                 label.enableAutoSizing = true;
                 label.fontSizeMin = 8;
-                label.fontSizeMax = 15;
+                label.fontSizeMax = 14;
                 var labelRect = label.gameObject.GetComponent<RectTransform>();
                 labelRect.anchorMin = Vector2.zero;
-                labelRect.anchorMax = new Vector2(1, 0.42f);
-                labelRect.offsetMin = new Vector2(3, 1);
-                labelRect.offsetMax = new Vector2(-3, 0);
+                labelRect.anchorMax = new Vector2(1, 0.36f);
+                labelRect.offsetMin = new Vector2(2, 1);
+                labelRect.offsetMax = new Vector2(-2, 0);
 
                 // Click handler
                 var tabBtn = tabOuter.AddComponent<Button>();

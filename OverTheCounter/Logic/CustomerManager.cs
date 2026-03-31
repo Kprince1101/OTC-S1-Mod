@@ -148,65 +148,8 @@ namespace OverTheCounter.Logic
                         if (customer.ArrivedAtDestination)
                         {
                             customer.ArrivedAtDestination = false;
-                            var occupied = GetOccupiedShelfPositions(customer);
-                            var browsePositions = customer.Target.GetInteriorBrowsePositions(out var shelfCenters, occupied);
-                            if (browsePositions.Count > 0)
-                            {
-                                customer.StartBrowsing(browsePositions, shelfCenters);
-                                customer.State = CustomerState.Browsing;
-                            }
-                            else
-                            {
-                                customer.State = CustomerState.LookingAround;
-                                customer.SendToInterior(customer.Target.RoomCenterLocal, () =>
-                                {
-                                    customer.ArrivedAtDestination = true;
-                                });
-                            }
-                        }
-                        break;
 
-                    case CustomerState.LookingAround:
-                        if (customer.ArrivedAtDestination && customer.LookAroundEndTime == 0f)
-                        {
-                            customer.LookAroundEndTime = Time.time + 8f;
-                        }
-                        if (customer.LookAroundEndTime > 0f && Time.time >= customer.LookAroundEndTime)
-                        {
-                            customer.LookAroundEndTime = 0f;
-                            customer.ArrivedAtDestination = false;
-                            var retryOccupied = GetOccupiedShelfPositions(customer);
-                            var retryPositions = customer.Target.GetInteriorBrowsePositions(out var retryShelfCenters, retryOccupied);
-                            if (retryPositions.Count > 0)
-                            {
-                                customer.StartBrowsing(retryPositions, retryShelfCenters);
-                                customer.State = CustomerState.Browsing;
-                            }
-                            else
-                            {
-                                customer.State = CustomerState.ExitingStore;
-                                customer.RecallFromBuilding();
-                            }
-                        }
-                        break;
-
-                    case CustomerState.Browsing:
-                        if (customer.TickBrowsing())
-                        {
-                            customer.ArrivedAtDestination = false;
-
-                            // All shelves visited — decide what to buy based on what was observed
-                            customer.DecidePurchases();
-
-                            // Customer found nothing they liked — leave without buying
-                            if (customer.SelectedProducts.Count == 0)
-                            {
-                                customer.ShowDisappointed();
-                                customer.State = CustomerState.ExitingStore;
-                                customer.RecallFromBuilding();
-                                break;
-                            }
-
+                            // Go directly to checkout counter — budtender/player handles product selection
                             var bestCounter = FindBestCounter(customer.Position ?? Vector3.zero, customer.Target?.Grid);
                             if (bestCounter != null)
                             {
@@ -227,7 +170,8 @@ namespace OverTheCounter.Logic
                             }
                             else
                             {
-                                // No counter — exit the store
+                                // No enabled counter available — leave
+                                customer.ShowDisappointed();
                                 customer.State = CustomerState.ExitingStore;
                                 customer.RecallFromBuilding();
                             }
@@ -235,17 +179,22 @@ namespace OverTheCounter.Logic
                         break;
 
                     case CustomerState.CheckingOut:
-                        // 4-hour timeout — customer gives up waiting
-                        int currentHour = TimeManager.CurrentTime / 100;
-                        if (customer.CheckoutStartHour > 0 && currentHour >= customer.CheckoutStartHour + 4)
+                        // 4-hour timeout — customer gives up waiting (per-customer, minute-level)
+                        if (customer.CheckoutStartTime > 0)
                         {
-                            bool beingCheckedOut = CheckoutProcess.Instance != null &&
-                                                   CheckoutProcess.Instance.CustomerId == customer.Id;
-                            if (!beingCheckedOut)
+                            int startMins = (customer.CheckoutStartTime / 100) * 60 + (customer.CheckoutStartTime % 100);
+                            int nowMins = (TimeManager.CurrentTime / 100) * 60 + (TimeManager.CurrentTime % 100);
+                            if (nowMins < startMins) nowMins += 24 * 60;
+                            if (nowMins - startMins >= 240)
                             {
-                                customer.State = CustomerState.ExitingStore;
-                                customer.RecallFromBuilding();
-                                break;
+                                bool beingCheckedOut = CheckoutProcess.Instance != null &&
+                                                       CheckoutProcess.Instance.CustomerId == customer.Id;
+                                if (!beingCheckedOut)
+                                {
+                                    customer.State = CustomerState.ExitingStore;
+                                    customer.RecallFromBuilding();
+                                    break;
+                                }
                             }
                         }
 
@@ -262,7 +211,16 @@ namespace OverTheCounter.Logic
                                 customer.CheckoutArrivalTime = Time.time;
                                 if (counterPos1.HasValue)
                                     customer.FaceAndAnimate(counterPos1.Value);
-                                assignedCounter.Screen?.ShowCheckoutInfo(customer.SelectedProducts);
+
+                                // Only show POS if customer already has products (save/reload edge case)
+                                // Otherwise budtender/player will handle via consultation
+                                if (customer.SelectedProducts.Count > 0)
+                                {
+                                    if (assignedCounter.IsStaffed)
+                                        ShowBudtenderPOS(assignedCounter, customer);
+                                    else
+                                        assignedCounter.Screen?.ShowCheckoutInfo(customer.SelectedProducts);
+                                }
                             }
                             else
                             {
@@ -408,7 +366,7 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Re-sends all queued customers to their updated positions at the given counter.
         /// </summary>
-        private void AdvanceQueue(CheckoutCounterInstance counter)
+        internal void AdvanceQueue(CheckoutCounterInstance counter)
         {
             for (int i = 0; i < counter.Queue.Count; i++)
             {
@@ -463,6 +421,7 @@ namespace OverTheCounter.Logic
             for (int i = 0; i < counters.Count; i++)
             {
                 if (targetGrid != null && counters[i].ParentGrid != targetGrid) continue;
+                if (!counters[i].IsEnabled) continue;
 
                 // Skip counters whose GO is at the origin (not yet positioned by FishNet)
                 var cPos = counters[i].CounterPosition;
@@ -686,9 +645,44 @@ namespace OverTheCounter.Logic
                     front.CheckoutArrivalTime == 0f)
                 {
                     front.CheckoutArrivalTime = Time.time;
-                    counter.Screen?.ShowCheckoutInfo(front.SelectedProducts);
+                    if (counter.IsStaffed)
+                        ShowBudtenderPOS(counter, front);
+                    else
+                        counter.Screen?.ShowCheckoutInfo(front.SelectedProducts);
                 }
             }
+        }
+
+        /// <summary>
+        /// Shows the POS screen with what the budtender can find in storage,
+        /// rather than what the player has in inventory.
+        /// </summary>
+        private static void ShowBudtenderPOS(CheckoutCounterInstance counter, CustomerInstance customer)
+        {
+            var fetchTasks = BudtenderStorageSearch.FindProducts(counter, customer.SelectedProducts);
+
+            var placedUnitCounts = new Dictionary<string, int>();
+            float placedTotal = 0f;
+
+            foreach (var task in fetchTasks)
+            {
+                if (placedUnitCounts.ContainsKey(task.ProductId))
+                    placedUnitCounts[task.ProductId] += task.UnitCount;
+                else
+                    placedUnitCounts[task.ProductId] = task.UnitCount;
+                placedTotal += task.Price;
+            }
+
+            var missingKeys = new HashSet<string>();
+            foreach (var sel in customer.SelectedProducts)
+            {
+                int needed = sel.Quantity > 0 ? sel.Quantity : 1;
+                if (!placedUnitCounts.TryGetValue(sel.ProductId, out int found) || found < needed)
+                    missingKeys.Add(sel.ProductId);
+            }
+
+            counter.Screen?.ShowBudtendingStatus(
+                customer.SelectedProducts, missingKeys, placedUnitCounts, placedTotal);
         }
 
         /// <summary>

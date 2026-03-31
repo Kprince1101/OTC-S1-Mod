@@ -7,6 +7,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 #if IL2CPP
 using CSteamID = Il2CppSteamworks.CSteamID;
@@ -69,6 +70,7 @@ namespace OverTheCounter.Logic
         private enum State
         {
             CameraPanning,
+            ChitChatting,
             WaitingForPlacement,
             CustomerPickup,
             PaymentAppearing,
@@ -119,6 +121,11 @@ namespace OverTheCounter.Logic
         private const float CashFlyDuration = 0.8f;
         private const int MaxProducts = 6;
 
+        // Chit-chat timing (player-as-budtender consultation)
+        private const float ChitChatDuration = 3.5f;
+        private const float VO_Question = 1.5f;
+        private const float VO_Acknowledge = 3.0f;
+
         // Overhead camera offsets (finalized via runtime editor)
         private const float CamRightOffset = -0.05f;
         private const float CamUpOffset = 0.6f;
@@ -154,6 +161,12 @@ namespace OverTheCounter.Logic
 
         // Whether the "Complete Sale" button has been shown for a partial order
         private bool _completeBtnShown;
+
+        // Chit-chat progress bar UI
+        private GameObject _chitChatBarRoot;
+        private RectTransform _chitChatFill;
+        private bool _chitChatPlayedQuestion;
+        private bool _chitChatPlayedAcknowledge;
 
         // Animation coroutines
         private object _cashFlyCoroutine;
@@ -381,6 +394,9 @@ namespace OverTheCounter.Logic
             if (hovered == null) return;
             var counter = CheckoutCounter.GetCounterByInteractable(hovered);
             if (counter == null) return;
+
+            // Staffed counters are budtender-only — no player checkout
+            if (counter.IsStaffed) return;
 
             // Check if another player is already using this counter
             if (!string.IsNullOrEmpty(counter.LockHolder)) return;
@@ -697,10 +713,27 @@ namespace OverTheCounter.Logic
                 case State.CameraPanning:
                     if (elapsed >= CameraPanWait)
                     {
-                        _state = State.WaitingForPlacement;
-                        ShowSpriteHUD();
-                        UpdatePOSForBudtending();
+                        if (_customer.SelectedProducts.Count == 0)
+                        {
+                            // No products yet — player chit-chats with customer first
+                            _state = State.ChitChatting;
+                            _stateTimer = Time.time;
+                            _chitChatPlayedQuestion = false;
+                            _chitChatPlayedAcknowledge = false;
+                            CreateChitChatBar();
+                            try { _customer.GameNpc?.SendAnimationTrigger("ThumbsUp"); } catch { }
+                        }
+                        else
+                        {
+                            _state = State.WaitingForPlacement;
+                            ShowSpriteHUD();
+                            UpdatePOSForBudtending();
+                        }
                     }
+                    break;
+
+                case State.ChitChatting:
+                    TickChitChatting(elapsed);
                     break;
 
                 case State.WaitingForPlacement:
@@ -733,6 +766,115 @@ namespace OverTheCounter.Logic
                         CompleteCheckout();
                     }
                     break;
+            }
+        }
+
+        // =================================================================
+        //  Chit-chat state (player-as-budtender consultation)
+        // =================================================================
+
+        private void TickChitChatting(float elapsed)
+        {
+            // Voice lines + animations on schedule (customer only — player is silent)
+            if (!_chitChatPlayedQuestion && elapsed >= VO_Question)
+            {
+                _chitChatPlayedQuestion = true;
+                PlayCustomerVoice(EVOLineType.Question);
+                try { _customer.GameNpc?.SendAnimationTrigger("ConversationGesture1"); } catch { }
+            }
+            if (!_chitChatPlayedAcknowledge && elapsed >= VO_Acknowledge)
+            {
+                _chitChatPlayedAcknowledge = true;
+                PlayCustomerVoice(EVOLineType.Acknowledge);
+                try { _customer.GameNpc?.SendAnimationTrigger("Nod"); } catch { }
+            }
+
+            // Update progress bar fill
+            if (_chitChatFill != null)
+            {
+                float t = Mathf.Clamp01(elapsed / ChitChatDuration);
+                _chitChatFill.anchorMax = new Vector2(t, 1f);
+            }
+
+            // Done — scan storage and recommend products
+            if (elapsed >= ChitChatDuration)
+            {
+                DestroyChitChatBar();
+
+                // Scan all accessible storage and recommend products via familiarity filter
+                var storages = BudtenderStorageSearch.GetAllAccessibleStorages(_counter);
+                _customer.ObserveFromStorageList(storages);
+                _customer.FilterByFamiliarity();
+                _customer.DecidePurchases();
+
+                if (_customer.SelectedProducts.Count > 0)
+                {
+                    // Customer wants something — pan camera to desk, then placement
+                    SearchAndShowAvailable();
+                    PanCameraToDesk();
+                    _state = State.CameraPanning;
+                    _stateTimer = Time.time;
+                }
+                else
+                {
+                    // Nothing appealing — customer leaves disappointed
+                    // Voice line plays in CompleteCheckout (Angry for zero products)
+                    _state = State.CameraReturning;
+                    _stateTimer = Time.time;
+                    UnlockPlayerInput();
+                }
+            }
+        }
+
+        private void CreateChitChatBar()
+        {
+            try
+            {
+                // Create canvas overlay for the progress bar
+                var rootGo = new GameObject("OTC_ChitChatBar");
+                var canvas = rootGo.AddComponent<Canvas>();
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = 100;
+                rootGo.AddComponent<UnityEngine.UI.CanvasScaler>();
+                rootGo.AddComponent<GraphicRaycaster>();
+
+                // Bar background — bottom-center of screen
+                var bgGo = new GameObject("BarBg");
+                bgGo.transform.SetParent(rootGo.transform, false);
+                var bgImg = bgGo.AddComponent<Image>();
+                bgImg.color = new Color(0.12f, 0.12f, 0.12f, 0.85f);
+                var bgRect = bgGo.GetComponent<RectTransform>();
+                bgRect.anchorMin = new Vector2(0.3f, 0.06f);
+                bgRect.anchorMax = new Vector2(0.7f, 0.09f);
+                bgRect.offsetMin = Vector2.zero;
+                bgRect.offsetMax = Vector2.zero;
+
+                // Fill bar
+                var fillGo = new GameObject("BarFill");
+                fillGo.transform.SetParent(bgGo.transform, false);
+                var fillImg = fillGo.AddComponent<Image>();
+                fillImg.color = new Color(0.30f, 0.68f, 0.31f, 0.9f);
+                _chitChatFill = fillGo.GetComponent<RectTransform>();
+                _chitChatFill.anchorMin = Vector2.zero;
+                _chitChatFill.anchorMax = new Vector2(0f, 1f); // starts at 0 width
+                _chitChatFill.offsetMin = new Vector2(2, 2);
+                _chitChatFill.offsetMax = new Vector2(-2, -2);
+
+                _chitChatBarRoot = rootGo;
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer, $"CreateChitChatBar failed: {ex.Message}");
+            }
+        }
+
+        private void DestroyChitChatBar()
+        {
+            if (_chitChatBarRoot != null)
+            {
+                UnityEngine.Object.Destroy(_chitChatBarRoot);
+                _chitChatBarRoot = null;
+                _chitChatFill = null;
             }
         }
 
@@ -1632,18 +1774,27 @@ namespace OverTheCounter.Logic
                 var counterTransform = _counter.CounterTransform;
                 var counterPos = _counter.CounterPosition.Value;
 
-                // Look-at point shifted toward computer (positive right = computer side)
-                var surfaceCenter = counterPos + Vector3.up * CamUpOffset + counterTransform.right * CamRightOffset;
-                var overheadPos = surfaceCenter + Vector3.up * CamHeight + counterTransform.forward * CamForwardOffset;
-                var lookDir = (surfaceCenter - overheadPos).normalized;
-                var overheadRot = Quaternion.LookRotation(lookDir);
-
                 var cam = PlayerSingleton<PlayerCamera>.Instance;
                 cam.AddActiveUIElement("OTC_Checkout");
-                cam.OverrideTransform(overheadPos, overheadRot, CameraLerpTime, false);
-                cam.OverrideFOV(CamFOV, CameraLerpTime);
-                cam.FreeMouse();
 
+                bool chitChat = _customer.SelectedProducts.Count == 0;
+                if (chitChat && _customer.GameNpc != null)
+                {
+                    // Chit-chat: camera faces the customer across the counter
+                    var custPos = _customer.GameNpc.transform.position;
+                    var camPos = counterPos + counterTransform.forward * 0.4f + Vector3.up * 1.5f;
+                    var lookTarget = custPos + Vector3.up * 1.2f;
+                    var lookDir = (lookTarget - camPos).normalized;
+                    cam.OverrideTransform(camPos, Quaternion.LookRotation(lookDir), CameraLerpTime, false);
+                    cam.OverrideFOV(DefaultFOV, CameraLerpTime);
+                }
+                else
+                {
+                    // Normal checkout: overhead desk view
+                    PanCameraToDesk();
+                }
+
+                cam.FreeMouse();
                 PlayerSingleton<PlayerMovement>.Instance.CanMove = false;
                 Singleton<HUD>.Instance.canvas.enabled = false;
 
@@ -1653,6 +1804,21 @@ namespace OverTheCounter.Logic
             {
                 OTCLog.Warning(OTCLog.Systems.Customer,$"LockPlayerInput failed: {ex.Message}");
             }
+        }
+
+        private void PanCameraToDesk()
+        {
+            var counterTransform = _counter.CounterTransform;
+            var counterPos = _counter.CounterPosition.Value;
+
+            var surfaceCenter = counterPos + Vector3.up * CamUpOffset + counterTransform.right * CamRightOffset;
+            var overheadPos = surfaceCenter + Vector3.up * CamHeight + counterTransform.forward * CamForwardOffset;
+            var lookDir = (surfaceCenter - overheadPos).normalized;
+            var overheadRot = Quaternion.LookRotation(lookDir);
+
+            var cam = PlayerSingleton<PlayerCamera>.Instance;
+            cam.OverrideTransform(overheadPos, overheadRot, CameraLerpTime, false);
+            cam.OverrideFOV(CamFOV, CameraLerpTime);
         }
 
         private static void UnlockPlayerInput()
@@ -1886,6 +2052,7 @@ namespace OverTheCounter.Logic
                 _cashFlyCoroutine = null;
             }
 
+            DestroyChitChatBar();
             BudtenderHUD.Hide();
             Instance = null;
             _pendingLockType = PendingLockType.None;

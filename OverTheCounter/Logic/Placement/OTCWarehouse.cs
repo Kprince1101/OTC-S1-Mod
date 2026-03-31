@@ -135,6 +135,9 @@ namespace OverTheCounter.Logic.Placement
         private static bool _suppressSwitchSync;
         private static readonly List<GameObject> _networkedObjects = new();
 
+        /// <summary>S1MAPI NavigationBuilder for interior A* pathfinding.</summary>
+        internal static NavigationBuilder NavBuilder => _navigationBuilder;
+
         /// <summary>Root transform of the warehouse building, or null if not built.</summary>
         public static Transform BuildingTransform => _building?.transform;
 

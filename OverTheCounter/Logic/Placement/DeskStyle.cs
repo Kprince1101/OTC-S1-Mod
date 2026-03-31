@@ -16,9 +16,12 @@ namespace OverTheCounter.Logic.Placement
         public Quaternion SpawnRotation { get; }
         /// <summary>Local position offset to apply after spawning.</summary>
         public Vector3 SpawnOffset { get; }
+        /// <summary>Counter-local offset for budtender standing position (right, up, forward).</summary>
+        public Vector3 BudtenderOffset { get; }
 
         public DeskStyle(string id, string displayName, string meshVaultId, float cost,
-            Quaternion? spawnRotation = null, Vector3? spawnOffset = null)
+            Quaternion? spawnRotation = null, Vector3? spawnOffset = null,
+            Vector3? budtenderOffset = null)
         {
             Id = id;
             DisplayName = displayName;
@@ -26,6 +29,7 @@ namespace OverTheCounter.Logic.Placement
             Cost = cost;
             SpawnRotation = spawnRotation ?? Quaternion.identity;
             SpawnOffset = spawnOffset ?? Vector3.zero;
+            BudtenderOffset = budtenderOffset ?? Vector3.zero;
         }
 
         // ---- Registry ----

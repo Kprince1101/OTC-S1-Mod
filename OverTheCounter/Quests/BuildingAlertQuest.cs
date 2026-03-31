@@ -2,9 +2,11 @@ using OverTheCounter.Logic;
 using OverTheCounter.Logic.Placement;
 using OverTheCounter.Utilities;
 using S1API.Quests;
+using S1API.Utils;
 using S1API.GameTime;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
@@ -20,6 +22,9 @@ namespace OverTheCounter.Quests
     {
         protected override string Description => "Customers are waiting at the checkout.";
         protected override bool AutoBegin => false;
+        protected override Sprite QuestIcon => Core.OtcIconDir != null
+            ? ImageUtils.LoadImage(Path.Combine(Core.OtcIconDir, "StoreAlertIcon.png"))
+            : null;
 
         /// <summary>Building ID to filter counters (e.g. "westville_shack").</summary>
         protected abstract string BuildingId { get; }
@@ -285,6 +290,9 @@ namespace OverTheCounter.Quests
             {
                 if (counter.Queue.Count == 0) continue;
                 if (counter.BuildingId != BuildingId) continue;
+
+                // Don't alert for counters with an active budtender — they're being handled
+                if (counter.IsStaffed) continue;
 
                 totalWaiting += counter.Queue.Count;
 

@@ -3,6 +3,7 @@ using MelonLoader;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1API.Money;
+using S1MAPI.Building;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -413,7 +414,7 @@ namespace OverTheCounter.Logic.Placement
                 // (suppressed during batch loading — one rebuild at end instead of per item)
                 if (!BuildingGridFactory.SuppressNavigationRebuild &&
                     BuildingGridFactory.GridRegistry.TryGetValue(grid, out var gridInfo))
-                    gridInfo.RebuildNavigation?.Invoke();
+                    SafeRebuildNavigation(gridInfo);
 
                 // Apply desk visual for checkout counter on all paths.
                 // CreateGridItemPostfix handles host-initiated placement, but when a CLIENT
@@ -704,6 +705,85 @@ namespace OverTheCounter.Logic.Placement
             yield return new WaitForSeconds(0.5f);
             if (go == null) yield break;
             CheckoutCounter.DisableOriginalRenderers(go);
+        }
+
+        // =====================================================================
+        //  Safe nav rebuild — preserves NPCs inside the building
+        // =====================================================================
+
+        /// <summary>
+        /// Wraps RebuildNavigation with NPC position preservation.
+        /// S1MAPI's Rebuild() calls Remove() which ReleaseAllNPCs() — warping everyone
+        /// outside and re-enabling their NavMeshAgent. This workaround snapshots NPC
+        /// positions before rebuild, then re-sends them to the same local positions after.
+        /// </summary>
+        private static void SafeRebuildNavigation(OtcGridInfo gridInfo)
+        {
+            if (gridInfo.RebuildNavigation == null) return;
+
+            var buildingId = gridInfo.BuildingId;
+
+            // Snapshot budtenders in this building
+            var budtenderSnapshots = new List<(BudtenderInstance bt, Vector3 worldPos)>();
+            foreach (var bt in BudtenderInstance.Active.Values)
+            {
+                if (bt.AssignedCounter?.BuildingId != buildingId) continue;
+                if (bt.GameNpc == null) continue;
+                if (bt.State == BudtenderState.Off || bt.State == BudtenderState.LeavingBuilding) continue;
+                budtenderSnapshots.Add((bt, bt.GameNpc.transform.position));
+            }
+
+            // Snapshot customers in this building
+            var customerSnapshots = new List<(CustomerInstance ci, Vector3 worldPos)>();
+            foreach (var ci in CustomerInstance.Active.Values)
+            {
+                if (ci.GameNpc == null || ci.Target == null) continue;
+                if (ci.Target.BuildingId != buildingId) continue;
+                if (ci.State == CustomerState.ExitingStore || ci.State == CustomerState.Despawning) continue;
+                // Only snapshot if they're actually inside (not still approaching on exterior)
+                var nav = ci.Target.NavBuilder;
+                if (nav != null && nav.IsNPCInside(ci.GameNpc.Movement))
+                    customerSnapshots.Add((ci, ci.GameNpc.transform.position));
+            }
+
+            // Rebuild the navigation grid
+            gridInfo.RebuildNavigation.Invoke();
+
+            // Restore budtenders — warp back and re-send to same position
+            foreach (var (bt, worldPos) in budtenderSnapshots)
+            {
+                if (bt.GameNpc == null) continue;
+                try
+                {
+                    bt.GameNpc.Movement?.Warp(worldPos);
+                    bt.ResendToPosition(worldPos);
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch,
+                        $"SafeRebuild: failed to restore budtender {bt.Id}: {ex.Message}");
+                }
+            }
+
+            // Restore customers — warp back and re-send to same position
+            foreach (var (ci, worldPos) in customerSnapshots)
+            {
+                if (ci.GameNpc == null) continue;
+                try
+                {
+                    ci.GameNpc.Movement?.Warp(worldPos);
+                    ci.ResendToPosition(worldPos);
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch,
+                        $"SafeRebuild: failed to restore customer {ci.Id}: {ex.Message}");
+                }
+            }
+
+            if (budtenderSnapshots.Count > 0 || customerSnapshots.Count > 0)
+                OTCLog.Msg(OTCLog.Systems.Patch,
+                    $"SafeRebuild: restored {budtenderSnapshots.Count} budtenders, {customerSnapshots.Count} customers in {buildingId}");
         }
 
     }

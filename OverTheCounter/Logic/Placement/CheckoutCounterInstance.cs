@@ -58,6 +58,22 @@ namespace OverTheCounter.Logic.Placement
                 ? CounterGameObject.transform.position + Vector3.up * 0.6f
                 : null;
 
+        /// <summary>Whether this counter accepts customers. Disabled counters are skipped by queue logic.</summary>
+        public bool IsEnabled { get; set; } = true;
+
+        /// <summary>World position where the budtender should stand (behind counter, centered on desk).</summary>
+        public Vector3? BudtenderStandPosition
+        {
+            get
+            {
+                if (CounterGameObject == null) return null;
+                var t = CounterGameObject.transform;
+                var style = DeskStyle.Get(CurrentDeskStyleId);
+                var offset = style.BudtenderOffset;
+                return t.position + t.forward * (0.8f + offset.z) + t.right * offset.x + Vector3.up * offset.y;
+            }
+        }
+
         /// <summary>Position where a customer should stand to face the counter.</summary>
         public Vector3? CustomerStandPosition
         {
@@ -123,6 +139,13 @@ namespace OverTheCounter.Logic.Placement
 
         /// <summary>Steam ID of the player currently checking out at this counter, or empty.</summary>
         internal string LockHolder { get; set; } = "";
+
+        /// <summary>ID of the budtender assigned to this counter, or null if vacant.</summary>
+        public string AssignedBudtenderId { get; set; }
+
+        /// <summary>Whether this counter has an active budtender staffing it.</summary>
+        public bool IsStaffed => !string.IsNullOrEmpty(AssignedBudtenderId)
+            && BudtenderInstance.Active.ContainsKey(AssignedBudtenderId);
 
         // Desk corner product display layout offsets
         private const float DisplayXBase = -0.89f;

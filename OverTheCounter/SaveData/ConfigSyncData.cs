@@ -699,6 +699,20 @@ namespace OverTheCounter.SaveData
                         string managerId = action.Substring("MANAGER_FIRE:".Length);
                         ManagerController.Instance?.FireManagerRemote(managerId);
                     }
+                    else if (action.StartsWith("BUDTENDER_HIRE:"))
+                    {
+                        string idxStr = action.Substring("BUDTENDER_HIRE:".Length);
+                        if (int.TryParse(idxStr, out int idx))
+                        {
+                            var counter = Logic.Placement.CheckoutCounter.GetCounterByIndex(idx);
+                            if (counter != null) Logic.BudtenderController.Hire(counter);
+                        }
+                    }
+                    else if (action.StartsWith("BUDTENDER_FIRE:"))
+                    {
+                        string budtenderId = action.Substring("BUDTENDER_FIRE:".Length);
+                        Logic.BudtenderController.Fire(budtenderId);
+                    }
                     else if (action.StartsWith("MANAGER_TRANSFER:"))
                     {
                         // Format: MANAGER_TRANSFER:managerId:targetPropertyCode
@@ -1018,6 +1032,11 @@ namespace OverTheCounter.SaveData
 
             // Manager data is on per-manager SyncVar slots (_mgrSlots) to avoid lobby data truncation.
 
+            // Budtender assignments (tiny payload, max ~50 chars)
+            string btState = Logic.BudtenderController.Serialize();
+            if (!string.IsNullOrEmpty(btState))
+                parts.Add($"budtenders={btState}");
+
             return string.Join("|", parts);
         }
 
@@ -1268,6 +1287,10 @@ namespace OverTheCounter.SaveData
             }
 
             // Manager data is on per-manager SyncVar slots — handled in HandleManagerSlotChanged.
+
+            // Budtender state (client-side: spawn/despawn to match host)
+            if (state.TryGetValue("budtenders", out var btData))
+                Logic.BudtenderController.Deserialize(btData ?? "");
         }
 
         private static string BoolToStr(bool v) => v ? "1" : "0";

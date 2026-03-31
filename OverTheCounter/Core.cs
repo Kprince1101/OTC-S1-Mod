@@ -164,10 +164,16 @@ namespace OverTheCounter
                 OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to clear SaveableAutoRegistry: {ex.Message}");
             }
 
+            // Dismiss alert quests before cleanup (prevents stale HUD from previous session)
+            Quests.ShackAlertQuest.Instance?.Dismiss();
+            Quests.DispensaryAlertQuest.Instance?.Dismiss();
+
             // Drifters + customers are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
             CustomerInstance.CleanupAll();
             DrifterSpawner.ResetCache();
+            BudtenderInstance.CleanupAll();
+            _budtendersRestored = false;
 
             // Clean up previous scene's managers — respawned from ManagerSaveData after load
             ManagerSaveData.ResetInstance();
@@ -276,6 +282,7 @@ namespace OverTheCounter
         }
 
         private static bool _loadHooked;
+        private static bool _budtendersRestored;
 
         /// <summary>
         /// Subscribes to LoadManager.onLoadComplete so we can spawn grid items
@@ -467,6 +474,22 @@ namespace OverTheCounter
                 }
                 PerfTracker.End("ClientDoorSetup");
 
+                // Deferred budtender restore — after counters are placed from save
+                if (!_budtendersRestored && NetworkHelper.IsHost
+                    && CheckoutCounter.AllCounters.Count > 0
+                    && PropertySaveData.Instance != null)
+                {
+                    _budtendersRestored = true;
+                    string btState = PropertySaveData.Instance.BudtenderSaveState;
+                    if (!string.IsNullOrEmpty(btState))
+                        BudtenderController.Deserialize(btState);
+                }
+
+                PerfTracker.Begin("BudtenderAI");
+                if (NetworkHelper.IsHost)
+                    BudtenderController.Tick();
+                PerfTracker.End("BudtenderAI");
+
                 PerfTracker.Begin("Checkout");
                 // Interactive checkout process (camera, clicks, payment)
                 CheckoutProcess.Instance?.Tick();
@@ -572,25 +595,35 @@ namespace OverTheCounter
             Quests.DispensaryAlertQuest.Instance?.Dismiss();
         }
 
+        /// <summary>OTC icon directory path (UserData/OverTheCounter/Icons).</summary>
+        internal static string OtcIconDir { get; private set; }
+
         /// <summary>
-        /// Extracts embedded icons to the S1API Icons folder for phone app usage.
+        /// Extracts embedded icons. Legacy icons go to S1API/Icons (phone apps need them there).
+        /// New OTC icons go to OverTheCounter/Icons.
         /// </summary>
         private void ExtractIcons()
         {
-            string iconDir = Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons");
-            if (!Directory.Exists(iconDir))
-            {
-                Directory.CreateDirectory(iconDir);
-            }
+            string s1apiDir = Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons");
+            if (!Directory.Exists(s1apiDir))
+                Directory.CreateDirectory(s1apiDir);
 
-            ExtractResource(iconDir, "CustomersIcon.png");
-            ExtractResource(iconDir, "DrifterQuestIcon.png");
-            ExtractResource(iconDir, "DrifterProfileIcon.png");
-            ExtractResource(iconDir, "RinseCycle.png");
-            ExtractResource(iconDir, "CrimeWareQuest.png");
-            ExtractResource(iconDir, "ExecutivePrivilege.png");
-            ExtractResource(iconDir, "ManagerIcon.png");
-            ExtractResource(iconDir, "CheckoutCounter.png");
+            OtcIconDir = Path.Combine(MelonEnvironment.UserDataDirectory, "OverTheCounter", "Icons");
+            if (!Directory.Exists(OtcIconDir))
+                Directory.CreateDirectory(OtcIconDir);
+
+            // Legacy icons (phone apps load from S1API/Icons)
+            ExtractResource(s1apiDir, "CustomersIcon.png");
+            ExtractResource(s1apiDir, "DrifterQuestIcon.png");
+            ExtractResource(s1apiDir, "DrifterProfileIcon.png");
+            ExtractResource(s1apiDir, "RinseCycle.png");
+            ExtractResource(s1apiDir, "CrimeWareQuest.png");
+            ExtractResource(s1apiDir, "ExecutivePrivilege.png");
+            ExtractResource(s1apiDir, "ManagerIcon.png");
+            ExtractResource(s1apiDir, "CheckoutCounter.png");
+
+            // OTC icons
+            ExtractResource(OtcIconDir, "StoreAlertIcon.png");
         }
 
         private void ExtractResource(string directory, string fileName)

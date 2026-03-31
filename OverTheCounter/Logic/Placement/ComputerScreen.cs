@@ -230,8 +230,10 @@ namespace OverTheCounter.Logic.Placement
                 // --- Idle prompt (visible when no panel is active) ---
                 _idlePromptText = CreateText("IdlePrompt", _canvasGo.transform,
                     new Vector2(0f, -15f), new Vector2(PanelWidth, 18f),
-                    "[R] Checkout", 11, TextAlignmentOptions.Center,
+                    _owner.IsStaffed ? "" : "[R] Checkout", 11, TextAlignmentOptions.Center,
                     PromptBright);
+                if (_owner.IsStaffed)
+                    _idlePromptText.gameObject.SetActive(false);
             }
             catch (System.Exception ex)
             {
@@ -264,9 +266,21 @@ namespace OverTheCounter.Logic.Placement
             _checkoutPanel.SetActive(true);
             _lastRefreshTime = Time.time;
 
-            if (_promptText != null)
-                _promptText.text = "[R] Checkout";
-            _blinkCoroutine = MelonCoroutines.Start(BlinkPromptCoroutine());
+            if (_owner.IsStaffed)
+            {
+                // Budtender handles checkout — no player prompt needed
+                if (_promptText != null)
+                {
+                    _promptText.text = "";
+                    _promptText.gameObject.SetActive(false);
+                }
+            }
+            else
+            {
+                if (_promptText != null)
+                    _promptText.text = "[R] Checkout";
+                _blinkCoroutine = MelonCoroutines.Start(BlinkPromptCoroutine());
+            }
         }
 
         /// <summary>
@@ -301,11 +315,23 @@ namespace OverTheCounter.Logic.Placement
             _checkoutPanel.SetActive(true);
             _lastRefreshTime = Time.time;
 
-            bool isPaused = CheckoutProcess.Instance?.IsPaused == true;
-            if (_promptText != null)
-                _promptText.text = isPaused ? "[R] Resume" : "[R] Back out";
+            if (_owner.IsStaffed)
+            {
+                // Budtender handles checkout — no player prompt
+                if (_promptText != null)
+                {
+                    _promptText.text = "";
+                    _promptText.gameObject.SetActive(false);
+                }
+            }
+            else
+            {
+                bool isPaused = CheckoutProcess.Instance?.IsPaused == true;
+                if (_promptText != null)
+                    _promptText.text = isPaused ? "[R] Resume" : "[R] Back out";
 
-            _blinkCoroutine = MelonCoroutines.Start(BlinkPromptCoroutine());
+                _blinkCoroutine = MelonCoroutines.Start(BlinkPromptCoroutine());
+            }
         }
 
         /// <summary>
@@ -320,7 +346,11 @@ namespace OverTheCounter.Logic.Placement
             if (_checkoutPanel != null)
                 _checkoutPanel.SetActive(false);
             if (_idlePromptText != null)
-                _idlePromptText.gameObject.SetActive(true);
+            {
+                // Update text based on current staffed state (may have changed since Create)
+                _idlePromptText.text = _owner.IsStaffed ? "" : "[R] Checkout";
+                _idlePromptText.gameObject.SetActive(!_owner.IsStaffed);
+            }
         }
 
         /// <summary>

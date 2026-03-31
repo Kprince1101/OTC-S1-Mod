@@ -346,11 +346,7 @@ namespace OverTheCounter.Apps
                     RefreshInventory();
                     break;
                 case AppTab.Employees:
-                    if (_empTitleLabel != null)
-                    {
-                        string empName = GetBuildingDisplayName(_selectedBuildingId);
-                        _empTitleLabel.text = $"<b>{empName}</b>  <color=#9E9E9E><size=90%>Select another property via dropdown</size></color>";
-                    }
+                    RefreshStaffing();
                     break;
                 case AppTab.Customize:
                     if (_selectedBuildingId == AllPropertiesId)
@@ -541,6 +537,7 @@ namespace OverTheCounter.Apps
                 case AppTab.Overview: RefreshOverview(); break;
                 case AppTab.Sales: RefreshSales(); break;
                 case AppTab.Inventory: RefreshInventory(); break;
+                case AppTab.Employees: RefreshStaffing(); break;
                 case AppTab.Customize: RefreshCards(); break;
             }
         }

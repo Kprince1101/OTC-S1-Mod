@@ -310,6 +310,10 @@
 		<Compile Include="Logic\CheckoutProcess.cs" />
 		<Compile Include="Logic\DispensaryDealManager.cs" />
 		<Compile Include="Logic\BudtenderHUD.cs" />
+		<Compile Include="Logic\BudtenderSpawner.cs" />
+		<Compile Include="Logic\BudtenderInstance.cs" />
+		<Compile Include="Logic\BudtenderController.cs" />
+		<Compile Include="Logic\BudtenderStorageSearch.cs" />
 		<Compile Include="Logic\StoreHours.cs" />
 		<Compile Include="Logic\DrifterSpawner.cs" />
 		<Compile Include="Logic\DrifterInstance.cs" />
@@ -423,6 +427,7 @@
 		<EmbeddedResource Include="Resources\ShackSign.glb"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\CashRegister.glb"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\CheckoutCounter.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\StoreAlertIcon.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\ShackPhoto.png" Condition="Exists('Resources\ShackPhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\DispensaryPhoto.png" Condition="Exists('Resources\DispensaryPhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\WarehousePhoto.png" Condition="Exists('Resources\WarehousePhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
