@@ -1157,7 +1157,7 @@ namespace OverTheCounter.UI
                             try
                             {
                                 if (poi == null || poi.UI == null) continue;
-                                if (poi.gameObject.name.StartsWith("NPCPoI"))
+                                if (poi.TryCast<NPCPoI>() != null)
                                 {
                                     _npcPoiTemplate = poi.UI.gameObject;
                                     break;
@@ -1201,21 +1201,34 @@ namespace OverTheCounter.UI
                                     // Disable interactivity
                                     foreach (var graphic in clone.GetComponentsInChildren<Graphic>(true))
                                         graphic.raycastTarget = false;
-                                    foreach (var txt in clone.GetComponentsInChildren<Text>(true))
-                                        txt.gameObject.SetActive(false);
 
-                                    // Set the mugshot
+                                    // Strip all root children except IconContainer
+                                    // (removes pink radius circle, text labels, etc.)
+                                    for (int c = cloneRect.childCount - 1; c >= 0; c--)
+                                    {
+                                        var child = cloneRect.GetChild(c);
+                                        if (child.name != "IconContainer")
+                                            child.gameObject.SetActive(false);
+                                    }
+
                                     try
                                     {
                                         var iconContainer = cloneRect.Find("IconContainer");
                                         if (iconContainer != null)
                                         {
+                                            var outlineImg = iconContainer.Find("Outline")?.GetComponent<Image>();
+                                            if (outlineImg != null)
+                                                outlineImg.color = Color.white;
+
                                             var iconImg = iconContainer.Find("Outline/Icon")?.GetComponent<Image>();
                                             if (iconImg != null && cust.NPC.MugshotSprite != null)
                                                 iconImg.sprite = cust.NPC.MugshotSprite;
                                         }
                                     }
                                     catch { }
+
+                                    // Render behind potential customer POI clones
+                                    cloneRect.SetAsFirstSibling();
                                 }
                                 else
                                 {
