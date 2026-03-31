@@ -662,7 +662,7 @@ namespace OverTheCounter.Logic.Placement
         public static void UpdateOpenCloseSwitchMessages()
         {
             if (_openCloseSwitch == null) return;
-            const string hours = " (8AM - 8PM)";
+            string hours = $" ({Logic.StoreHours.DisplayRangeSpaced})";
             _openCloseSwitch.SetInteractionMessages(
                 $"Close Store{hours}",
                 $"Open Store{hours}");
@@ -749,13 +749,13 @@ namespace OverTheCounter.Logic.Placement
                 .AddSlidingDoors(
                     new Vector3(RoomWidth / 2f - 3f, -0.058f, RoomDepth - 0.065f),
                     Quaternion.identity,
-                    "8AM-8PM",
+                    Logic.StoreHours.DisplayRange,
                     onCreated: door =>
                     {
                         // Workaround: S1MAPI sign text may not apply — set it manually
                         var tmps = door.GetComponentsInChildren<TMPro.TextMeshPro>(true);
                         foreach (var tmp in tmps)
-                            tmp.text = "8AM-8PM";
+                            tmp.text = Logic.StoreHours.DisplayRange;
                     })
                 .AddParapetRoof(ParapetPreset.Shallow, parapetMaterial: trimBlack,
                     capMaterial: trimBlack);

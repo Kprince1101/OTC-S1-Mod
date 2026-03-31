@@ -34,9 +34,6 @@ namespace OverTheCounter.Logic
     /// </summary>
     internal static class DispensaryDealManager
     {
-        private const int OpenHour = 8;
-        private const int CloseHour = 20;
-        private const int CloseMinute = CloseHour * 60; // 1200
         private const int RushThresholdMinutes = 60;     // speed boost when < 60 min to close
         private const int CutoffMinutes = 30;            // don't redirect when < 30 min to close
 
@@ -126,8 +123,8 @@ namespace OverTheCounter.Logic
             int minute = time % 100;
             int currentMinutes = hour * 60 + minute;
 
-            return currentMinutes >= OpenHour * 60
-                && currentMinutes < CloseMinute - CutoffMinutes;
+            return currentMinutes >= StoreHours.OpenMinute
+                && currentMinutes < StoreHours.CloseMinute - CutoffMinutes;
         }
 
         /// <summary>
@@ -139,7 +136,7 @@ namespace OverTheCounter.Logic
             int hour = time / 100;
             int minute = time % 100;
             int currentMinutes = hour * 60 + minute;
-            int minutesToClose = CloseMinute - currentMinutes;
+            int minutesToClose = StoreHours.CloseMinute - currentMinutes;
 
             return minutesToClose > CutoffMinutes && minutesToClose <= RushThresholdMinutes;
         }
@@ -158,7 +155,7 @@ namespace OverTheCounter.Logic
             int hour = time / 100;
             int minute = time % 100;
             int currentMinutes = hour * 60 + minute;
-            int openMinutes = OpenHour * 60;
+            int openMinutes = StoreHours.OpenMinute;
 
             if (currentMinutes < openMinutes - PreOpenWindowMinutes || currentMinutes >= openMinutes)
                 return false;
@@ -200,7 +197,7 @@ namespace OverTheCounter.Logic
             ResetDealCooldown(customer);
 
             OTCLog.Msg(OTCLog.Systems.Customer,
-                $"Deferred deal for {customer.NPC?.fullName} ({drugType}) until {OpenHour}:00");
+                $"Deferred deal for {customer.NPC?.fullName} ({drugType}) until {StoreHours.OpenHour}:00");
             return true;
         }
 

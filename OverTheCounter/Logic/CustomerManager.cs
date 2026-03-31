@@ -32,8 +32,8 @@ namespace OverTheCounter.Logic
         // Customer lifecycle constants
         private const int MaxActiveCustomers = 5;
         private const int MaxCustomersInBuilding = 3;
-        private const int SpawnStartHour = 8;
-        private const int SpawnEndHour = 20;
+        private const int SpawnStartHour = StoreHours.OpenHour;
+        private const int SpawnEndHour = StoreHours.CloseHour;
         private const float DespawnDistance = 30f;
 
 
@@ -76,12 +76,12 @@ namespace OverTheCounter.Logic
                 if (spawnSlot != _lastSpawnSlot && currentHour >= SpawnStartHour && currentHour < SpawnEndHour)
                     _lastSpawnSlot = spawnSlot;
 
-                // Update switch messages when hour boundaries change (8am/8pm)
-                if (currentMinute == 0 && (currentHour == 8 || currentHour == 20))
+                // Update switch messages when hour boundaries change (open/close)
+                if (currentMinute == 0 && (currentHour == StoreHours.OpenHour || currentHour == StoreHours.CloseHour))
                     WestvilleShack.UpdateOpenCloseSwitchMessages();
 
                 // Process deferred deals at opening time — morning rush
-                if (currentMinute == 0 && currentHour == 8)
+                if (currentMinute == 0 && currentHour == StoreHours.OpenHour)
                     DispensaryDealManager.ProcessDeferredDeals();
 
                 ProcessCustomerLifecycles();

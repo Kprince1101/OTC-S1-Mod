@@ -310,6 +310,7 @@
 		<Compile Include="Logic\CheckoutProcess.cs" />
 		<Compile Include="Logic\DispensaryDealManager.cs" />
 		<Compile Include="Logic\BudtenderHUD.cs" />
+		<Compile Include="Logic\StoreHours.cs" />
 		<Compile Include="Logic\DrifterSpawner.cs" />
 		<Compile Include="Logic\DrifterInstance.cs" />
 		<Compile Include="Logic\ManagerInstance.cs" />

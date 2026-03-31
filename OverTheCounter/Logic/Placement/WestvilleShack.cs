@@ -658,7 +658,7 @@ namespace OverTheCounter.Logic.Placement
             if (_openCloseSwitch == null) return;
 
             // Always show operating hours so the player knows the schedule
-            const string hours = " (8AM - 8PM)";
+            string hours = $" ({Logic.StoreHours.DisplayRangeSpaced})";
 
             // messageWhenOn = shown when switch is ON (store is open) → action is to close
             // messageWhenOff = shown when switch is OFF (store is closed) → action is to open
