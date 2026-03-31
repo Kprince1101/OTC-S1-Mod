@@ -167,6 +167,56 @@ namespace OverTheCounter.Apps
         private Image _messageBadgeImage;
         private object _badgePulseCoroutine;
 
+        // Home screen notification badge (mirrors game's App<T>.notificationContainer)
+        private GameObject _homeNotificationContainer;
+        private Text _homeNotificationText;
+        private bool _homeNotificationSearched;
+
+        /// <summary>
+        /// Updates the home screen app icon notification badge (red circle with count).
+        /// Searches for the Notifications child once; no-ops if not found.
+        /// </summary>
+        internal void UpdateHomeScreenBadge(int unreadCount)
+        {
+            if (_homeNotificationContainer == null)
+            {
+                if (_homeNotificationSearched) return;
+                try
+                {
+#if IL2CPP
+                    var homeScreen = Il2CppScheduleOne.DevUtilities.PlayerSingleton<Il2CppScheduleOne.UI.Phone.HomeScreen>.Instance;
+#else
+                    var homeScreen = ScheduleOne.DevUtilities.PlayerSingleton<ScheduleOne.UI.Phone.HomeScreen>.Instance;
+#endif
+                    if (homeScreen == null) return; // Not loaded yet — retry next tick
+
+                    // HomeScreen exists, so icon should too. Only search once.
+                    _homeNotificationSearched = true;
+
+                    // S1API names the icon GameObject after AppName
+                    Transform iconTransform = null;
+                    foreach (var t in homeScreen.GetComponentsInChildren<Transform>(true))
+                    {
+                        if (t.name == AppName) { iconTransform = t; break; }
+                    }
+                    if (iconTransform == null) return;
+
+                    var notifTransform = iconTransform.Find("Notifications");
+                    if (notifTransform == null) return;
+
+                    _homeNotificationContainer = notifTransform.gameObject;
+                    _homeNotificationText = notifTransform.Find("Text")?.GetComponent<Text>();
+                }
+                catch (Exception ex) { OTCLog.Error(OTCLog.Systems.Notification, $"Home badge lookup failed: {ex}"); return; }
+            }
+
+            if (_homeNotificationContainer == null) return;
+
+            if (_homeNotificationText != null)
+                _homeNotificationText.text = unreadCount.ToString();
+            _homeNotificationContainer.SetActive(unreadCount > 0);
+        }
+
         public static CustomersApp Instance { get; private set; }
 
         protected override void OnCreated()
@@ -623,9 +673,6 @@ namespace OverTheCounter.Apps
             badgeRect.anchoredPosition = new Vector2(-1, -1);
 
             // Red glow around the dot
-            var shadow = _messageBadge.AddComponent<Shadow>();
-            shadow.effectColor = new Color(0.9f, 0.1f, 0.1f, 0.6f);
-            shadow.effectDistance = new Vector2(0, 0);
             var outline = _messageBadge.AddComponent<Outline>();
             outline.effectColor = new Color(0.9f, 0.1f, 0.1f, 0.4f);
             outline.effectDistance = new Vector2(2, 2);

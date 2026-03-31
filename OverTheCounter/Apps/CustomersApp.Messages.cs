@@ -112,7 +112,13 @@ namespace OverTheCounter.Apps
             {
                 MelonCoroutines.Stop(_badgePulseCoroutine);
                 _badgePulseCoroutine = null;
+                // Reset scale so badge doesn't reappear mid-pulse size
+                var rt = _messageBadge?.GetComponent<RectTransform>();
+                if (rt != null) rt.localScale = Vector3.one;
             }
+
+            // Home screen icon badge (red circle with count, like Messages app)
+            UpdateHomeScreenBadge(hasUnread ? 1 : 0);
 
             // Update sidebar mugshot each tick (S1API replaces default icon async)
             if (_sidebarMugshotImage != null)
