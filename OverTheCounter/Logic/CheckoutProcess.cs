@@ -240,13 +240,22 @@ namespace OverTheCounter.Logic
         private static void CleanupP2P()
         {
             if (!_p2pSubscribed) return;
-            try
-            {
-                SaveData.NetworkP2PBridge.Unsubscribe(P2P_LOCK_REQ);
-                SaveData.NetworkP2PBridge.Unsubscribe(P2P_LOCK_RES);
-            }
-            catch { }
+            try { CleanupP2PImpl(); }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Network, $"P2P cleanup failed: {ex.Message}"); }
             _p2pSubscribed = false;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void SendP2PLockRequest(string custId, string myId)
+        {
+            SaveData.NetworkP2PBridge.SendToHost(P2P_LOCK_REQ, $"CHECKOUT:{custId}:{myId}");
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void CleanupP2PImpl()
+        {
+            SaveData.NetworkP2PBridge.Unsubscribe(P2P_LOCK_REQ);
+            SaveData.NetworkP2PBridge.Unsubscribe(P2P_LOCK_RES);
         }
 
         /// <summary>
@@ -430,8 +439,7 @@ namespace OverTheCounter.Logic
 
                 if (_p2pSubscribed)
                 {
-                    SaveData.NetworkP2PBridge.SendToHost(P2P_LOCK_REQ,
-                        $"CHECKOUT:{waitingCustomer.Id}:{myId}");
+                    SendP2PLockRequest(waitingCustomer.Id, myId);
                 }
                 else
                 {
