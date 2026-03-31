@@ -96,6 +96,7 @@ namespace OverTheCounter.Logic.Placement
         // Desk display
         private Transform _deskTransform;
         private GameObject _peripheralAnchor;
+        private GameObject _taskLight;
 
         /// <summary>The desk mesh transform (for debug editor positioning).</summary>
         public Transform DeskTransform => _deskTransform;
@@ -195,6 +196,11 @@ namespace OverTheCounter.Logic.Placement
                 UnityEngine.Object.Destroy(_peripheralAnchor);
                 _peripheralAnchor = null;
             }
+            if (_taskLight != null)
+            {
+                UnityEngine.Object.Destroy(_taskLight);
+                _taskLight = null;
+            }
             if (_deskTransform != null)
             {
                 UnityEngine.Object.Destroy(_deskTransform.gameObject);
@@ -241,6 +247,7 @@ namespace OverTheCounter.Logic.Placement
 
                 SpawnPeripherals(_peripheralAnchor.transform);
                 SpawnCashRegister(_peripheralAnchor.transform);
+                SpawnTaskLight(go.transform);
                 DisableStorageVisualizer();
                 HookStorageDisplay();
             }
@@ -342,6 +349,26 @@ namespace OverTheCounter.Logic.Placement
             {
                 OTCLog.Error(OTCLog.Systems.Patch, $"SpawnCashRegister failed: {ex.Message}");
             }
+        }
+
+        private void SpawnTaskLight(Transform counterRoot)
+        {
+            _taskLight = new GameObject("OTC_TaskLight");
+            _taskLight.transform.SetParent(counterRoot, false);
+            _taskLight.transform.localPosition = new Vector3(0f, 1.2f, 0f);
+
+            var light = _taskLight.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.color = new Color(1f, 0.95f, 0.85f); // warm white
+            light.range = 3f;
+            light.intensity = 0.6f;
+        }
+
+        /// <summary>Toggles the counter's task light on or off (synced with building light switch).</summary>
+        internal void SetTaskLightEnabled(bool enabled)
+        {
+            if (_taskLight != null)
+                _taskLight.SetActive(enabled);
         }
 
         // =================================================================

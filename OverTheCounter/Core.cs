@@ -488,6 +488,10 @@ namespace OverTheCounter
                     counter.Screen?.Tick();
                 PerfTracker.End("ScreenTicks");
 
+                // Time-based light brightness (neon theme dims during day, bright at night)
+                Logic.Placement.Dispensary.UpdateLightBrightness();
+                Logic.Placement.WestvilleShack.UpdateLightBrightness();
+
                 // Update drifter quest timers on client (OnTimeTick is host-only)
                 PerfTracker.Begin("QuestTicks");
                 _drifterManager?.ClientQuestTick();

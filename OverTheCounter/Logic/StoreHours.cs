@@ -28,8 +28,9 @@ namespace OverTheCounter.Logic
         public const string DisplayRangeSpaced = "8AM - 8PM";
 
         /// <summary>
-        /// Returns a brightness multiplier (0.4–1.0) based on time of day.
-        /// Full brightness at night (9PM–5AM), dim during midday (10AM–4PM),
+        /// Returns a brightness multiplier (0.8–1.5) based on time of day.
+        /// Boosted at night (9PM–5AM) so neons illuminate products,
+        /// reduced during midday (10AM–4PM) but still visible,
         /// smooth ramp during dawn/dusk transitions.
         /// </summary>
         public static float GetLightBrightness()
@@ -39,18 +40,18 @@ namespace OverTheCounter.Logic
             int minute = hhmm % 100;
             float t = hour + minute / 60f; // 0.0–24.0
 
-            // Night: full brightness
-            if (t >= 21f || t <= 5f) return 1.0f;
+            // Night: boosted brightness
+            if (t >= 21f || t <= 5f) return 1.5f;
 
-            // Midday: dim
-            if (t >= 10f && t <= 16f) return 0.4f;
+            // Midday: reduced but still visible
+            if (t >= 10f && t <= 16f) return 0.8f;
 
-            // Dawn ramp: 5AM–10AM → 1.0 down to 0.4
+            // Dawn ramp: 5AM–10AM → 1.5 down to 0.8
             if (t > 5f && t < 10f)
-                return Mathf.Lerp(1.0f, 0.4f, (t - 5f) / 5f);
+                return Mathf.Lerp(1.5f, 0.8f, (t - 5f) / 5f);
 
-            // Dusk ramp: 4PM–9PM → 0.4 up to 1.0
-            return Mathf.Lerp(0.4f, 1.0f, (t - 16f) / 5f);
+            // Dusk ramp: 4PM–9PM → 0.8 up to 1.5
+            return Mathf.Lerp(0.8f, 1.5f, (t - 16f) / 5f);
         }
     }
 }

@@ -102,7 +102,7 @@ namespace OverTheCounter.Logic.Placement
 
         public static readonly LightingStyle NeonTech = new(
             "neon_tech", "Neon Tech", 500f,
-            "otc_flurobar_on", new Color(0.6f, 0.2f, 1f), 5f, 0.6f,
+            "otc_flurobar_on", new Color(0.6f, 0.2f, 1f), 7f, 1.0f,
             new Vector3(0f, -0.2f, 0f),
             hasNeonStrips: true, neonColor: new Color(0f, 0.8f, 1f),
             ceilingEmissiveColor: new Color(0.6f, 0.2f, 1f),

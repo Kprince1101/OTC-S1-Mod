@@ -64,6 +64,8 @@ namespace OverTheCounter.Logic.Placement
         private static readonly List<GameObject> _networkedObjects = new();
         private static readonly List<GameObject> _lightFixtures = new();
         private static readonly List<LightMatSwap> _materialSwaps = new();
+        private static readonly List<(Light light, float baseIntensity)> TrackedLights = new();
+        private static float _lastBrightnessCheck;
         private static Color _neonEmissionColor = Color.black;
         internal static DoorController Door;
 
@@ -175,6 +177,7 @@ namespace OverTheCounter.Logic.Placement
                 if (go != null) GameObject.Destroy(go);
             _lightFixtures.Clear();
             _materialSwaps.Clear();
+            TrackedLights.Clear();
             if (_building != null) GameObject.Destroy(_building);
             _building = null;
             // Networked objects are NOT children of _building — destroy them explicitly.
@@ -233,6 +236,24 @@ namespace OverTheCounter.Logic.Placement
                 var mat = enabled ? swap.OnMat : swap.OffMat;
                 if (mat != null) swap.Renderer.material = mat;
             }
+
+            // Apply time-based brightness immediately when turning on
+            if (enabled && TrackedLights.Count > 0)
+            {
+                float mult = StoreHours.GetLightBrightness();
+                for (int i = 0; i < TrackedLights.Count; i++)
+                {
+                    var (light, baseIntensity) = TrackedLights[i];
+                    if (light != null)
+                        light.intensity = baseIntensity * mult;
+                }
+                _lastBrightnessCheck = Time.time;
+            }
+
+            // Toggle task lights on counters in this building
+            foreach (var counter in CheckoutCounter.AllCounters)
+                if (counter.BuildingId == SaveData.PropertySaveData.ShackId)
+                    counter.SetTaskLightEnabled(enabled);
         }
 
         /// <summary>
@@ -895,6 +916,7 @@ namespace OverTheCounter.Logic.Placement
             }
             _lightFixtures.Clear();
             _materialSwaps.Clear();
+            TrackedLights.Clear();
 
             CurrentLightingStyleId = style.Id;
 
@@ -987,32 +1009,58 @@ namespace OverTheCounter.Logic.Placement
                 new Vector3(centerX, stripY, z0), new Vector3(roomWid, stripH, stripD),
                 neonColor, neonParent.transform);
             south.GetComponent<MeshRenderer>().material = neonMat;
-            S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_S_L", new Vector3(0f, -0.1f, 0f),
-                neonColor, range: 4f, intensity: 0.5f, parent: south.transform);
+            TrackLight(S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_S_L", new Vector3(0f, -0.1f, 0f),
+                neonColor, range: 6f, intensity: 0.8f, parent: south.transform), 0.8f);
 
             // North strip
             var north = S1MAPI.ProceduralMesh.PrimitiveBuilder.CreateBox("Neon_N",
                 new Vector3(centerX, stripY, z1), new Vector3(roomWid, stripH, stripD),
                 neonColor, neonParent.transform);
             north.GetComponent<MeshRenderer>().material = neonMat;
-            S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_N_L", new Vector3(0f, -0.1f, 0f),
-                neonColor, range: 4f, intensity: 0.5f, parent: north.transform);
+            TrackLight(S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_N_L", new Vector3(0f, -0.1f, 0f),
+                neonColor, range: 6f, intensity: 0.8f, parent: north.transform), 0.8f);
 
             // West strip
             var west = S1MAPI.ProceduralMesh.PrimitiveBuilder.CreateBox("Neon_W",
                 new Vector3(x0, stripY, centerZ), new Vector3(stripD, stripH, roomDep),
                 neonColor, neonParent.transform);
             west.GetComponent<MeshRenderer>().material = neonMat;
-            S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_W_L", new Vector3(0f, -0.1f, 0f),
-                neonColor, range: 4f, intensity: 0.5f, parent: west.transform);
+            TrackLight(S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_W_L", new Vector3(0f, -0.1f, 0f),
+                neonColor, range: 6f, intensity: 0.8f, parent: west.transform), 0.8f);
 
             // East strip
             var east = S1MAPI.ProceduralMesh.PrimitiveBuilder.CreateBox("Neon_E",
                 new Vector3(x1, stripY, centerZ), new Vector3(stripD, stripH, roomDep),
                 neonColor, neonParent.transform);
             east.GetComponent<MeshRenderer>().material = neonMat;
-            S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_E_L", new Vector3(0f, -0.1f, 0f),
-                neonColor, range: 4f, intensity: 0.5f, parent: east.transform);
+            TrackLight(S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight("Neon_E_L", new Vector3(0f, -0.1f, 0f),
+                neonColor, range: 6f, intensity: 0.8f, parent: east.transform), 0.8f);
+        }
+
+        private static void TrackLight(GameObject lightGo, float baseIntensity)
+        {
+            var light = lightGo?.GetComponent<Light>();
+            if (light != null)
+                TrackedLights.Add((light, baseIntensity));
+        }
+
+        /// <summary>
+        /// Adjusts all tracked point light intensities based on time of day.
+        /// Called periodically from Core tick (~5 second throttle).
+        /// </summary>
+        internal static void UpdateLightBrightness()
+        {
+            if (!AreLightsOn || TrackedLights.Count == 0) return;
+            if (Time.time - _lastBrightnessCheck < 5f) return;
+            _lastBrightnessCheck = Time.time;
+
+            float mult = StoreHours.GetLightBrightness();
+            for (int i = 0; i < TrackedLights.Count; i++)
+            {
+                var (light, baseIntensity) = TrackedLights[i];
+                if (light != null)
+                    light.intensity = baseIntensity * mult;
+            }
         }
 
         private static void SpawnFixture(string meshId, string label, Vector3 localPos,
@@ -1026,9 +1074,12 @@ namespace OverTheCounter.Logic.Placement
             if (go == null) return;
             go.name = $"Light_{label}";
             if (scale != 1f) go.transform.localScale = Vector3.one * scale;
-            S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight($"{label}_PL",
+            var lightGo = S1MAPI.ProceduralMesh.PrimitiveBuilder.CreatePointLight($"{label}_PL",
                 lightOffset, lightColor, range: range, intensity: intensity,
                 parent: go.transform);
+            var lightComp = lightGo?.GetComponent<Light>();
+            if (lightComp != null)
+                TrackedLights.Add((lightComp, intensity));
             _lightFixtures.Add(go);
 
             // Record material swaps for on/off toggling
