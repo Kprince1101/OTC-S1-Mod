@@ -1062,6 +1062,10 @@ namespace OverTheCounter.UI
                             cloneRect.localScale = new Vector3(iconScale, iconScale, iconScale);
                             _poiClones[id] = cloneRect;
 
+                            // Disable text labels (e.g. quest descriptions)
+                            foreach (var txt in clone.GetComponentsInChildren<Text>(true))
+                                txt.gameObject.SetActive(false);
+
                             // For remote player POIs: zero the game's IconContainer rotation
                             // so our root-level rotation controls facing direction cleanly
                             if (_poiToPlayer.ContainsKey(id))
