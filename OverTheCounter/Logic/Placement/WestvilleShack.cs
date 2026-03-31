@@ -869,6 +869,9 @@ namespace OverTheCounter.Logic.Placement
             _navigationBuilder.Build();
 
             UI.MapBuildingOverlay.Register(BuildingOrigin, RoomWidth, RoomDepth);
+            Patches.WeatherPatches.RegisterBuilding(
+                new Vector3(BuildingOrigin.x, BuildingOrigin.y + FoundationHeight, BuildingOrigin.z),
+                RoomWidth, RoomHeight, RoomDepth);
         }
 
         // ==================================================================

@@ -413,6 +413,7 @@ namespace OverTheCounter.Logic.Placement
             _navigationBuilder.Build();
 
             UI.MapBuildingOverlay.Register(Origin, Width, Depth);
+            Patches.WeatherPatches.RegisterBuilding(Origin, Width, WallHeight, Depth);
 
             // Placement grid — south portion of warehouse (near entrance)
             WarehouseGrid = BuildingGridFactory.CreateGrid(_building, Width, Depth, "OTCWarehouse_Floor1",

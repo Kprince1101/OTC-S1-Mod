@@ -406,6 +406,7 @@
 		<Compile Include="Patches\CustomerStartPatch.cs" />
 		<Compile Include="Patches\ActionListPatch.cs" />
 		<Compile Include="Patches\DealInterceptPatch.cs" />
+		<Compile Include="Patches\WeatherPatches.cs" />
 	</ItemGroup>
 
 	<!-- Embedded resources -->

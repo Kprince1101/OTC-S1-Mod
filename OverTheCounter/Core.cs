@@ -88,6 +88,7 @@ namespace OverTheCounter
             SaveManagerPatch.Apply(HarmonyInstance);
             ActionListPatch.Apply(HarmonyInstance);
             GameProfilerPatches.Apply(HarmonyInstance);
+            WeatherPatches.Apply(HarmonyInstance);
 
             TimeManager.OnSleepEnd += OnSleepEnd;
             TimeManager.OnDayPass += OnDayPass;
@@ -204,6 +205,7 @@ namespace OverTheCounter
 
 #endif
             // Permanent building cleanup
+            WeatherPatches.Cleanup();
             MapBuildingOverlay.Clear();
             Logic.Placement.CheckoutCounter.Cleanup();
             Logic.Placement.WestvilleShack.Cleanup();
