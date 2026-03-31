@@ -546,9 +546,6 @@ namespace OverTheCounter.Logic.Placement
             _navigationBuilder?.Rebuild();
         }
 
-        /// <summary>Toggles the pathfinding debug grid visualization.</summary>
-        public static void VisualizePathGrid(bool show = true) => _navigationBuilder?.VisualizePathGrid(show);
-
         /// <summary>Unlocks interior doors and enables switches (called after purchase).</summary>
         public static void UnlockDoor()
         {

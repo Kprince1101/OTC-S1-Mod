@@ -188,9 +188,6 @@ namespace OverTheCounter.Logic.Placement
             _navigationBuilder?.Rebuild();
         }
 
-        /// <summary>Toggles the pathfinding debug grid visualization.</summary>
-        public static void VisualizePathGrid(bool show = true) => _navigationBuilder?.VisualizePathGrid(show);
-
         internal static void SetLightsEnabled(bool enabled)
         {
             AreLightsOn = enabled;

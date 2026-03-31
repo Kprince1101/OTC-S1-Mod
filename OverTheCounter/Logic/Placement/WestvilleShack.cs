@@ -508,9 +508,6 @@ namespace OverTheCounter.Logic.Placement
             _navigationBuilder?.Rebuild();
         }
 
-        /// <summary>Toggles the pathfinding debug grid visualization.</summary>
-        public static void VisualizePathGrid(bool show = true) => _navigationBuilder?.VisualizePathGrid(show);
-
         /// <summary>
         /// Sets door access based on property ownership.
         /// </summary>

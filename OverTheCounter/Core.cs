@@ -189,11 +189,17 @@ namespace OverTheCounter
             }
 
 #if DEBUG
-            if (!GameObject.Find("DebugController"))
+            var existingDbg = GameObject.Find("OTC_DebugController");
+            if (!existingDbg)
             {
-                var go = new GameObject("DebugController");
+                var go = new GameObject("OTC_DebugController");
                 go.AddComponent<DebugHelpers>();
                 GameObject.DontDestroyOnLoad(go);
+                OTCLog.Msg(OTCLog.Systems.Patch, "DebugHelpers component created on OTC_DebugController");
+            }
+            else
+            {
+                OTCLog.Msg(OTCLog.Systems.Patch, $"OTC_DebugController already exists, active={existingDbg.activeSelf}, component={existingDbg.GetComponent<DebugHelpers>() != null}");
             }
 
 #endif
