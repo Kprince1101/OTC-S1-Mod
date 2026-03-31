@@ -328,11 +328,11 @@ namespace OverTheCounter.UI
             bool circle = _cfgCircle;
             int margin = 10;
 
-            // Canvas (ScreenSpace Overlay, high sort order)
+            // Canvas (ScreenSpace Overlay, below HUD so game tutorials/notifications render on top)
             _canvasObj = new GameObject("OTC_MinimapCanvas");
             var canvas = _canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 999;
+            canvas.sortingOrder = -1;
             _unityScaler = _canvasObj.AddComponent<UnityEngine.UI.CanvasScaler>();
             _unityScaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
             _unityScaler.referenceResolution = new Vector2(1920, 1080);
