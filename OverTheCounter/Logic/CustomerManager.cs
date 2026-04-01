@@ -1,5 +1,4 @@
 using OverTheCounter.Logic.Placement;
-using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1API.GameTime;
@@ -153,10 +152,6 @@ namespace OverTheCounter.Logic
                                 customer.CheckoutStartHour = TimeManager.CurrentTime / 100;
                                 customer.CheckoutStartTime = TimeManager.CurrentTime;
                                 customer.AssignedCounter = bestCounter;
-                                if (customer.Target?.Name == "WestvilleShack")
-                                    ShackAlertQuest.EnsureExists();
-                                else
-                                    DispensaryAlertQuest.EnsureExists();
                                 bestCounter.Queue.Add(customer.Id);
                                 int queueIdx = bestCounter.Queue.Count - 1;
                                 customer.SendToInterior(GetQueuePositionLocal(bestCounter, queueIdx, customer.Target), () =>

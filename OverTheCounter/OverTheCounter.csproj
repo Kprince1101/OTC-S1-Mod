@@ -344,9 +344,7 @@
 		<Compile Include="Quests\StaticUpgrade2Quest.cs" />
 		<Compile Include="Quests\DrifterDealQuest.cs" />
 		<Compile Include="Quests\StorefrontGrowthQuest.cs" />
-		<Compile Include="Quests\BuildingAlertQuest.cs" />
-		<Compile Include="Quests\ShackAlertQuest.cs" />
-		<Compile Include="Quests\DispensaryAlertQuest.cs" />
+		<Compile Include="UI\StoreAlertOverlay.cs" />
 		<Compile Include="Config.cs" />
 		<Compile Include="Utilities\ConfigEntry.cs" />
 		<Compile Include="Utilities\StorageFilterHelper.cs" />

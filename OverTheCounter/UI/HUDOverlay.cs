@@ -105,7 +105,8 @@ namespace OverTheCounter.UI
 
                 if (!_built) return;
 
-                if (Suppressed)
+                // Hide when paused or suppressed
+                if (Suppressed || (Singleton<PauseMenu>.InstanceExists && Singleton<PauseMenu>.Instance.IsPaused))
                 {
                     if (_canvasObj != null && _canvasObj.activeSelf)
                         _canvasObj.SetActive(false);

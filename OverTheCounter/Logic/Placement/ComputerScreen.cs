@@ -79,7 +79,7 @@ namespace OverTheCounter.Logic.Placement
         // Periodic refresh
         private float _lastRefreshTime;
         private bool _forceRefresh;
-        private const float RefreshInterval = 2f;
+        private const float RefreshInterval = 1f;
 
         // Layout constants
         private const float PanelWidth = 190f;
@@ -354,7 +354,7 @@ namespace OverTheCounter.Logic.Placement
         }
 
         /// <summary>
-        /// Periodic refresh. Only refreshes in pre-checkout waiting mode (2s throttle).
+        /// Periodic refresh. Only refreshes in pre-checkout waiting mode (throttled by RefreshInterval).
         /// </summary>
         public void Tick()
         {
@@ -541,11 +541,14 @@ namespace OverTheCounter.Logic.Placement
             if (_totalQtyText != null)
                 _totalQtyText.text = $"x{_totalQty}";
 
-            StopScroll();
-            _scrollOffset = 0;
-            int unfulfilledCount = unfulfilled.Count;
-            if (unfulfilledCount > MaxProductRows)
-                _scrollCoroutine = MelonCoroutines.Start(ScrollCoroutine(unfulfilledCount));
+            if (!_isBudtending)
+            {
+                StopScroll();
+                _scrollOffset = 0;
+                int unfulfilledCount = unfulfilled.Count;
+                if (unfulfilledCount > MaxProductRows)
+                    _scrollCoroutine = MelonCoroutines.Start(ScrollCoroutine(unfulfilledCount));
+            }
 
             UpdateVisibleRows();
         }

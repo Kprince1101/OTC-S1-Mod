@@ -151,6 +151,13 @@ namespace OverTheCounter.UI
                 }
                 catch { }
 
+                // Hide when game is paused
+                if (Singleton<PauseMenu>.InstanceExists && Singleton<PauseMenu>.Instance.IsPaused)
+                {
+                    if (_canvasObj != null && _canvasObj.activeSelf) _canvasObj.SetActive(false);
+                    return;
+                }
+
                 if (_canvasObj != null && !_canvasObj.activeSelf) _canvasObj.SetActive(true);
 
                 // Hot-reload: rebuild if config changed
@@ -1203,10 +1210,6 @@ namespace OverTheCounter.UI
 
                 return Config.MinimapShowCustomers.Value;
             }
-
-            // OTC quest POIs (POIPrefab from our quest system)
-            if (goName.StartsWith("POIPrefab"))
-                return Config.MinimapShowQuests.Value;
 
             // Generic POI — classify by text and UI prefab name
             string mainText = poi.MainText ?? "";

@@ -136,6 +136,7 @@ namespace OverTheCounter
         public static ConfigEntry<bool> HUDShowRankXP;
         public static ConfigEntry<bool> HUDShowHealth;
         public static ConfigEntry<bool> HUDShowStamina;
+        public static ConfigEntry<bool> StoreAlertEnabled;
 
         // ── Minimap POIs ──
         private static MelonPreferences_Category _minimapPoi;
@@ -199,6 +200,7 @@ namespace OverTheCounter
             "HUDShowRankXP",
             "HUDShowHealth",
             "HUDShowStamina",
+            "StoreAlertEnabled",
             "RecipePinEnabled"
         };
 
@@ -448,6 +450,8 @@ namespace OverTheCounter
                 "Show Health", "Display health bar above the hotbar"));
             HUDShowStamina = Register(_hud.CreateEntry("HUDShowStamina", false,
                 "Show Stamina", "Display stamina bar above the hotbar"));
+            StoreAlertEnabled = Register(_hud.CreateEntry("StoreAlertEnabled", true,
+                "Show Store Alerts", "Show checkout queue alerts on the right side of the screen"));
         }
 
         private static ConfigEntry<float> Register(MelonPreferences_Entry<float> entry)

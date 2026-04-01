@@ -87,7 +87,6 @@ namespace OverTheCounter.Logic
         /// <summary>A product that has been placed on the counter during budtending.</summary>
         private struct CounterProduct
         {
-            public GameObject Visual;
             public string ProductId;
             public string PackagingId;
             public string ProductName;
@@ -96,6 +95,8 @@ namespace OverTheCounter.Logic
             public int UnitCount;       // product units in this package (baggie=1, jar=5, brick=20)
             public ItemSlot SourceSlot;     // storage slot to consume from (null if from player inventory)
             public int HotbarIndex;         // player hotbar index (-1 if from storage)
+            public GameObject VisualPrefab;
+            public ProductDefinition ProductDef;
         }
 
         /// <summary>A product found in storage/inventory, ready to be placed via sprite click.</summary>
@@ -123,7 +124,7 @@ namespace OverTheCounter.Logic
         private const float PostScanDelay = 0.3f;
         private const float CameraReturnWait = 0.6f;
         private const float CashFlyDuration = 0.8f;
-        private const int MaxProducts = 6;
+        private const int MaxCounterVisuals = 6;
 
         // Skill check timing (player-as-budtender consultation)
         private const float SkillCheckDuration = 4.0f;
@@ -162,6 +163,9 @@ namespace OverTheCounter.Logic
 
         // Products on the counter (placed by player)
         private readonly List<CounterProduct> _counterProducts = new();
+
+        // 3D visuals on the counter grid (rebuilt proportionally after each placement)
+        private readonly List<GameObject> _counterVisuals = new();
 
         // Products available for placement (from storage/inventory search)
         private readonly List<AvailableProduct> _availableProducts = new();
@@ -429,15 +433,15 @@ namespace OverTheCounter.Logic
             // Check if another player is already using this counter
             if (!string.IsNullOrEmpty(counter.LockHolder)) return;
 
-            // Find a customer waiting at checkout
+            // Find the front customer waiting at THIS counter
             CustomerInstance waitingCustomer = null;
-            foreach (var c in CustomerInstance.Active.Values)
+            if (counter.Queue.Count > 0 &&
+                CustomerInstance.Active.TryGetValue(counter.Queue[0], out var front) &&
+                front.State == CustomerState.CheckingOut &&
+                front.ArrivedAtDestination &&
+                front.CheckoutArrivalTime > 0f)
             {
-                if (c.State == CustomerState.CheckingOut && c.ArrivedAtDestination && c.CheckoutArrivalTime > 0f)
-                {
-                    waitingCustomer = c;
-                    break;
-                }
+                waitingCustomer = front;
             }
 
             if (waitingCustomer == null) return;
@@ -693,36 +697,44 @@ namespace OverTheCounter.Logic
             var hits = Physics.RaycastAll(ray, 5f);
             if (hits.Length == 0) return;
 
-            for (int h = 0; h < hits.Length; h++)
+            if (Instance._counterProducts.Count == 0) return;
+
+            // Check if any counter visual was hit
+            bool hitCounterVisual = false;
+            for (int h = 0; h < hits.Length && !hitCounterVisual; h++)
             {
                 var hitGo = hits[h].collider.gameObject;
-                for (int i = Instance._counterProducts.Count - 1; i >= 0; i--)
+                for (int v = 0; v < Instance._counterVisuals.Count; v++)
                 {
-                    var product = Instance._counterProducts[i];
-                    if (product.Visual == null) continue;
-                    if (hitGo != product.Visual &&
-                        !hits[h].collider.transform.IsChildOf(product.Visual.transform)) continue;
-
-                    // Try to return the product to player inventory or counter storage
-                    if (!ReturnProduct(product))
-                        return;
-
-                    // Remove from counter
-                    DisableRenderers(product.Visual);
-                    UnityEngine.Object.Destroy(product.Visual);
-                    Instance._counterProducts.RemoveAt(i);
-                    Instance._totalPlacedPrice -= product.Price;
-                    if (Instance._placedUnitCounts.TryGetValue(product.ProductId, out int pu))
-                        Instance._placedUnitCounts[product.ProductId] = Math.Max(0, pu - product.UnitCount);
-
-                    // Update POS display
-                    Instance._counter.Screen?.ShowBudtendingStatus(
-                        Instance._customer.SelectedProducts,
-                        Instance._missingProductKeys,
-                        Instance._placedUnitCounts,
-                        Instance._totalPlacedPrice);
-                    return;
+                    if (Instance._counterVisuals[v] == null) continue;
+                    if (hitGo == Instance._counterVisuals[v] ||
+                        hits[h].collider.transform.IsChildOf(Instance._counterVisuals[v].transform))
+                    {
+                        hitCounterVisual = true;
+                        break;
+                    }
                 }
+            }
+
+            if (hitCounterVisual)
+            {
+                int lastIdx = Instance._counterProducts.Count - 1;
+                var product = Instance._counterProducts[lastIdx];
+
+                if (!ReturnProduct(product))
+                    return;
+
+                Instance._counterProducts.RemoveAt(lastIdx);
+                Instance._totalPlacedPrice -= product.Price;
+                if (Instance._placedUnitCounts.TryGetValue(product.ProductId, out int pu))
+                    Instance._placedUnitCounts[product.ProductId] = Math.Max(0, pu - product.UnitCount);
+
+                Instance.RebuildCounterVisuals();
+                Instance._counter.Screen?.ShowBudtendingStatus(
+                    Instance._customer.SelectedProducts,
+                    Instance._missingProductKeys,
+                    Instance._placedUnitCounts,
+                    Instance._totalPlacedPrice);
             }
         }
 
@@ -1029,19 +1041,21 @@ namespace OverTheCounter.Logic
             // Delegate click detection to the HUD
             BudtenderHUD.TickClickDetection();
 
-            // Check if all sprites have been placed (or there were none to begin with)
+            // Check if all sprites have been placed
             bool allPlaced = BudtenderHUD.AllPlaced() || _availableProducts.Count == 0;
+
             if (allPlaced)
             {
                 if (_missingProductKeys.Count == 0)
                 {
-                    // Full order — auto-transition
+                    // Full order, everything placed — auto-transition
                     BudtenderHUD.Hide();
                     TransitionToCustomerPickup();
                 }
                 else if (_completeBtnShown == false)
                 {
-                    // Partial or empty order — show "Complete Sale" button
+                    // Partial order — show "Complete Sale Early"
+                    BudtenderHUD.HideCards();
                     _completeBtnShown = true;
                     BudtenderHUD.ShowCompleteButton(OnCompleteSaleClicked);
                 }
@@ -1072,6 +1086,7 @@ namespace OverTheCounter.Logic
         /// </summary>
         private void TryRemovePlacedProduct()
         {
+            if (_counterProducts.Count == 0) return;
             var cam = Camera.main;
             if (cam == null) return;
             var ray = cam.ScreenPointToRay(Input.mousePosition);
@@ -1079,32 +1094,42 @@ namespace OverTheCounter.Logic
             var hits = Physics.RaycastAll(ray, 20f);
             if (hits.Length == 0) return;
 
-            for (int h = 0; h < hits.Length; h++)
+            // Check if any counter visual was hit
+            bool hitCounterVisual = false;
+            for (int h = 0; h < hits.Length && !hitCounterVisual; h++)
             {
                 var hitGo = hits[h].collider.gameObject;
-                for (int i = _counterProducts.Count - 1; i >= 0; i--)
+                for (int v = 0; v < _counterVisuals.Count; v++)
                 {
-                    var product = _counterProducts[i];
-                    if (product.Visual == null) continue;
-                    if (hitGo != product.Visual &&
-                        !hits[h].collider.transform.IsChildOf(product.Visual.transform)) continue;
-
-                    if (!ReturnProduct(product))
-                        return;
-
-                    DisableRenderers(product.Visual);
-                    UnityEngine.Object.Destroy(product.Visual);
-                    _counterProducts.RemoveAt(i);
-                    _totalPlacedPrice -= product.Price;
-                    if (_placedUnitCounts.TryGetValue(product.ProductId, out int pu2))
-                        _placedUnitCounts[product.ProductId] = Math.Max(0, pu2 - product.UnitCount);
-
-                    // Re-search available products and refresh HUD
-                    SearchAndShowAvailable();
-                    ShowSpriteHUD();
-                    UpdatePOSForBudtending();
-                    return;
+                    if (_counterVisuals[v] == null) continue;
+                    if (hitGo == _counterVisuals[v] ||
+                        hits[h].collider.transform.IsChildOf(_counterVisuals[v].transform))
+                    {
+                        hitCounterVisual = true;
+                        break;
+                    }
                 }
+            }
+
+            if (hitCounterVisual)
+            {
+                // Remove most recently placed product
+                int lastIdx = _counterProducts.Count - 1;
+                var product = _counterProducts[lastIdx];
+
+                if (!ReturnProduct(product))
+                    return;
+
+                _counterProducts.RemoveAt(lastIdx);
+                _totalPlacedPrice -= product.Price;
+                if (_placedUnitCounts.TryGetValue(product.ProductId, out int pu2))
+                    _placedUnitCounts[product.ProductId] = Math.Max(0, pu2 - product.UnitCount);
+
+                // Rebuild counter display and refresh HUD
+                RebuildCounterVisuals();
+                SearchAndShowAvailable();
+                ShowSpriteHUD();
+                UpdatePOSForBudtending();
             }
         }
 
@@ -1114,8 +1139,8 @@ namespace OverTheCounter.Logic
             if (index < 0 || index >= _availableProducts.Count) return;
             var available = _availableProducts[index];
 
-            // Spawn 3D visual on counter and consume from source immediately
-            SpawnProductOnCounter(available);
+            // Track product and update counter display
+            TrackPlacedProduct(available);
             ConsumeFromSource(available);
 
             // Track placement (unit-based)
@@ -1125,86 +1150,16 @@ namespace OverTheCounter.Logic
 
             // Remove sprite from HUD
             BudtenderHUD.RemoveItem(index);
-            PlayScanSound();
+            PlayPopSound();
 
             // Update POS display
             UpdatePOSForBudtending();
         }
 
-        private void SpawnProductOnCounter(AvailableProduct product)
+        private void TrackPlacedProduct(AvailableProduct product)
         {
-            var counterTransform = _counter.CounterTransform;
-            var surfacePos = _counter.SurfacePosition.Value;
-
-            // 2×2 grid layout on counter
-            int idx = _counterProducts.Count;
-            int col = idx % 2;
-            int row = idx / 2;
-            float xOffset = (col - 0.5f) * 0.3f;
-            float zOffset = (row - 0.5f) * 0.25f;
-            var spawnPos = surfacePos
-                + counterTransform.right * ProductRightOffset
-                + counterTransform.right * xOffset
-                + counterTransform.forward * ProductForwardOffset
-                + counterTransform.forward * zOffset
-                + Vector3.up * ProductUpOffset;
-
-            GameObject go;
-
-            if (product.VisualPrefab != null)
-            {
-                go = UnityEngine.Object.Instantiate(product.VisualPrefab);
-                go.name = $"OTC_CounterProduct_{idx}";
-                go.transform.position = spawnPos;
-                go.transform.rotation = counterTransform.rotation;
-                go.transform.localScale = Vector3.one;
-
-                try
-                {
-                    var multiVisuals = go.GetComponentInChildren<MultiTypeVisualsSetter>();
-                    if (multiVisuals != null && product.ProductDef != null)
-                    {
-                        multiVisuals.ApplyVisuals(product.ProductDef);
-                    }
-                    else
-                    {
-                        var visualsSetter = go.GetComponentInChildren<ProductVisualsSetter>();
-                        if (visualsSetter != null && product.ProductDef != null)
-                            visualsSetter.ApplyVisuals(product.ProductDef);
-                    }
-
-                    // Strip visual setter components — visuals are already applied and keeping
-                    // them alive risks native Renderer.GetMaterials crashes if anything re-triggers
-                    // ApplyVisuals on the clone (e.g. storage visual refresh, GPU driver edge case).
-                    StripVisualSetters(go);
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Customer,$"ApplyVisuals failed for {product.ProductName}: {ex.Message}");
-                }
-
-                go.transform.rotation = counterTransform.rotation * Quaternion.Euler(ProductRotX, 0f, 0f);
-
-                foreach (var c in go.GetComponentsInChildren<Collider>())
-                    c.enabled = false;
-                go.layer = 0; // Default layer for raycast pickup
-                var box = go.AddComponent<BoxCollider>();
-                box.size = new Vector3(0.3f, 0.3f, 0.3f);
-            }
-            else
-            {
-                go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                go.name = $"OTC_CounterProduct_{idx}";
-                go.transform.position = spawnPos;
-                go.transform.localScale = GetProductScale(product.PackagingId);
-                var renderer = go.GetComponent<MeshRenderer>();
-                if (renderer != null)
-                    renderer.material.color = GetProductColor(product.PackagingId);
-            }
-
             _counterProducts.Add(new CounterProduct
             {
-                Visual = go,
                 ProductId = product.ProductId,
                 PackagingId = product.PackagingId,
                 ProductName = product.ProductName,
@@ -1212,8 +1167,156 @@ namespace OverTheCounter.Logic
                 QualityLevel = product.QualityLevel,
                 UnitCount = product.UnitCount,
                 SourceSlot = product.SourceSlot,
-                HotbarIndex = product.HotbarIndex
+                HotbarIndex = product.HotbarIndex,
+                VisualPrefab = product.VisualPrefab,
+                ProductDef = product.ProductDef
             });
+            RebuildCounterVisuals();
+        }
+
+        /// <summary>
+        /// Rebuilds the 3x2 counter grid to proportionally represent all placed products.
+        /// Uses largest-remainder allocation to distribute MaxCounterVisuals slots.
+        /// </summary>
+        private void RebuildCounterVisuals()
+        {
+            // Destroy existing visuals
+            foreach (var v in _counterVisuals)
+            {
+                if (v != null)
+                {
+                    DisableRenderers(v);
+                    UnityEngine.Object.Destroy(v);
+                }
+            }
+            _counterVisuals.Clear();
+
+            if (_counterProducts.Count == 0) return;
+
+            // Group by product+packaging key, pick a representative from each group
+            var groups = new Dictionary<string, (int count, int representativeIdx)>();
+            for (int i = 0; i < _counterProducts.Count; i++)
+            {
+                string key = _counterProducts[i].ProductId + "|" + _counterProducts[i].PackagingId;
+                if (!groups.ContainsKey(key))
+                    groups[key] = (1, i);
+                else
+                {
+                    var g = groups[key];
+                    groups[key] = (g.count + 1, g.representativeIdx);
+                }
+            }
+
+            // Largest-remainder method to distribute slots proportionally
+            int total = _counterProducts.Count;
+            int slots = Math.Min(MaxCounterVisuals, total);
+            var keys = new List<string>(groups.Keys);
+            var allocated = new int[keys.Count];
+            var remainders = new float[keys.Count];
+            int assigned = 0;
+
+            for (int i = 0; i < keys.Count; i++)
+            {
+                float exact = (float)groups[keys[i]].count / total * slots;
+                allocated[i] = (int)exact; // floor
+                remainders[i] = exact - allocated[i];
+                assigned += allocated[i];
+            }
+
+            // Distribute remaining slots to groups with largest remainders
+            while (assigned < slots)
+            {
+                int bestIdx = 0;
+                float bestRem = -1f;
+                for (int i = 0; i < remainders.Length; i++)
+                {
+                    if (remainders[i] > bestRem)
+                    {
+                        bestRem = remainders[i];
+                        bestIdx = i;
+                    }
+                }
+                allocated[bestIdx]++;
+                remainders[bestIdx] = -1f; // used up
+                assigned++;
+            }
+
+            // Spawn visuals in 3x2 grid
+            var counterTransform = _counter.CounterTransform;
+            var surfacePos = _counter.SurfacePosition.Value;
+            int gridIdx = 0;
+
+            for (int g = 0; g < keys.Count; g++)
+            {
+                var (_, repIdx) = groups[keys[g]];
+                var rep = _counterProducts[repIdx];
+                for (int v = 0; v < allocated[g] && gridIdx < MaxCounterVisuals; v++)
+                {
+                    int col = gridIdx % 3;
+                    int row = gridIdx / 3;
+                    float xOffset = (col - 1.0f) * 0.18f;
+                    float zOffset = (row - 0.5f) * 0.18f;
+                    var spawnPos = surfacePos
+                        + counterTransform.right * ProductRightOffset
+                        + counterTransform.right * xOffset
+                        + counterTransform.forward * ProductForwardOffset
+                        + counterTransform.forward * zOffset
+                        + Vector3.up * ProductUpOffset;
+
+                    var go = SpawnSingleVisual(rep, spawnPos, counterTransform, gridIdx);
+                    _counterVisuals.Add(go);
+                    gridIdx++;
+                }
+            }
+        }
+
+        private GameObject SpawnSingleVisual(CounterProduct product, Vector3 pos, Transform counterTransform, int idx)
+        {
+            GameObject go;
+            if (product.VisualPrefab != null)
+            {
+                go = UnityEngine.Object.Instantiate(product.VisualPrefab);
+                go.name = $"OTC_CounterProduct_{idx}";
+                go.transform.position = pos;
+                go.transform.rotation = counterTransform.rotation;
+                go.transform.localScale = Vector3.one;
+
+                try
+                {
+                    var multiVisuals = go.GetComponentInChildren<MultiTypeVisualsSetter>();
+                    if (multiVisuals != null && product.ProductDef != null)
+                        multiVisuals.ApplyVisuals(product.ProductDef);
+                    else
+                    {
+                        var visualsSetter = go.GetComponentInChildren<ProductVisualsSetter>();
+                        if (visualsSetter != null && product.ProductDef != null)
+                            visualsSetter.ApplyVisuals(product.ProductDef);
+                    }
+                    StripVisualSetters(go);
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer, $"ApplyVisuals failed for {product.ProductName}: {ex.Message}");
+                }
+
+                go.transform.rotation = counterTransform.rotation * Quaternion.Euler(ProductRotX, 0f, 0f);
+                foreach (var c in go.GetComponentsInChildren<Collider>())
+                    c.enabled = false;
+                go.layer = 0;
+                var box = go.AddComponent<BoxCollider>();
+                box.size = new Vector3(0.3f, 0.3f, 0.3f);
+            }
+            else
+            {
+                go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                go.name = $"OTC_CounterProduct_{idx}";
+                go.transform.position = pos;
+                go.transform.localScale = GetProductScale(product.PackagingId);
+                var renderer = go.GetComponent<MeshRenderer>();
+                if (renderer != null)
+                    renderer.material.color = GetProductColor(product.PackagingId);
+            }
+            return go;
         }
 
         // =================================================================
@@ -1286,12 +1389,12 @@ namespace OverTheCounter.Logic
                 ? customerTransform.position + Vector3.up * 0.8f
                 : _counter?.SurfacePosition ?? Vector3.zero;
 
-            // Capture starting state of each product
-            var startPositions = new Vector3[_counterProducts.Count];
-            var startScales = new Vector3[_counterProducts.Count];
-            for (int i = 0; i < _counterProducts.Count; i++)
+            // Capture starting state of each counter visual
+            var startPositions = new Vector3[_counterVisuals.Count];
+            var startScales = new Vector3[_counterVisuals.Count];
+            for (int i = 0; i < _counterVisuals.Count; i++)
             {
-                var visual = _counterProducts[i].Visual;
+                var visual = _counterVisuals[i];
                 if (visual != null)
                 {
                     startPositions[i] = visual.transform.position;
@@ -1310,9 +1413,9 @@ namespace OverTheCounter.Logic
                 if (customerTransform != null)
                     targetPos = customerTransform.position + Vector3.up * 0.8f;
 
-                for (int i = 0; i < _counterProducts.Count; i++)
+                for (int i = 0; i < _counterVisuals.Count; i++)
                 {
-                    var visual = _counterProducts[i].Visual;
+                    var visual = _counterVisuals[i];
                     if (visual == null) continue;
                     visual.transform.position = Vector3.Lerp(startPositions[i], targetPos, smoothT);
                     visual.transform.localScale = Vector3.Lerp(startScales[i], Vector3.zero, smoothT);
@@ -1321,16 +1424,16 @@ namespace OverTheCounter.Logic
                 yield return null;
             }
 
-            // Disable renderers before destroying — prevents GPU from accessing
-            // zero-scale geometry in the frame between Destroy call and actual destruction
-            foreach (var p in _counterProducts)
+            // Disable renderers before destroying
+            foreach (var v in _counterVisuals)
             {
-                if (p.Visual != null)
+                if (v != null)
                 {
-                    DisableRenderers(p.Visual);
-                    UnityEngine.Object.Destroy(p.Visual);
+                    DisableRenderers(v);
+                    UnityEngine.Object.Destroy(v);
                 }
             }
+            _counterVisuals.Clear();
 
             _pickupAnimCoroutine = null;
             _state = State.PaymentAppearing;
@@ -1476,6 +1579,7 @@ namespace OverTheCounter.Logic
                     if (unitsFound < unitsRemaining)
                         _missingProductKeys.Add(selection.ProductId);
                 }
+
             }
             catch (Exception ex)
             {
@@ -1763,7 +1867,8 @@ namespace OverTheCounter.Logic
                     ProductId = ap.ProductId,
                     PackagingId = ap.PackagingId,
                     ProductName = ap.ProductName,
-                    QualityLevel = ap.QualityLevel
+                    QualityLevel = ap.QualityLevel,
+                    UnitCount = ap.UnitCount
                 });
             }
             BudtenderHUD.Show(spriteItems, OnSpriteClicked);
@@ -1926,6 +2031,7 @@ namespace OverTheCounter.Logic
                 PlayerSingleton<PlayerMovement>.Instance.CanMove = false;
                 Singleton<HUD>.Instance.canvas.enabled = false;
                 UI.HUDOverlay.Suppressed = true;
+                UI.StoreAlertOverlay.Suppressed = true;
 
                 PlayCustomerVoice(EVOLineType.Greeting);
             }
@@ -1963,6 +2069,7 @@ namespace OverTheCounter.Logic
                 PlayerSingleton<PlayerMovement>.Instance.CanMove = true;
                 Singleton<HUD>.Instance.canvas.enabled = true;
                 UI.HUDOverlay.Suppressed = false;
+                UI.StoreAlertOverlay.Suppressed = false;
             }
             catch (Exception ex)
             {
@@ -1974,7 +2081,10 @@ namespace OverTheCounter.Logic
         //  Audio
         // =================================================================
 
-        private void PlayScanSound()
+        private GameObject _popAudioGo;
+        private AudioSource _popAudioSource;
+
+        private void PlayPopSound()
         {
             try
             {
@@ -1982,7 +2092,20 @@ namespace OverTheCounter.Logic
                 if (_scanClip == null) return;
                 var counterPos = _counter?.CounterPosition;
                 if (!counterPos.HasValue) return;
-                AudioSource.PlayClipAtPoint(_scanClip, counterPos.Value, 0.5f);
+
+                if (_popAudioSource == null)
+                {
+                    _popAudioGo = new GameObject("OTC_PopSound");
+                    _popAudioSource = _popAudioGo.AddComponent<AudioSource>();
+                    _popAudioSource.spatialBlend = 1f;
+                }
+
+                // Rising pitch per placement for a satisfying ascending pop
+                _popAudioGo.transform.position = counterPos.Value;
+                _popAudioSource.clip = _scanClip;
+                _popAudioSource.volume = 0.6f;
+                _popAudioSource.pitch = 0.9f + _counterProducts.Count * 0.08f;
+                _popAudioSource.Play();
             }
             catch { }
         }
@@ -2127,7 +2250,6 @@ namespace OverTheCounter.Logic
             // Return counter products to storage before cleanup destroys them
             foreach (var product in _counterProducts)
             {
-                if (product.Visual == null) continue;
                 if (!ReturnProduct(product))
                     OTCLog.Warning(OTCLog.Systems.Customer,$"Abort: no storage for '{product.ProductName}' — item lost");
             }
@@ -2156,15 +2278,23 @@ namespace OverTheCounter.Logic
 
         private void Cleanup()
         {
-            foreach (var item in _counterProducts)
+            foreach (var v in _counterVisuals)
             {
-                if (item.Visual != null)
+                if (v != null)
                 {
-                    DisableRenderers(item.Visual);
-                    UnityEngine.Object.Destroy(item.Visual);
+                    DisableRenderers(v);
+                    UnityEngine.Object.Destroy(v);
                 }
             }
+            _counterVisuals.Clear();
             _counterProducts.Clear();
+
+            if (_popAudioGo != null)
+            {
+                UnityEngine.Object.Destroy(_popAudioGo);
+                _popAudioGo = null;
+                _popAudioSource = null;
+            }
 
             if (_paymentObject != null)
             {

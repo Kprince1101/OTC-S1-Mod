@@ -102,6 +102,7 @@ namespace OverTheCounter
             ImmediateQuestWindowConfig.Register();
             MinimapOverlay.Register();
             HUDOverlay.Register();
+            StoreAlertOverlay.Register();
             RecipeOverlay.Register();
 #if DEBUG
             DebugHelpers.Register();
@@ -165,10 +166,6 @@ namespace OverTheCounter
                 OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to clear SaveableAutoRegistry: {ex.Message}");
             }
 
-            // Dismiss alert quests before cleanup (prevents stale HUD from previous session)
-            Quests.ShackAlertQuest.Instance?.Dismiss();
-            Quests.DispensaryAlertQuest.Instance?.Dismiss();
-
             // Drifters + customers are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
             CustomerInstance.CleanupAll();
@@ -200,6 +197,13 @@ namespace OverTheCounter
             {
                 var go = new GameObject("OTC_RecipeOverlay");
                 go.AddComponent<RecipeOverlay>();
+                GameObject.DontDestroyOnLoad(go);
+            }
+
+            if (!GameObject.Find("OTC_StoreAlertOverlay"))
+            {
+                var go = new GameObject("OTC_StoreAlertOverlay");
+                go.AddComponent<StoreAlertOverlay>();
                 GameObject.DontDestroyOnLoad(go);
             }
 
@@ -508,9 +512,6 @@ namespace OverTheCounter
                 if (CheckoutProcess.Instance == null)
                     CheckoutCounter.TryCollectRegister();
 
-                // Right-click product pickup while checkout is paused
-                if (CheckoutProcess.Instance?.IsPaused == true)
-                    CheckoutProcess.TryPickupCounterProduct();
                 PerfTracker.End("Checkout");
 
                 // Periodic POS display refresh (2-second throttle for availability updates)
@@ -529,10 +530,6 @@ namespace OverTheCounter
 
                 // Storefront Growth quest polling (throttled internally)
                 Quests.StorefrontGrowthQuest.Instance?.Tick();
-
-                // Store alert quests — checkout waiting timers (per building)
-                Quests.ShackAlertQuest.Instance?.Tick();
-                Quests.DispensaryAlertQuest.Instance?.Tick();
                 PerfTracker.End("QuestTicks");
 
             }
@@ -599,8 +596,6 @@ namespace OverTheCounter
             _drifterManager?.Cleanup();
             _managerManager?.Cleanup();
             _customerManager?.Cleanup();
-            Quests.ShackAlertQuest.Instance?.Dismiss();
-            Quests.DispensaryAlertQuest.Instance?.Dismiss();
         }
 
         /// <summary>OTC icon directory path (UserData/OverTheCounter/Icons).</summary>
