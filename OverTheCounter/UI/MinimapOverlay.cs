@@ -1,7 +1,6 @@
 using MelonLoader;
 using OverTheCounter.Utilities;
 using S1API.GameTime;
-using S1API.Leveling;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -81,15 +80,6 @@ namespace OverTheCounter.UI
         private TextMeshProUGUI _timeText;
         private TextMeshProUGUI _dayText;
 
-        // Rank/XP bar
-        private GameObject _rankBarObj;
-        private TextMeshProUGUI _rankText;
-        private Image _xpBarFill;
-        private TextMeshProUGUI _xpText;
-        private int _lastKnownXP = -1;
-        private int _lastKnownTier = -1;
-        private readonly List<XPDropLabel> _xpDrops = new List<XPDropLabel>();
-
         // Computed minimap position (bottom-left corner of border in canvas coords)
         private float _minimapX;
         private float _minimapY;
@@ -115,8 +105,6 @@ namespace OverTheCounter.UI
         private bool _cfgShowTime;
         private bool _cfgShowDay;
         private bool _cfgUse24Hour;
-        private bool _cfgShowRank;
-
         // Performance limiting — see MinimapPerfLimiter for algorithm details
         private readonly MinimapPerfLimiter _perfLimiter = new();
 
@@ -251,8 +239,6 @@ namespace OverTheCounter.UI
             _cfgShowTime = Config.MinimapShowTime.Value;
             _cfgShowDay = Config.MinimapShowDay.Value;
             _cfgUse24Hour = Config.MinimapUse24HourClock.Value;
-            _cfgShowRank = Config.MinimapShowRank.Value;
-
             _toggleKey = _cfgToggleKey;
         }
 
@@ -273,8 +259,7 @@ namespace OverTheCounter.UI
                 || Config.MinimapBorderWidth.Value != _cfgBorderWidth
                 || Config.MinimapShowTime.Value != _cfgShowTime
                 || Config.MinimapShowDay.Value != _cfgShowDay
-                || Config.MinimapUse24HourClock.Value != _cfgUse24Hour
-                || Config.MinimapShowRank.Value != _cfgShowRank;
+                || Config.MinimapUse24HourClock.Value != _cfgUse24Hour;
         }
 
         private void ToggleMinimap()
@@ -473,10 +458,8 @@ namespace OverTheCounter.UI
 
             CreateCompassLabels();
 
-            // Time/day and rank bar — positioned above or below minimap based on InfoOnTop
-            bool hasTimeDay = _cfgShowTime || _cfgShowDay;
+            // Time/day label — positioned above or below minimap based on InfoOnTop
             CreateTimeDayLabel();
-            CreateRankBar(hasTimeDay);
 
             SnapshotConfig();
             _cachedPOIs = null;
@@ -594,25 +577,6 @@ namespace OverTheCounter.UI
 
         private static readonly string[] ShortDayNames = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
 
-        private static readonly string[] RankNames =
-        {
-            "Street Rat", "Hoodlum", "Peddler", "Hustler", "Bagman",
-            "Enforcer", "Shot Caller", "Block Boss", "Underlord", "Baron", "Kingpin"
-        };
-
-        private static readonly string[] RomanTiers = { "", "I", "II", "III", "IV", "V" };
-
-        private class XPDropLabel
-        {
-            public TextMeshProUGUI Label;
-            public RectTransform Rect;
-            public float Timer;
-            public float StartY;
-            public float StartX;
-            public const float Duration = 1.4f;
-            public const float Rise = 40f;
-        }
-
         private void CreateTimeDayLabel()
         {
             bool showTime = Config.MinimapShowTime.Value;
@@ -682,89 +646,6 @@ namespace OverTheCounter.UI
             }
         }
 
-        private void CreateRankBar(bool belowTimeDay)
-        {
-            if (!Config.MinimapShowRank.Value) return;
-
-            _rankBarObj = new GameObject("MinimapRankBar");
-            _rankBarObj.transform.SetParent(_canvasObj.transform, false);
-
-            var bgImage = _rankBarObj.AddComponent<Image>();
-            bgImage.color = new Color(0.08f, 0.08f, 0.08f, 0.85f);
-            bgImage.raycastTarget = false;
-
-            var bgRect = _rankBarObj.GetComponent<RectTransform>();
-            bgRect.anchorMin = Vector2.zero;
-            bgRect.anchorMax = Vector2.zero;
-            bgRect.pivot = Vector2.zero;
-
-            float panelHeight = 52f;
-            bgRect.sizeDelta = new Vector2(_minimapTotalSize, panelHeight);
-
-            float gap = 2f;
-            float timeDayOffset = belowTimeDay ? 24f + gap : 0f;
-            float yPos = _cfgInfoOnTop
-                ? _minimapY + _minimapTotalSize + gap + timeDayOffset
-                : _minimapY - gap - timeDayOffset - panelHeight;
-            bgRect.anchoredPosition = new Vector2(_minimapX, yPos);
-
-            // Rank text (upper ~50% of panel)
-            var rankObj = new GameObject("RankLabel");
-            rankObj.transform.SetParent(_rankBarObj.transform, false);
-            _rankText = rankObj.AddComponent<TextMeshProUGUI>();
-            _rankText.fontSize = 15;
-            _rankText.fontStyle = FontStyles.Bold;
-            _rankText.color = new Color(1f, 0.9f, 0.4f);
-            _rankText.alignment = TextAlignmentOptions.Center;
-            _rankText.raycastTarget = false;
-            _rankText.text = "";
-            var rankRect = rankObj.GetComponent<RectTransform>();
-            rankRect.anchorMin = new Vector2(0f, 0.52f);
-            rankRect.anchorMax = new Vector2(1f, 1f);
-            rankRect.offsetMin = new Vector2(6, 0);
-            rankRect.offsetMax = new Vector2(-6, -4);
-
-            // XP bar background
-            var xpBgObj = new GameObject("XPBarBg");
-            xpBgObj.transform.SetParent(_rankBarObj.transform, false);
-            var xpBgImg = xpBgObj.AddComponent<Image>();
-            xpBgImg.color = new Color(0.15f, 0.15f, 0.15f, 1f);
-            xpBgImg.raycastTarget = false;
-            var xpBgRect = xpBgObj.GetComponent<RectTransform>();
-            xpBgRect.anchorMin = new Vector2(0f, 0.38f);
-            xpBgRect.anchorMax = new Vector2(1f, 0.52f);
-            xpBgRect.offsetMin = new Vector2(6, 0);
-            xpBgRect.offsetMax = new Vector2(-6, 0);
-
-            // XP fill (child of bar bg — anchorMax.x driven by fill ratio)
-            var xpFillObj = new GameObject("XPBarFill");
-            xpFillObj.transform.SetParent(xpBgObj.transform, false);
-            _xpBarFill = xpFillObj.AddComponent<Image>();
-            _xpBarFill.color = new Color(0.25f, 0.85f, 0.35f, 1f);
-            _xpBarFill.raycastTarget = false;
-            var xpFillRect = xpFillObj.GetComponent<RectTransform>();
-            xpFillRect.anchorMin = Vector2.zero;
-            xpFillRect.anchorMax = new Vector2(0f, 1f);
-            xpFillRect.offsetMin = Vector2.zero;
-            xpFillRect.offsetMax = Vector2.zero;
-
-            // XP text (lower portion of panel)
-            var xpTextObj = new GameObject("XPLabel");
-            xpTextObj.transform.SetParent(_rankBarObj.transform, false);
-            _xpText = xpTextObj.AddComponent<TextMeshProUGUI>();
-            _xpText.fontSize = 15;
-            _xpText.fontStyle = FontStyles.Normal;
-            _xpText.color = new Color(0.65f, 0.65f, 0.65f, 1f);
-            _xpText.alignment = TextAlignmentOptions.Center;
-            _xpText.raycastTarget = false;
-            _xpText.text = "";
-            var xpTextRect = xpTextObj.GetComponent<RectTransform>();
-            xpTextRect.anchorMin = new Vector2(0f, 0f);
-            xpTextRect.anchorMax = new Vector2(1f, 0.28f);
-            xpTextRect.offsetMin = new Vector2(6, 3);
-            xpTextRect.offsetMax = new Vector2(-6, 0);
-        }
-
         private void DestroyMinimap()
         {
             if (_canvasObj != null)
@@ -781,15 +662,6 @@ namespace OverTheCounter.UI
             _timeDayObj = null;
             _timeText = null;
             _dayText = null;
-            _rankBarObj = null;
-            _rankText = null;
-            _xpBarFill = null;
-            _xpText = null;
-            _lastKnownXP = -1;
-            _lastKnownTier = -1;
-            foreach (var d in _xpDrops)
-                if (d.Label != null) UnityEngine.Object.Destroy(d.Label.gameObject);
-            _xpDrops.Clear();
             _poiClones.Clear();
             _poiIconSynced.Clear();
             _customerClones.Clear();
@@ -799,87 +671,6 @@ namespace OverTheCounter.UI
             _npcPoiTemplate = null;
             _zoom = 0;
             _compassRects = null;
-        }
-
-        private void SpawnXPDrop(int delta, bool levelUp = false, int levels = 1)
-        {
-            if (_rankBarObj == null || _canvasObj == null) return;
-            if (delta == 0 && !levelUp) return;
-
-            var barRect = _rankBarObj.GetComponent<RectTransform>();
-
-            var dropObj = new GameObject("XPDrop");
-            dropObj.transform.SetParent(_canvasObj.transform, false);
-
-            var label = dropObj.AddComponent<TextMeshProUGUI>();
-            label.fontSize = 15;
-            label.fontStyle = FontStyles.Bold;
-            label.alignment = TextAlignmentOptions.Center;
-            label.raycastTarget = false;
-
-            if (delta > 0 && levelUp)
-            {
-                // Combined: green XP + royal purple level-up
-                label.color = new Color(0.4f, 1f, 0.4f, 1f);
-                label.richText = true;
-                string lvlPart = levels == 1 ? "+1 Level" : $"+{levels} Levels";
-                label.text = $"+{delta} XP <color=#9B40E8>— {lvlPart}</color>";
-            }
-            else if (delta > 0)
-            {
-                label.color = new Color(0.4f, 1f, 0.4f, 1f);
-                label.text = $"+{delta} XP";
-            }
-            else
-            {
-                // Standalone level-up (no XP delta this frame)
-                label.color = new Color(0.6f, 0.3f, 1f, 1f);
-                label.fontSize = 15;
-                label.text = levels == 1 ? "+1 Level" : $"+{levels} Levels";
-            }
-
-            var dropRect = dropObj.GetComponent<RectTransform>();
-            dropRect.anchorMin = barRect.anchorMin;
-            dropRect.anchorMax = barRect.anchorMax;
-            dropRect.pivot = barRect.pivot;
-            dropRect.sizeDelta = new Vector2(barRect.sizeDelta.x, 20f);
-
-            // Start just above the top edge of the rank bar
-            float pivotY = barRect.pivot.y;
-            float topEdge = barRect.anchoredPosition.y + (pivotY < 0.5f ? barRect.sizeDelta.y : 0f);
-            float startY = topEdge + 4f;
-            dropRect.anchoredPosition = new Vector2(barRect.anchoredPosition.x, startY);
-
-            _xpDrops.Add(new XPDropLabel
-            {
-                Label = label,
-                Rect = dropRect,
-                Timer = 0f,
-                StartY = startY,
-                StartX = barRect.anchoredPosition.x
-            });
-        }
-
-        private void UpdateXPDrops()
-        {
-            for (int i = _xpDrops.Count - 1; i >= 0; i--)
-            {
-                var drop = _xpDrops[i];
-                drop.Timer += Time.deltaTime;
-                float t = Mathf.Clamp01(drop.Timer / XPDropLabel.Duration);
-
-                drop.Rect.anchoredPosition = new Vector2(drop.StartX, drop.StartY + XPDropLabel.Rise * t);
-
-                float alpha = t < 0.4f ? 1f : Mathf.Clamp01(1f - (t - 0.4f) / 0.6f);
-                var c = drop.Label.color;
-                drop.Label.color = new Color(c.r, c.g, c.b, alpha);
-
-                if (drop.Timer >= XPDropLabel.Duration)
-                {
-                    UnityEngine.Object.Destroy(drop.Label.gameObject);
-                    _xpDrops.RemoveAt(i);
-                }
-            }
         }
 
         private void UpdateMinimap()
@@ -1315,46 +1106,6 @@ namespace OverTheCounter.UI
 
             if (_playerMarkerRect != null)
                 _playerMarkerRect.transform.SetAsLastSibling();
-
-            if (_rankText != null)
-            {
-                try
-                {
-                    if (LevelManager.Exists)
-                    {
-                        var rank = LevelManager.Rank;
-                        int tier = LevelManager.Tier;
-                        int rankIdx = (int)rank;
-                        string rankName = rankIdx >= 0 && rankIdx < RankNames.Length
-                            ? RankNames[rankIdx]
-                            : rank.ToString();
-                        string tierStr = tier >= 1 && tier <= 5 ? RomanTiers[tier] : tier.ToString();
-                        _rankText.text = $"{rankName} {tierStr}";
-
-                        int xp = LevelManager.XP;
-                        bool tierChanged = _lastKnownTier >= 0 && tier > _lastKnownTier;
-                        int tierDelta = tierChanged ? tier - _lastKnownTier : 0;
-
-                        if (_lastKnownXP >= 0 && xp > _lastKnownXP)
-                            SpawnXPDrop(xp - _lastKnownXP, tierChanged, tierDelta);
-                        else if (tierChanged)
-                            SpawnXPDrop(0, true, tierDelta);
-
-                        _lastKnownXP = xp;
-                        _lastKnownTier = tier;
-
-                        float xpToNext = LevelManager.XPToNextTier;
-                        float ratio = xpToNext > 0 ? Mathf.Clamp01(xp / xpToNext) : 1f;
-                        if (_xpBarFill != null)
-                            _xpBarFill.rectTransform.anchorMax = new Vector2(ratio, 1f);
-                        if (_xpText != null)
-                            _xpText.text = $"{xp} / {Mathf.RoundToInt(xpToNext)} XP";
-                    }
-                }
-                catch { }
-            }
-
-            UpdateXPDrops();
         }
 
         /// <summary>

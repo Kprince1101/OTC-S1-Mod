@@ -23,7 +23,7 @@ using Il2CppFishNet.Object;
 using FishNet.Object;
 #endif
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.5.7", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "2.0.0", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 [assembly: MelonOptionalDependencies("SteamNetworkLib")]
 [assembly: HarmonyDontPatchAll]
@@ -101,6 +101,7 @@ namespace OverTheCounter
 
             ImmediateQuestWindowConfig.Register();
             MinimapOverlay.Register();
+            HUDOverlay.Register();
             RecipeOverlay.Register();
 #if DEBUG
             DebugHelpers.Register();
@@ -185,6 +186,13 @@ namespace OverTheCounter
             {
                 var go = new GameObject("OTC_MinimapController");
                 go.AddComponent<MinimapOverlay>();
+                GameObject.DontDestroyOnLoad(go);
+            }
+
+            if (!GameObject.Find("OTC_HUDOverlay"))
+            {
+                var go = new GameObject("OTC_HUDOverlay");
+                go.AddComponent<HUDOverlay>();
                 GameObject.DontDestroyOnLoad(go);
             }
 

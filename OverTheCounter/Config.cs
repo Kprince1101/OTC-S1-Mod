@@ -127,10 +127,16 @@ namespace OverTheCounter
         public static ConfigEntry<bool> MinimapShowTime;
         public static ConfigEntry<bool> MinimapShowDay;
         public static ConfigEntry<bool> MinimapUse24HourClock;
-        public static ConfigEntry<bool> MinimapShowRank;
         public static ConfigEntry<bool> MinimapShowCompass;
         public static ConfigEntry<bool> MinimapShowEdgeIndicators;
         public static ConfigEntry<bool> MinimapPerfLimit;
+
+        // ── HUD Overlay ──
+        private static MelonPreferences_Category _hud;
+
+        public static ConfigEntry<bool> HUDShowRankXP;
+        public static ConfigEntry<bool> HUDShowHealth;
+        public static ConfigEntry<bool> HUDShowStamina;
 
         // ── Minimap POIs ──
         private static MelonPreferences_Category _minimapPoi;
@@ -188,10 +194,12 @@ namespace OverTheCounter
             "MinimapShowProperties",
             "MinimapShowManagers",
             "MinimapShowModdedNPCs",
-            "MinimapShowRank",
             "MinimapShowCompass",
             "MinimapShowEdgeIndicators",
             "MinimapPerfLimit",
+            "HUDShowRankXP",
+            "HUDShowHealth",
+            "HUDShowStamina",
             "RecipePinEnabled"
         };
 
@@ -415,7 +423,7 @@ namespace OverTheCounter
                 "Vertical Offset", "Vertical position (0=top, 100=bottom)",
                 validator: new ValueRange<int>(0, 100)));
             MinimapInfoOnTop = Register(_minimap.CreateEntry("MinimapInfoOnTop", false,
-                "Info Panels On Top", "Place time/day and rank bar above the minimap instead of below"));
+                "Info Panels On Top", "Place clock and day display above the minimap instead of below"));
             MinimapBorderColor = _minimap.CreateEntry("MinimapBorderColor",
                 new Color(0.2f, 0.2f, 0.2f, 0.9f), "Border Color",
                 "Minimap border color");
@@ -427,14 +435,22 @@ namespace OverTheCounter
                 "Show Day", "Display the current day near the minimap"));
             MinimapUse24HourClock = Register(_minimap.CreateEntry("MinimapUse24HourClock", false,
                 "24-Hour Clock", "Use 24-hour time format instead of 12-hour AM/PM"));
-            MinimapShowRank = Register(_minimap.CreateEntry("MinimapShowRank", false,
-                "Show Rank/XP", "Display rank name and XP progress bar near the minimap"));
             MinimapShowCompass = Register(_minimap.CreateEntry("MinimapShowCompass", true,
                 "Show Compass", "Display N/S/E/W cardinal direction labels on the minimap edge"));
             MinimapShowEdgeIndicators = Register(_minimap.CreateEntry("MinimapShowEdgeIndicators", true,
                 "Edge Indicators", "Show POI icons pinned to the minimap edge for off-screen points of interest"));
             MinimapPerfLimit = Register(_minimap.CreateEntry("MinimapPerfLimit", true,
                 "Performance Limiting", "Adaptively reduce minimap update rate to limit CPU usage"));
+
+            // ── HUD Overlay ──
+            _hud = MelonPreferences.CreateCategory("OverTheCounter_HUD", "HUD Overlay");
+
+            HUDShowRankXP = Register(_hud.CreateEntry("HUDShowRankXP", false,
+                "Show Rank/XP", "Display rank and XP progress bar above the hotbar"));
+            HUDShowHealth = Register(_hud.CreateEntry("HUDShowHealth", false,
+                "Show Health", "Display health bar above the hotbar"));
+            HUDShowStamina = Register(_hud.CreateEntry("HUDShowStamina", false,
+                "Show Stamina", "Display stamina bar above the hotbar"));
         }
 
         private static ConfigEntry<float> Register(MelonPreferences_Entry<float> entry)
