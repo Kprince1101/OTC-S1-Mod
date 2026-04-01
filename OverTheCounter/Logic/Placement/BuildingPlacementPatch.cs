@@ -44,11 +44,10 @@ namespace OverTheCounter.Logic.Placement
         // knows which items to return the stub for
         internal static readonly HashSet<object> OtcItems = new();
 
+#if !IL2CPP
         // Cached reflection for OnClosestIntersectionChanged patch
         private static FieldInfo _tileIntersectionTileField;
 
-
-#if !IL2CPP
         // Mono: cached reflection to set ParentProperty backing field directly
         private static FieldInfo _parentPropertyBackingField;
 #endif
@@ -779,6 +778,29 @@ namespace OverTheCounter.Logic.Placement
                     OTCLog.Warning(OTCLog.Systems.Patch,
                         $"SafeRebuild: failed to restore customer {ci.Id}: {ex.Message}");
                 }
+            }
+
+            // Restore suppliers — must use full door-exterior → walk-in process (warps alone don't work)
+            if (buildingId == OTCWarehouse.WarehouseId)
+            {
+                int supplierCount = 0;
+                foreach (var supplier in OTCSupplierArea.GetAssignedSuppliers())
+                {
+                    try
+                    {
+                        OTCSupplierArea.WarpSupplierToWarehouse(supplier);
+                        supplierCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Patch,
+                            $"SafeRebuild: failed to restore supplier {supplier.fullName}: {ex.Message}");
+                    }
+                }
+
+                if (supplierCount > 0)
+                    OTCLog.Msg(OTCLog.Systems.Patch,
+                        $"SafeRebuild: restored {supplierCount} suppliers in {buildingId}");
             }
 
             if (budtenderSnapshots.Count > 0 || customerSnapshots.Count > 0)

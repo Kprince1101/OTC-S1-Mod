@@ -237,9 +237,7 @@ namespace OverTheCounter.Logic
             // instances → ISteamNetworking can't establish a P2P channel to yourself).
             // Debug builds use SyncVar quest actions instead. Release uses P2P.
             OTCLog.Msg(OTCLog.Systems.Network, "Debug build: skipping P2P lock init, using SyncVar fallback");
-            return;
-#endif
-
+#else
             try
             {
                 InitP2PImpl();
@@ -249,6 +247,7 @@ namespace OverTheCounter.Logic
             {
                 OTCLog.Warning(OTCLog.Systems.Network, $"CheckoutProcess P2P init failed: {ex.Message}");
             }
+#endif
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]

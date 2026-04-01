@@ -36,8 +36,8 @@ namespace OverTheCounter.Logic.Placement
         // Along the south wall, facing into the interior.
         private static readonly Vector3[] StandPositions =
         {
-            new Vector3(10.6f, 0f, 7.6f),
-            new Vector3(7.8f, 0f, 7.6f),
+            new Vector3(10.1f, 0f, 7.35f),
+            new Vector3(7.8f, 0f, 7.35f),
             new Vector3(2.6f, 0f, 7.0f),
             new Vector3(1.6f, 0f, 1.3f),
         };
@@ -80,6 +80,10 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Returns true if the given supplier is currently assigned to a warehouse stand.</summary>
         public static bool IsWarehouseSupplier(Supplier supplier) =>
             supplier != null && _assignedSuppliers.ContainsKey(supplier);
+
+        /// <summary>Returns a snapshot of all suppliers currently assigned to warehouse stands.</summary>
+        public static List<Supplier> GetAssignedSuppliers() =>
+            new List<Supplier>(_assignedSuppliers.Keys);
 
         /// <summary>Creates supplier stands and starts the idle-warp routine.</summary>
         public static void Initialize(Transform warehouseTransform)

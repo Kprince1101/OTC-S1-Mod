@@ -81,8 +81,6 @@ namespace OverTheCounter.Logic.Placement
                     LocalPosition = new(9.5f, 1.66f, 8.7f), EulerAngles = new(0f, 50f, 0f) },
             new() { SlotId = "filing_cabinet", DefaultMeshId = "filing_cabinet",
                     LocalPosition = new(3.3f, 0.75f, 9.6f), EulerAngles = new(0f, 90f, 0f) },
-            new() { SlotId = "outdoor_chair", DefaultMeshId = "outdoor_chair",
-                    LocalPosition = new(11.4f, 0.51f, 7.9f), EulerAngles = Vector3.zero },
             new() { SlotId = "double_sofa", DefaultMeshId = "double_sofa",
                     LocalPosition = new(6.0f, 0.54f, 8.5f), EulerAngles = new(0f, 90f, 0f),
                     MaterialOverrides = new[] { "atm_yellowbutton_mat" } },
