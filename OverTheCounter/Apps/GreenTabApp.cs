@@ -538,7 +538,7 @@ namespace OverTheCounter.Apps
                 case AppTab.Sales: RefreshSales(); break;
                 case AppTab.Inventory: RefreshInventory(); break;
                 case AppTab.Employees: RefreshStaffing(); break;
-                case AppTab.Customize: RefreshCards(); break;
+                case AppTab.Customize: UpdateCardVisuals(); RefreshFooter(); break;
             }
         }
 

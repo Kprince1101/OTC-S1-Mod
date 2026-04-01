@@ -108,7 +108,7 @@ namespace OverTheCounter.Apps
                 badgeRect.anchorMin = new Vector2(1, 1);
                 badgeRect.anchorMax = new Vector2(1, 1);
                 badgeRect.pivot = new Vector2(1, 1);
-                badgeRect.sizeDelta = new Vector2(72, 22);
+                badgeRect.sizeDelta = new Vector2(90, 22);
                 badgeRect.anchoredPosition = new Vector2(-4, -4);
 
                 var badgeText = TMPFactory.Text("EquippedText", "EQUIPPED",
