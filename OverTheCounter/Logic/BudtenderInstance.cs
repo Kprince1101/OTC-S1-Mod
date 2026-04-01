@@ -450,7 +450,7 @@ namespace OverTheCounter.Logic
             if (StateTimer > 0f && Time.time > StateTimer)
             {
                 OTCLog.Warning(OTCLog.Systems.Customer,
-                    $"Budtender {Id}: walk to counter stuck, warping to position");
+                    $"Budtender {Id}: walk to counter stuck, forcing position");
                 _pendingArrival = null;
                 StateTimer = 0f;
 
