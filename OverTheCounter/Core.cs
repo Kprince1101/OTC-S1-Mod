@@ -607,30 +607,22 @@ namespace OverTheCounter
         internal static string OtcIconDir { get; private set; }
 
         /// <summary>
-        /// Extracts embedded icons. Legacy icons go to S1API/Icons (phone apps need them there).
-        /// New OTC icons go to OverTheCounter/Icons.
+        /// Extracts embedded icons to OverTheCounter/Icons.
         /// </summary>
         private void ExtractIcons()
         {
-            string s1apiDir = Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons");
-            if (!Directory.Exists(s1apiDir))
-                Directory.CreateDirectory(s1apiDir);
-
             OtcIconDir = Path.Combine(MelonEnvironment.UserDataDirectory, "OverTheCounter", "Icons");
             if (!Directory.Exists(OtcIconDir))
                 Directory.CreateDirectory(OtcIconDir);
 
-            // Legacy icons (phone apps load from S1API/Icons)
-            ExtractResource(s1apiDir, "CustomersIcon.png");
-            ExtractResource(s1apiDir, "DrifterQuestIcon.png");
-            ExtractResource(s1apiDir, "DrifterProfileIcon.png");
-            ExtractResource(s1apiDir, "RinseCycle.png");
-            ExtractResource(s1apiDir, "CrimeWareQuest.png");
-            ExtractResource(s1apiDir, "ExecutivePrivilege.png");
-            ExtractResource(s1apiDir, "ManagerIcon.png");
-            ExtractResource(s1apiDir, "CheckoutCounter.png");
-
-            // OTC icons
+            ExtractResource(OtcIconDir, "CustomersIcon.png");
+            ExtractResource(OtcIconDir, "DrifterQuestIcon.png");
+            ExtractResource(OtcIconDir, "DrifterProfileIcon.png");
+            ExtractResource(OtcIconDir, "RinseCycle.png");
+            ExtractResource(OtcIconDir, "CrimeWareQuest.png");
+            ExtractResource(OtcIconDir, "ExecutivePrivilege.png");
+            ExtractResource(OtcIconDir, "ManagerIcon.png");
+            ExtractResource(OtcIconDir, "CheckoutCounter.png");
             ExtractResource(OtcIconDir, "StoreAlertIcon.png");
         }
 

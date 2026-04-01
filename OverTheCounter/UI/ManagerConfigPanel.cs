@@ -1570,7 +1570,7 @@ namespace OverTheCounter.UI
 
             try
             {
-                string iconPath = Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "ManagerIcon.png");
+                string iconPath = Path.Combine(Core.OtcIconDir, "ManagerIcon.png");
                 _managerIcon = ImageUtils.LoadImage(iconPath);
             }
             catch (Exception ex)

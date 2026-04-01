@@ -20,10 +20,11 @@ namespace OverTheCounter.Quests
     {
         private static readonly Dictionary<int, Sprite> _cache = new();
 
-        private static string IconPath => Path.Combine(
-            MelonEnvironment.UserDataDirectory, "S1API", "Icons", "CrimeWareQuest.png");
+        private static string IconPath => Core.OtcIconDir != null
+            ? Path.Combine(Core.OtcIconDir, "CrimeWareQuest.png")
+            : null;
 
-        internal static Sprite Load() => ImageUtils.LoadImage(IconPath);
+        internal static Sprite Load() => IconPath != null ? ImageUtils.LoadImage(IconPath) : null;
 
         internal static Sprite LoadTinted(Color tint)
         {

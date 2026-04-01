@@ -178,9 +178,7 @@ namespace OverTheCounter.Apps
             if (_appIconCache != null) return _appIconCache;
             try
             {
-                var path = System.IO.Path.Combine(
-                    MelonLoader.Utils.MelonEnvironment.UserDataDirectory,
-                    "S1API", "Icons", "CustomersIcon.png");
+                var path = System.IO.Path.Combine(Core.OtcIconDir, "CustomersIcon.png");
                 if (!System.IO.File.Exists(path)) return null;
                 var data = System.IO.File.ReadAllBytes(path);
                 var tex = new Texture2D(2, 2);

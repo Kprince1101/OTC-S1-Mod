@@ -16,8 +16,9 @@ namespace OverTheCounter.Quests
         protected override string Title => _title ?? "Drifter Deal";
         protected override string Description => _description ?? "Complete a deal with a drifter.";
         protected override bool AutoBegin => false;
-        protected override Sprite QuestIcon => ImageUtils.LoadImage(
-            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "DrifterQuestIcon.png"));
+        protected override Sprite QuestIcon => Core.OtcIconDir != null
+            ? ImageUtils.LoadImage(Path.Combine(Core.OtcIconDir, "DrifterQuestIcon.png"))
+            : null;
 
         // Dynamic fields (not saved - drifter quests are ephemeral)
         private string _title;

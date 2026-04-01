@@ -15,8 +15,9 @@ namespace OverTheCounter.Quests
         protected override string Title => "Rinse Cycle";
         protected override string Description => "Help Vic with his party supplies and he'll help you clean some cash.";
         protected override bool AutoBegin => false;
-        protected override Sprite QuestIcon => ImageUtils.LoadImage(
-            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "RinseCycle.png"));
+        protected override Sprite QuestIcon => Core.OtcIconDir != null
+            ? ImageUtils.LoadImage(Path.Combine(Core.OtcIconDir, "RinseCycle.png"))
+            : null;
 
         [SaveableField("vic_quest_stage")]
         private int _stage; // 0=not started, 1=obj1 (meet Vic), 2=obj2 (bring weed), 3=done

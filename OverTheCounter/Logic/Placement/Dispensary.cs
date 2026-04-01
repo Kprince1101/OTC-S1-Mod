@@ -68,9 +68,7 @@ namespace OverTheCounter.Logic.Placement
         internal static BuildingTarget Target { get; private set; }
 
         private static ModularSwitch _lightSwitch;
-        private static ModularSwitch _openCloseSwitch;
         private static GameObject _lightSwitchGo;
-        private static GameObject _openCloseSwitchGo;
         private static bool _initialized;
         private static bool _suppressSwitchSync;
         private static readonly List<GameObject> _networkedObjects = new();
@@ -203,9 +201,7 @@ namespace OverTheCounter.Logic.Placement
             _navigationBuilder = null;
             _registry = null;
             _lightSwitch = null;
-            _openCloseSwitch = null;
             _lightSwitchGo = null;
-            _openCloseSwitchGo = null;
             Door = null;
             IsStoreOpen = false;
             AreLightsOn = false;
@@ -461,46 +457,12 @@ namespace OverTheCounter.Logic.Placement
                 OTCLog.Error(OTCLog.Systems.Patch, $"Dispensary light switch spawn failed: {ex.Message}");
             }
 
-            // Open/Close switch — next to light switch
-            try
-            {
-                var storeLocalPos = new Vector3(RoomWidth - 0.1f, 1.2f, LobbyWallZ + 0.55f);
-                var openSwitchGo = SpawnNetworkedAt(Prefabs.ModularSwitch,
-                    _building.transform.TransformPoint(storeLocalPos),
-                    _building.transform.rotation * Quaternion.Euler(0f, 270f, 0f));
-                if (openSwitchGo != null)
-                {
-                    openSwitchGo.name = "OTC_OpenCloseSwitch";
-                    _networkedObjects.Add(openSwitchGo);
-                    _openCloseSwitchGo = openSwitchGo;
-                    _openCloseSwitch = new ModularSwitch(openSwitchGo);
-                    _openCloseSwitch.OnToggled += isOn =>
-                    {
-                        IsStoreOpen = isOn;
-                        UpdateOpenCloseSwitchMessages();
-                        if (!_suppressSwitchSync)
-                        {
-                            if (NetworkHelper.IsHost)
-                                ConfigSyncData.Instance?.PublishGameState();
-                            else
-                                ConfigSyncData.SendQuestAction($"DISP_STORE:{(isOn ? 1 : 0)}");
-                        }
-                    };
-                    UpdateOpenCloseSwitchMessages();
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Patch, $"Dispensary open/close switch spawn failed: {ex.Message}");
-            }
-
             // Trash can is placed as MeshVault furniture in the Furniture array (decorative only)
 
-            // Disable switches until property is purchased
+            // Disable light switch until property is purchased
             if (!(PropertySaveData.Instance?.IsPropertyOwned(DispensaryId) ?? false))
             {
                 if (_lightSwitchGo != null) _lightSwitchGo.SetActive(false);
-                if (_openCloseSwitchGo != null) _openCloseSwitchGo.SetActive(false);
             }
 
             // Re-apply saved styles (may have been set before building existed)
@@ -594,7 +556,6 @@ namespace OverTheCounter.Logic.Placement
                 }
             }
             if (_lightSwitchGo != null) _lightSwitchGo.SetActive(true);
-            if (_openCloseSwitchGo != null) _openCloseSwitchGo.SetActive(true);
         }
 
         /// <summary>Restores switch states from save data after load.</summary>
@@ -641,29 +602,12 @@ namespace OverTheCounter.Logic.Placement
             else
                 SetLightsEnabled(lightsOn);
 
-            if (_openCloseSwitch != null)
-            {
-                if (storeOpen) _openCloseSwitch.SwitchOn();
-                else _openCloseSwitch.SwitchOff();
-            }
-            else
-                IsStoreOpen = storeOpen;
+            IsStoreOpen = storeOpen;
         }
 
         internal static void SetStoreOpen(bool open)
         {
-            _suppressSwitchSync = true;
-            try
-            {
-                IsStoreOpen = open;
-                if (_openCloseSwitch != null)
-                {
-                    if (open) _openCloseSwitch.SwitchOn();
-                    else _openCloseSwitch.SwitchOff();
-                }
-                UpdateOpenCloseSwitchMessages();
-            }
-            finally { _suppressSwitchSync = false; }
+            IsStoreOpen = open;
         }
 
         /// <summary>Toggle store state from GreenTab UI and sync over network.</summary>
@@ -674,16 +618,6 @@ namespace OverTheCounter.Logic.Placement
                 ConfigSyncData.Instance?.PublishGameState();
             else
                 ConfigSyncData.SendQuestAction($"DISP_STORE:{(open ? 1 : 0)}");
-        }
-
-        /// <summary>Updates the open/close switch interaction messages based on current state.</summary>
-        public static void UpdateOpenCloseSwitchMessages()
-        {
-            if (_openCloseSwitch == null) return;
-            string hours = $" ({Logic.StoreHours.DisplayRangeSpaced})";
-            _openCloseSwitch.SetInteractionMessages(
-                $"Close Store{hours}",
-                $"Open Store{hours}");
         }
 
         /// <summary>

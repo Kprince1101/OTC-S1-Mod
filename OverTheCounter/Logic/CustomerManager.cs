@@ -76,10 +76,6 @@ namespace OverTheCounter.Logic
                 if (spawnSlot != _lastSpawnSlot && currentHour >= SpawnStartHour && currentHour < SpawnEndHour)
                     _lastSpawnSlot = spawnSlot;
 
-                // Update switch messages when hour boundaries change (open/close)
-                if (currentMinute == 0 && (currentHour == StoreHours.OpenHour || currentHour == StoreHours.CloseHour))
-                    WestvilleShack.UpdateOpenCloseSwitchMessages();
-
                 // Process deferred deals at opening time — morning rush
                 if (currentMinute == 0 && currentHour == StoreHours.OpenHour)
                     DispensaryDealManager.ProcessDeferredDeals();

@@ -39,7 +39,7 @@ namespace OverTheCounter.Apps
         protected override string IconLabel => "OTC";
         protected override EOrientation Orientation => EOrientation.Horizontal;
 
-        protected override string IconFileName => Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "CustomersIcon.png");
+        protected override string IconFileName => Path.Combine(Core.OtcIconDir, "CustomersIcon.png");
 
         // Layout constants
         internal const float HEADER_HEIGHT = 40f;

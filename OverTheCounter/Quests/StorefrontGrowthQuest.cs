@@ -20,7 +20,7 @@ namespace OverTheCounter.Quests
 {
     /// <summary>
     /// Guides the player through setting up their first storefront after purchasing
-    /// the Westville Shack: place storage → stock product → open store → make a sale.
+    /// the Westville Shack: place storage → stock product → turn on lights → open store → make a sale.
     /// </summary>
     public class StorefrontGrowthQuest : Quest
     {
@@ -28,14 +28,16 @@ namespace OverTheCounter.Quests
         protected override string Description =>
             "You've got the keys. Now turn this place into a working storefront.";
         protected override bool AutoBegin => false;
-        protected override Sprite QuestIcon => ImageUtils.LoadImage(
-            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "CrimeWareQuest.png"));
+        protected override Sprite QuestIcon => Core.OtcIconDir != null
+            ? ImageUtils.LoadImage(Path.Combine(Core.OtcIconDir, "StoreAlertIcon.png"))
+            : null;
 
         [SaveableField("storefront_quest_stage")]
-        private int _stage; // 0=not started, 1=place storage, 2=stock product, 3=open store, 4=make sale, 5=done
+        private int _stage; // 0=not started, 1=place storage, 2=stock product, 3=lights, 4=open store, 5=make sale, 6=done
 
         private QuestEntry _placeStorageEntry;
         private QuestEntry _stockProductEntry;
+        private QuestEntry _turnOnLightsEntry;
         private QuestEntry _openStoreEntry;
         private QuestEntry _makeSaleEntry;
 
@@ -79,7 +81,8 @@ namespace OverTheCounter.Quests
 
                 _placeStorageEntry = AddEntry("Place a Display Cabinet or any storage in your new dispensary", ShackPosition);
                 _stockProductEntry = AddEntry("Stock your shelves with packaged weed", ShackPosition);
-                _openStoreEntry = AddEntry("Open the store", ShackPosition);
+                _turnOnLightsEntry = AddEntry("Turn on the lights using the light switch on the wall", ShackPosition);
+                _openStoreEntry = AddEntry("Open the store using the GreenTab app on your phone", ShackPosition);
                 _makeSaleEntry = AddEntry("Make your first sale", ShackPosition);
             }
             catch (Exception ex)
@@ -104,12 +107,12 @@ namespace OverTheCounter.Quests
         }
 
         /// <summary>
-        /// Polled from Core.OnLateUpdate. Checks quest conditions for stages 1–3.
-        /// Stage 4 is event-driven via OnSaleRecorded.
+        /// Polled from Core.OnLateUpdate. Checks quest conditions for stages 1–4.
+        /// Stage 5 is event-driven via OnSaleRecorded.
         /// </summary>
         public void Tick()
         {
-            if (_stage < 1 || _stage > 3) return;
+            if (_stage < 1 || _stage > 4) return;
 
             float now = Time.time;
             if (now - _lastTickTime < TickInterval) return;
@@ -131,8 +134,12 @@ namespace OverTheCounter.Quests
                             AdvanceToStage3();
                         break;
                     case 3:
-                        if (WestvilleShack.IsStoreOpen)
+                        if (WestvilleShack.AreLightsOn)
                             AdvanceToStage4();
+                        break;
+                    case 4:
+                        if (WestvilleShack.IsStoreOpen)
+                            AdvanceToStage5();
                         break;
                 }
             }
@@ -155,12 +162,20 @@ namespace OverTheCounter.Quests
             _stage = 3;
             _stockProductEntry?.Begin();
             _stockProductEntry?.Complete();
-            _openStoreEntry?.Begin();
+            _turnOnLightsEntry?.Begin();
         }
 
         private void AdvanceToStage4()
         {
             _stage = 4;
+            _turnOnLightsEntry?.Begin();
+            _turnOnLightsEntry?.Complete();
+            _openStoreEntry?.Begin();
+        }
+
+        private void AdvanceToStage5()
+        {
+            _stage = 5;
             _openStoreEntry?.Begin();
             _openStoreEntry?.Complete();
             _makeSaleEntry?.Begin();
@@ -170,7 +185,7 @@ namespace OverTheCounter.Quests
         {
             try
             {
-                _stage = 5;
+                _stage = 6;
                 _makeSaleEntry?.Begin();
                 _makeSaleEntry?.Complete();
                 Complete();
@@ -184,7 +199,7 @@ namespace OverTheCounter.Quests
 
         private void OnSaleRecorded()
         {
-            if (_stage == 4)
+            if (_stage == 5)
                 CompleteQuest();
         }
 
@@ -216,7 +231,8 @@ namespace OverTheCounter.Quests
                 QuestEntries.Clear();
                 _placeStorageEntry = AddEntry("Place a Display Cabinet or any storage in your new dispensary", ShackPosition);
                 _stockProductEntry = AddEntry("Stock your shelves with packaged weed", ShackPosition);
-                _openStoreEntry = AddEntry("Open the store", ShackPosition);
+                _turnOnLightsEntry = AddEntry("Turn on the lights using the light switch on the wall", ShackPosition);
+                _openStoreEntry = AddEntry("Open the store using the GreenTab app on your phone", ShackPosition);
                 _makeSaleEntry = AddEntry("Make your first sale", ShackPosition);
 
                 // Restore entry states based on saved stage
@@ -230,15 +246,20 @@ namespace OverTheCounter.Quests
                 if (_stage >= 3)
                 {
                     _stockProductEntry?.Complete();
-                    _openStoreEntry?.Begin();
+                    _turnOnLightsEntry?.Begin();
                 }
                 if (_stage >= 4)
+                {
+                    _turnOnLightsEntry?.Complete();
+                    _openStoreEntry?.Begin();
+                }
+                if (_stage >= 5)
                 {
                     _openStoreEntry?.Complete();
                     _makeSaleEntry?.Begin();
                     SubscribeSaleEvent();
                 }
-                if (_stage >= 5)
+                if (_stage >= 6)
                 {
                     _makeSaleEntry?.Complete();
                     Complete();

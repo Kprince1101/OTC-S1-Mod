@@ -56,7 +56,6 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Building root transform for world↔local coordinate conversion.</summary>
         internal static Transform BuildingTransform => _building?.transform;
         private static ModularSwitch _lightSwitch;
-        private static ModularSwitch _openCloseSwitch;
         private static bool _initialized;
         private static bool _suppressSwitchSync; // prevents re-entrancy during sync apply
         // Networked objects tracked for explicit cleanup (NOT parented to _building — parenting
@@ -167,7 +166,6 @@ namespace OverTheCounter.Logic.Placement
             _navigationBuilder = null;
             _registry = null;
             _lightSwitch = null;
-            _openCloseSwitch = null;
             Door = null;
             IsStoreOpen = false;
             AreLightsOn = false;
@@ -446,37 +444,6 @@ namespace OverTheCounter.Logic.Placement
                 OTCLog.Error(OTCLog.Systems.Patch,$"Light switch spawn failed: {ex.Message}");
             }
 
-            // Open/Close switch
-            try
-            {
-                var storeLocalPos = new Vector3(RoomWidth - 0.1f, 1.2f, 2.35f);
-                var openSwitchGo = SpawnNetworkedAt(Prefabs.ModularSwitch,
-                    _building.transform.TransformPoint(storeLocalPos),
-                    _building.transform.rotation * Quaternion.Euler(0f, 270f, 0f));
-                if (openSwitchGo != null)
-                {
-                    _networkedObjects.Add(openSwitchGo);
-                    _openCloseSwitch = new ModularSwitch(openSwitchGo);
-                    _openCloseSwitch.OnToggled += isOn =>
-                    {
-                        IsStoreOpen = isOn;
-                        UpdateOpenCloseSwitchMessages();
-                        if (!_suppressSwitchSync)
-                        {
-                            if (NetworkHelper.IsHost)
-                                ConfigSyncData.Instance?.PublishGameState();
-                            else
-                                ConfigSyncData.SendQuestAction($"SHACK_STORE:{(isOn ? 1 : 0)}");
-                        }
-                    };
-                    UpdateOpenCloseSwitchMessages();
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Patch,$"Open/Close switch spawn failed: {ex.Message}");
-            }
-
             // Apply lighting style (default or saved)
             ApplyLightingStyle(LightingStyle.Get(CurrentLightingStyleId));
 
@@ -628,33 +595,16 @@ namespace OverTheCounter.Logic.Placement
             else
                 SetLightsEnabled(lightsOn);
 
-            if (_openCloseSwitch != null)
-            {
-                if (storeOpen) _openCloseSwitch.SwitchOn();
-                else _openCloseSwitch.SwitchOff();
-            }
-            else
-                IsStoreOpen = storeOpen;
+            IsStoreOpen = storeOpen;
         }
 
         /// <summary>
-        /// Sets the store open/closed state and updates the switch visual.
+        /// Sets the store open/closed state.
         /// Used by multiplayer sync to apply host state on client.
         /// </summary>
         internal static void SetStoreOpen(bool open)
         {
-            _suppressSwitchSync = true;
-            try
-            {
-                IsStoreOpen = open;
-                if (_openCloseSwitch != null)
-                {
-                    if (open) _openCloseSwitch.SwitchOn();
-                    else _openCloseSwitch.SwitchOff();
-                }
-                UpdateOpenCloseSwitchMessages();
-            }
-            finally { _suppressSwitchSync = false; }
+            IsStoreOpen = open;
         }
 
         /// <summary>Toggle store state from GreenTab UI and sync over network.</summary>
@@ -665,24 +615,6 @@ namespace OverTheCounter.Logic.Placement
                 ConfigSyncData.Instance?.PublishGameState();
             else
                 ConfigSyncData.SendQuestAction($"SHACK_STORE:{(open ? 1 : 0)}");
-        }
-
-        /// <summary>
-        /// Updates the open/close switch interaction messages based on current state and time of day.
-        /// After closing time (8pm), shows a note that the store closes at 8:00.
-        /// </summary>
-        public static void UpdateOpenCloseSwitchMessages()
-        {
-            if (_openCloseSwitch == null) return;
-
-            // Always show operating hours so the player knows the schedule
-            string hours = $" ({Logic.StoreHours.DisplayRangeSpaced})";
-
-            // messageWhenOn = shown when switch is ON (store is open) → action is to close
-            // messageWhenOff = shown when switch is OFF (store is closed) → action is to open
-            _openCloseSwitch.SetInteractionMessages(
-                $"Close Store{hours}",
-                $"Open Store{hours}");
         }
 
         /// <summary>

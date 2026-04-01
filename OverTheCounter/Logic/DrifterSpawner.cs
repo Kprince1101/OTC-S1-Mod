@@ -181,7 +181,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                string iconPath = Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "DrifterProfileIcon.png");
+                string iconPath = Path.Combine(Core.OtcIconDir, "DrifterProfileIcon.png");
                 _drifterIcon = ImageUtils.LoadImage(iconPath);
                 if (_drifterIcon != null)
                 {
