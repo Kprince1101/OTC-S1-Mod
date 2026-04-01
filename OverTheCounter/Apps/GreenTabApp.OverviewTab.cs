@@ -44,6 +44,9 @@ namespace OverTheCounter.Apps
         // Properties row ref
         private Transform _overviewPropertyListContainer;
 
+        // Employees widget ref
+        private TextMeshProUGUI _overviewWageLabel;
+
         // Tooltip entries for mouse-follow hover (rendered by shared tooltip in GreenTabApp.cs)
         private List<(RectTransform rect, string text)> _overviewTooltipEntries;
 
@@ -92,9 +95,9 @@ namespace OverTheCounter.Apps
 
             var ct = content.transform;
             float pad = 10f;
-            float rowH = 140f;
-            float smallRowH = 100f;
-            float gap = 8f;
+            float rowH = 175f;
+            float smallRowH = 125f;
+            float gap = 12f;
             float leftFrac = 0.65f;
 
             // ---- Row 1: Inventory (left 65% items, right 35% chart) ----
@@ -230,10 +233,10 @@ namespace OverTheCounter.Apps
             title.color = TextMuted;
             PositionLabel(title, 0, 1, 0.7f, 1, 10, -6);
 
-            var comingSoon = TMPFactory.Text("EmpComingSoon", "Coming Soon", widget.transform,
+            _overviewWageLabel = TMPFactory.Text("EmpWage", "", widget.transform,
                 15, TextAlignmentOptions.Center);
-            comingSoon.color = TextDim;
-            PositionLabel(comingSoon, 0.1f, 0.15f, 0.9f, 0.75f, 0, 0);
+            _overviewWageLabel.color = TextMuted;
+            PositionLabel(_overviewWageLabel, 0.1f, 0.15f, 0.9f, 0.75f, 0, 0);
 
             var (_, btn, _) = TMPFactory.RoundedButtonWithLabel(
                 "ViewEmpBtn", "Employees", widget.transform,
@@ -383,7 +386,7 @@ namespace OverTheCounter.Apps
                     chartArea.transform, 15, TextAlignmentOptions.Top);
                 xLabel.color = TextDim;
                 xLabel.enableAutoSizing = true;
-                xLabel.fontSizeMin = 8;
+                xLabel.fontSizeMin = 15;
                 xLabel.fontSizeMax = 15;
                 var xlRect = xLabel.gameObject.GetComponent<RectTransform>();
                 xlRect.anchorMin = new Vector2(xFrac, 0);
@@ -397,7 +400,7 @@ namespace OverTheCounter.Apps
             var yMin = TMPFactory.Text("YMin", "0", container, 15, TextAlignmentOptions.Right);
             yMin.color = TextDim;
             yMin.enableAutoSizing = true;
-            yMin.fontSizeMin = 8;
+            yMin.fontSizeMin = 15;
             yMin.fontSizeMax = 15;
             var yMinRect = yMin.gameObject.GetComponent<RectTransform>();
             yMinRect.anchorMin = new Vector2(0, 0);
@@ -411,7 +414,7 @@ namespace OverTheCounter.Apps
             var yMax = TMPFactory.Text("YMax", maxLabel, container, 15, TextAlignmentOptions.Right);
             yMax.color = TextDim;
             yMax.enableAutoSizing = true;
-            yMax.fontSizeMin = 8;
+            yMax.fontSizeMin = 15;
             yMax.fontSizeMax = 15;
             var yMaxRect = yMax.gameObject.GetComponent<RectTransform>();
             yMaxRect.anchorMin = new Vector2(0, 1);
@@ -807,9 +810,22 @@ namespace OverTheCounter.Apps
             RefreshInventoryItems();
             RefreshSalesItems();
             RefreshPropertyRows();
+            RefreshEmployeesWage();
 
             RefreshInventoryChart();
             RefreshSalesChart();
+        }
+
+        private void RefreshEmployeesWage()
+        {
+            if (_overviewWageLabel == null) return;
+
+            float total = 0f;
+            foreach (var mgr in ManagerInstance.Active.Values)
+                total += mgr.GetDailyWage();
+            total += BudtenderInstance.Active.Count * BudtenderController.DailyWage;
+
+            _overviewWageLabel.text = $"Daily Wages: ${total:F0}";
         }
 
         private void RefreshInventoryChart()
