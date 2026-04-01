@@ -865,8 +865,8 @@ namespace OverTheCounter.SaveData
                 ConfigSyncData.Instance?.PublishGameState();
             }
 
-            // Shack listing - independent of CRM quest, just needs 1 PM + enough money
-            if (TimeManager.CurrentTime >= 1300
+            // Shack listing - time gate only on first day; after that, list whenever possible
+            if ((TimeManager.ElapsedDays > 0 || TimeManager.CurrentTime >= 1300)
                 && PropertySaveData.Instance != null
                 && PropertySaveData.Instance.GetProperty(PropertySaveData.ShackId) == null
                 && Money.GetOnlineBalance() >= Config.ShackPurchasePrice.Value)

@@ -47,7 +47,6 @@ namespace OverTheCounter
 
         public static ConfigEntry<float> SaasWeeklyCost;
         public static ConfigEntry<int> SaasCycleDays;
-        public static ConfigEntry<float> AtmDepositTrigger;
         public static ConfigEntry<float> StaticTier1BankCost;
         public static ConfigEntry<int> StaticTier1WeedGrams;
         public static ConfigEntry<float> StaticTier2BankCost;
@@ -258,8 +257,6 @@ namespace OverTheCounter
                 "Bank balance deducted each billing cycle"));
             SaasCycleDays = Register(_subscription.CreateEntry("SaasCycleDays", 7, "Cycle Days",
                 "Number of days between subscription payments"));
-            AtmDepositTrigger = Register(_subscription.CreateEntry("AtmDepositTrigger", 5000f, "ATM Deposit Trigger",
-                "Weekly ATM deposit sum that triggers Static's intro quest"));
             StaticTier1BankCost = Register(_subscription.CreateEntry("StaticTier1BankCost", 3000f, "Tier 1 Bank Cost",
                 "Bank transfer cost for the initial software package"));
             StaticTier1WeedGrams = Register(_subscription.CreateEntry("StaticTier1WeedGrams", 20, "Tier 1 Weed Grams",
