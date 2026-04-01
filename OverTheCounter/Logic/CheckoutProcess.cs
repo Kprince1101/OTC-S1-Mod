@@ -16,6 +16,8 @@ using CSteamID = Steamworks.CSteamID;
 #endif
 
 #if IL2CPP
+using Il2CppTMPro;
+using GameCanvasScaler = Il2CppScheduleOne.UI.CanvasScaler;
 using Il2CppScheduleOne;
 using Il2CppScheduleOne.Audio;
 using Il2CppScheduleOne.DevUtilities;
@@ -32,6 +34,8 @@ using NativeMoneyManager = Il2CppScheduleOne.Money.MoneyManager;
 using NativeStorableItemDef = Il2CppScheduleOne.ItemFramework.StorableItemDefinition;
 using ItemSlot = Il2CppScheduleOne.ItemFramework.ItemSlot;
 #else
+using TMPro;
+using GameCanvasScaler = ScheduleOne.UI.CanvasScaler;
 using ScheduleOne;
 using ScheduleOne.Audio;
 using ScheduleOne.DevUtilities;
@@ -70,7 +74,7 @@ namespace OverTheCounter.Logic
         private enum State
         {
             CameraPanning,
-            ChitChatting,
+            SkillCheck,
             WaitingForPlacement,
             CustomerPickup,
             PaymentAppearing,
@@ -121,10 +125,19 @@ namespace OverTheCounter.Logic
         private const float CashFlyDuration = 0.8f;
         private const int MaxProducts = 6;
 
-        // Chit-chat timing (player-as-budtender consultation)
-        private const float ChitChatDuration = 3.5f;
+        // Skill check timing (player-as-budtender consultation)
+        private const float SkillCheckDuration = 4.0f;
         private const float VO_Question = 1.5f;
         private const float VO_Acknowledge = 3.0f;
+
+        // Skill check zones (fraction of bar width, near the right end)
+        private const float GreenStart = 0.72f;
+        private const float GreenEnd = 0.90f;
+        private const float GoldStart = 0.79f;
+        private const float GoldEnd = 0.85f;
+        private const float GreenTipPercent = 0.15f;
+        private const float GoldTipPercent = 0.30f;
+        private const float SkillCheckFreezeDelay = 0.5f;
 
         // Overhead camera offsets (finalized via runtime editor)
         private const float CamRightOffset = -0.05f;
@@ -162,11 +175,17 @@ namespace OverTheCounter.Logic
         // Whether the "Complete Sale" button has been shown for a partial order
         private bool _completeBtnShown;
 
-        // Chit-chat progress bar UI
-        private GameObject _chitChatBarRoot;
-        private RectTransform _chitChatFill;
-        private bool _chitChatPlayedQuestion;
-        private bool _chitChatPlayedAcknowledge;
+        // Skill check UI
+        private GameObject _skillCheckRoot;
+        private RectTransform _skillCheckCursor;
+        private Image _greenZoneImg;
+        private Image _goldZoneImg;
+        private TextMeshProUGUI _skillCheckLabel;
+        private bool _skillCheckLocked;
+        private float _skillCheckLockTime;
+        private float _skillCheckTipBonus;
+        private bool _skillCheckPlayedQuestion;
+        private bool _skillCheckPlayedAcknowledge;
 
         // Animation coroutines
         private object _cashFlyCoroutine;
@@ -541,7 +560,7 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Host: handles CHECKOUT_DONE action from client.
-        /// Format: "customerId:totalPrice:prodId,name,price,quality~prod2,..."
+        /// Format: "customerId:totalPrice:prodId,name,price,quality~prod2,...:skillBonus"
         /// </summary>
         public static void HandleCheckoutDone(string payload)
         {
@@ -549,13 +568,19 @@ namespace OverTheCounter.Logic
 
             try
             {
-                var parts = payload.Split(new[] { ':' }, 3);
+                var parts = payload.Split(new[] { ':' }, 4);
                 if (parts.Length < 2) return;
 
                 string custId = parts[0];
                 if (!float.TryParse(parts[1], System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out float totalPrice))
                     return;
+
+                // Parse skill check bonus (appended as 4th segment)
+                float skillBonus = 0f;
+                if (parts.Length > 3)
+                    float.TryParse(parts[3], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out skillBonus);
 
                 // Record sales if product data provided
                 if (parts.Length > 2 && !string.IsNullOrEmpty(parts[2]))
@@ -573,6 +598,7 @@ namespace OverTheCounter.Logic
                             tipCustomer = custLookup;
                         }
                         float tip = DispensaryDealManager.GetTipAmount(tipCustomer, totalPrice);
+                        tip += totalPrice * skillBonus;
                         string txId = saveData.NextTransactionId();
                         string buildingId = custLookup?.AssignedCounter?.BuildingId;
                         var items = parts[2].Split('~');
@@ -723,12 +749,14 @@ namespace OverTheCounter.Logic
                     {
                         if (_customer.SelectedProducts.Count == 0)
                         {
-                            // No products yet — player chit-chats with customer first
-                            _state = State.ChitChatting;
+                            // No products yet — player consults with customer (skill check)
+                            _state = State.SkillCheck;
                             _stateTimer = Time.time;
-                            _chitChatPlayedQuestion = false;
-                            _chitChatPlayedAcknowledge = false;
-                            CreateChitChatBar();
+                            _skillCheckPlayedQuestion = false;
+                            _skillCheckPlayedAcknowledge = false;
+                            _skillCheckLocked = false;
+                            _skillCheckTipBonus = 0f;
+                            CreateSkillCheckBar();
                             try { _customer.GameNpc?.SendAnimationTrigger("ThumbsUp"); } catch { }
                         }
                         else
@@ -740,8 +768,8 @@ namespace OverTheCounter.Logic
                     }
                     break;
 
-                case State.ChitChatting:
-                    TickChitChatting(elapsed);
+                case State.SkillCheck:
+                    TickSkillCheck(elapsed);
                     break;
 
                 case State.WaitingForPlacement:
@@ -778,75 +806,128 @@ namespace OverTheCounter.Logic
         }
 
         // =================================================================
-        //  Chit-chat state (player-as-budtender consultation)
+        //  Skill check state (player-as-budtender consultation)
         // =================================================================
 
-        private void TickChitChatting(float elapsed)
+        private void TickSkillCheck(float elapsed)
         {
-            // Voice lines + animations on schedule (customer only — player is silent)
-            if (!_chitChatPlayedQuestion && elapsed >= VO_Question)
+            // Voice lines + animations on schedule
+            if (!_skillCheckPlayedQuestion && elapsed >= VO_Question)
             {
-                _chitChatPlayedQuestion = true;
+                _skillCheckPlayedQuestion = true;
                 PlayCustomerVoice(EVOLineType.Question);
                 try { _customer.GameNpc?.SendAnimationTrigger("ConversationGesture1"); } catch { }
             }
-            if (!_chitChatPlayedAcknowledge && elapsed >= VO_Acknowledge)
+            if (!_skillCheckPlayedAcknowledge && elapsed >= VO_Acknowledge)
             {
-                _chitChatPlayedAcknowledge = true;
+                _skillCheckPlayedAcknowledge = true;
                 PlayCustomerVoice(EVOLineType.Acknowledge);
                 try { _customer.GameNpc?.SendAnimationTrigger("Nod"); } catch { }
             }
 
-            // Update progress bar fill
-            if (_chitChatFill != null)
+            if (_skillCheckLocked)
             {
-                float t = Mathf.Clamp01(elapsed / ChitChatDuration);
-                _chitChatFill.anchorMax = new Vector2(t, 1f);
+                // Cursor already locked — wait for freeze delay then proceed
+                if (Time.time - _skillCheckLockTime >= SkillCheckFreezeDelay)
+                    FinishSkillCheck();
+                return;
             }
 
-            // Done — scan storage and recommend products
-            if (elapsed >= ChitChatDuration)
+            // Bounce-back cursor: 0→1 over first half, 1→0 over second half
+            float halfDur = SkillCheckDuration * 0.5f;
+            float t;
+            if (elapsed <= halfDur)
+                t = elapsed / halfDur;
+            else
+                t = 1f - (elapsed - halfDur) / halfDur;
+            t = Mathf.Clamp01(t);
+
+            // Update cursor position
+            if (_skillCheckCursor != null)
             {
-                DestroyChitChatBar();
+                _skillCheckCursor.anchorMin = new Vector2(t - 0.005f, 0f);
+                _skillCheckCursor.anchorMax = new Vector2(t + 0.005f, 1f);
+            }
 
-                // Scan all accessible storage and recommend products via familiarity filter
-                var storages = BudtenderStorageSearch.GetAllAccessibleStorages(_counter);
-                _customer.ObserveFromStorageList(storages);
-                _customer.FilterByFamiliarity();
-                _customer.DecidePurchases();
+            // Check for SPACE press
+            if (Input.GetKeyDown(KeyCode.Space))
+            {
+                _skillCheckLocked = true;
+                _skillCheckLockTime = Time.time;
 
-                if (_customer.SelectedProducts.Count > 0)
+                // Determine zone hit
+                if (t >= GoldStart && t <= GoldEnd)
                 {
-                    // Customer wants something — pan camera to desk, then placement
-                    SearchAndShowAvailable();
-                    PanCameraToDesk();
-                    _state = State.CameraPanning;
-                    _stateTimer = Time.time;
+                    _skillCheckTipBonus = GoldTipPercent;
+                    if (_skillCheckLabel != null) _skillCheckLabel.text = "Perfect!";
+                    if (_skillCheckCursor != null) _skillCheckCursor.GetComponent<Image>().color = new Color(1f, 0.84f, 0f, 1f);
+                    if (_goldZoneImg != null) _goldZoneImg.color = new Color(1f, 0.84f, 0f, 0.8f);
+                }
+                else if (t >= GreenStart && t <= GreenEnd)
+                {
+                    _skillCheckTipBonus = GreenTipPercent;
+                    if (_skillCheckLabel != null) _skillCheckLabel.text = "Nice!";
+                    if (_skillCheckCursor != null) _skillCheckCursor.GetComponent<Image>().color = new Color(0.30f, 0.85f, 0.31f, 1f);
+                    if (_greenZoneImg != null) _greenZoneImg.color = new Color(0.30f, 0.68f, 0.31f, 0.8f);
                 }
                 else
                 {
-                    // Nothing appealing — customer leaves disappointed
-                    // Voice line plays in CompleteCheckout (Angry for zero products)
-                    _state = State.CameraReturning;
-                    _stateTimer = Time.time;
-                    UnlockPlayerInput();
+                    _skillCheckTipBonus = 0f;
+                    if (_skillCheckLabel != null) _skillCheckLabel.text = "";
+                    if (_skillCheckCursor != null) _skillCheckCursor.GetComponent<Image>().color = new Color(0.6f, 0.2f, 0.2f, 1f);
                 }
+                return;
+            }
+
+            // Time expired without pressing — miss
+            if (elapsed >= SkillCheckDuration)
+            {
+                _skillCheckTipBonus = 0f;
+                FinishSkillCheck();
             }
         }
 
-        private void CreateChitChatBar()
+        private void FinishSkillCheck()
+        {
+            DestroySkillCheckBar();
+
+            // Scan all accessible storage and recommend products via familiarity filter
+            var storages = BudtenderStorageSearch.GetAllAccessibleStorages(_counter);
+            _customer.ObserveFromStorageList(storages);
+            _customer.FilterByFamiliarity();
+            _customer.DecidePurchases();
+
+            if (_customer.SelectedProducts.Count > 0)
+            {
+                SearchAndShowAvailable();
+                PanCameraToDesk();
+                _state = State.CameraPanning;
+                _stateTimer = Time.time;
+            }
+            else
+            {
+                _state = State.CameraReturning;
+                _stateTimer = Time.time;
+                UnlockPlayerInput();
+            }
+        }
+
+        private void CreateSkillCheckBar()
         {
             try
             {
-                // Create canvas overlay for the progress bar
-                var rootGo = new GameObject("OTC_ChitChatBar");
+                var rootGo = new GameObject("OTC_SkillCheckBar");
                 var canvas = rootGo.AddComponent<Canvas>();
                 canvas.renderMode = RenderMode.ScreenSpaceOverlay;
                 canvas.sortingOrder = 100;
-                rootGo.AddComponent<UnityEngine.UI.CanvasScaler>();
+                var scaler = rootGo.AddComponent<UnityEngine.UI.CanvasScaler>();
+                scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scaler.referenceResolution = new Vector2(1920, 1080);
+                scaler.matchWidthOrHeight = 0.5f;
+                rootGo.AddComponent<GameCanvasScaler>();
                 rootGo.AddComponent<GraphicRaycaster>();
 
-                // Bar background — bottom-center of screen
+                // Bar background (bottom-center of screen)
                 var bgGo = new GameObject("BarBg");
                 bgGo.transform.SetParent(rootGo.transform, false);
                 var bgImg = bgGo.AddComponent<Image>();
@@ -857,32 +938,71 @@ namespace OverTheCounter.Logic
                 bgRect.offsetMin = Vector2.zero;
                 bgRect.offsetMax = Vector2.zero;
 
-                // Fill bar
-                var fillGo = new GameObject("BarFill");
-                fillGo.transform.SetParent(bgGo.transform, false);
-                var fillImg = fillGo.AddComponent<Image>();
-                fillImg.color = new Color(0.30f, 0.68f, 0.31f, 0.9f);
-                _chitChatFill = fillGo.GetComponent<RectTransform>();
-                _chitChatFill.anchorMin = Vector2.zero;
-                _chitChatFill.anchorMax = new Vector2(0f, 1f); // starts at 0 width
-                _chitChatFill.offsetMin = new Vector2(2, 2);
-                _chitChatFill.offsetMax = new Vector2(-2, -2);
+                // Green zone overlay
+                var greenGo = new GameObject("GreenZone");
+                greenGo.transform.SetParent(bgGo.transform, false);
+                _greenZoneImg = greenGo.AddComponent<Image>();
+                _greenZoneImg.color = new Color(0.30f, 0.68f, 0.31f, 0.35f);
+                var greenRect = greenGo.GetComponent<RectTransform>();
+                greenRect.anchorMin = new Vector2(GreenStart, 0f);
+                greenRect.anchorMax = new Vector2(GreenEnd, 1f);
+                greenRect.offsetMin = Vector2.zero;
+                greenRect.offsetMax = Vector2.zero;
 
-                _chitChatBarRoot = rootGo;
+                // Gold zone overlay (inside green)
+                var goldGo = new GameObject("GoldZone");
+                goldGo.transform.SetParent(bgGo.transform, false);
+                _goldZoneImg = goldGo.AddComponent<Image>();
+                _goldZoneImg.color = new Color(1f, 0.84f, 0f, 0.45f);
+                var goldRect = goldGo.GetComponent<RectTransform>();
+                goldRect.anchorMin = new Vector2(GoldStart, 0f);
+                goldRect.anchorMax = new Vector2(GoldEnd, 1f);
+                goldRect.offsetMin = Vector2.zero;
+                goldRect.offsetMax = Vector2.zero;
+
+                // Cursor indicator (narrow white bar)
+                var cursorGo = new GameObject("Cursor");
+                cursorGo.transform.SetParent(bgGo.transform, false);
+                var cursorImg = cursorGo.AddComponent<Image>();
+                cursorImg.color = Color.white;
+                _skillCheckCursor = cursorGo.GetComponent<RectTransform>();
+                _skillCheckCursor.anchorMin = new Vector2(0f, 0f);
+                _skillCheckCursor.anchorMax = new Vector2(0.01f, 1f);
+                _skillCheckCursor.offsetMin = Vector2.zero;
+                _skillCheckCursor.offsetMax = Vector2.zero;
+
+                // "Press SPACE" label (above the bar)
+                var labelGo = new GameObject("SkillCheckLabel");
+                labelGo.transform.SetParent(rootGo.transform, false);
+                var labelRect = labelGo.AddComponent<RectTransform>();
+                labelRect.anchorMin = new Vector2(0.3f, 0.09f);
+                labelRect.anchorMax = new Vector2(0.7f, 0.13f);
+                labelRect.offsetMin = Vector2.zero;
+                labelRect.offsetMax = Vector2.zero;
+                _skillCheckLabel = UI.TMPFactory.Text("Label", "Press SPACE", labelGo.transform, 16,
+                    TextAlignmentOptions.Center, FontStyles.Bold);
+                _skillCheckLabel.color = Color.white;
+                _skillCheckLabel.outlineWidth = 0.2f;
+                _skillCheckLabel.outlineColor = new Color32(0, 0, 0, 180);
+
+                _skillCheckRoot = rootGo;
             }
             catch (Exception ex)
             {
-                OTCLog.Warning(OTCLog.Systems.Customer, $"CreateChitChatBar failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Customer, $"CreateSkillCheckBar failed: {ex.Message}");
             }
         }
 
-        private void DestroyChitChatBar()
+        private void DestroySkillCheckBar()
         {
-            if (_chitChatBarRoot != null)
+            if (_skillCheckRoot != null)
             {
-                UnityEngine.Object.Destroy(_chitChatBarRoot);
-                _chitChatBarRoot = null;
-                _chitChatFill = null;
+                UnityEngine.Object.Destroy(_skillCheckRoot);
+                _skillCheckRoot = null;
+                _skillCheckCursor = null;
+                _greenZoneImg = null;
+                _goldZoneImg = null;
+                _skillCheckLabel = null;
             }
         }
 
@@ -1805,6 +1925,7 @@ namespace OverTheCounter.Logic
                 cam.FreeMouse();
                 PlayerSingleton<PlayerMovement>.Instance.CanMove = false;
                 Singleton<HUD>.Instance.canvas.enabled = false;
+                UI.HUDOverlay.Suppressed = true;
 
                 PlayCustomerVoice(EVOLineType.Greeting);
             }
@@ -1841,6 +1962,7 @@ namespace OverTheCounter.Logic
 
                 PlayerSingleton<PlayerMovement>.Instance.CanMove = true;
                 Singleton<HUD>.Instance.canvas.enabled = true;
+                UI.HUDOverlay.Suppressed = false;
             }
             catch (Exception ex)
             {
@@ -1937,6 +2059,7 @@ namespace OverTheCounter.Logic
                         string custName = _customer?.GameNpc?.fullName ?? "Unknown";
                         string txId = saveData.NextTransactionId();
                         float tip = DispensaryDealManager.GetTipAmount(_customer, _totalPlacedPrice);
+                        tip += _totalPlacedPrice * _skillCheckTipBonus;
                         string buildingId = _counter?.BuildingId;
                         bool tipRecorded = false;
                         foreach (var product in _counterProducts)
@@ -1988,7 +2111,8 @@ namespace OverTheCounter.Logic
                 }
                 string saleData = string.Join("~", saleParts);
                 string totalStr = _totalPlacedPrice.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                SaveData.ConfigSyncData.SendQuestAction($"CHECKOUT_DONE:{_customer.Id}:{totalStr}:{saleData}");
+                string bonusStr = _skillCheckTipBonus.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                SaveData.ConfigSyncData.SendQuestAction($"CHECKOUT_DONE:{_customer.Id}:{totalStr}:{saleData}:{bonusStr}");
             }
 
             Cleanup();
@@ -2060,7 +2184,7 @@ namespace OverTheCounter.Logic
                 _cashFlyCoroutine = null;
             }
 
-            DestroyChitChatBar();
+            DestroySkillCheckBar();
             BudtenderHUD.Hide();
             Instance = null;
             _pendingLockType = PendingLockType.None;

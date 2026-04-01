@@ -28,6 +28,8 @@ namespace OverTheCounter.UI
     [RegisterTypeInIl2Cpp]
     public class HUDOverlay : MonoBehaviour
     {
+        /// <summary>Set true to hide the entire HUD overlay (e.g. during checkout camera lock).</summary>
+        public static bool Suppressed;
         private static readonly string[] RankNames =
         {
             "Street Rat", "Hoodlum", "Peddler", "Hustler", "Bagman",
@@ -102,6 +104,15 @@ namespace OverTheCounter.UI
                     TryBuild();
 
                 if (!_built) return;
+
+                if (Suppressed)
+                {
+                    if (_canvasObj != null && _canvasObj.activeSelf)
+                        _canvasObj.SetActive(false);
+                    return;
+                }
+                if (_canvasObj != null && !_canvasObj.activeSelf)
+                    _canvasObj.SetActive(true);
 
                 bool hpEnabled = Config.HUDShowHealth.Value;
                 bool stamEnabled = Config.HUDShowStamina.Value;
