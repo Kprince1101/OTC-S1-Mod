@@ -215,6 +215,18 @@ namespace OverTheCounter.SaveData
                 $"PropertySaveData.OnLoaded — salesLog={_salesLog?.Count ?? -1} entries");
             Instance = this;
 
+            // Seed _txCounter from existing sales to avoid ID collisions after reload
+            _txCounter = 0;
+            if (_salesLog != null)
+            {
+                foreach (var sale in _salesLog)
+                {
+                    if (sale.TransactionId != null && sale.TransactionId.StartsWith("tx_") &&
+                        int.TryParse(sale.TransactionId.Substring(3), out int id) && id >= _txCounter)
+                        _txCounter = id + 1;
+                }
+            }
+
             try { ConfigSyncData.ApplyPendingGameState(); }
             catch (Exception ex) { OTCLog.Error(OTCLog.Systems.General, $"ApplyPendingGameState failed: {ex.Message}"); }
 

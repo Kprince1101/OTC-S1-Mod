@@ -320,10 +320,12 @@ namespace OverTheCounter.Apps
             {
                 if (!string.IsNullOrEmpty(sale.TransactionId))
                 {
-                    if (!byTxId.TryGetValue(sale.TransactionId, out var list))
+                    // Include GameDay in key to prevent cross-day merging from old colliding IDs
+                    string key = $"{sale.TransactionId}_{sale.GameDay}";
+                    if (!byTxId.TryGetValue(key, out var list))
                     {
                         list = new List<OtcSaleRecord>();
-                        byTxId[sale.TransactionId] = list;
+                        byTxId[key] = list;
                     }
                     list.Add(sale);
                 }

@@ -1041,6 +1041,8 @@ namespace OverTheCounter.Logic
         private void ConsumeProduct(int taskIndex)
         {
             var task = FetchQueue[taskIndex];
+
+            // Remove from storage (best-effort — slot may already be empty if player or another customer took it)
             try
             {
                 if (task.SourceSlot != null)
@@ -1050,16 +1052,17 @@ namespace OverTheCounter.Logic
                     else
                         task.SourceSlot.ChangeQuantity(-1);
                 }
-
-                task.Consumed = true;
-                FetchQueue[taskIndex] = task; // write back (struct)
-                SaleTotal += task.Price;
             }
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Customer,
-                    $"Budtender {Id}: ConsumeProduct failed for {task.ProductName}: {ex.Message}");
+                    $"Budtender {Id}: slot removal failed for {task.ProductName}: {ex.Message}");
             }
+
+            // Always mark consumed and tally price — the product was claimed when the fetch queue was built
+            task.Consumed = true;
+            FetchQueue[taskIndex] = task;
+            SaleTotal += task.Price;
         }
     }
 }
