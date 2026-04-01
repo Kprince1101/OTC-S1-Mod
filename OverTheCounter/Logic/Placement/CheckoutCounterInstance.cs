@@ -70,7 +70,7 @@ namespace OverTheCounter.Logic.Placement
                 var t = CounterGameObject.transform;
                 var style = DeskStyle.Get(CurrentDeskStyleId);
                 var offset = style.BudtenderOffset;
-                return t.position + t.forward * (0.8f + offset.z) + t.right * offset.x + Vector3.up * offset.y;
+                return t.position + t.forward * (1.05f + offset.z) + t.right * offset.x + Vector3.up * offset.y;
             }
         }
 

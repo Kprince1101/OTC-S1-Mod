@@ -454,12 +454,6 @@ namespace OverTheCounter.Logic
                 _pendingArrival = null;
                 StateTimer = 0f;
 
-                var pos = AssignedCounter.BudtenderStandPosition ?? AssignedCounter.CounterPosition;
-                if (pos.HasValue)
-                {
-                    try { GameNpc?.Movement?.Warp(pos.Value); } catch { }
-                }
-
                 FaceCounter();
                 State = BudtenderState.Idle;
             }
@@ -699,7 +693,7 @@ namespace OverTheCounter.Logic
             }
 
             // Walk to the storage via interior navigation
-            StateTimer = Time.time + 15f; // stuck timeout
+            StateTimer = Time.time + 10f; // stuck timeout
             SendToInterior(task.WorldPosition, () =>
             {
                 StateTimer = 0f;
@@ -749,7 +743,7 @@ namespace OverTheCounter.Logic
 
             Vector3 behindCounter = AssignedCounter.BudtenderStandPosition ?? counterPos.Value;
 
-            StateTimer = Time.time + 15f; // stuck timeout
+            StateTimer = Time.time + 10f; // stuck timeout
             SendToInterior(behindCounter, () =>
             {
                 FaceCounter();
@@ -908,7 +902,7 @@ namespace OverTheCounter.Logic
             // Target: behind the counter (budtender side)
             Vector3 behindCounter = AssignedCounter.BudtenderStandPosition ?? counterPos.Value;
 
-            StateTimer = Time.time + 30f; // stuck timeout (walking from exterior)
+            StateTimer = Time.time + 12f; // stuck timeout (walking from exterior)
             SendToInterior(behindCounter, () =>
             {
                 StateTimer = 0f;
@@ -919,11 +913,24 @@ namespace OverTheCounter.Logic
             });
         }
 
-        /// <summary>Rotates the NPC to face toward the customer side of the counter.</summary>
+        /// <summary>Centers the NPC on the desk (XZ only) and faces toward the customer side.</summary>
         private void FaceCounter()
         {
             var counterTransform = AssignedCounter?.CounterTransform;
             if (counterTransform == null || GameNpc == null) return;
+
+            // Nudge XZ to exact stand position for centering; keep current Y (navmesh floor)
+            var exactPos = AssignedCounter.BudtenderStandPosition;
+            var agent = GameNpc.gameObject.GetComponent<NavMeshAgent>();
+            if (exactPos.HasValue)
+            {
+                var cur = GameNpc.transform.position;
+                var centered = new Vector3(exactPos.Value.x, cur.y, exactPos.Value.z);
+                GameNpc.transform.position = centered;
+                // Sync agent so it knows the new position (no updatePosition toggling)
+                if (agent != null)
+                    agent.nextPosition = centered;
+            }
 
             var faceDir = -counterTransform.forward;
             faceDir.y = 0;
@@ -931,7 +938,6 @@ namespace OverTheCounter.Logic
                 GameNpc.transform.rotation = Quaternion.LookRotation(faceDir);
 
             // Stop NavMeshAgent from overriding our rotation
-            var agent = GameNpc.gameObject.GetComponent<NavMeshAgent>();
             if (agent != null)
                 agent.updateRotation = false;
         }
@@ -1010,7 +1016,9 @@ namespace OverTheCounter.Logic
         private void CheckStoppedMovement()
         {
             if (_pendingArrival == null || GameNpc == null) return;
-            if (State != BudtenderState.FetchingProduct) return;
+            if (State != BudtenderState.FetchingProduct &&
+                State != BudtenderState.WalkingToCounter &&
+                State != BudtenderState.ReturningToCounter) return;
 
             Vector3 currentPos = GameNpc.transform.position;
             float delta = (currentPos - _lastFramePos).sqrMagnitude;
@@ -1019,7 +1027,9 @@ namespace OverTheCounter.Logic
             if (delta < 0.0001f) // essentially not moving
             {
                 _stoppedTime += Time.deltaTime;
-                if (_stoppedTime > 0.5f)
+                // Shorter threshold for fetching (near shelf), longer for navigation-heavy states
+                float threshold = State == BudtenderState.FetchingProduct ? 0.5f : 2f;
+                if (_stoppedTime > threshold)
                 {
                     var cb = _pendingArrival;
                     _pendingArrival = null;
