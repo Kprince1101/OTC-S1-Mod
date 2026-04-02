@@ -36,15 +36,32 @@ namespace OverTheCounter.Patches
                     harmony.Patch(endMeeting,
                         postfix: new HarmonyMethod(typeof(SupplierWarehousePatch), nameof(EndMeeting_Postfix)));
 
+                var endRpcLogic = ResolveEndMeetingRpcLogicMethod();
+                if (endRpcLogic != null)
+                    harmony.Patch(endRpcLogic,
+                        postfix: new HarmonyMethod(typeof(SupplierWarehousePatch), nameof(EndMeeting_Postfix)));
+
                 var getLocation = AccessTools.Method(typeof(Supplier), "GetAppropriateLocation");
                 if (getLocation != null)
                     harmony.Patch(getLocation,
                         prefix: new HarmonyMethod(typeof(SupplierWarehousePatch), nameof(GetAppropriateLocation_Prefix)));
 
-                var meetAtLocation = AccessTools.Method(typeof(Supplier), "MeetAtLocation");
-                if (meetAtLocation != null)
-                    harmony.Patch(meetAtLocation,
-                        prefix: new HarmonyMethod(typeof(SupplierWarehousePatch), nameof(MeetAtLocation_Prefix)));
+                // Must patch RpcLogic, not only public MeetAtLocation: on clients, FishNet invokes
+                // RpcLogic___MeetAtLocation_* via RpcReader without calling the public wrapper, so warehouse
+                // cleanup never ran and _assignedSuppliers stayed stale — idle routine kept re-warping to warehouse.
+                var meetRpcLogic = ResolveMeetAtLocationRpcLogicMethod();
+                if (meetRpcLogic != null)
+                    harmony.Patch(meetRpcLogic,
+                        prefix: new HarmonyMethod(typeof(SupplierWarehousePatch), nameof(MeetAtLocation_RpcLogicPrefix)));
+                else
+                    OTCLog.Warning(OTCLog.Systems.Patch,
+                        "SupplierWarehousePatch: RpcLogic MeetAtLocation not found; client meetup cleanup may be incomplete");
+
+                // Public method has the stable locationIndex argument we can trust for meetup warp target.
+                var publicMeetAtLocation = AccessTools.Method(typeof(Supplier), "MeetAtLocation");
+                if (publicMeetAtLocation != null)
+                    harmony.Patch(publicMeetAtLocation,
+                        prefix: new HarmonyMethod(typeof(SupplierWarehousePatch), nameof(MeetAtLocation_PublicPrefix)));
 
                 OTCLog.Msg(OTCLog.Systems.Patch, "SupplierWarehousePatch applied");
             }
@@ -70,11 +87,53 @@ namespace OverTheCounter.Patches
             }
         }
 
+        /// <summary>Resolves FishNet-generated RpcLogic for MeetAtLocation.</summary>
+        private static System.Reflection.MethodBase ResolveMeetAtLocationRpcLogicMethod()
+        {
+#if IL2CPP
+            // Avoid reflection scanning on IL2CPP types; use known generated method name.
+            return AccessTools.Method(typeof(Supplier), "RpcLogic___MeetAtLocation_3470796954");
+#else
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            foreach (var m in typeof(Supplier).GetMethods(flags))
+            {
+                if (m.Name.IndexOf("MeetAtLocation", StringComparison.Ordinal) < 0)
+                    continue;
+                if (m.Name.IndexOf("RpcLogic", StringComparison.Ordinal) < 0)
+                    continue;
+                var ps = m.GetParameters();
+                if (ps.Length == 3)
+                    return m;
+            }
+            return null;
+#endif
+        }
+
+        /// <summary>Resolves FishNet-generated RpcLogic for EndMeeting when present.</summary>
+        private static System.Reflection.MethodBase ResolveEndMeetingRpcLogicMethod()
+        {
+#if IL2CPP
+            return AccessTools.Method(typeof(Supplier), "RpcLogic___EndMeeting_2166136261");
+#else
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            foreach (var m in typeof(Supplier).GetMethods(flags))
+            {
+                if (m.Name.IndexOf("EndMeeting", StringComparison.Ordinal) < 0)
+                    continue;
+                if (m.Name.IndexOf("RpcLogic", StringComparison.Ordinal) < 0)
+                    continue;
+                return m;
+            }
+            return null;
+#endif
+        }
+
         /// <summary>
-        /// When a real meetup starts (MeetAtLocation), clean up the warehouse state
-        /// so the GenericContainer is hidden and dialogue flags are reset.
+        /// Before RpcLogic runs, always clear warehouse stand state on host + clients.
         /// </summary>
-        private static void MeetAtLocation_Prefix(Supplier __instance)
+        private static void MeetAtLocation_RpcLogicPrefix(Supplier __instance)
         {
             try
             {
@@ -82,7 +141,49 @@ namespace OverTheCounter.Patches
             }
             catch (Exception ex)
             {
-                OTCLog.Warning(OTCLog.Systems.Patch, $"MeetAtLocation prefix: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"MeetAtLocation RpcLogic prefix: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Public MeetAtLocation wrapper gives a stable location index.
+        /// Use this to do the release->outside->warp handoff deterministically.
+        /// </summary>
+        private static void MeetAtLocation_PublicPrefix(Supplier __instance, int locationIndex, int expireIn)
+        {
+            try
+            {
+                OTCSupplierArea.CleanupWarehouseSupplier(__instance);
+                if (locationIndex < 0 || locationIndex >= SupplierLocation.AllLocations.Count)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch,
+                        $"MeetAtLocation public prefix: invalid locationIndex={locationIndex} for {__instance?.fullName}");
+                    return;
+                }
+
+                var loc = SupplierLocation.AllLocations[locationIndex];
+                if (loc == null)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch,
+                        $"MeetAtLocation public prefix: null location at index={locationIndex} for {__instance?.fullName}");
+                    return;
+                }
+
+                var meetupPos = loc.SupplierStandPoint != null
+                    ? loc.SupplierStandPoint.position
+                    : loc.transform.position;
+                var meetupForward = loc.SupplierStandPoint != null
+                    ? loc.SupplierStandPoint.forward
+                    : loc.transform.forward;
+
+                OTCLog.Msg(OTCLog.Systems.Patch,
+                    $"MeetAtLocation public prefix: resolved meetup target for {__instance?.fullName} -> {meetupPos} (index {locationIndex})");
+                OTCSupplierArea.MarkMeetupStart(__instance, expireIn);
+                OTCSupplierArea.ReleaseAndWarpSupplierToMeetup(__instance, meetupPos, meetupForward);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"MeetAtLocation public prefix: {ex.Message}");
             }
         }
 

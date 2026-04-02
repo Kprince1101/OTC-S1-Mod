@@ -1,12 +1,17 @@
 using HarmonyLib;
+using MelonLoader;
 using OverTheCounter.Logic;
 using OverTheCounter.Logic.Placement;
 using OverTheCounter.Utilities;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
 
 #if IL2CPP
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Product;
 using Il2CppScheduleOne.Quests;
+using Contract = Il2CppScheduleOne.Quests.Contract;
 using Customer = Il2CppScheduleOne.Economy.Customer;
 using Dealer = Il2CppScheduleOne.Economy.Dealer;
 using EDrugType = Il2CppScheduleOne.Product.EDrugType;
@@ -16,6 +21,7 @@ using Registry = Il2CppScheduleOne.Registry;
 using ScheduleOne.Economy;
 using ScheduleOne.Product;
 using ScheduleOne.Quests;
+using Contract = ScheduleOne.Quests.Contract;
 using Customer = ScheduleOne.Economy.Customer;
 using Dealer = ScheduleOne.Economy.Dealer;
 using EDrugType = ScheduleOne.Product.EDrugType;
@@ -44,7 +50,7 @@ namespace OverTheCounter.Patches
     {
         public static bool Prefix(Customer __instance, ContractInfo info, Dealer dealer)
         {
-            return !DealInterceptHelper.TryRedirect(__instance, info);
+            return !DealInterceptHelper.TryRedirect(__instance, info, dealer);
         }
     }
 
@@ -57,7 +63,11 @@ namespace OverTheCounter.Patches
         /// Attempts to redirect the NPC to an OTC building instead of offering a deal.
         /// Returns true if redirected (caller should skip original), false if vanilla should proceed.
         /// </summary>
-        internal static bool TryRedirect(Customer customer, ContractInfo info)
+        /// <param name="associatedDealer">
+        /// When non-null (OfferContractToDealer path), any matching active dealer contract for this
+        /// offer is voided so the dealer does not attend a meet the customer will not use.
+        /// </param>
+        internal static bool TryRedirect(Customer customer, ContractInfo info, Dealer associatedDealer = null)
         {
             if (info?.Products?.entries == null || info.Products.entries.Count == 0)
                 return false;
@@ -126,7 +136,76 @@ namespace OverTheCounter.Patches
                 return false;
 
             // Redirect the NPC to the building
-            return DispensaryDealManager.Redirect(customer, drugType, target);
+            if (!DispensaryDealManager.Redirect(customer, drugType, target))
+                return false;
+
+            if (associatedDealer != null)
+            {
+                VoidDealerDealMatchingOffer(associatedDealer, customer, info);
+                // If vanilla still queued a dealer contract after this prefix (ordering / IL2CPP edge cases),
+                // void again next frame so attend-deal behaviour does not keep running for a hijacked meet.
+                MelonCoroutines.Start(VoidDealerDealNextFrame(associatedDealer, customer, info));
+            }
+
+            return true;
+        }
+
+        private static IEnumerator VoidDealerDealNextFrame(Dealer dealer, Customer customer, ContractInfo info)
+        {
+            yield return null;
+            if (dealer != null && customer != null)
+                VoidDealerDealMatchingOffer(dealer, customer, info);
+        }
+
+        /// <summary>
+        /// Fails dealer-side contracts that match the intercepted offer so attend-deal AI and journal
+        /// state reflect that the meet is cancelled (customer is shopping at OTC instead).
+        /// </summary>
+        private static void VoidDealerDealMatchingOffer(Dealer dealer, Customer customer, ContractInfo info)
+        {
+            if (dealer?.ActiveContracts == null || customer?.NetworkObject == null)
+                return;
+
+            if (info?.Products?.entries == null || info.Products.entries.Count == 0)
+                return;
+
+            var customerNob = customer.NetworkObject;
+            string offerProductId = info.Products.entries[0].ProductID;
+            int offerQty = info.Products.entries[0].Quantity;
+            float offerPayment = info.Payment;
+
+            var active = dealer.ActiveContracts;
+            if (active.Count == 0)
+                return;
+
+            var toFail = new List<Contract>();
+            for (int i = 0; i < active.Count; i++)
+            {
+                var c = active[i];
+                if (c == null || c.Customer != customerNob)
+                    continue;
+                if (!Mathf.Approximately(c.Payment, offerPayment))
+                    continue;
+                if (c.ProductList?.entries == null || c.ProductList.entries.Count == 0)
+                    continue;
+                var e = c.ProductList.entries[0];
+                if (e.ProductID != offerProductId || e.Quantity != offerQty)
+                    continue;
+                toFail.Add(c);
+            }
+
+            for (int i = 0; i < toFail.Count; i++)
+            {
+                try
+                {
+                    toFail[i].Fail();
+                }
+                catch (System.Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"DealIntercept: failed to void dealer contract for {dealer.fullName}: {ex.Message}");
+                }
+            }
         }
     }
 }

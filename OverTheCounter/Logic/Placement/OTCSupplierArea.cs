@@ -47,6 +47,16 @@ namespace OverTheCounter.Logic.Placement
 
         private static readonly List<SupplierLocation> _locations = new List<SupplierLocation>();
         private static readonly Dictionary<Supplier, int> _assignedSuppliers = new Dictionary<Supplier, int>();
+
+        /// <summary>
+        /// Supplier IDs that have completed at least one successful <see cref="WarpSupplierToWarehouse"/>.
+        /// After <see cref="CleanupWarehouseSupplier"/> for a meetup, <see cref="IsWarehouseSupplier"/> is false;
+        /// without this, the idle routine would treat them as "never stationed" and re-warp them every 10s,
+        /// fighting <c>MeetAtLocation</c> (table/shop at meet site, body stuck at warehouse).
+        /// </summary>
+        private static readonly HashSet<string> _stationedAtWarehouseEver = new HashSet<string>();
+        private static readonly Dictionary<string, int> _meetupExpireBySupplier = new Dictionary<string, int>();
+
         private static Transform _warehouseTransform;
         private static bool _initialized;
         private static bool _routineActive;
@@ -54,6 +64,18 @@ namespace OverTheCounter.Logic.Placement
 
         // Fixed GUID so warehouse inventory persists across sessions
         private const string DeliveryBayGuid = "0a1c0000-dead-ba00-0000-000000000001";
+
+        /// <summary>
+        /// For suppliers <b>already assigned</b> to a warehouse stand: only re-warp while invisible if still near the door.
+        /// (First-time placement uses unlimited distance — vanilla spawns are far from the warehouse.)
+        /// </summary>
+        private const float InvisibleRescueMaxDoorDistance = 28f;
+
+        /// <summary>
+        /// Re-warp assigned suppliers only if they are still near their stand (nav drift inside the building).
+        /// Beyond this, they left for a meetup or another task — clear assignment instead of warping.
+        /// </summary>
+        private const float DriftRecenterMaxDistanceFromStand = 42f;
 
 #if !IL2CPP
         // Cached reflection for Mono — private fields on Supplier
@@ -124,9 +146,50 @@ namespace OverTheCounter.Logic.Placement
             _routineActive = false;
             _locations.Clear();
             _assignedSuppliers.Clear();
+            _stationedAtWarehouseEver.Clear();
+            _meetupExpireBySupplier.Clear();
             _deliveryBay = null;
             _warehouseTransform = null;
             _initialized = false;
+        }
+
+        private static int GetCurrentElapsedMinutes()
+        {
+            int hhmm = S1API.GameTime.TimeManager.CurrentTime;
+            int hours = hhmm / 100;
+            int mins = hhmm % 100;
+            return (S1API.GameTime.TimeManager.ElapsedDays * 1440) + (hours * 60) + mins;
+        }
+
+        /// <summary>
+        /// Tracks when a meetup should expire, so overdue suppliers can be forced back to OTC.
+        /// </summary>
+        public static void MarkMeetupStart(Supplier supplier, int expireInMinutes)
+        {
+            if (supplier == null || expireInMinutes <= 0) return;
+            string key = GetSupplierKey(supplier);
+            if (string.IsNullOrEmpty(key)) return;
+            _meetupExpireBySupplier[key] = GetCurrentElapsedMinutes() + expireInMinutes;
+        }
+
+        private static void ClearMeetupTimer(Supplier supplier)
+        {
+            if (supplier == null) return;
+            string key = GetSupplierKey(supplier);
+            if (!string.IsNullOrEmpty(key))
+                _meetupExpireBySupplier.Remove(key);
+        }
+
+        private static string GetSupplierKey(Supplier supplier)
+        {
+            if (supplier == null) return string.Empty;
+            try
+            {
+                if (!string.IsNullOrEmpty(supplier.ID))
+                    return supplier.ID;
+            }
+            catch { }
+            return $"{supplier.name}_{supplier.GetInstanceID()}";
         }
 
         private static SupplierLocation CreateSupplierLocation(Transform parent, int index)
@@ -231,6 +294,9 @@ namespace OverTheCounter.Logic.Placement
             // Enable meeting dialogue so player can interact and open shop
             EnableWarehouseDialogue(supplier);
 
+            _stationedAtWarehouseEver.Add(GetSupplierKey(supplier));
+            ClearMeetupTimer(supplier);
+
             OTCLog.Msg(OTCLog.Systems.Patch,
                 $"Supplier {supplier.fullName} stationed at warehouse slot {slot}");
         }
@@ -252,6 +318,150 @@ namespace OverTheCounter.Logic.Placement
                     DisableWarehouseDialogue(supplier);
                     OTCLog.Msg(OTCLog.Systems.Patch,
                         $"Supplier {supplier.fullName} left warehouse for meetup");
+                    break;
+                }
+            }
+        }
+
+        private static bool ForceReturnIfMeetupOverdue(Supplier supplier)
+        {
+            if (supplier == null) return false;
+            string key = GetSupplierKey(supplier);
+            if (string.IsNullOrEmpty(key)) return false;
+            if (!_meetupExpireBySupplier.TryGetValue(key, out int expireAt)) return false;
+            if (GetCurrentElapsedMinutes() < expireAt) return false;
+
+            _meetupExpireBySupplier.Remove(key);
+            OTCLog.Warning(OTCLog.Systems.Patch,
+                $"Supplier meetup overdue: forcing end + warehouse return for {supplier.fullName}");
+            bool ended = true;
+            try { supplier.EndMeeting(); } catch { ended = false; }
+            if (!ended)
+                WarpSupplierToWarehouse(supplier);
+            return true;
+        }
+
+        /// <summary>
+        /// Simple meetup handoff: release from OTC interior tracking, then warp to meetup.
+        /// This avoids getting stuck either inside or idling near the warehouse exit.
+        /// </summary>
+        public static void ReleaseAndWarpSupplierToMeetup(Supplier supplier, Vector3 meetupWorldPos, Vector3 meetupForward)
+        {
+            if (supplier?.Movement == null) return;
+            if (meetupWorldPos == Vector3.zero) return;
+            MelonCoroutines.Start(ReleaseAndWarpSupplierToMeetupRoutine(supplier, meetupWorldPos, meetupForward));
+        }
+
+        private static IEnumerator ReleaseAndWarpSupplierToMeetupRoutine(Supplier supplier, Vector3 meetupWorldPos, Vector3 meetupForward)
+        {
+            if (supplier?.Movement == null) yield break;
+            if (meetupWorldPos == Vector3.zero) yield break;
+
+            var nav = OTCWarehouse.NavBuilder;
+            bool recalled = false;
+            try
+            {
+                if (nav != null && nav.IsNPCInside(supplier.Movement))
+                {
+                    recalled = true;
+                    OTCLog.Msg(OTCLog.Systems.Patch,
+                        $"Supplier meetup handoff: {supplier.fullName} inside OTC interior, issuing RecallNPC");
+                    nav.RecallNPC(supplier.Movement);
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"ReleaseAndWarpSupplierToMeetup (recall): {ex.Message}");
+            }
+
+            // If recalled from interior, wait until S1MAPI reports fully outside before warping.
+            if (recalled && nav != null)
+            {
+                float timeoutAt = Time.time + 3.5f;
+                bool outside = false;
+                while (Time.time < timeoutAt)
+                {
+                    if (supplier?.Movement == null) yield break;
+                    try
+                    {
+                        outside = !nav.IsNPCInside(supplier.Movement);
+                        if (outside) break;
+                    }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Patch, $"ReleaseAndWarpSupplierToMeetup (outside poll): {ex.Message}");
+                        break;
+                    }
+
+                    yield return new WaitForSeconds(0.2f);
+                }
+
+                OTCLog.Msg(OTCLog.Systems.Patch,
+                    $"Supplier meetup handoff: {supplier.fullName} outsideAfterRecall={outside} " +
+                    $"pos={supplier.transform.position} target={meetupWorldPos}");
+
+                // Recall can fail to clear interior state in time; force an exterior step before meetup warp.
+                if (!outside)
+                {
+                    var doorExterior = OTCWarehouse.GetDoorExteriorPosition();
+                    supplier.SetVisible(true, false);
+                    supplier.Movement.Warp(doorExterior);
+                    supplier.Movement.SetDestination(doorExterior, null, 1f, 1f);
+                    yield return new WaitForSeconds(0.15f);
+                }
+            }
+
+            try
+            {
+                supplier.SetVisible(true, false);
+                supplier.Movement.Warp(meetupWorldPos);
+                supplier.Movement.SetDestination(meetupWorldPos, null, 1f, 1f);
+                if (meetupForward.sqrMagnitude > 0.001f)
+                {
+                    supplier.Movement.FaceDirection(meetupForward, 0f);
+                    MelonCoroutines.Start(ApplyMeetupFacingAfterSettle(supplier, meetupForward));
+                }
+                OTCLog.Msg(OTCLog.Systems.Patch,
+                    $"Supplier meetup handoff: {supplier.fullName} warped to meetup target");
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"ReleaseAndWarpSupplierToMeetup (warp): {ex.Message}");
+            }
+        }
+
+        private static IEnumerator ApplyMeetupFacingAfterSettle(Supplier supplier, Vector3 meetupForward)
+        {
+            yield return new WaitForSeconds(0.35f);
+            if (supplier?.Movement == null) yield break;
+            if (meetupForward.sqrMagnitude <= 0.001f) yield break;
+
+            try
+            {
+                supplier.Movement.FaceDirection(meetupForward, 0f);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"ApplyMeetupFacingAfterSettle: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Clears warehouse stand assignment without moving the supplier (off-site / meetup).
+        /// </summary>
+        private static void UnassignSupplierWithoutWarp(Supplier supplier)
+        {
+            if (supplier == null || !_assignedSuppliers.Remove(supplier))
+                return;
+
+            for (int i = 0; i < _locations.Count; i++)
+            {
+                if (_locations[i].ActiveSupplier == supplier)
+                {
+                    _locations[i].SetActiveSupplier(null);
+                    DisableWarehouseDialogue(supplier);
+                    OTCLog.Msg(OTCLog.Systems.Patch,
+                        $"Supplier {supplier.fullName} unassigned from warehouse stand (off-site)");
                     break;
                 }
             }
@@ -518,31 +728,74 @@ namespace OverTheCounter.Logic.Placement
 
             while (_routineActive && _initialized)
             {
+                // Only the host should warp NPCs / mutate local stand assignment; clients receive synced state.
+                if (!NetworkHelper.IsHost)
+                {
+                    yield return new WaitForSeconds(10f);
+                    continue;
+                }
+
                 try
                 {
                     bool anySent = false;
                     var suppliers = FindAllSuppliers();
-                    for (int i = 0; i < suppliers.Count && i < _locations.Count; i++)
+                    var doorExterior = OTCWarehouse.GetDoorExteriorPosition();
+                    // Process every supplier (not capped at stand count) so each gets a slot via GetSlotForSupplier.
+                    for (int i = 0; i < suppliers.Count; i++)
                     {
                         var supplier = suppliers[i];
                         if (supplier == null) continue;
 
-                        // Warp idle invisible suppliers to the warehouse
-                        if (supplier.Status == Supplier.ESupplierStatus.Idle
-                            && !supplier.isVisible)
+                        if (ForceReturnIfMeetupOverdue(supplier))
                         {
-                            OTCWarehouse.SetDoorColliderEnabled(false);
-                            WarpSupplierToWarehouse(supplier);
                             anySent = true;
+                            continue;
                         }
-                        // Re-warp assigned suppliers that drifted from their stand
+
+                        // Meeting / dead-drop prep — never pull these back to the warehouse
+                        if (supplier.Status != Supplier.ESupplierStatus.Idle)
+                            continue;
+
+                        // First station only: suppliers who have never had a successful warp stay not-assigned until we pull them in.
+                        // Do NOT treat "unassigned after CleanupWarehouseSupplier for meetup" as first station — that would
+                        // re-warp every 10s and override MeetAtLocation (NPC stuck at door, props at meet site).
+                        if (!IsWarehouseSupplier(supplier))
+                        {
+                            if (!_stationedAtWarehouseEver.Contains(GetSupplierKey(supplier)))
+                            {
+                                OTCWarehouse.SetDoorColliderEnabled(false);
+                                WarpSupplierToWarehouse(supplier);
+                                anySent = true;
+                            }
+                            continue;
+                        }
+
+                        // Already assigned — invisible: only re-pull if near door, else unassign (meetup elsewhere).
+                        if (!supplier.isVisible)
+                        {
+                            float distDoor = Vector3.Distance(supplier.transform.position, doorExterior);
+                            if (distDoor <= InvisibleRescueMaxDoorDistance)
+                            {
+                                OTCWarehouse.SetDoorColliderEnabled(false);
+                                WarpSupplierToWarehouse(supplier);
+                                anySent = true;
+                            }
+                            else
+                            {
+                                UnassignSupplierWithoutWarp(supplier);
+                            }
+                        }
+                        // Visible + assigned: drift correction near stand only
                         else if (_assignedSuppliers.TryGetValue(supplier, out int slot)
-                            && supplier.Status == Supplier.ESupplierStatus.Idle
                             && slot < _locations.Count)
                         {
                             var stand = _locations[slot].SupplierStandPoint;
                             float dist = Vector3.Distance(supplier.transform.position, stand.position);
-                            if (dist > 3f)
+                            if (dist > DriftRecenterMaxDistanceFromStand)
+                            {
+                                UnassignSupplierWithoutWarp(supplier);
+                            }
+                            else if (dist > 3f)
                             {
                                 OTCWarehouse.SetDoorColliderEnabled(false);
                                 WarpSupplierToWarehouse(supplier);
@@ -550,7 +803,6 @@ namespace OverTheCounter.Logic.Placement
                             }
                             else if (dist < 1.5f)
                             {
-                                // Arrived — face the correct direction
                                 supplier.Movement.FaceDirection(stand.forward, 0f);
                             }
                         }
