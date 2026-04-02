@@ -17,6 +17,9 @@ namespace OverTheCounter.Patches
     /// When subscribers are removed during iteration (e.g. NPC destruction during
     /// scene transitions), the live list shrinks and list[i] throws
     /// IndexOutOfRangeException — causing 20,000+ error spam per scene change.
+    /// IL2CPP uses the same snapshot + stagger + isolated invoke path as Mono; calling
+    /// InvokeAll() here was wrong (no staggering, one bad subscriber aborted the whole list
+    /// and produced repeated Patch Error logs / lag).
     /// </summary>
     public static class ActionListPatch
     {
@@ -46,29 +49,46 @@ namespace OverTheCounter.Patches
         {
             try
             {
-#if IL2CPP
-                // On IL2CPP, delegate types differ (Il2CppSystem.Action vs System.Action).
-                // Fall back to InvokeAll which already uses a snapshot correctly.
-                __instance.InvokeAll();
-#else
                 var list = __instance.GetInvocationList();
                 if (list == null || list.Count == 0) return false;
 
+#if IL2CPP
                 var snapshot = list.ToArray();
-                MelonCoroutines.Start(StaggeredInvokeFixed(snapshot, staggerTime));
+                MelonCoroutines.Start(StaggeredInvokeCore(staggerTime, snapshot.Length, i =>
+                {
+                    var act = snapshot[i];
+                    if (act == null) return;
+                    try { act.Invoke(); }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Patch, $"Staggered subscriber invoke: {ex.Message}");
+                    }
+                }));
+#else
+                var snapshot = list.ToArray();
+                MelonCoroutines.Start(StaggeredInvokeCore(staggerTime, snapshot.Length, i =>
+                {
+                    if (snapshot[i] == null) return;
+                    try { snapshot[i](); }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Patch, $"Staggered subscriber invoke: {ex.Message}");
+                    }
+                }));
 #endif
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Patch, $"ActionListPatch.Prefix failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"ActionListPatch.Prefix setup failed: {ex.Message}");
             }
             return false;
         }
 
-#if !IL2CPP
-        private static IEnumerator StaggeredInvokeFixed(Action[] snapshot, float staggerTime)
+        /// <summary>
+        /// Staggers calls over <paramref name="staggerTime"/>; <paramref name="invokeAtIndex"/> runs once per snapshot index (subscribers handle their own exceptions).
+        /// </summary>
+        private static IEnumerator StaggeredInvokeCore(float staggerTime, int count, Action<int> invokeAtIndex)
         {
-            int count = snapshot.Length;
             if (count == 0) yield break;
 
             float perDelay = staggerTime / count;
@@ -82,13 +102,8 @@ namespace OverTheCounter.Patches
                     yield return new WaitForSeconds(delay);
                 waitOverflow += Time.timeSinceLevelLoad - before - perDelay;
 
-                if (snapshot[i] != null)
-                {
-                    try { snapshot[i](); }
-                    catch { /* individual failures don't corrupt iteration */ }
-                }
+                invokeAtIndex(i);
             }
         }
-#endif
     }
 }
