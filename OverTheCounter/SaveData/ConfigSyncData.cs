@@ -136,7 +136,7 @@ namespace OverTheCounter.SaveData
         private static void CleanupImpl() => NetworkSyncBridge.Cleanup();
 
         /// <summary>
-        /// Called by host after config changes (e.g. ModsApp Apply postfix).
+        /// Called by host after config changes (see <see cref="OverTheCounter.Config.SubscribeToChanges"/>).
         /// Updates the saveable payload and pushes to SyncVar for connected clients.
         /// </summary>
         public void RefreshFromConfig()

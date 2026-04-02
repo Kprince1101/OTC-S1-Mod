@@ -179,7 +179,7 @@ namespace OverTheCounter.UI
                     _mapRect.sizeDelta = new Vector2(_displaySize, _displaySize);
                 }
 
-                // React to MinimapEnabled being toggled via config/ModsApp
+                // React to MinimapEnabled being toggled via MelonPreferences
                 if (Config.MinimapEnabled.Value && !_visible)
                 {
                     _zoom = Mathf.Clamp(Config.MinimapDefaultZoom.Value, 1, 3);

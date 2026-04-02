@@ -61,8 +61,6 @@ namespace OverTheCounter
                 catch (Exception ex) { OTCLog.Error(OTCLog.Systems.Patch, $"Failed to patch {type.FullName}: {ex.Message}"); }
             NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
             StackSizePatch.Apply(HarmonyInstance);
-            ConfigSyncPatch.TryApply(HarmonyInstance);
-
             ManagerClipboardPatch.Apply(HarmonyInstance);
             try
             {
