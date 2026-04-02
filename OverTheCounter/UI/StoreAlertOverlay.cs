@@ -264,7 +264,7 @@ namespace OverTheCounter.UI
                     for (int j = i; j < BuildingIds.Length; j++)
                     {
                         if (_alerts.TryGetValue(BuildingIds[j], out var d))
-                            _blocks.Add(CreateBlock(BuildingIds[j], d));
+                            CreateBlock(BuildingIds[j], d);
                     }
                     return;
                 }
@@ -285,7 +285,7 @@ namespace OverTheCounter.UI
             }
         }
 
-        private BuildingBlock CreateBlock(string buildingId, AlertData data)
+        private void CreateBlock(string buildingId, AlertData data)
         {
             var root = new GameObject("AlertBlock_" + buildingId);
             root.transform.SetParent(_panelObj.transform, false);
@@ -339,13 +339,13 @@ namespace OverTheCounter.UI
             TMPFactory.SetWrapping(detailLabel, false);
             UpdateBlockText(detailLabel, data);
 
-            return new BuildingBlock
+            _blocks.Add(new BuildingBlock
             {
                 BuildingId = buildingId,
                 Root = root,
                 NameLabel = nameLabel,
                 DetailLabel = detailLabel
-            };
+            });
         }
 
         private static void UpdateBlockText(TextMeshProUGUI label, AlertData data)

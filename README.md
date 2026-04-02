@@ -1,6 +1,6 @@
 # OverTheCounter for Schedule I
 
-**OverTheCounter** is now a dispensary simulation mod packed with other additions. Build and run your own storefronts where customer NPCs physically walk in, browse your shelves, and buy product at the counter. Hire budtenders to handle checkout autonomously, customize your interiors, and manage everything from a phone app. Stack it with the existing Manager automation, Smart Fill logistics, and dynamic world events for a full empire.
+**OverTheCounter** is now a dispensary simulation mod packed with other additions. Build and run your own storefronts where customer NPCs physically walk in, consult with a budtender, and buy product at the counter. Hire budtenders to handle checkout autonomously, customize your interiors, and manage everything from a phone app. Stack it with the existing Manager automation, Smart Fill logistics, and dynamic world events for a full empire.
 
 > **DUAL BUILD:** This mod ships both `OverTheCounter.Il2Cpp.dll` and `OverTheCounter.Mono.dll`.
 > Install **[OTC Loader](https://www.nexusmods.com/schedule1/mods/1698)** (optional, recommended) to automatically detect your game branch and load the correct DLL.

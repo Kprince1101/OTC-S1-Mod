@@ -23,7 +23,7 @@ using Il2CppFishNet.Object;
 using FishNet.Object;
 #endif
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "2.0.0", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "2.0.1", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 [assembly: MelonOptionalDependencies("SteamNetworkLib")]
 [assembly: HarmonyDontPatchAll]

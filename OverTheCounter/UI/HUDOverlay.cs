@@ -87,6 +87,13 @@ namespace OverTheCounter.UI
             public const float Rise = 40f;
         }
 
+        private enum DropChannel
+        {
+            Health,
+            Stamina,
+            XP
+        }
+
         public static void Register()
         {
 #if IL2CPP
@@ -353,7 +360,7 @@ namespace OverTheCounter.UI
                 {
                     float delta = current - _lastHealth;
                     if (Mathf.Abs(delta) >= 0.5f)
-                        SpawnDrop(_healthBarObj, _healthDrops, delta, "Health");
+                        SpawnDrop(_healthBarObj, DropChannel.Health, delta, "Health");
                 }
                 _lastHealth = current;
             }
@@ -380,7 +387,7 @@ namespace OverTheCounter.UI
                 {
                     float delta = current - _lastStamina;
                     if (Mathf.Abs(delta) >= 2f)
-                        SpawnDrop(_staminaBarObj, _staminaDrops, delta, "Stamina",
+                        SpawnDrop(_staminaBarObj, DropChannel.Stamina, delta, "Stamina",
                             new Color(0.7f, 0.55f, 0.15f, 1f));
                 }
                 _lastStamina = current;
@@ -423,10 +430,13 @@ namespace OverTheCounter.UI
                 _lastKnownXP = xp;
                 _lastKnownTier = tier;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"HUD overlay XP bar update: {ex.Message}");
+            }
         }
 
-        private void SpawnDrop(GameObject barObj, List<DropLabel> list, float delta, string suffix, Color? negativeColor = null)
+        private void SpawnDrop(GameObject barObj, DropChannel channel, float delta, string suffix, Color? negativeColor = null)
         {
             if (barObj == null || _canvasRect == null) return;
             int rounded = Mathf.RoundToInt(delta);
@@ -453,7 +463,7 @@ namespace OverTheCounter.UI
                 label.text = $"{rounded}";
             }
 
-            PositionDrop(dropObj, barRect, list);
+            PositionDrop(dropObj, barRect, channel);
         }
 
         private void SpawnXPDrop(int delta, bool levelUp = false, int levels = 1)
@@ -490,10 +500,10 @@ namespace OverTheCounter.UI
                 label.text = levels == 1 ? "+1 Level" : $"+{levels} Levels";
             }
 
-            PositionDrop(dropObj, barRect, _xpDrops);
+            PositionDrop(dropObj, barRect, DropChannel.XP);
         }
 
-        private void PositionDrop(GameObject dropObj, RectTransform barRect, List<DropLabel> targetList)
+        private void PositionDrop(GameObject dropObj, RectTransform barRect, DropChannel channel)
         {
             var dropRect = dropObj.GetComponent<RectTransform>();
 
@@ -512,14 +522,27 @@ namespace OverTheCounter.UI
             dropRect.sizeDelta = new Vector2(barWidth, 20f);
             dropRect.anchoredPosition = new Vector2(startX, startY);
 
-            targetList.Add(new DropLabel
+            var entry = new DropLabel
             {
                 Label = dropObj.GetComponent<TextMeshProUGUI>(),
                 Rect = dropRect,
                 Timer = 0f,
                 StartY = startY,
                 StartX = startX
-            });
+            };
+
+            switch (channel)
+            {
+                case DropChannel.Health:
+                    _healthDrops.Add(entry);
+                    break;
+                case DropChannel.Stamina:
+                    _staminaDrops.Add(entry);
+                    break;
+                case DropChannel.XP:
+                    _xpDrops.Add(entry);
+                    break;
+            }
         }
 
         private static void UpdateDrops(List<DropLabel> drops)

@@ -40,6 +40,9 @@ namespace OverTheCounter.Patches
                 if (endRpcLogic != null)
                     harmony.Patch(endRpcLogic,
                         postfix: new HarmonyMethod(typeof(SupplierWarehousePatch), nameof(EndMeeting_Postfix)));
+                else
+                    OTCLog.Warning(OTCLog.Systems.Patch,
+                        "SupplierWarehousePatch: RpcLogic EndMeeting not found; client warehouse warp after meeting may be incomplete");
 
                 var getLocation = AccessTools.Method(typeof(Supplier), "GetAppropriateLocation");
                 if (getLocation != null)
@@ -111,11 +114,9 @@ namespace OverTheCounter.Patches
         }
 
         /// <summary>Resolves FishNet-generated RpcLogic for EndMeeting when present.</summary>
+        /// <remarks>Hardcoded IL2CPP RpcLogic names drift; scanning avoids failed AccessTools lookups that spam the log.</remarks>
         private static System.Reflection.MethodBase ResolveEndMeetingRpcLogicMethod()
         {
-#if IL2CPP
-            return AccessTools.Method(typeof(Supplier), "RpcLogic___EndMeeting_2166136261");
-#else
             const System.Reflection.BindingFlags flags =
                 System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
             foreach (var m in typeof(Supplier).GetMethods(flags))
@@ -127,7 +128,6 @@ namespace OverTheCounter.Patches
                 return m;
             }
             return null;
-#endif
         }
 
         /// <summary>
