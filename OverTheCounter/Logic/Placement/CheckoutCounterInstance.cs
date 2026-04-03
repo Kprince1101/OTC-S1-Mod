@@ -582,17 +582,34 @@ namespace OverTheCounter.Logic.Placement
             Screen?.Cleanup();
             Screen = null;
             _checkoutInteractable = null;
-            _registerInstance = null;
-            _registerInteractable = null;
-            _registerBalance = 0f;
-            _peripheralAnchor = null;
-            _deskTransform = null;
-            _counterStorageEntity = null;
             foreach (var item in _deskDisplayItems)
             {
                 if (item != null) UnityEngine.Object.Destroy(item);
             }
             _deskDisplayItems.Clear();
+            if (_registerInstance != null)
+            {
+                UnityEngine.Object.Destroy(_registerInstance);
+                _registerInstance = null;
+            }
+            _registerInteractable = null;
+            if (_peripheralAnchor != null)
+            {
+                UnityEngine.Object.Destroy(_peripheralAnchor);
+                _peripheralAnchor = null;
+            }
+            if (_taskLight != null)
+            {
+                UnityEngine.Object.Destroy(_taskLight);
+                _taskLight = null;
+            }
+            if (_deskTransform != null)
+            {
+                UnityEngine.Object.Destroy(_deskTransform.gameObject);
+                _deskTransform = null;
+            }
+            _registerBalance = 0f;
+            _counterStorageEntity = null;
             Queue.Clear();
             LockHolder = "";
         }
