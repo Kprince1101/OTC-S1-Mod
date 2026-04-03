@@ -37,6 +37,7 @@ namespace OverTheCounter
         private DrifterManager _drifterManager;
         private ManagerController _managerManager;
         private CustomerManager _customerManager;
+        private bool _multiplayerDepChecked;
 
         public override void OnInitializeMelon()
         {
@@ -410,6 +411,23 @@ namespace OverTheCounter
                 PerfTracker.Begin("SyncMessages");
                 ConfigSyncData.ProcessMessages();
                 PerfTracker.End("SyncMessages");
+
+                // Check for SteamNetworkLib when a second player joins the lobby.
+                if (!_multiplayerDepChecked && !ConfigSyncData.IsNetworkLibAvailable)
+                {
+#if IL2CPP
+                    var lobby = Il2CppScheduleOne.DevUtilities.Singleton<Il2CppScheduleOne.Networking.Lobby>.Instance;
+#else
+                    var lobby = ScheduleOne.Networking.Lobby.Instance;
+#endif
+                    if (lobby != null && lobby.IsInLobby && lobby.PlayerCount > 1)
+                    {
+                        _multiplayerDepChecked = true;
+                        DependencyChecker.RunMultiplayerChecks();
+                        if (DependencyChecker.HasMultiplayerIssues)
+                            DependencyChecker.ShowMultiplayerPopup();
+                    }
+                }
 
                 PerfTracker.Begin("SaveDataTicks");
                 _notificationManager.ProcessContractState();

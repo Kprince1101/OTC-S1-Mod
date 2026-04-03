@@ -24,8 +24,11 @@ namespace OverTheCounter.UI
     /// </summary>
     public static class DependencyChecker
     {
-        /// <summary>Whether any required dependency is missing or outdated.</summary>
+        /// <summary>Whether any required startup dependency is missing or outdated.</summary>
         public static bool HasMissingDeps { get; private set; }
+
+        /// <summary>Whether multiplayer dependencies are missing, outdated, or misplaced.</summary>
+        public static bool HasMultiplayerIssues { get; private set; }
 
         private struct DepResult
         {
@@ -40,6 +43,7 @@ namespace OverTheCounter.UI
         }
 
         private static DepResult[] _results;
+        private static DepResult[] _multiplayerResults;
 
         /// <summary>
         /// Scans loaded assemblies for required OTC dependencies and sets <see cref="HasMissingDeps"/>.
@@ -99,6 +103,54 @@ namespace OverTheCounter.UI
             }
             OTCLog.Warning(OTCLog.Systems.General,
                 "OTC features are disabled until all dependencies are installed/updated.");
+        }
+
+        /// <summary>
+        /// Checks multiplayer-specific dependencies (SteamNetworkLib).
+        /// Called at runtime when a second player joins the lobby.
+        /// </summary>
+        public static void RunMultiplayerChecks()
+        {
+            var modsDir = MelonEnvironment.ModsDirectory;
+            var profileDir = Path.GetDirectoryName(modsDir);
+            var pluginsDir = Path.Combine(profileDir, "Plugins");
+            var userLibsDir = Path.Combine(profileDir, "UserLibs");
+            var folders = new[] { modsDir, pluginsDir, userLibsDir };
+
+            _multiplayerResults = new[]
+            {
+                Check("SteamNetworkLib", "SteamNetworkLib",
+                    "Install SteamNetworkLib. Place the DLL in your UserLibs folder.",
+                    minVersion: "1.2.1",
+                    expectedFolder: "UserLibs", folderPaths: folders),
+            };
+
+            HasMultiplayerIssues = Array.Exists(_multiplayerResults, r => !r.Found || !r.VersionOk);
+
+            if (!HasMultiplayerIssues) return;
+
+            OTCLog.Warning(OTCLog.Systems.Network, "=== Multiplayer Dependency Issue ===");
+            foreach (var r in _multiplayerResults)
+            {
+                if (!r.Found && r.MisplacedPath != null)
+                {
+                    var fileName = Path.GetFileName(r.MisplacedPath);
+                    var wrongFolder = Path.GetFileName(Path.GetDirectoryName(r.MisplacedPath));
+                    OTCLog.Warning(OTCLog.Systems.Network,
+                        $"  MISPLACED: {r.Name}, found {fileName} in {wrongFolder}, expected {r.ExpectedFolder}");
+                }
+                else if (!r.Found)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Network, $"  MISSING: {r.Name}");
+                }
+                else if (!r.VersionOk)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Network,
+                        $"  OUTDATED: {r.Name} (v{r.Version}, requires v{r.MinVersion})");
+                }
+            }
+            OTCLog.Warning(OTCLog.Systems.Network,
+                "OTC multiplayer sync is disabled. Install SteamNetworkLib and restart.");
         }
 
         private static DepResult Check(string name, string assemblyPrefix, string instruction,
@@ -279,16 +331,38 @@ namespace OverTheCounter.UI
         }
 
         /// <summary>
-        /// Creates a standalone overlay popup listing missing/outdated dependencies.
+        /// Creates a standalone overlay popup listing missing/outdated startup dependencies.
         /// Safe to call multiple times — skips if already visible.
         /// </summary>
         public static void ShowPopup()
         {
             if (_results == null) return;
             if (GameObject.Find("OTC_DepCheckCanvas") != null) return;
+            BuildPopup("OTC_DepCheckCanvas",
+                "OverTheCounter - Missing Dependencies",
+                "OTC requires these mods to function.\nInstall the missing mods and restart the game.",
+                _results, 540);
+        }
 
+        /// <summary>
+        /// Creates a standalone overlay popup for missing multiplayer dependencies.
+        /// Safe to call multiple times — skips if already visible.
+        /// </summary>
+        public static void ShowMultiplayerPopup()
+        {
+            if (_multiplayerResults == null) return;
+            if (GameObject.Find("OTC_MultiplayerDepCanvas") != null) return;
+            BuildPopup("OTC_MultiplayerDepCanvas",
+                "OverTheCounter - Multiplayer Sync",
+                "The following mod is required for co-op features to work between players.",
+                _multiplayerResults, 360);
+        }
+
+        private static void BuildPopup(string canvasName, string title, string subtitle,
+            DepResult[] results, float panelHeight)
+        {
             // Canvas — ScreenSpaceOverlay at highest sort order
-            var canvasGO = new GameObject("OTC_DepCheckCanvas");
+            var canvasGO = new GameObject(canvasName);
             var canvas = canvasGO.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 9999;
@@ -299,7 +373,7 @@ namespace OverTheCounter.UI
             canvasGO.AddComponent<GameCanvasScaler>();
             canvasGO.AddComponent<GraphicRaycaster>();
 
-            // Dark backdrop — blocks interaction with main menu
+            // Dark backdrop
             var backdropGO = new GameObject("Backdrop");
             backdropGO.transform.SetParent(canvasGO.transform, false);
             var backdropRT = backdropGO.AddComponent<RectTransform>();
@@ -310,13 +384,13 @@ namespace OverTheCounter.UI
             var backdropImg = backdropGO.AddComponent<Image>();
             backdropImg.color = new Color(0f, 0f, 0f, 0.75f);
 
-            // Center panel — taller to accommodate version/misplacement details
+            // Center panel
             var panelGO = new GameObject("Panel");
             panelGO.transform.SetParent(canvasGO.transform, false);
             var panelRT = panelGO.AddComponent<RectTransform>();
             panelRT.anchorMin = new Vector2(0.5f, 0.5f);
             panelRT.anchorMax = new Vector2(0.5f, 0.5f);
-            panelRT.sizeDelta = new Vector2(720, 540);
+            panelRT.sizeDelta = new Vector2(720, panelHeight);
             var panelImg = panelGO.AddComponent<Image>();
             panelImg.color = new Color(0.1f, 0.1f, 0.12f, 0.97f);
             panelImg.sprite = TMPFactory.GetRoundedSprite();
@@ -330,24 +404,19 @@ namespace OverTheCounter.UI
             vlg.childForceExpandHeight = false;
             vlg.childAlignment = TextAnchor.UpperCenter;
 
-            // Title
-            AddText(panelGO.transform, "Title",
-                "OverTheCounter - Missing Dependencies",
+            AddText(panelGO.transform, "Title", title,
                 24, FontStyles.Bold, Color.white, 40);
 
-            // Subtitle
-            AddText(panelGO.transform, "Subtitle",
-                "OTC requires these mods to function.\nInstall the missing mods and restart the game.",
+            AddText(panelGO.transform, "Subtitle", subtitle,
                 16, FontStyles.Normal, new Color(0.75f, 0.75f, 0.75f), 50, wrap: true);
 
             AddSpacer(panelGO.transform, 8);
 
             // Dependency status lines
-            foreach (var dep in _results)
+            foreach (var dep in results)
             {
                 if (dep.Found && dep.VersionOk)
                 {
-                    // Installed and version OK — green
                     var suffix = dep.Version != null ? $" (v{dep.Version})" : "";
                     AddText(panelGO.transform, dep.Name,
                         dep.Name + "  -  Installed" + suffix,
@@ -355,7 +424,6 @@ namespace OverTheCounter.UI
                 }
                 else if (dep.Found && !dep.VersionOk)
                 {
-                    // Found but outdated — orange
                     AddText(panelGO.transform, dep.Name,
                         $"{dep.Name}  -  Outdated (v{dep.Version}, requires v{dep.MinVersion})",
                         18, FontStyles.Bold, new Color(1f, 0.7f, 0.2f), 30);
@@ -366,7 +434,6 @@ namespace OverTheCounter.UI
                 }
                 else if (dep.MisplacedPath != null)
                 {
-                    // Not loaded but found in wrong folder — red with specific guidance
                     var fileName = Path.GetFileName(dep.MisplacedPath);
                     var wrongFolder = Path.GetFileName(Path.GetDirectoryName(dep.MisplacedPath));
                     AddText(panelGO.transform, dep.Name,
@@ -379,7 +446,6 @@ namespace OverTheCounter.UI
                 }
                 else
                 {
-                    // Not found anywhere — red with generic install instruction
                     AddText(panelGO.transform, dep.Name,
                         dep.Name + "  -  NOT FOUND",
                         18, FontStyles.Bold, new Color(1f, 0.4f, 0.4f), 30);
@@ -392,7 +458,6 @@ namespace OverTheCounter.UI
 
             AddSpacer(panelGO.transform, 12);
 
-            // Dismiss button
             var (mask, btn, _) = TMPFactory.RoundedButtonWithLabel(
                 "Dismiss", "Dismiss", panelGO.transform,
                 new Color(0.25f, 0.25f, 0.3f), 160, 38, 16, Color.white);
