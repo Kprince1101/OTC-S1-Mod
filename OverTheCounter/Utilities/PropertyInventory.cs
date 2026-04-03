@@ -1,4 +1,6 @@
 using OverTheCounter.Logic.Placement;
+using OverTheCounter.SaveData;
+using System;
 using System.Collections.Generic;
 
 #if IL2CPP
@@ -118,6 +120,56 @@ namespace OverTheCounter.Utilities
         }
 
         /// <summary>
+        /// Scans all OTC building grids for unique packaged product IDs currently in stock.
+        /// Filters out products disabled via PricingSaveData.
+        /// Used as a replacement for ProductManager.ListedProducts.
+        /// </summary>
+        public static List<(string productId, string productName)> GetAvailableProductIds()
+        {
+            var seen = new HashSet<string>();
+            var result = new List<(string, string)>();
+
+            foreach (var kvp in BuildingGridFactory.GridRegistry)
+            {
+                try
+                {
+                    var storages = GetStorages(kvp.Key, includePrivate: true);
+                    foreach (var storage in storages)
+                    {
+                        if (storage?.ItemSlots == null) continue;
+                        for (int i = 0; i < storage.ItemSlots.Count; i++)
+                        {
+                            var slot = storage.ItemSlots[i];
+                            if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
+
+#if IL2CPP
+                            var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
+                            var prodDef = productItem?.Definition?.TryCast<ProductDefinition>();
+#else
+                            var productItem = slot.ItemInstance as ProductItemInstance;
+                            var prodDef = productItem?.Definition as ProductDefinition;
+#endif
+                            if (prodDef == null || productItem.AppliedPackaging == null) continue;
+                            if (string.IsNullOrEmpty(prodDef.ID)) continue;
+                            if (PricingSaveData.Instance != null &&
+                                PricingSaveData.Instance.IsSellingDisabled(prodDef.ID))
+                                continue;
+                            if (seen.Add(prodDef.ID))
+                                result.Add((prodDef.ID, prodDef.Name ?? prodDef.name ?? "Product"));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.General,
+                        $"GetAvailableProductIds: error scanning grid: {ex.Message}");
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Returns true if any display storage on this grid contains a packaged product
         /// matching the given drug type.
         /// </summary>
@@ -146,5 +198,6 @@ namespace OverTheCounter.Utilities
             }
             return false;
         }
+
     }
 }

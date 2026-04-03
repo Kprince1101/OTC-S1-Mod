@@ -1,4 +1,5 @@
 using OverTheCounter.Logic.Placement;
+using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using System;
 using System.Collections.Generic;
@@ -999,6 +1000,11 @@ namespace OverTheCounter.Logic
 #endif
                     if (prodDef == null) continue;
 
+                    // Skip products the player has disabled from selling
+                    if (PricingSaveData.Instance != null &&
+                        PricingSaveData.Instance.IsSellingDisabled(prodDef.ID))
+                        continue;
+
                     var effectIds = new List<string>();
                     if (prodDef.Properties != null)
                     {
@@ -1014,7 +1020,7 @@ namespace OverTheCounter.Logic
                         ProductId = prodDef.ID,
                         PackagingId = productItem.AppliedPackaging?.ID,
                         ProductName = prodDef.name ?? "Product",
-                        Price = prodDef.Price > 0 ? prodDef.Price : prodDef.MarketValue,
+                        Price = PricingSaveData.Instance?.GetPrice(prodDef) ?? prodDef.MarketValue,
                         MarketValue = prodDef.MarketValue,
                         QualityLevel = (int)productItem.Quality,
                         AvailableQuantity = slot.Quantity,
@@ -1184,16 +1190,14 @@ namespace OverTheCounter.Logic
                     minMult[obs.ProductId] = obs.PkgMultiplier;
             }
 
-            // 5. Selection — deal customers buy budget-driven, random customers use unit cap
+            // 5. Selection — budget-driven purchasing.
             //    Quantities are in raw product UNITS (not packages).
             //    Customers don't care about packaging — checkout determines that.
-            int totalUnitCap = IsDealCustomer ? 20 : 6;
             float remainingBudget = Preferences.TotalOrderBudget;
             bool useBudget = remainingBudget > 0;
-            int totalUnits = 0;
             var remaining = new List<(ObservedProduct product, float appeal)>(scored);
 
-            while (remaining.Count > 0 && totalUnits < totalUnitCap)
+            while (remaining.Count > 0)
             {
                 if (useBudget && remainingBudget <= 0) break;
 
@@ -1229,8 +1233,13 @@ namespace OverTheCounter.Logic
                         qty = step * 2;
                     qty = Math.Min(qty, pick.product.AvailableQuantity);
                 }
-                qty = Math.Min(qty, totalUnitCap - totalUnits);
                 if (qty <= 0) continue;
+
+                // Vanilla ceiling: Clamp to [1, 1000] per product, then
+                // round large orders to multiples of 5 (same as Customer.DecidePurchases)
+                qty = Mathf.Clamp(qty, 1, 1000);
+                if (qty >= 14)
+                    qty = Mathf.RoundToInt(qty / 5f) * 5;
 
                 // Round qty down to a multiple of the smallest observed packaging
                 // (only saw jars? can only order 5, 10, 15... not 1 or 3)
@@ -1252,7 +1261,6 @@ namespace OverTheCounter.Logic
                     EffectIds = pick.product.EffectIds
                 });
 
-                totalUnits += qty;
                 remainingBudget -= pick.product.Price * qty;
             }
         }

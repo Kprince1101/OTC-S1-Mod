@@ -1,7 +1,10 @@
 using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
+using OverTheCounter.Utilities;
 using S1MAPI.S1;
+using System;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -256,6 +259,36 @@ namespace OverTheCounter.Apps
                 Dispensary.CurrentFloorStyleId = styleId;
                 if (mat != null) Dispensary.SwapFloorMaterial(mat);
             }
+        }
+
+        // ==================================================================
+        //  Shared resource sprite loader (base Resources/ path)
+        // ==================================================================
+
+        private static Sprite _chevronSprite;
+
+        private static Sprite GetChevronSprite()
+        {
+            if (_chevronSprite != null) return _chevronSprite;
+            try
+            {
+                string resourceName = "OverTheCounter.Resources.ChevronIcon.png";
+                using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
+                if (stream == null) return null;
+
+                byte[] data = new byte[stream.Length];
+                stream.Read(data, 0, data.Length);
+
+                var tex = new Texture2D(2, 2);
+                if (!ImageConversion.LoadImage(tex, data)) return null;
+
+                _chevronSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.General, $"Failed to load chevron sprite: {ex.Message}");
+            }
+            return _chevronSprite;
         }
     }
 }

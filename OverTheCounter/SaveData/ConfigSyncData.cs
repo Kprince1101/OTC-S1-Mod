@@ -223,6 +223,28 @@ namespace OverTheCounter.SaveData
         private static void PublishCustomerStateImpl(string payload) => NetworkSyncBridge.PushCustomerState(payload);
 
         /// <summary>
+        /// Publishes pricing state to the dedicated pricing SyncVar.
+        /// </summary>
+        public void PublishPricingState()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                string pricingState = PricingSaveData.Instance?.Serialize() ?? "";
+                if (IsNetworkLibAvailable)
+                    PublishPricingStateImpl(pricingState);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Network, $"PublishPricingState failed: {ex.Message}");
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PublishPricingStateImpl(string payload) => NetworkSyncBridge.PushPricingState(payload);
+
+        /// <summary>
         /// Publishes each active manager to its own SyncVar slot.
         /// Separate from PublishGameState to avoid lobby data truncation.
         /// </summary>
@@ -531,6 +553,23 @@ namespace OverTheCounter.SaveData
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Network, $"HandleCheckoutStateChanged failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Client callback: host pricing SyncVar changed — apply to PricingSaveData.
+        /// </summary>
+        internal static void HandlePricingChanged(string newValue)
+        {
+            try
+            {
+                if (PricingSaveData.Instance == null) return;
+                PricingSaveData.Instance.Deserialize(newValue);
+                OTCLog.Msg(OTCLog.Systems.Network, $"Client applied pricing state from SyncVar ({newValue?.Length ?? 0} chars).");
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Network, $"HandlePricingChanged failed: {ex.Message}");
             }
         }
 

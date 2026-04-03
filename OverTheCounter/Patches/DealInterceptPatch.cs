@@ -103,23 +103,6 @@ namespace OverTheCounter.Patches
                 return false;
             }
 
-            // Check that the player has listed a product of this drug type in the Products app
-            bool hasListedProduct = false;
-            var listedProducts = ProductManager.ListedProducts;
-            if (listedProducts != null)
-            {
-                for (int i = 0; i < listedProducts.Count; i++)
-                {
-                    if (listedProducts[i] != null && listedProducts[i].DrugType == drugType)
-                    {
-                        hasListedProduct = true;
-                        break;
-                    }
-                }
-            }
-            if (!hasListedProduct)
-                return false;
-
             // Check operating hours (including 30-min cutoff buffer)
             if (!DispensaryDealManager.IsWithinOperatingHours())
             {

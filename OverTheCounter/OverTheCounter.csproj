@@ -288,6 +288,7 @@
 		<Compile Include="Apps\GreenTabApp.OverviewTab.cs" />
 		<Compile Include="Apps\GreenTabApp.SalesTab.cs" />
 		<Compile Include="Apps\GreenTabApp.InventoryTab.cs" />
+		<Compile Include="Apps\GreenTabApp.ProductDetail.cs" />
 		<Compile Include="Apps\GreenTabApp.EmployeesTab.cs" />
 		<Compile Include="Core.cs" />
 		<Compile Include="DebugHelpers.cs" />
@@ -336,6 +337,7 @@
 		<Compile Include="SaveData\VicSaveData.cs" />
 		<Compile Include="SaveData\StaticSaveData.cs" />
 		<Compile Include="SaveData\PropertySaveData.cs" />
+		<Compile Include="SaveData\PricingSaveData.cs" />
 		<Compile Include="SaveData\StaticThreadSaveData.cs" />
 		<Compile Include="NPCs\StaticNPC.cs" />
 		<Compile Include="Quests\VicIntroQuest.cs" />

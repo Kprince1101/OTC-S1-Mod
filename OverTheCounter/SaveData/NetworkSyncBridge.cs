@@ -48,6 +48,7 @@ namespace OverTheCounter.SaveData
         private static HostSyncVar<string> _mgrMsgVar;
         private static HostSyncVar<string> _drifterMsgVar;
         private static HostSyncVar<string> _checkoutVar;
+        private static HostSyncVar<string> _pricingVar;
         private static ClientSyncVar<string> _actionVar;
 
         internal const int ManagerSlotCount = 8;
@@ -100,6 +101,7 @@ namespace OverTheCounter.SaveData
                 _mgrMsgVar = _netClient.CreateHostSyncVar("mgrmsg", "", _syncOptions);
                 _drifterMsgVar = _netClient.CreateHostSyncVar("driftermsg", "", _syncOptions);
                 _checkoutVar = _netClient.CreateHostSyncVar("chk", "", _syncOptions);
+                _pricingVar = _netClient.CreateHostSyncVar("pricing", "", _syncOptions);
                 _actionVar = _netClient.CreateClientSyncVar("action", "", _syncOptions);
 
                 for (int i = 0; i < ManagerSlotCount; i++)
@@ -118,6 +120,7 @@ namespace OverTheCounter.SaveData
                 _mgrMsgVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"MgrMsg SyncVar error: {ex.Message}");
                 _drifterMsgVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"DrifterMsg SyncVar error: {ex.Message}");
                 _checkoutVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Checkout SyncVar error: {ex.Message}");
+                _pricingVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Pricing SyncVar error: {ex.Message}");
                 _actionVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Action SyncVar error: {ex.Message}");
                 _configVar.OnWriteIgnored += (_) => { OTCLog.Msg(OTCLog.Systems.Network, "Config SyncVar write ignored (not lobby owner)."); };
                 _stateVar.OnWriteIgnored += (_) => { OTCLog.Msg(OTCLog.Systems.Network, "State SyncVar write ignored (not lobby owner)."); };
@@ -130,6 +133,7 @@ namespace OverTheCounter.SaveData
                 _mgrMsgVar.OnValueChanged += OnManagerMessageChanged;
                 _drifterMsgVar.OnValueChanged += OnDrifterMessageChanged;
                 _checkoutVar.OnValueChanged += OnCheckoutChanged;
+                _pricingVar.OnValueChanged += OnPricingChanged;
 
                 // Host callback: receive quest actions from clients.
                 _actionVar.OnValueChanged += OnActionChanged;
@@ -193,6 +197,10 @@ namespace OverTheCounter.SaveData
                     if (_customerVar != null)
                         _customerVar.Value = customerState;
 
+                    string pricingState = PricingSaveData.Instance?.Serialize() ?? "";
+                    if (_pricingVar != null)
+                        _pricingVar.Value = pricingState;
+
                     // Push per-manager slots
                     ConfigSyncData.WriteInitialManagerSlots();
 
@@ -207,6 +215,7 @@ namespace OverTheCounter.SaveData
                     _mgrMsgVar?.Refresh();
                     _drifterMsgVar?.Refresh();
                     _checkoutVar?.Refresh();
+                    _pricingVar?.Refresh();
                     _actionVar?.Refresh();
 
                     OTCLog.Msg(OTCLog.Systems.Network, $"Initial SyncVar sync after lobby discovery (lobbyHost={_netClient.IsHost}).");
@@ -309,6 +318,7 @@ namespace OverTheCounter.SaveData
             _mgrMsgVar = null;
             _drifterMsgVar = null;
             _checkoutVar = null;
+            _pricingVar = null;
             _actionVar = null;
             _processedActions.Clear();
             _lastStateRefreshTick = 0;
@@ -372,6 +382,12 @@ namespace OverTheCounter.SaveData
         {
             if (_checkoutVar != null)
                 _checkoutVar.Value = payload;
+        }
+
+        internal static void PushPricingState(string payload)
+        {
+            if (_pricingVar != null)
+                _pricingVar.Value = payload;
         }
 
         internal static string GetLocalPlayerId()
@@ -469,6 +485,12 @@ namespace OverTheCounter.SaveData
         {
             if (_netClient?.IsHost == true) return;
             ConfigSyncData.HandleCheckoutStateChanged(newValue ?? "");
+        }
+
+        private static void OnPricingChanged(string oldValue, string newValue)
+        {
+            if (_netClient?.IsHost == true) return;
+            ConfigSyncData.HandlePricingChanged(newValue ?? "");
         }
 
         private static void OnActionChanged(CSteamID sender, string oldValue, string newValue)

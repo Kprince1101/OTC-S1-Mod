@@ -30,6 +30,7 @@ using Il2CppScheduleOne.UI;
 using Il2CppScheduleOne.VoiceOver;
 using ProductItemInstance = Il2CppScheduleOne.Product.ProductItemInstance;
 using ProductDefinition = Il2CppScheduleOne.Product.ProductDefinition;
+using PackagingDefinition = Il2CppScheduleOne.Product.Packaging.PackagingDefinition;
 using NativeMoneyManager = Il2CppScheduleOne.Money.MoneyManager;
 using NativeStorableItemDef = Il2CppScheduleOne.ItemFramework.StorableItemDefinition;
 using ItemSlot = Il2CppScheduleOne.ItemFramework.ItemSlot;
@@ -48,6 +49,7 @@ using ScheduleOne.UI;
 using ScheduleOne.VoiceOver;
 using ProductItemInstance = ScheduleOne.Product.ProductItemInstance;
 using ProductDefinition = ScheduleOne.Product.ProductDefinition;
+using PackagingDefinition = ScheduleOne.Product.Packaging.PackagingDefinition;
 using NativeMoneyManager = ScheduleOne.Money.MoneyManager;
 using NativeStorableItemDef = ScheduleOne.ItemFramework.StorableItemDefinition;
 using ItemSlot = ScheduleOne.ItemFramework.ItemSlot;
@@ -112,6 +114,13 @@ namespace OverTheCounter.Logic
             public ProductDefinition ProductDef;
             public ItemSlot SourceSlot;     // storage slot to consume from (null if from player inventory)
             public int HotbarIndex;         // player hotbar index (-1 if from storage)
+
+            /// <summary>
+            /// Multi-source refs for auto-packaged entries. When non-null, ConsumeFromSource
+            /// iterates these instead of using SourceSlot/HotbarIndex.
+            /// Each tuple: (slot, hotbarIdx, count) — decrement 'count' times from source.
+            /// </summary>
+            public List<(ItemSlot slot, int hotbarIdx, int count)> SourceRefs;
         }
 
         // Constants
@@ -1547,6 +1556,7 @@ namespace OverTheCounter.Logic
                     candidates.Sort((a, b) => b.mult.CompareTo(a.mult));
 
                     // Greedy fill: largest packaging first, floor division (never overshoot)
+                    int startIdx = _availableProducts.Count;
                     int unitsFound = 0;
                     foreach (var c in candidates)
                     {
@@ -1575,6 +1585,10 @@ namespace OverTheCounter.Logic
                         }
                     }
 
+                    // Auto-package: consolidate small packages into largest valid packaging
+                    if (_availableProducts.Count - startIdx > 1)
+                        ConsolidateAvailableEntries(startIdx, selection.Price);
+
                     if (unitsFound < unitsRemaining)
                         _missingProductKeys.Add(selection.ProductId);
                 }
@@ -1584,6 +1598,159 @@ namespace OverTheCounter.Logic
             {
                 OTCLog.Warning(OTCLog.Systems.Customer,$"SearchAndShowAvailable failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Auto-packaging: consolidates entries [startIdx..end) into the largest valid packaging.
+        /// E.g., 5 baggies (1 unit each) → 1 jar (5 units). The budtender repackages at the counter.
+        /// pricePerUnit is the per-unit selling price from the customer selection.
+        /// </summary>
+        private void ConsolidateAvailableEntries(int startIdx, float pricePerUnit)
+        {
+            int count = _availableProducts.Count - startIdx;
+            if (count <= 1) return;
+
+            var prodDef = _availableProducts[startIdx].ProductDef;
+            if (prodDef?.ValidPackaging == null || prodDef.ValidPackaging.Length <= 1)
+                return; // no alternative packaging to consolidate into
+
+            // Sum total units and find the largest packaging already present
+            int totalUnits = 0;
+            int largestCurrentMult = 0;
+            for (int i = startIdx; i < _availableProducts.Count; i++)
+            {
+                totalUnits += _availableProducts[i].UnitCount;
+                if (_availableProducts[i].UnitCount > largestCurrentMult)
+                    largestCurrentMult = _availableProducts[i].UnitCount;
+            }
+
+            if (totalUnits <= 0) return;
+
+            // Find the largest valid packaging we could use
+            int largestValidMult = 0;
+            for (int p = prodDef.ValidPackaging.Length - 1; p >= 0; p--)
+            {
+                var pkg = prodDef.ValidPackaging[p];
+                if (pkg != null && pkg.Quantity > 0 && pkg.Quantity <= totalUnits)
+                {
+                    largestValidMult = pkg.Quantity;
+                    break;
+                }
+            }
+
+            // If already at optimal packaging, nothing to do
+            if (largestCurrentMult >= largestValidMult) return;
+
+            // Snapshot original entries for source mapping
+            var originals = new List<AvailableProduct>();
+            for (int i = startIdx; i < _availableProducts.Count; i++)
+                originals.Add(_availableProducts[i]);
+
+            // Remove old entries
+            _availableProducts.RemoveRange(startIdx, count);
+
+            // Redistribute from largest packaging to smallest
+            int remaining = totalUnits;
+            int origIdx = 0;      // cursor into originals for source assignment
+            int origUnitDebt = 0; // units consumed from originals[origIdx] so far
+
+            for (int p = prodDef.ValidPackaging.Length - 1; p >= 0 && remaining > 0; p--)
+            {
+                var pkg = prodDef.ValidPackaging[p];
+                if (pkg == null || pkg.Quantity <= 0) continue;
+
+                int pkgCount = remaining / pkg.Quantity;
+                if (pkgCount <= 0) continue;
+                remaining -= pkgCount * pkg.Quantity;
+
+                // Get visual from this packaging's StoredItem_Filled
+                GameObject visual = null;
+                try
+                {
+                    var storedItem = pkg.StoredItem_Filled;
+                    if (storedItem != null) visual = storedItem.gameObject;
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.General,
+                        $"ConsolidateAvailableEntries: failed to get StoredItem_Filled visual: {ex.Message}");
+                }
+
+                // Fall back to any original's visual if packaging visual unavailable
+                if (visual == null && originals.Count > 0)
+                    visual = originals[0].VisualPrefab;
+
+                for (int i = 0; i < pkgCount; i++)
+                {
+                    // Build SourceRefs by consuming original entries' units
+                    var sourceRefs = new List<(ItemSlot slot, int hotbarIdx, int count)>();
+                    int unitsNeeded = pkg.Quantity;
+
+                    while (unitsNeeded > 0 && origIdx < originals.Count)
+                    {
+                        var orig = originals[origIdx];
+                        int origUnitsLeft = orig.UnitCount - origUnitDebt;
+
+                        if (origUnitsLeft <= 0)
+                        {
+                            origIdx++;
+                            origUnitDebt = 0;
+                            continue;
+                        }
+
+                        // How many source decrements does this original entry represent?
+                        // Each original entry = 1 package in its source slot
+                        // We consume whole original entries (each = 1 slot decrement)
+                        // Track by units: take min(unitsNeeded, origUnitsLeft)
+                        int unitsFromThis = Math.Min(unitsNeeded, origUnitsLeft);
+                        origUnitDebt += unitsFromThis;
+                        unitsNeeded -= unitsFromThis;
+
+                        // If we fully consumed this original entry, it means 1 decrement from source
+                        if (origUnitDebt >= orig.UnitCount)
+                        {
+                            // Find existing ref for this source or add new
+                            AddSourceRef(sourceRefs, orig.SourceSlot, orig.HotbarIndex, 1);
+                            origIdx++;
+                            origUnitDebt = 0;
+                        }
+                        // If partially consumed (shouldn't happen for integer packaging),
+                        // we'll consume the rest on next iteration
+                    }
+
+                    _availableProducts.Add(new AvailableProduct
+                    {
+                        ProductId = originals[0].ProductId,
+                        PackagingId = pkg.ID,
+                        ProductName = originals[0].ProductName,
+                        Price = pricePerUnit * pkg.Quantity,
+                        QualityLevel = originals[0].QualityLevel,
+                        UnitCount = pkg.Quantity,
+                        VisualPrefab = visual,
+                        ProductDef = prodDef,
+                        SourceSlot = null,
+                        HotbarIndex = -1,
+                        SourceRefs = sourceRefs
+                    });
+                }
+            }
+
+            // Any entries with packaging matching originals (mult == 1 leftover) that weren't
+            // consolidated keep their original single-source tracking
+        }
+
+        private static void AddSourceRef(List<(ItemSlot slot, int hotbarIdx, int count)> refs,
+            ItemSlot slot, int hotbarIdx, int addCount)
+        {
+            for (int i = 0; i < refs.Count; i++)
+            {
+                if (refs[i].slot == slot && refs[i].hotbarIdx == hotbarIdx)
+                {
+                    refs[i] = (slot, hotbarIdx, refs[i].count + addCount);
+                    return;
+                }
+            }
+            refs.Add((slot, hotbarIdx, addCount));
         }
 
         /// <summary>Collects candidate packages from a StorageEntity matching productId.</summary>
@@ -1728,7 +1895,18 @@ namespace OverTheCounter.Logic
             => ConsumeFromSource(product.SourceSlot, product.HotbarIndex, product.ProductName);
 
         private static void ConsumeFromSource(AvailableProduct product)
-            => ConsumeFromSource(product.SourceSlot, product.HotbarIndex, product.ProductName);
+        {
+            if (product.SourceRefs != null && product.SourceRefs.Count > 0)
+            {
+                foreach (var (slot, hotbarIdx, count) in product.SourceRefs)
+                    for (int i = 0; i < count; i++)
+                        ConsumeFromSource(slot, hotbarIdx, product.ProductName);
+            }
+            else
+            {
+                ConsumeFromSource(product.SourceSlot, product.HotbarIndex, product.ProductName);
+            }
+        }
 
         /// <summary>
         /// Removes all visual setter components from a cloned product GameObject.
@@ -1795,9 +1973,9 @@ namespace OverTheCounter.Logic
 
                 // Apply packaging
 #if IL2CPP
-                var packDef = Registry.GetItem(product.PackagingId)?.TryCast<Il2CppScheduleOne.Product.Packaging.PackagingDefinition>();
+                var packDef = Registry.GetItem(product.PackagingId)?.TryCast<PackagingDefinition>();
 #else
-                var packDef = GetRegistryItem(product.PackagingId) as ScheduleOne.Product.Packaging.PackagingDefinition;
+                var packDef = GetRegistryItem(product.PackagingId) as PackagingDefinition;
 #endif
                 if (packDef != null)
                     productInstance.SetPackaging(packDef);

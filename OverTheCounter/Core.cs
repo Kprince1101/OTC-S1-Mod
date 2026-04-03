@@ -135,6 +135,7 @@ namespace OverTheCounter
             StaticSaveData.ResetInstance();
             StaticThreadSaveData.ResetInstance();
             PropertySaveData.ResetInstance();
+            PricingSaveData.ResetInstance();
             VicSaveData.ResetInstance();
             BellaSaveData.ResetInstance();
             StaticIntroQuest.ResetInstance();
