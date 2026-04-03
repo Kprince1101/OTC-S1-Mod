@@ -347,7 +347,7 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Applies deal completion rewards: XP, relationship change, tip deposit,
-        /// and cooldown reset. Called after a deal customer finishes checkout.
+        /// and cooldown reset. Called by NPC budtender after a deal customer finishes checkout.
         /// </summary>
         internal static void ApplyDealRewards(CustomerInstance customer, float saleTotal)
         {
@@ -355,7 +355,42 @@ namespace OverTheCounter.Logic
                 return;
 
             var vanillaCustomer = customer.VanillaCustomer;
+            ApplyXPAndRelationship(customer, vanillaCustomer);
 
+            // Tip — based on preferred effect matches
+            float tip = CalculateTip(customer, saleTotal);
+            if (tip > 0f && customer.AssignedCounter != null)
+            {
+                customer.AssignedCounter.DepositToRegister(tip);
+                OTCLog.Msg(OTCLog.Systems.Customer,
+                    $"Deal tip: ${tip:F2} from {vanillaCustomer.NPC?.fullName}");
+            }
+
+            ResetDealCooldown(vanillaCustomer);
+
+            OTCLog.Msg(OTCLog.Systems.Customer,
+                $"Deal rewards applied for {vanillaCustomer.NPC?.fullName}: XP={DealXP}, tip=${tip:F2}, sale=${saleTotal:F2}");
+        }
+
+        /// <summary>
+        /// Applies non-monetary deal rewards: XP, relationship, cooldown reset.
+        /// Used by player checkout path which handles its own tip deposit.
+        /// </summary>
+        internal static void ApplyDealRewardsNonMonetary(CustomerInstance customer, float saleTotal)
+        {
+            if (!customer.IsDealCustomer || customer.VanillaCustomer == null)
+                return;
+
+            var vanillaCustomer = customer.VanillaCustomer;
+            ApplyXPAndRelationship(customer, vanillaCustomer);
+            ResetDealCooldown(vanillaCustomer);
+
+            OTCLog.Msg(OTCLog.Systems.Customer,
+                $"Deal rewards (non-monetary) for {vanillaCustomer.NPC?.fullName}: XP={DealXP}, sale=${saleTotal:F2}");
+        }
+
+        private static void ApplyXPAndRelationship(CustomerInstance customer, Customer vanillaCustomer)
+        {
             // XP — same as vanilla player handover
             try
             {
@@ -384,21 +419,6 @@ namespace OverTheCounter.Logic
             {
                 OTCLog.Warning(OTCLog.Systems.Customer, $"Relationship change failed: {ex.Message}");
             }
-
-            // Tip — based on preferred effect matches
-            float tip = CalculateTip(customer, saleTotal);
-            if (tip > 0f && customer.AssignedCounter != null)
-            {
-                customer.AssignedCounter.DepositToRegister(tip);
-                OTCLog.Msg(OTCLog.Systems.Customer,
-                    $"Deal tip: ${tip:F2} from {vanillaCustomer.NPC?.fullName}");
-            }
-
-            // Reset deal cooldown
-            ResetDealCooldown(vanillaCustomer);
-
-            OTCLog.Msg(OTCLog.Systems.Customer,
-                $"Deal rewards applied for {vanillaCustomer.NPC?.fullName}: XP={DealXP}, tip=${tip:F2}, sale=${saleTotal:F2}");
         }
 
         /// <summary>

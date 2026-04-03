@@ -404,6 +404,7 @@
 		<Compile Include="Logic\Placement\WestvilleShack.cs" />
 		<Compile Include="UI\RecipeOverlay.cs" />
 		<Compile Include="UI\TMPFactory.cs" />
+		<Compile Include="UI\RegisterFloatingText.cs" />
 		<Compile Include="UI\DependencyChecker.cs" />
 		<Compile Include="Patches\RecipePinPatch.cs" />
 		<Compile Include="Patches\CustomerStartPatch.cs" />

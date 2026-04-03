@@ -594,6 +594,15 @@ namespace OverTheCounter.Logic
                     float.TryParse(parts[3], System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out skillBonus);
 
+                // Resolve customer and compute tip once
+                CustomerInstance.Active.TryGetValue(custId, out var customer);
+                float totalTip = 0f;
+                if (customer != null)
+                {
+                    float dealTip = DispensaryDealManager.GetTipAmount(customer, totalPrice);
+                    totalTip = dealTip + totalPrice * skillBonus;
+                }
+
                 // Record sales if product data provided
                 if (parts.Length > 2 && !string.IsNullOrEmpty(parts[2]))
                 {
@@ -602,17 +611,9 @@ namespace OverTheCounter.Logic
                     {
                         int gameDay = S1API.GameTime.TimeManager.ElapsedDays;
                         int gameHour = S1API.GameTime.TimeManager.CurrentTime;
-                        string custName = null;
-                        CustomerInstance tipCustomer = null;
-                        if (CustomerInstance.Active.TryGetValue(custId, out var custLookup))
-                        {
-                            custName = custLookup.GameNpc?.fullName ?? custId;
-                            tipCustomer = custLookup;
-                        }
-                        float tip = DispensaryDealManager.GetTipAmount(tipCustomer, totalPrice);
-                        tip += totalPrice * skillBonus;
+                        string custName = customer?.GameNpc?.fullName ?? custId;
                         string txId = saveData.NextTransactionId();
-                        string buildingId = custLookup?.AssignedCounter?.BuildingId;
+                        string buildingId = customer?.AssignedCounter?.BuildingId;
                         var items = parts[2].Split('~');
                         bool tipRecorded = false;
                         foreach (var item in items)
@@ -623,24 +624,32 @@ namespace OverTheCounter.Logic
                                 System.Globalization.CultureInfo.InvariantCulture, out float price);
                             int.TryParse(fields[3], out int quality);
                             saveData.RecordSale(fields[0], fields[1], 1, price, quality, gameDay,
-                                custName, gameHour, txId, tipRecorded ? 0f : tip, buildingId);
+                                custName, gameHour, txId, tipRecorded ? 0f : totalTip, buildingId);
                             tipRecorded = true;
                         }
                     }
                 }
 
                 // Signal customer to exit and deposit to their assigned counter's register
-                if (CustomerInstance.Active.TryGetValue(custId, out var customer))
+                if (customer != null)
                 {
                     var counter = customer.AssignedCounter;
-                    if (counter != null)
-                        counter.DepositToRegister(totalPrice);
-                    else if (CheckoutCounter.AllCounters.Count > 0)
-                        CheckoutCounter.AllCounters[0].DepositToRegister(totalPrice);
+                    if (counter == null && CheckoutCounter.AllCounters.Count > 0)
+                        counter = CheckoutCounter.AllCounters[0];
 
-                    // Apply deal rewards (tip, XP, relationship) for deal customers
+                    // Deposit sale total
+                    counter?.DepositToRegister(totalPrice);
+
+                    // Deposit tip (deal + skill bonus)
+                    if (totalTip > 0f)
+                        counter?.DepositToRegister(totalTip);
+
+                    // Floating notification above register
+                    UI.RegisterFloatingText.Show(counter, totalPrice, totalTip);
+
+                    // Apply non-monetary deal rewards (XP, relationship, cooldown)
                     if (customer.IsDealCustomer)
-                        DispensaryDealManager.ApplyDealRewards(customer, totalPrice);
+                        DispensaryDealManager.ApplyDealRewardsNonMonetary(customer, totalPrice);
 
                     customer.CheckoutArrivalTime = 0f;
                     customer.ArrivedAtDestination = false;
@@ -2385,9 +2394,19 @@ namespace OverTheCounter.Logic
                     OTCLog.Warning(OTCLog.Systems.Customer,$"Failed to record sale: {ex.Message}");
                 }
 
-                // Apply deal rewards (tip, XP, relationship) for deal customers
+                // Deposit tip to register (sale total was deposited during CashFly)
+                float dealTip = DispensaryDealManager.GetTipAmount(_customer, _totalPlacedPrice);
+                float skillTip = _totalPlacedPrice * _skillCheckTipBonus;
+                float totalTip = dealTip + skillTip;
+                if (totalTip > 0f)
+                    _counter?.DepositToRegister(totalTip);
+
+                // Floating notification above register
+                UI.RegisterFloatingText.Show(_counter, _totalPlacedPrice, totalTip);
+
+                // Apply non-monetary deal rewards (XP, relationship, cooldown)
                 if (_customer.IsDealCustomer)
-                    DispensaryDealManager.ApplyDealRewards(_customer, _totalPlacedPrice);
+                    DispensaryDealManager.ApplyDealRewardsNonMonetary(_customer, _totalPlacedPrice);
 
                 // Signal customer to exit
                 _customer.CheckoutArrivalTime = 0f;

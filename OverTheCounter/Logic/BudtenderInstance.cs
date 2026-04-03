@@ -852,8 +852,15 @@ namespace OverTheCounter.Logic
                 AssignedCounter.DepositToRegister(SaleTotal);
 
             // Apply deal rewards
+            float budtenderTip = 0f;
             if (CurrentCustomer.IsDealCustomer)
+            {
+                budtenderTip = DispensaryDealManager.GetTipAmount(CurrentCustomer, SaleTotal);
                 DispensaryDealManager.ApplyDealRewards(CurrentCustomer, SaleTotal);
+            }
+
+            // Floating notification above register
+            UI.RegisterFloatingText.Show(AssignedCounter, SaleTotal, budtenderTip);
 
             // Signal customer exit
             CurrentCustomer.CheckoutArrivalTime = 0f;
