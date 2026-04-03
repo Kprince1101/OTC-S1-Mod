@@ -413,7 +413,11 @@ namespace OverTheCounter.Patches
                     return false;
                 }
             }
-            catch { /* RegionDict not accessible yet — continue normally */ }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch,
+                    $"RegionDict check failed in Start prefix: {ex.Message}");
+            }
 
             // Our retry coroutine re-invokes Start() with id in _fix1Pending. Let it through.
             if (_fix1Pending.Contains(id))

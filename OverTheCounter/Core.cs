@@ -251,16 +251,21 @@ namespace OverTheCounter
                 // Register OTC custom meshes + decals (only once — MeshVault persists across scenes)
                 if (!_meshVaultRegistered)
                 {
-                    _meshVaultRegistered = true;
+                    bool meshesRegistered = false;
+                    bool decalsRegistered = false;
+
                     try
                     {
                         var meshBytes = S1MAPI.Utils.EmbeddedResourceLoader.LoadBytes(
                             "OverTheCounter.Resources.MeshDatabase.json",
                             System.Reflection.Assembly.GetExecutingAssembly());
                         if (meshBytes != null)
+                        {
                             MeshVault.MeshVaultAPI.RegisterMeshes(
                                 "otc", "OverTheCounter",
                                 System.Text.Encoding.UTF8.GetString(meshBytes));
+                            meshesRegistered = true;
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -273,11 +278,14 @@ namespace OverTheCounter
                             "otc", "OverTheCounter",
                             System.Reflection.Assembly.GetExecutingAssembly(),
                             "OverTheCounter.Resources.MeshVaultDecals.");
+                        decalsRegistered = true;
                     }
                     catch (Exception ex)
                     {
                         OTCLog.Warning(OTCLog.Systems.Patch, $"OTC decal registration failed: {ex.Message}");
                     }
+
+                    _meshVaultRegistered = meshesRegistered || decalsRegistered;
                 }
 
                 Logic.Placement.CheckoutCounter.Register();
