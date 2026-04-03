@@ -54,6 +54,12 @@ namespace OverTheCounter.Patches
         private static readonly HashSet<int> _wiredCircles = new();
 
         /// <summary>
+        /// Region button instance IDs for which we have wired Button.onClick directly.
+        /// Prevents double-wiring across multiple repair runs.
+        /// </summary>
+        private static readonly HashSet<int> _wiredRegionButtons = new();
+
+        /// <summary>
         /// NPC connection IDs cached in NPC.Awake (before FishNet reconciliation destroys scene NPCs).
         /// Key: NPC ID, Value: list of connected NPC IDs. Used as fallback in CreateConnectionLines
         /// when FullGameConnections is empty on FishNet-reconciled client NPCs.
@@ -202,6 +208,79 @@ namespace OverTheCounter.Patches
         }
 
         /// <summary>
+        /// Populates RegionDict and wires region tab Button.onClick handlers if Start()
+        /// didn't reach its region setup loop (lines 115-124). Checks RegionDict count
+        /// against RegionUIs length to detect whether Start() already handled wiring.
+        /// </summary>
+        private static int RepairRegionButtons(ContactsAppType instance)
+        {
+            try
+            {
+                var regionUIs = instance.RegionUIs;
+                if (regionUIs == null || regionUIs.Length == 0) return 0;
+
+                // If RegionDict already has all regions, Start() handled the wiring — skip
+                int dictCount = GetRegionDictCount(instance);
+                if (dictCount >= regionUIs.Length) return 0;
+
+                // ── Populate missing RegionDict entries ──
+#if IL2CPP
+                var dict = instance.RegionDict;
+                if (dict != null)
+                {
+                    foreach (var rui in regionUIs)
+                    {
+                        if (rui != null && !dict.ContainsKey(rui.Region))
+                            dict.Add(rui.Region, rui);
+                    }
+                }
+#else
+                {
+                    _regionDictFieldMono ??= typeof(ContactsAppType)
+                        .GetField("RegionDict", BindingFlags.NonPublic | BindingFlags.Instance);
+                    var dict = _regionDictFieldMono?.GetValue(instance) as System.Collections.IDictionary;
+                    if (dict != null)
+                    {
+                        foreach (var rui in regionUIs)
+                        {
+                            if (rui == null) continue;
+                            if (!dict.Contains(rui.Region))
+                                dict.Add(rui.Region, rui);
+                        }
+                    }
+                }
+#endif
+
+                // ── Wire region tab button onClick handlers ──
+                int wired = 0;
+                foreach (var rui in regionUIs)
+                {
+                    if (rui?.Button == null) continue;
+                    if (!_wiredRegionButtons.Add(rui.Button.GetInstanceID())) continue;
+                    var capturedRui = rui;
+                    var capturedInst = instance;
+                    rui.Button.onClick.AddListener(new System.Action(() =>
+                    {
+                        try { capturedInst.SetSelectedRegion(capturedRui.Region, true); }
+                        catch (Exception ex)
+                        {
+                            OTCLog.Warning(OTCLog.Systems.Patch,
+                                $"Region button SetSelectedRegion failed: {ex.Message}");
+                        }
+                    }));
+                    wired++;
+                }
+
+                return wired;
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"RepairRegionButtons threw: {ex.Message}");
+                return 0;
+            }
+        }
+
+        /// <summary>
         /// Replicates ContactsApp.Start() lines 65-122: instantiates connection line GameObjects
         /// between connected NPC circles into the per-region ConnectionsContainer.
         /// Uses circle hierarchy (IsChildOf) to determine region — not npc.Region, which returns
@@ -321,6 +400,20 @@ namespace OverTheCounter.Patches
         private static bool Fix1_StartPrefix(ContactsAppType __instance)
         {
             int id = __instance.GetInstanceID();
+
+            // If Start() already ran (RegionDict populated), block re-invocation.
+            // Prevents duplicate-key ArgumentException when S1API's WaitForNPCs
+            // or OTC's Fix1 retry calls Start() a second time.
+            // Fix2 + RepairRegionButtons handle any remaining setup gaps.
+            try
+            {
+                if (GetRegionDictCount(__instance) > 0)
+                {
+                    _fix1Pending.Remove(id);
+                    return false;
+                }
+            }
+            catch { /* RegionDict not accessible yet — continue normally */ }
 
             // Our retry coroutine re-invokes Start() with id in _fix1Pending. Let it through.
             if (_fix1Pending.Contains(id))
@@ -491,6 +584,9 @@ namespace OverTheCounter.Patches
             yield return null;
             if (instance == null) { _repairRunning.Remove(instId); yield break; }
 
+            // ── Populate RegionDict + wire region tab buttons if Start() missed them ─
+            int regionButtonsWired = RepairRegionButtons(instance);
+
             // ── Re-call SetSelectedRegion ─────────────────────────────────────────
             try
             {
@@ -559,7 +655,7 @@ namespace OverTheCounter.Patches
             // and ContactsApp renders on top of other apps. Deactivate it if not open.
             EnsureAppContainerHidden(instance);
 
-            OTCLog.Msg(OTCLog.Systems.Patch, $"ContactsApp repaired: {repaired} portraits, {linesCreated} connection lines, {wired} clicks wired.");
+            OTCLog.Msg(OTCLog.Systems.Patch, $"ContactsApp repaired: {repaired} portraits, {linesCreated} lines, {wired} circles wired, {regionButtonsWired} region buttons wired.");
 
             _repairRunning.Remove(instId);
         }
