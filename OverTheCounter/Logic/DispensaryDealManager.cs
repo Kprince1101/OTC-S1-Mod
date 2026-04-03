@@ -160,8 +160,9 @@ namespace OverTheCounter.Logic
             if (currentMinutes < openMinutes - PreOpenWindowMinutes || currentMinutes >= openMinutes)
                 return false;
 
-            // At least one store must have its open switch on
-            return WestvilleShack.IsStoreOpen || Dispensary.IsStoreOpen;
+            // At least one owned store must have its open switch on
+            return (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) == true && WestvilleShack.IsStoreOpen)
+                || (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.DispensaryId) == true && Dispensary.IsStoreOpen);
         }
 
         /// <summary>
