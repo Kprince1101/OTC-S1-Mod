@@ -486,7 +486,7 @@ namespace OverTheCounter.Logic.Placement
             }
             _deskDisplayItems.Clear();
 
-            if (_deskTransform == null || _counterStorageEntity?.ItemSlots == null) return;
+            if (_peripheralAnchor == null || _counterStorageEntity?.ItemSlots == null) return;
 
             try
             {
@@ -527,7 +527,7 @@ namespace OverTheCounter.Logic.Placement
                     {
                         displayGo = UnityEngine.Object.Instantiate(prefab);
                         displayGo.name = $"OTC_DeskDisplay_{displayIdx}";
-                        displayGo.transform.SetParent(_deskTransform, false);
+                        displayGo.transform.SetParent(_peripheralAnchor.transform, false);
                         displayGo.transform.localPosition = new Vector3(xPos, yPos, DisplayZPos);
                         displayGo.transform.localRotation = Quaternion.Euler(DisplayRotX, 0f, 0f);
                         displayGo.transform.localScale = Vector3.one * DisplayScale;
@@ -555,7 +555,7 @@ namespace OverTheCounter.Logic.Placement
                     {
                         displayGo = GameObject.CreatePrimitive(PrimitiveType.Cube);
                         displayGo.name = $"OTC_DeskDisplay_{displayIdx}";
-                        displayGo.transform.SetParent(_deskTransform, false);
+                        displayGo.transform.SetParent(_peripheralAnchor.transform, false);
                         displayGo.transform.localPosition = new Vector3(xPos, yPos, DisplayZPos);
                         displayGo.transform.localScale = new Vector3(0.08f, 0.08f, 0.08f);
                         var col2 = displayGo.GetComponent<Collider>();
