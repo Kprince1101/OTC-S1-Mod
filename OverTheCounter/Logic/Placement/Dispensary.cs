@@ -378,6 +378,7 @@ namespace OverTheCounter.Logic.Placement
         public static void SpawnNetworkedObjects()
         {
             if (_building == null) return;
+            if (_networkedObjects.Count > 0) return;
 
             // Interior doors — placed via S1MAPI PrefabPlacer for proper FishNet replication.
             // Press-E interaction calls SetIsOpen_Server (RunLocally=true, RequireOwnership=false)

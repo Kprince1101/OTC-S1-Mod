@@ -228,6 +228,7 @@ namespace OverTheCounter.Logic.Placement
         public static void SpawnNetworkedObjects()
         {
             if (_building == null) return;
+            if (_networkedObjects.Count > 0) return;
 
             try
             {
