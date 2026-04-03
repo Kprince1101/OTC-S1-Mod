@@ -188,7 +188,10 @@ namespace OverTheCounter.Logic.Placement
                 if (!string.IsNullOrEmpty(supplier.ID))
                     return supplier.ID;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"GetSupplierKey ID access failed: {ex.Message}");
+            }
             return $"{supplier.name}_{supplier.GetInstanceID()}";
         }
 

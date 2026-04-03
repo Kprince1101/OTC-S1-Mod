@@ -91,12 +91,9 @@ namespace OverTheCounter.Patches
         }
 
         /// <summary>Resolves FishNet-generated RpcLogic for MeetAtLocation.</summary>
+        /// <remarks>Hardcoded IL2CPP RpcLogic names drift; scanning avoids failed AccessTools lookups that spam the log.</remarks>
         private static System.Reflection.MethodBase ResolveMeetAtLocationRpcLogicMethod()
         {
-#if IL2CPP
-            // Avoid reflection scanning on IL2CPP types; use known generated method name.
-            return AccessTools.Method(typeof(Supplier), "RpcLogic___MeetAtLocation_3470796954");
-#else
             const System.Reflection.BindingFlags flags =
                 System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
             foreach (var m in typeof(Supplier).GetMethods(flags))
@@ -110,11 +107,13 @@ namespace OverTheCounter.Patches
                     return m;
             }
             return null;
-#endif
         }
 
         /// <summary>Resolves FishNet-generated RpcLogic for EndMeeting when present.</summary>
-        /// <remarks>Hardcoded IL2CPP RpcLogic names drift; scanning avoids failed AccessTools lookups that spam the log.</remarks>
+        /// <remarks>
+        /// Scans <see cref="Supplier"/> methods on IL2CPP and Mono so FishNet name mangling changes
+        /// do not require hardcoded RpcLogic strings (failed AccessTools lookups spam the log).
+        /// </remarks>
         private static System.Reflection.MethodBase ResolveEndMeetingRpcLogicMethod()
         {
             const System.Reflection.BindingFlags flags =

@@ -84,7 +84,6 @@ namespace OverTheCounter
             SupplierWarehousePatch.Apply(HarmonyInstance);
             SupplierFleePatch.Apply(HarmonyInstance);
             SaveManagerPatch.Apply(HarmonyInstance);
-            ActionListPatch.Apply(HarmonyInstance);
             GameProfilerPatches.Apply(HarmonyInstance);
             WeatherPatches.Apply(HarmonyInstance);
 
