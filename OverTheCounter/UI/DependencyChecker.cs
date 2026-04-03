@@ -38,6 +38,7 @@ namespace OverTheCounter.UI
             public string Version;
             public string MinVersion;
             public bool VersionOk;
+            public bool WrongBranch;
             public string MisplacedPath;
             public string ExpectedFolder;
         }
@@ -77,14 +78,20 @@ namespace OverTheCounter.UI
                     expectedFolder: "Plugins", folderPaths: folders),
             };
 
-            HasMissingDeps = Array.Exists(_results, r => !r.Found || !r.VersionOk);
+            HasMissingDeps = Array.Exists(_results, r => !r.Found || !r.VersionOk || r.WrongBranch);
 
             if (!HasMissingDeps) return;
 
+            string branch = MelonLoader.MelonUtils.IsGameIl2Cpp() ? "IL2CPP" : "Mono";
             OTCLog.Warning(OTCLog.Systems.General, "=== Missing/Outdated Dependencies Detected ===");
             foreach (var r in _results)
             {
-                if (!r.Found && r.MisplacedPath != null)
+                if (r.WrongBranch)
+                {
+                    OTCLog.Warning(OTCLog.Systems.General,
+                        $"  WRONG BRANCH: {r.Name} (loaded DLL targets wrong branch, game is {branch})");
+                }
+                else if (!r.Found && r.MisplacedPath != null)
                 {
                     var fileName = Path.GetFileName(r.MisplacedPath);
                     var wrongFolder = Path.GetFileName(Path.GetDirectoryName(r.MisplacedPath));
@@ -179,8 +186,28 @@ namespace OverTheCounter.UI
                 result.Found = true;
                 result.Version = GetBestVersion(asm);
 
+                // Verify loaded DLL targets the correct game branch
+                try
+                {
+                    var loc = asm.Location;
+                    if (!string.IsNullOrEmpty(loc))
+                    {
+                        var fileName = Path.GetFileNameWithoutExtension(loc).ToLowerInvariant();
+                        bool isIl2Cpp = MelonLoader.MelonUtils.IsGameIl2Cpp();
+                        if (isIl2Cpp && fileName.Contains("mono"))
+                            result.WrongBranch = true;
+                        else if (!isIl2Cpp && fileName.Contains("il2cpp"))
+                            result.WrongBranch = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.General,
+                        $"Branch check failed for {name}: {ex.Message}");
+                }
+
                 // Verify loaded from expected folder
-                if (expectedFolder != null)
+                if (expectedFolder != null && folderPaths != null)
                 {
                     try
                     {
@@ -192,6 +219,18 @@ namespace OverTheCounter.UI
                                     StringComparison.OrdinalIgnoreCase))
                             {
                                 result.MisplacedPath = loc;
+                                result.Found = false;
+                            }
+                        }
+                        else
+                        {
+                            // Assembly loaded from bytes (e.g. by OTC Loader) — no location.
+                            // Verify the DLL actually exists in the expected folder on disk.
+                            var misplaced = ScanForMisplacedDll(assemblyPrefix, expectedFolder,
+                                folderPaths, excludePrefix);
+                            if (misplaced != null)
+                            {
+                                result.MisplacedPath = misplaced;
                                 result.Found = false;
                             }
                         }
@@ -413,9 +452,20 @@ namespace OverTheCounter.UI
             AddSpacer(panelGO.transform, 8);
 
             // Dependency status lines
+            string branchLabel = MelonLoader.MelonUtils.IsGameIl2Cpp() ? "IL2CPP" : "Mono";
             foreach (var dep in results)
             {
-                if (dep.Found && dep.VersionOk)
+                if (dep.WrongBranch)
+                {
+                    AddText(panelGO.transform, dep.Name,
+                        $"{dep.Name}  -  Wrong Branch",
+                        18, FontStyles.Bold, new Color(1f, 0.4f, 0.4f), 30);
+
+                    AddText(panelGO.transform, dep.Name + "_Inst",
+                        $"     The loaded version targets the wrong game branch. Install the {branchLabel} version.",
+                        15, FontStyles.Normal, new Color(0.6f, 0.6f, 0.6f), 24, wrap: true);
+                }
+                else if (dep.Found && dep.VersionOk)
                 {
                     var suffix = dep.Version != null ? $" (v{dep.Version})" : "";
                     AddText(panelGO.transform, dep.Name,
