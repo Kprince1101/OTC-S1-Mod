@@ -295,6 +295,10 @@ namespace OverTheCounter.Logic
             if (customer == null)
             {
                 OTCLog.Warning(OTCLog.Systems.Customer, $"Redirect failed: CreateFromDealNPC returned null for {vanillaCustomer.NPC.fullName}");
+                RedirectedNpcIds.Remove(vanillaCustomer.NPC.ID);
+                vanillaCustomer.NPC.Movement.SpeedController.RemoveSpeedControl(RushSpeedId);
+                vanillaCustomer.NPC.Movement.Warp(preWarpPosition);
+                RestoreVanillaBehaviour(vanillaCustomer.NPC);
                 return false;
             }
 
