@@ -483,6 +483,9 @@ namespace OverTheCounter
                 PerfTracker.Begin("NetworkPublish");
                 if (NetworkHelper.IsHost)
                 {
+                    // Flush dirty-flagged SyncVar channels (coalesces same-frame mutations)
+                    ConfigSyncData.FlushDirtyState();
+
                     // Publish pending text messages to client via dedicated message SyncVars
                     if (ManagerInstance.HasPendingMessages)
                         ConfigSyncData.Instance?.PublishManagerMessages();

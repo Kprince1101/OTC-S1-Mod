@@ -446,7 +446,7 @@ namespace OverTheCounter.Logic.Placement
                         if (!_suppressSwitchSync)
                         {
                             if (NetworkHelper.IsHost)
-                                ConfigSyncData.Instance?.PublishGameState();
+                                ConfigSyncData.MarkGameStateDirty();
                             else
                                 ConfigSyncData.SendQuestAction($"DISP_LIGHTS:{(isOn ? 1 : 0)}");
                         }
@@ -616,7 +616,7 @@ namespace OverTheCounter.Logic.Placement
         {
             SetStoreOpen(open);
             if (NetworkHelper.IsHost)
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
             else
                 ConfigSyncData.SendQuestAction($"DISP_STORE:{(open ? 1 : 0)}");
         }

@@ -206,7 +206,7 @@ namespace OverTheCounter.Logic
             ForceCustomerDealOffer(customer);
 
             // Sync desperate IDs to clients
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
 
             OTCLog.Msg(OTCLog.Systems.Desperation, $"Event triggered for {customer.NPC.fullName}. " +
                        $"Response deadline: {Config.ResponseDeadlineMinutes.Value} mins. Daily count: {_dailyEventsTriggered}/{Config.MaxEventsPerDay.Value}");
@@ -636,7 +636,7 @@ namespace OverTheCounter.Logic
             }
 
             if (expiredIds.Count > 0)
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
         }
 
         /// <summary>
@@ -792,7 +792,7 @@ namespace OverTheCounter.Logic
                 int cooldownEnd = Instance.GetCurrentElapsedMinutes() + Config.CooldownMinutes.Value;
                 Instance._customerCooldowns[customerId] = cooldownEnd;
 
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
                 OTCLog.Msg(OTCLog.Systems.Desperation, $"Event RESOLVED for customer {customerId}. " +
                                     $"Bonus applied: {Config.BonusMultiplier.Value * 100}%. Cooldown until minute {cooldownEnd}.");
             }
@@ -942,7 +942,7 @@ namespace OverTheCounter.Logic
                 int cooldownEnd = Instance.GetCurrentElapsedMinutes() + (12 * 60);
                 Instance._customerCooldowns[customerId] = cooldownEnd;
 
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
                 OTCLog.Msg(OTCLog.Systems.Desperation, $"Event DECLINED (no penalty) for customer {customerId}. 12hr cooldown until minute {cooldownEnd}.");
             }
         }

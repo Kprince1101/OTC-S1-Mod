@@ -307,7 +307,7 @@ namespace OverTheCounter.SaveData
             if (_needsStatePublish && NetworkHelper.IsHost)
             {
                 _needsStatePublish = false;
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
             }
 
             if (_dialogueStale && StaticNPC.Instance != null
@@ -561,7 +561,7 @@ namespace OverTheCounter.SaveData
 
             // Thread is rebuilt from state flags - no manual embed add needed.
             _dialogueStale = true;
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         /// <summary>
@@ -573,7 +573,7 @@ namespace OverTheCounter.SaveData
             _upgradeAccepted = true;
             CreateUpgradeQuest();
             _dialogueStale = true;
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         /// <summary>
@@ -608,7 +608,7 @@ namespace OverTheCounter.SaveData
                 SendUpgradeOfferText();
             }
 
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         /// <summary>
@@ -648,7 +648,7 @@ namespace OverTheCounter.SaveData
                 SendUpgradeOfferText();
             }
 
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         // ── Split purchase: tier 1 (money + weed) ────────────────────────
@@ -665,7 +665,7 @@ namespace OverTheCounter.SaveData
             try { StaticIntroQuest.Instance?.CompletePay(); }
             catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"CompletePay failed: {ex.Message}"); }
 
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
 
             if (_tier1ProductDelivered)
                 CompleteTier1Purchase();
@@ -683,7 +683,7 @@ namespace OverTheCounter.SaveData
             try { StaticIntroQuest.Instance?.CompleteDropOff(); }
             catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"CompleteDropOff failed: {ex.Message}"); }
 
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
 
             if (_tier1MoneyPaid)
                 CompleteTier1Purchase();
@@ -712,7 +712,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Upgrade CompletePay failed: {ex.Message}"); }
 
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
 
             if (_upgradeProductDelivered)
                 CompleteUpgradePurchase();
@@ -734,7 +734,7 @@ namespace OverTheCounter.SaveData
             }
             catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"Upgrade CompleteDropOff failed: {ex.Message}"); }
 
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
 
             if (_upgradeMoneyPaid)
                 CompleteUpgradePurchase();
@@ -759,7 +759,7 @@ namespace OverTheCounter.SaveData
                 _saasActive = true;
                 _saasNextPaymentDay = _dayPassCount + Config.SaasCycleDays.Value;
                 _dialogueStale = true;
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
                 return true;
             }
             catch (Exception ex)
@@ -774,7 +774,7 @@ namespace OverTheCounter.SaveData
             _saasActive = false;
             _upgradeAvailable = false;
             _dialogueStale = true;
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         /// <summary>
@@ -843,7 +843,7 @@ namespace OverTheCounter.SaveData
                     return;
             }
 
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         /// <summary>
@@ -862,7 +862,7 @@ namespace OverTheCounter.SaveData
                 CreateOrResumeQuest();
                 TrySendIntroText();
                 StaticThreadSaveData.Instance?.ReconcileHostThread();
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
             }
 
             // Shack listing - time gate only on first day; after that, list whenever possible
@@ -874,7 +874,7 @@ namespace OverTheCounter.SaveData
                 ActivateThread("shack");
                 PropertySaveData.Instance.EnsureShackListing();
                 StaticThreadSaveData.Instance?.ReconcileHostThread();
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
             }
 
             // Warehouse listing - offered after shack is owned
@@ -885,7 +885,7 @@ namespace OverTheCounter.SaveData
                 ActivateThread("warehouse");
                 PropertySaveData.Instance.EnsureWarehouseListing();
                 StaticThreadSaveData.Instance?.ReconcileHostThread();
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
             }
 
             // Dispensary listing - offered one tick after warehouse listing exists
@@ -897,7 +897,7 @@ namespace OverTheCounter.SaveData
                 ActivateThread("dispensary");
                 PropertySaveData.Instance.EnsureDispensaryListing();
                 StaticThreadSaveData.Instance?.ReconcileHostThread();
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
             }
 
             // Dead drop product detection - auto-consume when enough product is dropped off
@@ -948,7 +948,7 @@ namespace OverTheCounter.SaveData
                             "Payment failed. Service suspended. Come see me to restore it.");
                     }
 
-                    ConfigSyncData.Instance?.PublishGameState();
+                    ConfigSyncData.MarkGameStateDirty();
                 }
                 catch (Exception ex)
                 {
@@ -1060,7 +1060,7 @@ namespace OverTheCounter.SaveData
         private void SendUpgradeOfferText()
         {
             // Thread is rebuilt from state flags - publish triggers reconstruction.
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         private void SendOtcToast(string subtitle)

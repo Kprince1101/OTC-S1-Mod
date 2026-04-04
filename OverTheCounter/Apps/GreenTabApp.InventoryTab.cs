@@ -428,7 +428,7 @@ namespace OverTheCounter.Apps
                     if (PricingSaveData.Instance == null) return;
                     PricingSaveData.Instance.AutoPricingEnabled = !PricingSaveData.Instance.AutoPricingEnabled;
                     _lastInventoryFingerprint = int.MinValue; // force rebuild
-                    ConfigSyncData.Instance?.PublishPricingState();
+                    ConfigSyncData.MarkPricingStateDirty();
                     RefreshInventory();
                 }
 #if IL2CPP
@@ -480,7 +480,7 @@ namespace OverTheCounter.Apps
                     PricingSaveData.Instance.PricingMultiplier =
                         Mathf.Max(0f, Mathf.Round(raw * 20f) / 20f);
                     _lastInventoryFingerprint = int.MinValue; // force rebuild
-                    ConfigSyncData.Instance?.PublishPricingState();
+                    ConfigSyncData.MarkPricingStateDirty();
                     RefreshInventory();
                 }
 #if IL2CPP
@@ -530,7 +530,7 @@ namespace OverTheCounter.Apps
                     PricingSaveData.Instance.PricingMultiplier =
                         Mathf.Min(10f, Mathf.Round(raw * 20f) / 20f);
                     _lastInventoryFingerprint = int.MinValue; // force rebuild
-                    ConfigSyncData.Instance?.PublishPricingState();
+                    ConfigSyncData.MarkPricingStateDirty();
                     RefreshInventory();
                 }
 #if IL2CPP

@@ -505,7 +505,7 @@ namespace OverTheCounter.SaveData
             else if (propertyId == WarehouseId)
                 OTCWarehouse.UnlockDoor();
 
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         private static void CreateStorefrontQuest()

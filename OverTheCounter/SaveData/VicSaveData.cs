@@ -203,7 +203,7 @@ namespace OverTheCounter.SaveData
             if (_needsStatePublish && NetworkHelper.IsHost)
             {
                 _needsStatePublish = false;
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
             }
 
             if (++_tickCounter < TICK_INTERVAL) return;
@@ -231,7 +231,7 @@ namespace OverTheCounter.SaveData
                         if (NetworkHelper.IsHost)
                         {
                             TrySendIntroText();
-                            ConfigSyncData.Instance?.PublishGameState();
+                            ConfigSyncData.MarkGameStateDirty();
                         }
                         else
                         {
@@ -339,7 +339,7 @@ namespace OverTheCounter.SaveData
         public void OnQuestComplete()
         {
             _unlocked = true;
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         public void OnLaunderComplete(int currentDay)
@@ -350,7 +350,7 @@ namespace OverTheCounter.SaveData
                 _lastTrustIncrementDay = currentDay;
                 _trustLevel++;
             }
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         /// <summary>
@@ -400,7 +400,7 @@ namespace OverTheCounter.SaveData
             }
 
             _dialogueStale = true;
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         public void MarkTier2IntroShown()

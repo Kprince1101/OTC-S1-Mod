@@ -154,7 +154,7 @@ namespace OverTheCounter.SaveData
             if (_needsStatePublish && NetworkHelper.IsHost)
             {
                 _needsStatePublish = false;
-                ConfigSyncData.Instance?.PublishGameState();
+                ConfigSyncData.MarkGameStateDirty();
             }
 
             // Host-only: NavMesh-snap Bella's position so the Warp RPC sends
@@ -195,7 +195,7 @@ namespace OverTheCounter.SaveData
             EnableBella();
             CreateQuest();
 
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         /// <summary>
@@ -290,7 +290,7 @@ namespace OverTheCounter.SaveData
                     break;
             }
 
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         /// <summary>

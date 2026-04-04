@@ -383,7 +383,7 @@ namespace OverTheCounter.Apps
                     bool curDisabled = PricingSaveData.Instance.IsSellingDisabled(capturedId);
                     PricingSaveData.Instance.SetSellingDisabled(capturedId, !curDisabled);
                     _lastInventoryFingerprint = int.MinValue;
-                    ConfigSyncData.Instance?.PublishPricingState();
+                    ConfigSyncData.MarkPricingStateDirty();
                     RefreshInventory();
                 }
 #if IL2CPP
@@ -438,7 +438,7 @@ namespace OverTheCounter.Apps
                     {
                         PricingSaveData.Instance?.ClearManualPrice(capturedId);
                         _lastInventoryFingerprint = int.MinValue;
-                        ConfigSyncData.Instance?.PublishPricingState();
+                        ConfigSyncData.MarkPricingStateDirty();
                         RefreshInventory();
                     }
 #if IL2CPP
@@ -553,7 +553,7 @@ namespace OverTheCounter.Apps
                     PricingSaveData.Instance.SetManualPrice(productId, val);
                 }
                 _lastInventoryFingerprint = int.MinValue; // force rebuild
-                ConfigSyncData.Instance?.PublishPricingState();
+                ConfigSyncData.MarkPricingStateDirty();
                 RefreshInventory();
             }));
         }

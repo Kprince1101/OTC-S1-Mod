@@ -220,11 +220,7 @@ namespace OverTheCounter.Apps
             }
             OTCLog.Msg(OTCLog.Systems.Patch, $"Swapped {swapped}/{CheckoutCounter.AllCounters.Count} counters to '{newStyle.DisplayName}' (building={_selectedBuildingId})");
 
-            try { ConfigSyncData.Instance?.PublishGameState(); }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Network, $"Failed to sync desk change: {ex.Message}");
-            }
+            ConfigSyncData.MarkGameStateDirty();
 
             OTCLog.Msg(OTCLog.Systems.Patch, $"Desk upgraded to '{newStyle.DisplayName}' for ${cost:F0}");
             RefreshCards();

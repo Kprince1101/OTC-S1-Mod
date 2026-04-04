@@ -121,7 +121,7 @@ namespace OverTheCounter.Logic
                 $"Hired budtender {id} for counter {CheckoutCounter.GetCounterIndex(counter)} in {buildingId}");
 
             // Sync to clients
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
 
             return instance;
         }
@@ -142,7 +142,7 @@ namespace OverTheCounter.Logic
             bt.GracefulDespawn();
 
             // Sync to clients
-            ConfigSyncData.Instance?.PublishGameState();
+            ConfigSyncData.MarkGameStateDirty();
         }
 
         // =================================================================

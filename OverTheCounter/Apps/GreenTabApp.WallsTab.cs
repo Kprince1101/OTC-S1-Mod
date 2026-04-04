@@ -272,11 +272,7 @@ namespace OverTheCounter.Apps
 
             if (NetworkHelper.IsHost)
             {
-                try { ConfigSyncData.Instance?.PublishGameState(); }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Network, $"Failed to sync wall change: {ex.Message}");
-                }
+                ConfigSyncData.MarkGameStateDirty();
             }
             else
             {

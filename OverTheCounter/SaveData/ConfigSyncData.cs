@@ -24,6 +24,11 @@ namespace OverTheCounter.SaveData
         private static int _msgSeq;
         private static int _actionSeq;
 
+        // Dirty flags — set by MarkXxxDirty(), flushed once per frame in FlushDirtyState()
+        private static bool _gameStateDirty;
+        private static bool _drifterStateDirty;
+        private static bool _pricingStateDirty;
+
         public static ConfigSyncData Instance { get; private set; }
 
         // ==================================================================
@@ -54,6 +59,9 @@ namespace OverTheCounter.SaveData
         {
             Instance = this;
             _pendingGameState = null; // Prevent stale state from previous save
+            _gameStateDirty = false;
+            _drifterStateDirty = false;
+            _pricingStateDirty = false;
 
             // The save file payload contains config from the last save. Don't
             // apply it as overrides here — the host's authority is its current
@@ -243,6 +251,43 @@ namespace OverTheCounter.SaveData
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void PublishPricingStateImpl(string payload) => NetworkSyncBridge.PushPricingState(payload);
+
+        // ==================================================================
+        // Dirty-flag batched publishing
+        // ==================================================================
+
+        /// <summary>Marks game state for publish on next flush (end of frame).</summary>
+        internal static void MarkGameStateDirty() => _gameStateDirty = true;
+
+        /// <summary>Marks drifter state for publish on next flush (end of frame).</summary>
+        internal static void MarkDrifterStateDirty() => _drifterStateDirty = true;
+
+        /// <summary>Marks pricing state for publish on next flush (end of frame).</summary>
+        internal static void MarkPricingStateDirty() => _pricingStateDirty = true;
+
+        /// <summary>
+        /// Flushes all dirty SyncVar channels. Called once per frame from
+        /// Core.OnLateUpdate's NetworkPublish block. Coalesces multiple
+        /// mutations in the same frame into a single SyncVar write per channel.
+        /// </summary>
+        internal static void FlushDirtyState()
+        {
+            if (_gameStateDirty)
+            {
+                _gameStateDirty = false;
+                Instance?.PublishGameState();
+            }
+            if (_drifterStateDirty)
+            {
+                _drifterStateDirty = false;
+                Instance?.PublishDrifterState();
+            }
+            if (_pricingStateDirty)
+            {
+                _pricingStateDirty = false;
+                Instance?.PublishPricingState();
+            }
+        }
 
         /// <summary>
         /// Publishes each active manager to its own SyncVar slot.
@@ -829,31 +874,31 @@ namespace OverTheCounter.SaveData
                     {
                         bool on = action.Substring("SHACK_LIGHTS:".Length) == "1";
                         Logic.Placement.WestvilleShack.SetLightsFromSync(on);
-                        Instance?.PublishGameState();
+                        MarkGameStateDirty();
                     }
                     else if (action.StartsWith("SHACK_STORE:"))
                     {
                         bool open = action.Substring("SHACK_STORE:".Length) == "1";
                         Logic.Placement.WestvilleShack.SetStoreOpen(open);
-                        Instance?.PublishGameState();
+                        MarkGameStateDirty();
                     }
                     else if (action.StartsWith("DISP_LIGHTS:"))
                     {
                         bool on = action.Substring("DISP_LIGHTS:".Length) == "1";
                         Logic.Placement.Dispensary.SetLightsFromSync(on);
-                        Instance?.PublishGameState();
+                        MarkGameStateDirty();
                     }
                     else if (action.StartsWith("DISP_STORE:"))
                     {
                         bool open = action.Substring("DISP_STORE:".Length) == "1";
                         Logic.Placement.Dispensary.SetStoreOpen(open);
-                        Instance?.PublishGameState();
+                        MarkGameStateDirty();
                     }
                     else if (action.StartsWith("WH_LIGHTS:"))
                     {
                         bool on = action.Substring("WH_LIGHTS:".Length) == "1";
                         Logic.Placement.OTCWarehouse.SetLightsFromSync(on);
-                        Instance?.PublishGameState();
+                        MarkGameStateDirty();
                     }
                     else if (action.StartsWith("STYLE:"))
                     {
@@ -938,7 +983,7 @@ namespace OverTheCounter.SaveData
                     return;
             }
 
-            Instance?.PublishGameState();
+            MarkGameStateDirty();
         }
 
         // ==================================================================

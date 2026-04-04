@@ -249,7 +249,7 @@ namespace OverTheCounter.Logic.Placement
                         if (!_suppressSwitchSync)
                         {
                             if (NetworkHelper.IsHost)
-                                ConfigSyncData.Instance?.PublishGameState();
+                                ConfigSyncData.MarkGameStateDirty();
                             else
                                 ConfigSyncData.SendQuestAction($"WH_LIGHTS:{(isOn ? 1 : 0)}");
                         }

@@ -208,11 +208,7 @@ namespace OverTheCounter.Apps
 
             if (NetworkHelper.IsHost)
             {
-                try { ConfigSyncData.Instance?.PublishGameState(); }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Network, $"Failed to sync floor change: {ex.Message}");
-                }
+                ConfigSyncData.MarkGameStateDirty();
             }
             else
                 ConfigSyncData.SendQuestAction($"STYLE:{_selectedBuildingId}:floor:{_pendingFloorId}");

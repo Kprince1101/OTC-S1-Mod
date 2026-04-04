@@ -208,11 +208,7 @@ namespace OverTheCounter.Apps
 
             if (NetworkHelper.IsHost)
             {
-                try { ConfigSyncData.Instance?.PublishGameState(); }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Network, $"Failed to sync lighting change: {ex.Message}");
-                }
+                ConfigSyncData.MarkGameStateDirty();
             }
             else
                 ConfigSyncData.SendQuestAction($"STYLE:{_selectedBuildingId}:lighting:{_pendingLightingId}");
