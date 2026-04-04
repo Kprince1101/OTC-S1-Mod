@@ -519,9 +519,9 @@ namespace OverTheCounter.Logic
 
             string myId = SaveData.ConfigSyncData.LocalPlayerId;
 
-            // SyncVar path: host sets CurrentLockHolder via PublishCheckoutState,
-            // client polls until it matches their ID.
-            if (!_p2pSubscribed && !string.IsNullOrEmpty(myId) && CurrentLockHolder == myId)
+            // SyncVar fallback: host sets CurrentLockHolder via PublishCheckoutState.
+            // Catches grants even when the P2P response is lost in transit.
+            if (!string.IsNullOrEmpty(myId) && CurrentLockHolder == myId)
             {
                 _pendingLockType = PendingLockType.None;
 
