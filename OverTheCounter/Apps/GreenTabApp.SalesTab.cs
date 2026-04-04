@@ -314,53 +314,22 @@ namespace OverTheCounter.Apps
         {
             var result = new List<SalesTransaction>();
             var byTxId = new Dictionary<string, List<OtcSaleRecord>>();
-            var noTxId = new List<OtcSaleRecord>();
 
             foreach (var sale in sales)
             {
-                if (!string.IsNullOrEmpty(sale.TransactionId))
-                {
-                    // Include GameDay in key to prevent cross-day merging from old colliding IDs
-                    string key = $"{sale.TransactionId}_{sale.GameDay}";
-                    if (!byTxId.TryGetValue(key, out var list))
-                    {
-                        list = new List<OtcSaleRecord>();
-                        byTxId[key] = list;
-                    }
-                    list.Add(sale);
-                }
-                else
-                {
-                    noTxId.Add(sale);
-                }
-            }
+                if (string.IsNullOrEmpty(sale.TransactionId)) continue;
 
-            foreach (var kvp in byTxId)
-            {
-                var items = kvp.Value;
-                var first = items[0];
-                result.Add(new SalesTransaction
-                {
-                    GameDay = first.GameDay,
-                    GameHour = first.GameHour,
-                    CustomerName = first.CustomerName,
-                    Items = items
-                });
-            }
-
-            // Legacy records: group by Day + Customer
-            var legacyGroups = new Dictionary<string, List<OtcSaleRecord>>();
-            foreach (var sale in noTxId)
-            {
-                string key = $"{sale.GameDay}_{sale.CustomerName ?? ""}";
-                if (!legacyGroups.TryGetValue(key, out var list))
+                // Include GameDay in key to prevent cross-day merging from old colliding IDs
+                string key = $"{sale.TransactionId}_{sale.GameDay}";
+                if (!byTxId.TryGetValue(key, out var list))
                 {
                     list = new List<OtcSaleRecord>();
-                    legacyGroups[key] = list;
+                    byTxId[key] = list;
                 }
                 list.Add(sale);
             }
-            foreach (var kvp in legacyGroups)
+
+            foreach (var kvp in byTxId)
             {
                 var items = kvp.Value;
                 var first = items[0];
