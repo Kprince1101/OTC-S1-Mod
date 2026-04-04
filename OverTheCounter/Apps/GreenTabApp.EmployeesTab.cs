@@ -314,15 +314,20 @@ namespace OverTheCounter.Apps
 
                 if (canHire)
                 {
-                    int capturedIdx = globalIdx;
+                    var capturedCounter = counter;
                     hireBtn.onClick.AddListener(new Action(() =>
                     {
-                        var c = CheckoutCounter.GetCounterByIndex(capturedIdx);
-                        if (c == null) return;
+                        if (capturedCounter == null) return;
                         if (NetworkHelper.IsHost)
-                            BudtenderController.Hire(c);
+                        {
+                            BudtenderController.Hire(capturedCounter);
+                        }
                         else
-                            ConfigSyncData.SendQuestAction($"BUDTENDER_HIRE:{capturedIdx}");
+                        {
+                            int idx = CheckoutCounter.GetCounterIndex(capturedCounter);
+                            if (idx < 0) return;
+                            ConfigSyncData.SendQuestAction($"BUDTENDER_HIRE:{idx}");
+                        }
                         RefreshStaffing();
                     }));
                 }
