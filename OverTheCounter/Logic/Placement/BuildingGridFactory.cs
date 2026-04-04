@@ -145,7 +145,7 @@ namespace OverTheCounter.Logic.Placement
             gridGo.SetActive(true);
 
             // Manually initialize what our Awake prefix skipped
-            InitializeOtcGrid(grid);
+            InitializeOtcGrid(grid, tilesX, tilesZ);
 
             _gridRoots.Add(gridGo);
             return grid;
@@ -155,7 +155,7 @@ namespace OverTheCounter.Logic.Placement
         /// Populates the coordinate→tile dictionary and sets grid dimensions.
         /// Called after activation (Awake was skipped by our prefix).
         /// </summary>
-        private static void InitializeOtcGrid(Grid grid)
+        private static void InitializeOtcGrid(Grid grid, int width, int height)
         {
             // Build _coordinateToTile dictionary from the Tiles list
             for (int i = 0; i < grid.Tiles.Count; i++)
@@ -170,21 +170,14 @@ namespace OverTheCounter.Logic.Placement
 #endif
             }
 
-            // Calculate grid dimensions from tile coordinates
-            int maxX = 0, maxY = 0;
-            for (int i = 0; i < grid.Tiles.Count; i++)
-            {
-                var tile = grid.Tiles[i];
-                if (tile.x > maxX) maxX = tile.x;
-                if (tile.y > maxY) maxY = tile.y;
-            }
-
+            // Use the full room dimensions, not max tile coords — tileFilter may
+            // exclude edge tiles but the grid bounds must cover the whole room.
 #if IL2CPP
-            grid.Width = maxX + 1;
-            grid.Height = maxY + 1;
+            grid.Width = width;
+            grid.Height = height;
 #else
-            _widthProp.SetValue(grid, maxX + 1);
-            _heightProp.SetValue(grid, maxY + 1);
+            _widthProp.SetValue(grid, width);
+            _heightProp.SetValue(grid, height);
 #endif
 
             // Register with GUIDManager so GridItem.SetGridData can look us up
