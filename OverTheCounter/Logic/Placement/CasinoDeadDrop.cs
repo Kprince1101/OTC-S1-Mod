@@ -51,9 +51,9 @@ namespace OverTheCounter.Logic.Placement
                     if (drop == null) continue;
                     if (string.Equals(drop.DeadDropName, DropName, StringComparison.OrdinalIgnoreCase))
                     {
-                        _deadDrop = drop;
                         OTCLog.Msg(OTCLog.Systems.Patch,
-                            $"Found vanilla dead drop '{DropName}' ({drop.Storage.SlotCount} slots)");
+                            $"Found vanilla dead drop '{DropName}' ({drop.Storage?.SlotCount} slots)");
+                        _deadDrop = drop;
                         return;
                     }
                 }
