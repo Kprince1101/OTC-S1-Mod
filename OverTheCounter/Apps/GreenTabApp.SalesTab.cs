@@ -223,7 +223,7 @@ namespace OverTheCounter.Apps
             float grandRevenue = totalRevenue + totalTips;
             if (_salesTotalRevenue != null) _salesTotalRevenue.text = $"Revenue: ${grandRevenue:F0}";
             if (_salesTotalCount != null) _salesTotalCount.text = $"Transactions: {txCount}";
-            if (_salesAvgPrice != null) _salesAvgPrice.text = $"Tips: ${totalTips:F0}";
+            if (_salesAvgPrice != null) _salesAvgPrice.text = $"Avg: ${avgPerTx:F0}";
 
             // Sort transactions by day desc, then hour desc
             transactions.Sort((a, b) =>
