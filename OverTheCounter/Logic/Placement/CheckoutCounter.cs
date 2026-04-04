@@ -181,19 +181,17 @@ namespace OverTheCounter.Logic.Placement
 
                     if (Input.GetKeyDown(KeyCode.Q) && !GameInput.IsTyping)
                     {
-                        // Cash balance is local — whoever presses Q gets the money
-                        float amount = counter.RegisterBalance;
-                        Money.ChangeCashBalance(amount, true, true);
-
                         if (NetworkHelper.IsHost)
                         {
+                            float amount = counter.RegisterBalance;
+                            Money.ChangeCashBalance(amount, true, true);
                             counter.CollectRegister();
                             ConfigSyncData.Instance?.PublishCheckoutClear();
                         }
                         else
                         {
-                            // Tell host to zero this register
-                            ConfigSyncData.SendQuestAction($"REGISTER_COLLECT:{i}");
+                            // Host-authoritative: request collection, cash awarded on response
+                            CheckoutProcess.RequestRegisterCollect(i);
                         }
                     }
                 }

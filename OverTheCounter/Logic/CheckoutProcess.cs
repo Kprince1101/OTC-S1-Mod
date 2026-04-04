@@ -214,9 +214,11 @@ namespace OverTheCounter.Logic
         /// <summary>Current checkout lock holder Steam ID (updated from SyncVar on client).</summary>
         internal static string CurrentLockHolder { get; private set; } = "";
 
-        // P2P lock channels — instant lock acquisition instead of SyncVar polling
+        // P2P channels — instant lock acquisition + register collection
         private const string P2P_LOCK_REQ = "lock_req";
         private const string P2P_LOCK_RES = "lock_res";
+        private const string P2P_REG_REQ = "reg_req";
+        private const string P2P_REG_RES = "reg_res";
         private static bool _p2pSubscribed;
 
         /// <summary>The counter this checkout is operating on.</summary>
@@ -262,10 +264,12 @@ namespace OverTheCounter.Logic
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static void InitP2PImpl()
         {
-            // Host listens for lock requests from clients
+            // Host listens for lock requests and register collection from clients
             SaveData.NetworkP2PBridge.Subscribe(P2P_LOCK_REQ, OnP2PLockRequest);
-            // Client listens for lock grant/deny from host
+            SaveData.NetworkP2PBridge.Subscribe(P2P_REG_REQ, OnP2PRegisterRequest);
+            // Client listens for lock grant/deny and register grant from host
             SaveData.NetworkP2PBridge.Subscribe(P2P_LOCK_RES, OnP2PLockResponse);
+            SaveData.NetworkP2PBridge.Subscribe(P2P_REG_RES, OnP2PRegisterResponse);
         }
 
         private static void CleanupP2P()
@@ -287,6 +291,8 @@ namespace OverTheCounter.Logic
         {
             SaveData.NetworkP2PBridge.Unsubscribe(P2P_LOCK_REQ);
             SaveData.NetworkP2PBridge.Unsubscribe(P2P_LOCK_RES);
+            SaveData.NetworkP2PBridge.Unsubscribe(P2P_REG_REQ);
+            SaveData.NetworkP2PBridge.Unsubscribe(P2P_REG_RES);
         }
 
         /// <summary>
@@ -374,6 +380,51 @@ namespace OverTheCounter.Logic
                 _pendingCustomerId = null;
                 _pendingCounter = null;
             }
+        }
+
+        // =================================================================
+        //  P2P register collection — host-authoritative cash withdrawal
+        // =================================================================
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static void SendP2PRegisterCollect(int counterIndex)
+        {
+            SaveData.NetworkP2PBridge.SendToHost(P2P_REG_REQ, counterIndex.ToString());
+        }
+
+        /// <summary>
+        /// Host: receives register collection request from client.
+        /// Validates balance, zeroes register, responds with granted amount.
+        /// </summary>
+        private static void OnP2PRegisterRequest(ulong senderSteamId, string value)
+        {
+            if (!NetworkHelper.IsHost) return;
+            if (!int.TryParse(value, out int counterIdx)) return;
+
+            var counter = Placement.CheckoutCounter.GetCounterByIndex(counterIdx);
+            if (counter == null || counter.RegisterBalance <= 0f)
+            {
+                SaveData.NetworkP2PBridge.SendTo(new CSteamID(senderSteamId), P2P_REG_RES, "0");
+                return;
+            }
+
+            float amount = counter.RegisterBalance;
+            counter.CollectRegister();
+            SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
+            SaveData.NetworkP2PBridge.SendTo(new CSteamID(senderSteamId), P2P_REG_RES,
+                amount.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>
+        /// Client: receives register collection grant from host.
+        /// Awards cash locally only if host confirmed a non-zero amount.
+        /// </summary>
+        private static void OnP2PRegisterResponse(ulong senderSteamId, string value)
+        {
+            if (NetworkHelper.IsHost) return;
+            if (!float.TryParse(value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float amount) || amount <= 0f) return;
+            S1API.Money.Money.ChangeCashBalance(amount, true, true);
         }
 
         // =================================================================
@@ -681,9 +732,29 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Host: handles REGISTER_COLLECT action from client.
-        /// Zeroes the register — the client already gave itself the cash locally.
-        /// Format: "counterIndex" (registry index of the counter to collect from).
+        /// Client: requests register collection from host.
+        /// Uses P2P when available (host-authoritative, cash on response),
+        /// falls back to quest action + local cash in Debug builds.
+        /// </summary>
+        internal static void RequestRegisterCollect(int counterIndex)
+        {
+            if (_p2pSubscribed)
+            {
+                SendP2PRegisterCollect(counterIndex);
+            }
+            else
+            {
+                // SyncVar fallback (Debug/LocalLobby): award cash locally, host zeroes register
+                var counter = CheckoutCounter.GetCounterByIndex(counterIndex);
+                if (counter != null && counter.RegisterBalance > 0f)
+                    S1API.Money.Money.ChangeCashBalance(counter.RegisterBalance, true, true);
+                SaveData.ConfigSyncData.SendQuestAction($"REGISTER_COLLECT:{counterIndex}");
+            }
+        }
+
+        /// <summary>
+        /// Host: handles REGISTER_COLLECT quest action from client (SyncVar fallback).
+        /// Client already awarded itself cash locally in this path.
         /// </summary>
         public static void HandleRegisterCollect(string payload)
         {
