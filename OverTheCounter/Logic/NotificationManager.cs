@@ -271,8 +271,6 @@ namespace OverTheCounter.Logic
             catch (System.Exception ex)
             {
                 OTCLog.Error(OTCLog.Systems.Notification, $"CreateQuest<ConsolidatedQuest> threw: {ex.Message}");
-                // Sentinel prevents retry spam — UpdateGroupSummary handles null Quest gracefully
-                _activeGroups[windowKey] = new ConsolidatedGroup { Quest = null };
                 return;
             }
 
@@ -284,7 +282,6 @@ namespace OverTheCounter.Logic
             else
             {
                 OTCLog.Error(OTCLog.Systems.Notification, "CreateQuest<ConsolidatedQuest> returned null!");
-                _activeGroups[windowKey] = new ConsolidatedGroup { Quest = null };
                 return;
             }
 
