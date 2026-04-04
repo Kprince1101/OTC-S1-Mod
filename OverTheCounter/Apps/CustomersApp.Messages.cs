@@ -1173,12 +1173,16 @@ namespace OverTheCounter.Apps
                 return;
 
             Money.CreateOnlineTransaction("OTC Property", -price, 1f, "Static Services");
-            PropertySaveData.Instance.PurchaseProperty(PropertySaveData.ShackId);
 
-            if (!NetworkHelper.IsHost)
+            if (NetworkHelper.IsHost)
+            {
+                PropertySaveData.Instance.PurchaseProperty(PropertySaveData.ShackId);
+            }
+            else
+            {
                 ConfigSyncData.SendQuestAction("PURCHASE_WESTVILLE_SHACK");
+            }
 
-            // Rebuild thread to show confirmation
             PopulateThread(snapToBottom: false);
         }
 
@@ -1192,10 +1196,15 @@ namespace OverTheCounter.Apps
                 return;
 
             Money.CreateOnlineTransaction("OTC Property", -price, 1f, "Static Services");
-            PropertySaveData.Instance.PurchaseProperty(PropertySaveData.WarehouseId);
 
-            if (!NetworkHelper.IsHost)
+            if (NetworkHelper.IsHost)
+            {
+                PropertySaveData.Instance.PurchaseProperty(PropertySaveData.WarehouseId);
+            }
+            else
+            {
                 ConfigSyncData.SendQuestAction("PURCHASE_WAREHOUSE");
+            }
 
             PopulateThread(snapToBottom: false);
         }
@@ -1210,10 +1219,15 @@ namespace OverTheCounter.Apps
                 return;
 
             Money.CreateOnlineTransaction("OTC Property", -price, 1f, "Static Services");
-            PropertySaveData.Instance.PurchaseProperty(PropertySaveData.DispensaryId);
 
-            if (!NetworkHelper.IsHost)
+            if (NetworkHelper.IsHost)
+            {
+                PropertySaveData.Instance.PurchaseProperty(PropertySaveData.DispensaryId);
+            }
+            else
+            {
                 ConfigSyncData.SendQuestAction("PURCHASE_DISPENSARY");
+            }
 
             PopulateThread(snapToBottom: false);
         }
@@ -1263,13 +1277,9 @@ namespace OverTheCounter.Apps
             Money.CreateOnlineTransaction("OTC License", -cost, 1f, "Static Services");
 
             if (NetworkHelper.IsHost)
-            {
                 StaticSaveData.Instance.PayTier1Money();
-            }
             else
-            {
                 ConfigSyncData.SendQuestAction("STATIC_PAY_TIER1");
-            }
 
             PopulateThread(snapToBottom: false);
         }
@@ -1286,13 +1296,9 @@ namespace OverTheCounter.Apps
             Money.CreateOnlineTransaction("OTC Upgrade", -cost, 1f, "Static Services");
 
             if (NetworkHelper.IsHost)
-            {
                 StaticSaveData.Instance.PayUpgradeMoney();
-            }
             else
-            {
                 ConfigSyncData.SendQuestAction("STATIC_PAY_UPGRADE");
-            }
 
             PopulateThread(snapToBottom: false);
         }
