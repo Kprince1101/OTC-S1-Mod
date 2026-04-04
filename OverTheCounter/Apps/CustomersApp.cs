@@ -190,20 +190,18 @@ namespace OverTheCounter.Apps
 #endif
                     if (homeScreen == null) return; // Not loaded yet — retry next tick
 
-                    // HomeScreen exists, so icon should too. Only search once.
-                    _homeNotificationSearched = true;
-
                     // S1API names the icon GameObject after AppName
                     Transform iconTransform = null;
                     foreach (var t in homeScreen.GetComponentsInChildren<Transform>(true))
                     {
                         if (t.name == AppName) { iconTransform = t; break; }
                     }
-                    if (iconTransform == null) return;
+                    if (iconTransform == null) return; // Icon not built yet — retry next tick
 
                     var notifTransform = iconTransform.Find("Notifications");
-                    if (notifTransform == null) return;
+                    if (notifTransform == null) return; // Notification child not built yet — retry next tick
 
+                    _homeNotificationSearched = true;
                     _homeNotificationContainer = notifTransform.gameObject;
                     _homeNotificationText = notifTransform.Find("Text")?.GetComponent<Text>();
                 }
