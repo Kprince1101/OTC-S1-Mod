@@ -147,9 +147,9 @@ namespace OverTheCounter.Logic
                 return;
             }
 
+            var state = UnityEngine.Random.state;
             try
             {
-                var state = UnityEngine.Random.state;
                 UnityEngine.Random.InitState(seed);
 
                 var settings = ScriptableObject.CreateInstance<AvatarSettings>();
@@ -240,11 +240,14 @@ namespace OverTheCounter.Logic
                 settings.AccessorySettings.Add(shoeSetting);
 
                 npc.Avatar.LoadAvatarSettings(settings);
-                UnityEngine.Random.state = state;
             }
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Customer, $"BudtenderSpawner: ApplyAppearance failed for {npc.ID}: {ex.Message}");
+            }
+            finally
+            {
+                UnityEngine.Random.state = state;
             }
         }
     }
