@@ -53,8 +53,7 @@ namespace OverTheCounter.Apps
                 if (counter.BuildingId == _selectedBuildingId)
                     return counter;
             }
-            // Fallback: any counter
-            return CheckoutCounter.AllCounters.Count > 0 ? CheckoutCounter.AllCounters[0] : null;
+            return null;
         }
 
         private static string GetBuildingDisplayName(string buildingId)
