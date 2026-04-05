@@ -34,6 +34,7 @@ namespace OverTheCounter.UI
         {
             public string Name;
             public bool Found;
+            public bool FoundOnDisk;
             public string Instruction;
             public string Version;
             public string MinVersion;
@@ -58,7 +59,6 @@ namespace OverTheCounter.UI
             var pluginsDir = Path.Combine(profileDir, "Plugins");
             var userLibsDir = Path.Combine(profileDir, "UserLibs");
             var folders = new[] { modsDir, pluginsDir, userLibsDir };
-
             _results = new[]
             {
                 Check("S1API Loader", "S1APILoader",
@@ -97,6 +97,11 @@ namespace OverTheCounter.UI
                     var wrongFolder = Path.GetFileName(Path.GetDirectoryName(r.MisplacedPath));
                     OTCLog.Warning(OTCLog.Systems.General,
                         $"  MISPLACED: {r.Name} — found {fileName} in {wrongFolder}, expected {r.ExpectedFolder}");
+                }
+                else if (!r.Found && r.FoundOnDisk)
+                {
+                    OTCLog.Warning(OTCLog.Systems.General,
+                        $"  LOAD FAILED: {r.Name} (found in {r.ExpectedFolder} but not loaded)");
                 }
                 else if (!r.Found)
                 {
@@ -265,6 +270,12 @@ namespace OverTheCounter.UI
                 result.MisplacedPath = ScanForMisplacedDll(assemblyPrefix, expectedFolder,
                     folderPaths, excludePrefix);
 
+            // Check if DLL exists in the expected folder but failed to load
+            if (!result.Found && result.MisplacedPath == null &&
+                expectedFolder != null && folderPaths != null)
+                result.FoundOnDisk = ScanExpectedFolder(assemblyPrefix, expectedFolder,
+                    folderPaths, excludePrefix);
+
             return result;
         }
 
@@ -370,6 +381,45 @@ namespace OverTheCounter.UI
         }
 
         /// <summary>
+        /// Checks the expected folder for a DLL matching the assembly prefix.
+        /// Returns true if found on disk (assembly present but not loaded).
+        /// </summary>
+        private static bool ScanExpectedFolder(string assemblyPrefix, string expectedFolder,
+            string[] folderPaths, string excludePrefix = null)
+        {
+            foreach (var folder in folderPaths)
+            {
+                if (!Directory.Exists(folder)) continue;
+
+                var folderName = Path.GetFileName(folder);
+                if (!string.Equals(folderName, expectedFolder, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                try
+                {
+                    foreach (var file in Directory.GetFiles(folder, "*.dll",
+                                 SearchOption.TopDirectoryOnly))
+                    {
+                        var fileName = Path.GetFileNameWithoutExtension(file);
+                        if (!fileName.StartsWith(assemblyPrefix, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (excludePrefix != null &&
+                            fileName.StartsWith(excludePrefix, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.General,
+                        $"Failed to scan expected folder {folder}: {ex.Message}");
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Creates a standalone overlay popup listing missing/outdated startup dependencies.
         /// Safe to call multiple times — skips if already visible.
         /// </summary>
@@ -380,7 +430,7 @@ namespace OverTheCounter.UI
             BuildPopup("OTC_DepCheckCanvas",
                 "OverTheCounter - Missing Dependencies",
                 "OTC requires these mods to function.\nInstall the missing mods and restart the game.",
-                _results, 540);
+                _results);
         }
 
         /// <summary>
@@ -394,11 +444,11 @@ namespace OverTheCounter.UI
             BuildPopup("OTC_MultiplayerDepCanvas",
                 "OverTheCounter - Multiplayer Sync",
                 "The following mod is required for co-op features to work between players.",
-                _multiplayerResults, 360);
+                _multiplayerResults);
         }
 
         private static void BuildPopup(string canvasName, string title, string subtitle,
-            DepResult[] results, float panelHeight)
+            DepResult[] results)
         {
             // Canvas — ScreenSpaceOverlay at highest sort order
             var canvasGO = new GameObject(canvasName);
@@ -423,17 +473,20 @@ namespace OverTheCounter.UI
             var backdropImg = backdropGO.AddComponent<Image>();
             backdropImg.color = new Color(0f, 0f, 0f, 0.75f);
 
-            // Center panel
+            // Center panel — height driven by content
             var panelGO = new GameObject("Panel");
             panelGO.transform.SetParent(canvasGO.transform, false);
             var panelRT = panelGO.AddComponent<RectTransform>();
             panelRT.anchorMin = new Vector2(0.5f, 0.5f);
             panelRT.anchorMax = new Vector2(0.5f, 0.5f);
-            panelRT.sizeDelta = new Vector2(720, panelHeight);
+            panelRT.sizeDelta = new Vector2(720, 0);
             var panelImg = panelGO.AddComponent<Image>();
             panelImg.color = new Color(0.1f, 0.1f, 0.12f, 0.97f);
             panelImg.sprite = TMPFactory.GetRoundedSprite();
             panelImg.type = Image.Type.Sliced;
+
+            var csf = panelGO.AddComponent<ContentSizeFitter>();
+            csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
             // VerticalLayoutGroup for content flow
             var vlg = panelGO.AddComponent<VerticalLayoutGroup>();
@@ -494,6 +547,16 @@ namespace OverTheCounter.UI
                         $"     Found {fileName} in {wrongFolder} folder. Move it to {dep.ExpectedFolder}.",
                         15, FontStyles.Normal, new Color(0.6f, 0.6f, 0.6f), 24, wrap: true);
                 }
+                else if (dep.FoundOnDisk)
+                {
+                    AddText(panelGO.transform, dep.Name,
+                        $"{dep.Name}  -  LOAD FAILED",
+                        18, FontStyles.Bold, new Color(1f, 0.7f, 0.2f), 30);
+
+                    AddText(panelGO.transform, dep.Name + "_Inst",
+                        $"     Found in {dep.ExpectedFolder} but MelonLoader failed to load it. Check your MelonLoader log.",
+                        15, FontStyles.Normal, new Color(0.6f, 0.6f, 0.6f), 24, wrap: true);
+                }
                 else
                 {
                     AddText(panelGO.transform, dep.Name,
@@ -508,13 +571,26 @@ namespace OverTheCounter.UI
 
             AddSpacer(panelGO.transform, 12);
 
-            var (mask, btn, _) = TMPFactory.RoundedButtonWithLabel(
-                "Dismiss", "Dismiss", panelGO.transform,
+            // Button row
+            var btnRow = new GameObject("ButtonRow");
+            btnRow.transform.SetParent(panelGO.transform, false);
+            btnRow.AddComponent<RectTransform>();
+            var btnRowLe = btnRow.AddComponent<LayoutElement>();
+            btnRowLe.preferredHeight = 46;
+            var hlg = btnRow.AddComponent<HorizontalLayoutGroup>();
+            hlg.spacing = 12;
+            hlg.childForceExpandWidth = false;
+            hlg.childForceExpandHeight = false;
+            hlg.childAlignment = TextAnchor.MiddleCenter;
+
+            var (_, dismissBtn, _) = TMPFactory.RoundedButtonWithLabel(
+                "Dismiss", "Dismiss", btnRow.transform,
                 new Color(0.25f, 0.25f, 0.3f), 160, 38, 16, Color.white);
-            btn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
+            dismissBtn.onClick.AddListener((UnityEngine.Events.UnityAction)(() =>
             {
                 UnityEngine.Object.Destroy(canvasGO);
             }));
+
         }
 
         private static void AddText(Transform parent, string name, string content,
@@ -522,7 +598,8 @@ namespace OverTheCounter.UI
         {
             var container = new GameObject(name + "_Container");
             container.transform.SetParent(parent, false);
-            container.AddComponent<RectTransform>();
+            var rt = container.AddComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(656, height);
             var le = container.AddComponent<LayoutElement>();
             le.preferredHeight = height;
             le.flexibleWidth = 1;
