@@ -34,6 +34,8 @@ namespace OverTheCounter.Logic
         private const int SpawnStartHour = StoreHours.OpenHour;
         private const int SpawnEndHour = StoreHours.CloseHour;
         private const float DespawnDistance = 30f;
+        private const float NavStuckTimeout = 30f;
+        private const int MaxNavRetries = 2;
 
 
         // Client-side adoption
@@ -140,6 +142,26 @@ namespace OverTheCounter.Logic
                         break;
 
                     case CustomerState.EnteringStore:
+                        if (!customer.ArrivedAtDestination && customer.TimeInCurrentState > NavStuckTimeout)
+                        {
+                            if (customer.NavRetries >= MaxNavRetries)
+                            {
+                                OTCLog.Warning(OTCLog.Systems.Customer, $"{customer.Id}: EnteringStore failed after {MaxNavRetries} retries, resetting to WalkingToStore");
+                                customer.RestoreObstacleAvoidance();
+                                var approach = customer.Target?.ExteriorApproachPosition ?? Vector3.zero;
+                                customer.WarpTo(approach);
+                                customer.State = CustomerState.WalkingToStore;
+                                customer.WalkTo(approach);
+                                break;
+                            }
+                            OTCLog.Warning(OTCLog.Systems.Customer, $"{customer.Id}: stuck in EnteringStore for {customer.TimeInCurrentState:F0}s, resending to interior (retry {customer.NavRetries + 1}/{MaxNavRetries})");
+                            customer.SendToInterior(customer.Target.RoomCenterLocal, () =>
+                            {
+                                customer.ArrivedAtDestination = true;
+                            });
+                            customer.ResetStateTimer();
+                            break;
+                        }
                         if (customer.ArrivedAtDestination)
                         {
                             customer.ArrivedAtDestination = false;
@@ -235,6 +257,27 @@ namespace OverTheCounter.Logic
                         break;
 
                     case CustomerState.ExitingStore:
+                        if (customer.TimeInCurrentState > NavStuckTimeout)
+                        {
+                            if (customer.NavRetries >= MaxNavRetries)
+                            {
+                                OTCLog.Warning(OTCLog.Systems.Customer, $"{customer.Id}: ExitingStore failed after {MaxNavRetries} retries, warping outside");
+                                customer.RestoreObstacleAvoidance();
+                                customer.SetAvoidancePriority(50);
+                                var exitTarget = customer.WarpReturnPosition
+                                    ?? customer.SpawnPoint?.Position
+                                    ?? customer.Target?.ExitWalkPosition
+                                    ?? Vector3.zero;
+                                customer.WarpTo(exitTarget);
+                                customer.State = CustomerState.LeavingStore;
+                                customer.WalkTo(exitTarget);
+                                break;
+                            }
+                            OTCLog.Warning(OTCLog.Systems.Customer, $"{customer.Id}: stuck in ExitingStore for {customer.TimeInCurrentState:F0}s, retrying recall ({customer.NavRetries + 1}/{MaxNavRetries})");
+                            customer.RecallFromBuilding();
+                            customer.ResetStateTimer();
+                            break;
+                        }
                         // RecallNPC handles exit via doorway — poll until NPC is outside
                         if (customer.Position.HasValue)
                         {

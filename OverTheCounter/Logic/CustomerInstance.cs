@@ -159,7 +159,32 @@ namespace OverTheCounter.Logic
         //  State machine
         // =====================================================================
 
-        public CustomerState State { get; set; }
+        public CustomerState State
+        {
+            get => _state;
+            set
+            {
+                _state = value;
+                _stateEnteredTime = Time.time;
+                NavRetries = 0;
+            }
+        }
+        private CustomerState _state;
+        private float _stateEnteredTime;
+
+        /// <summary>Seconds the customer has been in the current state.</summary>
+        public float TimeInCurrentState => Time.time - _stateEnteredTime;
+
+        /// <summary>Number of nav-stuck resend attempts in the current state.</summary>
+        public int NavRetries { get; private set; }
+
+        /// <summary>Resets the state timer without changing state (e.g., after a retry).</summary>
+        public void ResetStateTimer()
+        {
+            _stateEnteredTime = Time.time;
+            NavRetries++;
+        }
+
         public bool ArrivedAtDestination { get; set; }
 
         // Browse tracking
