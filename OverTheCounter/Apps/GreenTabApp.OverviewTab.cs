@@ -675,10 +675,13 @@ namespace OverTheCounter.Apps
             }
 
             float rowH = 22f;
+            float warnH = 16f;
+            float yPos = 0f;
+
             for (int i = 0; i < buildings.Count; i++)
             {
-                string name = GetBuildingDisplayName(buildings[i]);
-                float yPos = -(i * rowH);
+                string bid = buildings[i];
+                string name = GetBuildingDisplayName(bid);
                 Color rowBg = i % 2 == 0 ? Color.clear : new Color(0.10f, 0.10f, 0.10f, 0.5f);
 
                 var row = UIFactory.Panel($"Prop_{i}", _overviewPropertyListContainer, rowBg);
@@ -701,7 +704,7 @@ namespace OverTheCounter.Apps
                 _overviewTooltipEntries.Add((nlRect, name));
 
                 // Store status (Open / Closed / After Hours)
-                var (statusText, statusColor) = GetStoreStatus(buildings[i]);
+                var (statusText, statusColor) = GetStoreStatus(bid);
                 var statusLabel = TMPFactory.Text($"PropStatus_{i}", statusText, row.transform,
                     15, TextAlignmentOptions.Right, FontStyles.Bold);
                 statusLabel.color = statusColor;
@@ -712,11 +715,30 @@ namespace OverTheCounter.Apps
                 slRect.offsetMax = new Vector2(-4, 0);
 
                 // Open/Close toggle switch
-                string bid = buildings[i];
                 CreateStoreToggle(row.transform, bid);
 
+                yPos -= rowH;
+
+                // Warning sub-row (why customers aren't coming)
+                var warnings = GetStoreWarnings(bid);
+                if (warnings.Count > 0)
+                {
+                    var warnLabel = TMPFactory.Text($"PropWarn_{i}",
+                        string.Join(", ", warnings),
+                        _overviewPropertyListContainer, 13, TextAlignmentOptions.Left);
+                    warnLabel.color = new Color(0.95f, 0.75f, 0.3f);
+                    var wlRect = warnLabel.gameObject.GetComponent<RectTransform>();
+                    wlRect.anchorMin = new Vector2(0, 1);
+                    wlRect.anchorMax = new Vector2(1, 1);
+                    wlRect.pivot = new Vector2(0, 1);
+                    wlRect.sizeDelta = new Vector2(0, warnH);
+                    wlRect.anchoredPosition = new Vector2(0, yPos);
+                    wlRect.offsetMin = new Vector2(10, wlRect.offsetMin.y);
+                    yPos -= warnH;
+                }
+
                 if (i < buildings.Count - 1)
-                    AddHLine(_overviewPropertyListContainer, yPos - rowH);
+                    AddHLine(_overviewPropertyListContainer, yPos);
             }
         }
 

@@ -1,3 +1,4 @@
+using OverTheCounter.Logic;
 using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
@@ -85,6 +86,42 @@ namespace OverTheCounter.Apps
             return withinHours
                 ? ("Open", AccentGreen)
                 : ("After Hours", new Color(0.4f, 0.65f, 0.95f));
+        }
+
+        /// <summary>
+        /// Returns actionable warnings explaining why a store might not get customers.
+        /// Empty when store is closed (that's obvious) or all conditions are met.
+        /// </summary>
+        private static List<string> GetStoreWarnings(string buildingId)
+        {
+            var warnings = new List<string>();
+
+            bool toggleOn = buildingId == PropertySaveData.ShackId
+                ? WestvilleShack.IsStoreOpen
+                : Dispensary.IsStoreOpen;
+            if (!toggleOn) return warnings;
+
+            var grid = GetGridForBuilding(buildingId);
+            if (grid == null) return warnings;
+
+            if (!PropertyInventory.HasAnyDisplayStorage(grid))
+                warnings.Add("No display shelves");
+            else if (!PropertyInventory.HasAnyProduct(grid))
+                warnings.Add("No products on display");
+
+            bool hasCounter = false;
+            foreach (var c in CheckoutCounter.AllCounters)
+            {
+                if (c.BuildingId == buildingId && c.IsEnabled)
+                {
+                    hasCounter = true;
+                    break;
+                }
+            }
+            if (!hasCounter)
+                warnings.Add("No checkout counter");
+
+            return warnings;
         }
 
         /// <summary>Returns the placement grid for the given building ID, or null.</summary>
