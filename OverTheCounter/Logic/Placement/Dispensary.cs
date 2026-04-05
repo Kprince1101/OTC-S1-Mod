@@ -78,6 +78,9 @@ namespace OverTheCounter.Logic.Placement
         private static readonly List<(Light light, float baseIntensity)> TrackedLights = new();
         private static Color _neonEmissionColor = Color.black;
         private static float _lastBrightnessCheck;
+        private static GameObject _signGo;
+        private static TMPro.TextMeshPro _signText;
+        private static Renderer _signBackRenderer;
 
         /// <summary>Tracks a renderer whose material should be swapped between on/off states.</summary>
         private class LightMatSwap
@@ -225,6 +228,9 @@ namespace OverTheCounter.Logic.Placement
             CurrentExteriorWallStyleId = null;
             CurrentInteriorWallStyleId = null;
             CurrentFloorStyleId = null;
+            _signGo = null;
+            _signText = null;
+            _signBackRenderer = null;
             _initialized = false;
             _suppressSwitchSync = false;
             _awaitingClientDoors = false;
@@ -742,6 +748,8 @@ namespace OverTheCounter.Logic.Placement
                 OTCLog.Warning(OTCLog.Systems.Furniture, $"Dispensary decal spawn failed: {ex.Message}");
             }
 
+            BuildSign();
+
             _navigationBuilder.Build();
 
             UI.MapBuildingOverlay.Register(BuildingOrigin, RoomWidth, RoomDepth);
@@ -1071,6 +1079,137 @@ namespace OverTheCounter.Logic.Placement
         // ==================================================================
         //  Wall / Floor material swapping
         // ==================================================================
+
+        // ==================================================================
+        //  Dispensary name sign
+        // ==================================================================
+
+        private static void BuildSign()
+        {
+            if (_building == null) return;
+
+            try
+            {
+                MeshVault.MeshVaultAPI.Init();
+
+                var signLocalPos = new Vector3(RoomWidth / 2f, 3.4f, RoomDepth + 0.07f);
+                var worldPos = _building.transform.TransformPoint(signLocalPos);
+                var worldRot = _building.transform.rotation * Quaternion.Euler(270f, 0f, 0f);
+
+                _signGo = MeshVault.MeshVaultAPI.Spawn("otc_dispensary_sign", worldPos, worldRot,
+                    parent: _building.transform);
+
+                string displayName = PropertySaveData.Instance?.DispensaryDisplayName ?? "Dispensary";
+                var psd = PropertySaveData.Instance;
+
+                if (_signGo != null)
+                {
+                    // --- Frame (parent) material: matte painted metal ---
+                    var frameRenderer = _signGo.GetComponent<Renderer>();
+                    if (frameRenderer != null)
+                    {
+                        var frameMat = frameRenderer.material;
+                        frameMat.SetFloat("_Smoothness", 0.2f);
+                        frameMat.SetFloat("_Metallic", 0.3f);
+                    }
+
+                    // --- Green backplate (child 0): back-painted acrylic ---
+                    if (_signGo.transform.childCount > 0)
+                    {
+                        var child = _signGo.transform.GetChild(0);
+                        _signBackRenderer = child.GetComponent<Renderer>();
+                    }
+
+                    // --- Sign text ---
+                    var textGo = new GameObject("SignText");
+                    textGo.transform.SetParent(_building.transform, false);
+                    textGo.transform.localPosition = new Vector3(RoomWidth / 2f, 3.45f, RoomDepth + 0.14f);
+                    textGo.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+
+                    var tmp = textGo.AddComponent<TMPro.TextMeshPro>();
+                    tmp.text = displayName;
+                    tmp.fontSize = SignFontSize(displayName.Length);
+                    tmp.alignment = TMPro.TextAlignmentOptions.Center;
+                    tmp.textWrappingMode = TMPro.TextWrappingModes.NoWrap;
+                    tmp.overflowMode = TMPro.TextOverflowModes.Truncate;
+                    tmp.extraPadding = true;
+                    tmp.characterSpacing = 8f;
+                    Color signColor = psd != null ? psd.SignTextColor : new Color(0.05f, 0.05f, 0.07f);
+                    tmp.color = signColor;
+                    var rect = textGo.GetComponent<RectTransform>();
+                    rect.sizeDelta = new Vector2(10f, 2f);
+
+                    // SDF material: fake bold + outline
+                    var mat = tmp.fontMaterial;
+                    mat.SetFloat("_FaceDilate", 0.15f);
+                    mat.EnableKeyword("OUTLINE_ON");
+                    mat.SetFloat("_OutlineWidth", 0.15f);
+                    float lum = 0.2126f * signColor.r + 0.7152f * signColor.g + 0.0722f * signColor.b;
+                    mat.SetColor("_OutlineColor", lum < 0.4f ? Color.white : Color.black);
+
+                    _signText = tmp;
+
+                    if (psd != null)
+                        ApplyBackplateColor(psd.SignBackColor);
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Furniture, $"Dispensary sign build failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>Updates the dispensary sign text. Called on rename, sync, and load.</summary>
+        public static void UpdateSignText(string name)
+        {
+            string text = string.IsNullOrEmpty(name) ? "Dispensary" : name;
+            if (_signText == null) return;
+            _signText.text = text;
+            _signText.fontSize = SignFontSize(text.Length);
+        }
+
+        /// <summary>Updates sign text and/or backplate color. Pass null to skip either.</summary>
+        public static void UpdateSignColors(Color? textColor, Color? backColor)
+        {
+            if (textColor.HasValue && _signText != null)
+            {
+                var c = textColor.Value;
+                _signText.color = c;
+                float lum = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+                _signText.fontMaterial.SetColor("_OutlineColor", lum < 0.4f ? Color.white : Color.black);
+            }
+            if (backColor.HasValue)
+            {
+                ApplyBackplateColor(backColor.Value);
+            }
+        }
+
+        private static float SignFontSize(int charCount)
+        {
+            const float baseSize = 4.8f;
+            if (charCount > 18) return baseSize * 0.8f;
+            return baseSize;
+        }
+
+        private static void ApplyBackplateColor(Color color)
+        {
+            if (_signBackRenderer == null) return;
+            var mat = _signBackRenderer.material;
+            if (mat == null) return;
+
+            // Desaturate + darken slightly for less harsh appearance
+            float h, s, v;
+            Color.RGBToHSV(color, out h, out s, out v);
+            s = Mathf.Clamp01(s * 0.85f);
+            v = Mathf.Clamp01(v * 0.9f);
+            Color adjusted = Color.HSVToRGB(h, s, v);
+
+            mat.SetColor("_BaseColor", adjusted * 0.05f);
+            mat.SetColor("_EmissionColor", adjusted * 0.6f);
+            mat.SetFloat("_Smoothness", 0.85f);
+            mat.SetFloat("_Metallic", 0f);
+            mat.EnableKeyword("_EMISSION");
+        }
 
         /// <summary>
         /// Swaps exterior wall material (submesh 0 on dual-material walls).

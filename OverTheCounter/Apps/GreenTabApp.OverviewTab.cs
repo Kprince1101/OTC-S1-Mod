@@ -47,6 +47,12 @@ namespace OverTheCounter.Apps
         // Employees widget ref
         private TextMeshProUGUI _overviewWageLabel;
 
+        // Home header + edit screen refs
+        private TextMeshProUGUI _homeHeaderTitle;
+        private GameObject _homeEditBtn;
+        private GameObject _homeScrollView;
+        private GameObject _homeEditPanel;
+
         // Tooltip entries for mouse-follow hover (rendered by shared tooltip in GreenTabApp.cs)
         private List<(RectTransform rect, string text)> _overviewTooltipEntries;
 
@@ -61,13 +67,59 @@ namespace OverTheCounter.Apps
 
             _tabPanels[AppTab.Overview] = panel;
 
-            // Scrollable content
+            // --- Property header bar (fixed above scroll) ---
+            float headerH = 40f;
+            var headerBar = UIFactory.Panel("HomeHeader", panel.transform, new Color(0.09f, 0.09f, 0.09f));
+            var hbRect = headerBar.GetComponent<RectTransform>();
+            hbRect.anchorMin = new Vector2(0, 1);
+            hbRect.anchorMax = Vector2.one;
+            hbRect.pivot = new Vector2(0.5f, 1);
+            hbRect.sizeDelta = new Vector2(0, headerH);
+
+            _homeHeaderTitle = TMPFactory.Text("HomeTitle", "All Properties",
+                headerBar.transform, 20, TextAlignmentOptions.Left, FontStyles.Bold);
+            _homeHeaderTitle.color = Color.white;
+            var htRect = _homeHeaderTitle.gameObject.GetComponent<RectTransform>();
+            htRect.anchorMin = Vector2.zero;
+            htRect.anchorMax = Vector2.one;
+            htRect.offsetMin = new Vector2(14, 0);
+            htRect.offsetMax = new Vector2(-70, 0);
+
+            // Edit button (hidden by default, shown for individual dispensary + host)
+            _homeEditBtn = RoundedPanel("HomeEditBtn", headerBar.transform, new Color(0.2f, 0.2f, 0.22f));
+            var editBtnRT = _homeEditBtn.GetComponent<RectTransform>();
+            editBtnRT.anchorMin = new Vector2(1, 0.15f);
+            editBtnRT.anchorMax = new Vector2(1, 0.85f);
+            editBtnRT.pivot = new Vector2(1, 0.5f);
+            editBtnRT.sizeDelta = new Vector2(52, 0);
+            editBtnRT.anchoredPosition = new Vector2(-10, 0);
+
+            var editTxt = TMPFactory.Text("HomeEditLabel", "Edit", _homeEditBtn.transform,
+                15, TextAlignmentOptions.Center);
+            editTxt.color = AccentGreen;
+            var etRT = editTxt.GetComponent<RectTransform>();
+            etRT.anchorMin = Vector2.zero;
+            etRT.anchorMax = Vector2.one;
+            etRT.offsetMin = Vector2.zero;
+            etRT.offsetMax = Vector2.zero;
+
+            var editBtnComp = _homeEditBtn.AddComponent<Button>();
+            editBtnComp.targetGraphic = _homeEditBtn.GetComponent<Image>();
+            editBtnComp.onClick.AddListener(new Action(() =>
+            {
+                _homeEditMode = true;
+                RefreshOverview();
+            }));
+            _homeEditBtn.SetActive(false);
+
+            // --- Scrollable dashboard content (below header) ---
             var scrollView = UIFactory.Panel("OverviewScroll", panel.transform, Color.clear);
+            _homeScrollView = scrollView;
             var scrollViewRect = scrollView.GetComponent<RectTransform>();
             scrollViewRect.anchorMin = Vector2.zero;
             scrollViewRect.anchorMax = Vector2.one;
             scrollViewRect.offsetMin = Vector2.zero;
-            scrollViewRect.offsetMax = Vector2.zero;
+            scrollViewRect.offsetMax = new Vector2(0, -headerH);
 
             var scroll = scrollView.AddComponent<ScrollRect>();
             scroll.horizontal = false;
@@ -119,6 +171,15 @@ namespace OverTheCounter.Apps
 
             // Total content height
             contentRect.sizeDelta = new Vector2(0, -(row3Y) + smallRowH + pad);
+
+            // --- Edit screen panel (hidden, replaces scroll when editing) ---
+            _homeEditPanel = UIFactory.Panel("HomeEditPanel", panel.transform, BgDark);
+            var editPanelRect = _homeEditPanel.GetComponent<RectTransform>();
+            editPanelRect.anchorMin = Vector2.zero;
+            editPanelRect.anchorMax = Vector2.one;
+            editPanelRect.offsetMin = Vector2.zero;
+            editPanelRect.offsetMax = new Vector2(0, -headerH);
+            _homeEditPanel.SetActive(false);
 
             panel.SetActive(false);
         }
@@ -854,6 +915,29 @@ namespace OverTheCounter.Apps
             _overviewTooltipEntries = new List<(RectTransform, string)>();
             HideTooltip();
 
+            // Update header title + edit button visibility
+            string headerText = _selectedBuildingId == AllPropertiesId
+                ? "All Properties"
+                : GetBuildingDisplayName(_selectedBuildingId);
+            if (_homeHeaderTitle != null)
+                _homeHeaderTitle.text = headerText;
+
+            bool showEdit = _selectedBuildingId == PropertySaveData.DispensaryId && NetworkHelper.IsHost;
+            if (_homeEditBtn != null)
+                _homeEditBtn.SetActive(showEdit && !_homeEditMode);
+
+            // Toggle between dashboard and edit screen
+            if (_homeEditMode)
+            {
+                if (_homeScrollView != null) _homeScrollView.SetActive(false);
+                if (_homeEditPanel != null) _homeEditPanel.SetActive(true);
+                RefreshHomeEditScreen();
+                return;
+            }
+
+            if (_homeScrollView != null) _homeScrollView.SetActive(true);
+            if (_homeEditPanel != null) _homeEditPanel.SetActive(false);
+
             RefreshInventoryItems();
             RefreshSalesItems();
             RefreshPropertyRows();
@@ -861,6 +945,132 @@ namespace OverTheCounter.Apps
 
             RefreshInventoryChart();
             RefreshSalesChart();
+        }
+
+        private void RefreshHomeEditScreen()
+        {
+            if (_homeEditPanel == null) return;
+
+            // Clear previous content
+            for (int i = _homeEditPanel.transform.childCount - 1; i >= 0; i--)
+                UnityEngine.Object.Destroy(_homeEditPanel.transform.GetChild(i).gameObject);
+
+            var wrapper = UIFactory.Panel("EditContent", _homeEditPanel.transform, Color.clear);
+            var wrapperRT = wrapper.GetComponent<RectTransform>();
+            wrapperRT.anchorMin = Vector2.zero;
+            wrapperRT.anchorMax = Vector2.one;
+            wrapperRT.offsetMin = Vector2.zero;
+            wrapperRT.offsetMax = Vector2.zero;
+
+            var vlg = wrapper.AddComponent<VerticalLayoutGroup>();
+            vlg.spacing = 6;
+            vlg.padding = new RectOffset(16, 16, 16, 16);
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+            vlg.childAlignment = TextAnchor.UpperLeft;
+
+            // --- Back button ---
+            var backRow = UIFactory.Panel("BackRow", wrapper.transform, Color.clear);
+            var backRowLE = backRow.AddComponent<LayoutElement>();
+            backRowLE.preferredHeight = 32;
+
+            var backBtn = RoundedPanel("BackBtn", backRow.transform, new Color(0.2f, 0.2f, 0.22f));
+            var backBtnRT = backBtn.GetComponent<RectTransform>();
+            backBtnRT.anchorMin = new Vector2(0, 0);
+            backBtnRT.anchorMax = new Vector2(0, 1);
+            backBtnRT.pivot = new Vector2(0, 0.5f);
+            backBtnRT.sizeDelta = new Vector2(70, 0);
+
+            var backTxt = TMPFactory.Text("BackLabel", "\u2190 Back", backBtn.transform,
+                15, TextAlignmentOptions.Center);
+            backTxt.color = AccentGreen;
+            var btRT = backTxt.GetComponent<RectTransform>();
+            btRT.anchorMin = Vector2.zero;
+            btRT.anchorMax = Vector2.one;
+            btRT.offsetMin = Vector2.zero;
+            btRT.offsetMax = Vector2.zero;
+
+            var backBtnComp = backBtn.AddComponent<Button>();
+            backBtnComp.targetGraphic = backBtn.GetComponent<Image>();
+            backBtnComp.onClick.AddListener(new Action(() =>
+            {
+                _homeEditMode = false;
+                RefreshOverview();
+            }));
+
+            // --- Section title ---
+            var sectionTitle = TMPFactory.Text("EditSectionTitle", "Edit Sign", wrapper.transform,
+                18, TextAlignmentOptions.Left, FontStyles.Bold);
+            sectionTitle.color = Color.white;
+            var stLE = sectionTitle.gameObject.AddComponent<LayoutElement>();
+            stLE.preferredHeight = 28;
+
+            // --- Store Name row ---
+            var nameRow = RoundedPanel("NameRow", wrapper.transform, new Color(0.18f, 0.18f, 0.2f));
+            var nameRowLE = nameRow.AddComponent<LayoutElement>();
+            nameRowLE.preferredHeight = 63;
+            nameRowLE.flexibleHeight = 0;
+
+            var nameHlg = nameRow.AddComponent<HorizontalLayoutGroup>();
+            nameHlg.spacing = 10;
+            nameHlg.childForceExpandHeight = false;
+            nameHlg.childForceExpandWidth = false;
+            nameHlg.childAlignment = TextAnchor.MiddleLeft;
+            nameHlg.padding = new RectOffset(12, 12, 0, 0);
+
+            var nameLbl = TMPFactory.Text("NameLabel", "Store Name", nameRow.transform,
+                17, TextAlignmentOptions.Left);
+            nameLbl.color = TextMuted;
+            var nameLblLE = nameLbl.gameObject.AddComponent<LayoutElement>();
+            nameLblLE.preferredWidth = 110;
+
+            string currentName = PropertySaveData.Instance?.DispensaryDisplayName ?? "Dispensary";
+            var nameVal = TMPFactory.Text("NameValue", currentName, nameRow.transform,
+                17, TextAlignmentOptions.Left, FontStyles.Bold);
+            nameVal.color = Color.white;
+            var nameValLE = nameVal.gameObject.AddComponent<LayoutElement>();
+            nameValLE.flexibleWidth = 1;
+
+            var renameBtn = RoundedPanel("RenameBtn", nameRow.transform, new Color(0.25f, 0.25f, 0.28f));
+            var renameBtnLE = renameBtn.AddComponent<LayoutElement>();
+            renameBtnLE.preferredWidth = 120;
+            renameBtnLE.preferredHeight = 24;
+
+            var renameTxt = TMPFactory.Text("RenameLabel", "Rename", renameBtn.transform,
+                15, TextAlignmentOptions.Center);
+            renameTxt.color = AccentGreen;
+            var rnRT = renameTxt.GetComponent<RectTransform>();
+            rnRT.anchorMin = Vector2.zero;
+            rnRT.anchorMax = Vector2.one;
+            rnRT.offsetMin = Vector2.zero;
+            rnRT.offsetMax = Vector2.zero;
+
+            var renameBtnComp = renameBtn.AddComponent<Button>();
+            renameBtnComp.targetGraphic = renameBtn.GetComponent<Image>();
+            renameBtnComp.onClick.AddListener(new Action(() =>
+            {
+                string name = PropertySaveData.Instance?.DispensaryDisplayName ?? "Dispensary";
+                UI.RenamePopup.Show(name, () =>
+                {
+                    RefreshDropdownText();
+                    RefreshOverview();
+                });
+            }));
+
+            // --- Color swatches ---
+            var psd = PropertySaveData.Instance;
+            BuildColorRow(wrapper.transform, "Text Color", psd?.SignTextColor ?? Color.white, color =>
+            {
+                if (psd != null) psd.SignTextColor = color;
+                Dispensary.UpdateSignColors(color, null);
+                ConfigSyncData.MarkGameStateDirty();
+            });
+            BuildColorRow(wrapper.transform, "Backplate Color", psd?.SignBackColor ?? Color.white, color =>
+            {
+                if (psd != null) psd.SignBackColor = color;
+                Dispensary.UpdateSignColors(null, color);
+                ConfigSyncData.MarkGameStateDirty();
+            });
         }
 
         private void RefreshEmployeesWage()

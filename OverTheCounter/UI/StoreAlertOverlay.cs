@@ -360,7 +360,8 @@ namespace OverTheCounter.UI
         private static string GetBuildingDisplayName(string buildingId)
         {
             if (buildingId == PropertySaveData.ShackId) return "Westville Shack";
-            if (buildingId == PropertySaveData.DispensaryId) return "Big Dispensary";
+            if (buildingId == PropertySaveData.DispensaryId)
+                return PropertySaveData.Instance?.DispensaryDisplayName ?? "Dispensary";
             return buildingId;
         }
 

@@ -1,4 +1,6 @@
+using OverTheCounter.SaveData;
 using OverTheCounter.UI;
+using OverTheCounter.Utilities;
 using S1API.UI;
 using System;
 using System.Collections.Generic;
@@ -51,7 +53,7 @@ namespace OverTheCounter.Apps
             vlg.childControlHeight = false;
             vlg.childAlignment = TextAnchor.UpperCenter;
 
-            string[] tabs = { "SALES", "INVENTORY", "EMPLOYEES", "CUSTOMIZE" };
+            string[] tabs = { "HOME", "SALES", "INVENTORY", "EMPLOYEES", "CUSTOMIZE" };
             float borderW = 2f;
 
             for (int i = 0; i < tabs.Length; i++)
@@ -523,6 +525,7 @@ namespace OverTheCounter.Apps
         private void SelectBuilding(string buildingId)
         {
             _selectedBuildingId = buildingId;
+            _homeEditMode = false;
 
             if (_propertyDropdownText != null)
                 _propertyDropdownText.text = GetBuildingDisplayName(_selectedBuildingId) + " \u25BC";
@@ -531,6 +534,12 @@ namespace OverTheCounter.Apps
 
             // Refresh active tab with new building context
             SwitchTab(_activeTab);
+        }
+
+        private void RefreshDropdownText()
+        {
+            if (_propertyDropdownText != null)
+                _propertyDropdownText.text = GetBuildingDisplayName(_selectedBuildingId) + " \u25BC";
         }
     }
 }

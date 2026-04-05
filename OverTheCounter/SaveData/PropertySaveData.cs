@@ -107,6 +107,9 @@ namespace OverTheCounter.SaveData
         public string ExteriorWallStyleId;
         public string InteriorWallStyleId;
         public string FloorStyleId;
+        public string DisplayName;
+        public string SignTextColor;   // hex, e.g. "0A0A10"
+        public string SignBackColor;   // hex, e.g. "E6F0FF"
     }
 
     /// <summary>
@@ -199,6 +202,58 @@ namespace OverTheCounter.SaveData
         /// <summary>Saved budtender state for deferred restore after counters are placed.</summary>
         public string BudtenderSaveState => _budtenderState;
 
+        private const string DefaultDispensaryName = "Dispensary";
+        private const string LegacyDispensaryName = "Big Dispensary";
+
+        /// <summary>
+        /// Custom dispensary display name. Returns "Dispensary" when not set.
+        /// Treats legacy "Big Dispensary" as unset for backwards compatibility.
+        /// </summary>
+        public string DispensaryDisplayName
+        {
+            get
+            {
+                var name = _dispensaryState?.DisplayName;
+                if (string.IsNullOrEmpty(name) || name == LegacyDispensaryName)
+                    return DefaultDispensaryName;
+                return name;
+            }
+            set
+            {
+                if (_dispensaryState == null) return;
+                _dispensaryState.DisplayName = value;
+            }
+        }
+
+        private static readonly Color DefaultSignTextColor = new(0.05f, 0.05f, 0.07f);
+        private static readonly Color DefaultSignBackColor = new(0.22f, 0.5f, 0.28f);
+
+        public Color SignTextColor
+        {
+            get => ParseColor(_dispensaryState?.SignTextColor, DefaultSignTextColor);
+            set
+            {
+                if (_dispensaryState == null) return;
+                _dispensaryState.SignTextColor = ColorUtility.ToHtmlStringRGB(value);
+            }
+        }
+
+        public Color SignBackColor
+        {
+            get => ParseColor(_dispensaryState?.SignBackColor, DefaultSignBackColor);
+            set
+            {
+                if (_dispensaryState == null) return;
+                _dispensaryState.SignBackColor = ColorUtility.ToHtmlStringRGB(value);
+            }
+        }
+
+        private static Color ParseColor(string hex, Color fallback)
+        {
+            if (string.IsNullOrEmpty(hex)) return fallback;
+            return ColorUtility.TryParseHtmlString("#" + hex, out var c) ? c : fallback;
+        }
+
         /// <summary>Singleton instance, set during construction or load.</summary>
         public static PropertySaveData Instance { get; private set; }
 
@@ -246,6 +301,8 @@ namespace OverTheCounter.SaveData
                     _dispensaryState.LightingStyleId,
                     _dispensaryState.ExteriorWallStyleId, _dispensaryState.InteriorWallStyleId,
                     _dispensaryState.FloorStyleId);
+                Dispensary.UpdateSignText(_dispensaryState.DisplayName);
+                Dispensary.UpdateSignColors(SignTextColor, SignBackColor);
             }
 
             if (IsPropertyOwned(WarehouseId))

@@ -87,7 +87,7 @@ namespace OverTheCounter.Apps
             (Category.CheckoutDesk, "Checkout Desk", false),
             (Category.Walls, "Walls", false),
             (Category.Flooring, "Flooring", false),
-            (Category.Lighting, "Lighting", false), // set true to gate behind unlock
+            (Category.Lighting, "Lighting", false),
         };
 
         // ---- Tab state ----
@@ -97,6 +97,7 @@ namespace OverTheCounter.Apps
 
         // ---- Customize tab state ----
         private Category _activeCategory = Category.CheckoutDesk;
+        private bool _homeEditMode;
         private string _selectedBuildingId;
         private string _pendingStyleId;
         private DeskStyle _pendingStyle;
@@ -156,7 +157,7 @@ namespace OverTheCounter.Apps
         private static readonly Dictionary<string, string> BuildingDisplayNames = new()
         {
             { PropertySaveData.ShackId, "Westville Shack" },
-            { Dispensary.DispensaryId, "Big Dispensary" },
+            { Dispensary.DispensaryId, "Dispensary" },
         };
 
         // ---- Desk style swatch colors (just colored squares, no previews) ----
@@ -228,11 +229,11 @@ namespace OverTheCounter.Apps
 
         // ---- Nav tab icon names (order matches tabs array in BuildNavBar) ----
         private static readonly string[] NavIconNames =
-            { "SalesIcon", "InventoryIcon", "EmployeesIcon", "CustomizeIcon" };
+            { "DashboardIcon", "SalesIcon", "InventoryIcon", "EmployeesIcon", "CustomizeIcon" };
 
         // ---- AppTab values matching NavIconNames order ----
         private static readonly AppTab[] NavTabOrder =
-            { AppTab.Sales, AppTab.Inventory, AppTab.Employees, AppTab.Customize };
+            { AppTab.Overview, AppTab.Sales, AppTab.Inventory, AppTab.Employees, AppTab.Customize };
 
         // ---- Category icon names (order matches Categories array) ----
         private static readonly string[] CatIconNames =
@@ -334,6 +335,7 @@ namespace OverTheCounter.Apps
         internal void SwitchTab(AppTab tab)
         {
             _activeTab = tab;
+            _homeEditMode = false;
 
             // Show/hide Customize-only components
             bool isCustomize = tab == AppTab.Customize;
@@ -563,7 +565,7 @@ namespace OverTheCounter.Apps
         {
             switch (_activeTab)
             {
-                case AppTab.Overview: RefreshOverview(); break;
+                case AppTab.Overview: if (!_homeEditMode) RefreshOverview(); break;
                 case AppTab.Sales: RefreshSales(); break;
                 case AppTab.Inventory: RefreshInventory(); break;
                 case AppTab.Employees: RefreshStaffing(); break;
@@ -616,7 +618,7 @@ namespace OverTheCounter.Apps
             Graphic graphic = target switch
             {
                 QuestHighlight.InventoryNav =>
-                    _navTabs.Count > 1 ? _navTabs[1].OuterImage : null,
+                    _navTabs.Count > 2 ? _navTabs[2].OuterImage : null,
                 QuestHighlight.PricingArea => _pricingHeaderBg,
                 QuestHighlight.ProductRows => _firstProductRowBg,
                 QuestHighlight.OverviewNav => _logoUnderlineImage,

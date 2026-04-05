@@ -1091,6 +1091,20 @@ namespace OverTheCounter.SaveData
             parts.Add($"disp_lights={BoolToStr(Logic.Placement.Dispensary.AreLightsOn)}");
             parts.Add($"disp_open={BoolToStr(Logic.Placement.Dispensary.IsStoreOpen)}");
 
+            // Dispensary custom display name
+            var dispName = PropertySaveData.Instance?.DispensaryDisplayName;
+            if (!string.IsNullOrEmpty(dispName) && dispName != "Dispensary" && dispName != "Big Dispensary")
+                parts.Add($"disp_name={dispName}");
+
+            // Dispensary sign colors
+            if (PropertySaveData.Instance != null)
+            {
+                var stc = UnityEngine.ColorUtility.ToHtmlStringRGB(PropertySaveData.Instance.SignTextColor);
+                parts.Add($"disp_stc={stc}");
+                var sbc = UnityEngine.ColorUtility.ToHtmlStringRGB(PropertySaveData.Instance.SignBackColor);
+                parts.Add($"disp_sbc={sbc}");
+            }
+
             // Warehouse switch states
             parts.Add($"wh_lights={BoolToStr(Logic.Placement.OTCWarehouse.AreLightsOn)}");
 
@@ -1299,6 +1313,32 @@ namespace OverTheCounter.SaveData
                 Logic.Placement.Dispensary.SetLightsFromSync(StrToBool(dl));
             if (state.TryGetValue("disp_open", out var dso))
                 Logic.Placement.Dispensary.SetStoreOpen(StrToBool(dso));
+
+            // Dispensary custom display name
+            if (state.TryGetValue("disp_name", out var syncDispName))
+            {
+                if (PropertySaveData.Instance != null)
+                    PropertySaveData.Instance.DispensaryDisplayName = syncDispName;
+                Logic.Placement.Dispensary.UpdateSignText(syncDispName);
+            }
+
+            // Dispensary sign colors
+            if (state.TryGetValue("disp_stc", out var syncStc) && PropertySaveData.Instance != null)
+            {
+                if (UnityEngine.ColorUtility.TryParseHtmlString("#" + syncStc, out var tc))
+                {
+                    PropertySaveData.Instance.SignTextColor = tc;
+                    Logic.Placement.Dispensary.UpdateSignColors(tc, null);
+                }
+            }
+            if (state.TryGetValue("disp_sbc", out var syncSbc) && PropertySaveData.Instance != null)
+            {
+                if (UnityEngine.ColorUtility.TryParseHtmlString("#" + syncSbc, out var bc))
+                {
+                    PropertySaveData.Instance.SignBackColor = bc;
+                    Logic.Placement.Dispensary.UpdateSignColors(null, bc);
+                }
+            }
 
             // Warehouse switch states
             if (state.TryGetValue("wh_lights", out var wl))

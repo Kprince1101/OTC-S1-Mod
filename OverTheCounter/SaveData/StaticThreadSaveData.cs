@@ -499,7 +499,7 @@ namespace OverTheCounter.SaveData
                     Sender = "static",
                     IsEmbed = true,
                     ThreadId = "dispensary",
-                    EmbedTitle = "Big Dispensary",
+                    EmbedTitle = "Dispensary",
                     EmbedDescription = "Full-size dispensary. More floor space, storage, " +
                                        "and customer capacity.",
                     EmbedItems = new List<string> { $"${Config.DispensaryPurchasePrice.Value:N0}" },

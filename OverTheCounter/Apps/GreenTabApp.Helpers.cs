@@ -60,6 +60,8 @@ namespace OverTheCounter.Apps
         private static string GetBuildingDisplayName(string buildingId)
         {
             if (buildingId == AllPropertiesId) return "All Properties";
+            if (buildingId == PropertySaveData.DispensaryId)
+                return PropertySaveData.Instance?.DispensaryDisplayName ?? "Dispensary";
             return BuildingDisplayNames.TryGetValue(buildingId, out var name) ? name : buildingId ?? "Unknown";
         }
 

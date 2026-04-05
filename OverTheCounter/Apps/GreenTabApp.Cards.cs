@@ -1,6 +1,7 @@
 using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
 using OverTheCounter.UI;
+using OverTheCounter.Utilities;
 using S1API.UI;
 using System;
 using UnityEngine;
@@ -153,6 +154,45 @@ namespace OverTheCounter.Apps
                 RefreshFloorCards();
 
             RefreshFooter();
+        }
+
+        private void BuildColorRow(Transform parent, string label, Color current, Action<Color> onConfirm)
+        {
+            var row = RoundedPanel($"Color_{label}", parent, new Color(0.18f, 0.18f, 0.2f));
+            var rowLE = row.AddComponent<LayoutElement>();
+            rowLE.preferredHeight = 63;
+            rowLE.flexibleHeight = 0;
+
+            var hlg = row.AddComponent<HorizontalLayoutGroup>();
+            hlg.spacing = 10;
+            hlg.childForceExpandHeight = false;
+            hlg.childForceExpandWidth = false;
+            hlg.childAlignment = TextAnchor.MiddleLeft;
+            hlg.padding = new RectOffset(12, 12, 0, 0);
+
+            var lbl = TMPFactory.Text($"Lbl_{label}", label, row.transform,
+                17, TextAlignmentOptions.Left);
+            lbl.color = TextMuted;
+            var lblLE = lbl.gameObject.AddComponent<LayoutElement>();
+            lblLE.flexibleWidth = 1;
+
+            // Clickable color swatch
+            var swatchGo = RoundedPanel($"Swatch_{label}", row.transform, current);
+            var swatchLE = swatchGo.AddComponent<LayoutElement>();
+            swatchLE.preferredWidth = 120;
+            swatchLE.preferredHeight = 36;
+
+            var swatchImg = swatchGo.GetComponent<Image>();
+            var swatchBtn = swatchGo.AddComponent<Button>();
+            swatchBtn.targetGraphic = swatchImg;
+            swatchBtn.onClick.AddListener(new Action(() =>
+            {
+                ColorPickerPopup.Show(swatchImg.color, $"Pick {label}", color =>
+                {
+                    if (swatchImg != null) swatchImg.color = color;
+                    onConfirm?.Invoke(color);
+                });
+            }));
         }
 
         private void UpdateCardVisuals()

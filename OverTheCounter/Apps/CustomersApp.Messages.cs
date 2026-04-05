@@ -626,7 +626,7 @@ namespace OverTheCounter.Apps
                     "upgrade2" => "Enterprise Tier",
                     "shack" => "Westville Shack",
                     "warehouse" => "Warehouse",
-                    "dispensary" => "Big Dispensary",
+                    "dispensary" => PropertySaveData.Instance?.DispensaryDisplayName ?? "Dispensary",
                     _ => threadId
                 };
 
