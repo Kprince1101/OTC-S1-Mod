@@ -577,6 +577,39 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Starts checkout for a specific customer (E-key on NPC).
+        /// Bypasses R-key and hover checks — the customer is passed directly.
+        /// </summary>
+        internal static void TryStartCheckoutForCustomer(CustomerInstance customer)
+        {
+            if (Instance != null) return;
+            if (_pendingLockType != PendingLockType.None) return;
+
+            var counter = customer.AssignedCounter;
+            if (counter == null || counter.IsStaffed) return;
+            if (!string.IsNullOrEmpty(counter.LockHolder)) return;
+            if (NetworkHelper.IsHost)
+            {
+                StartCheckoutDirect(customer, counter);
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(CurrentLockHolder)) return;
+                _pendingLockType = PendingLockType.Checkout;
+                _pendingCustomerId = customer.Id;
+                _pendingCounter = counter;
+                _lockRequestTime = Time.time;
+                string myId = SaveData.ConfigSyncData.LocalPlayerId;
+
+                if (_p2pSubscribed)
+                    SendP2PLockRequest(customer.Id, myId);
+                else
+                    SaveData.ConfigSyncData.SendQuestAction(
+                        $"CHECKOUT_REQUEST:{customer.Id}:{myId}");
+            }
+        }
+
+        /// <summary>
         /// Host: creates the checkout instance and publishes the lock.
         /// Also used when granting a client's lock request.
         /// </summary>

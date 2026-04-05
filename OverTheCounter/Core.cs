@@ -87,6 +87,7 @@ namespace OverTheCounter
             SaveManagerPatch.Apply(HarmonyInstance);
             GameProfilerPatches.Apply(HarmonyInstance);
             WeatherPatches.Apply(HarmonyInstance);
+            CustomerCheckoutInterceptPatch.Apply(HarmonyInstance);
 
             TimeManager.OnSleepEnd += OnSleepEnd;
             TimeManager.OnDayPass += OnDayPass;

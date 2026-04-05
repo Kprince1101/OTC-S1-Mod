@@ -139,6 +139,22 @@ namespace OverTheCounter.Logic
             }
 
             OTCLog.Msg(OTCLog.Systems.Customer, $"Firing budtender {budtenderId}");
+
+            // Clean up counter and front-of-queue customer before despawn
+            var counter = bt.AssignedCounter;
+            if (counter != null)
+            {
+                counter.Screen?.HideCheckoutInfo();
+
+                if (counter.Queue.Count > 0
+                    && CustomerInstance.Active.TryGetValue(counter.Queue[0], out var front)
+                    && front.State == CustomerState.CheckingOut)
+                {
+                    front.SelectedProducts.Clear();
+                    front.CheckoutArrivalTime = 0f;
+                }
+            }
+
             bt.GracefulDespawn();
 
             // Sync to clients
