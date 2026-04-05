@@ -18,79 +18,39 @@ using EDrugType = ScheduleOne.Product.EDrugType;
 namespace OverTheCounter.Quests
 {
     /// <summary>
-    /// UI highlight targets exposed by the quest for GreenTabApp to pulse.
+    /// Guides the player through setting up the Big Dispensary: place storage →
+    /// place checkout counter → stock product → turn on lights → open store → make a sale.
     /// </summary>
-    public enum QuestHighlight
+    public class StorefrontExpansionQuest : Quest
     {
-        None,
-        InventoryNav,
-        PricingArea,
-        ProductRows,
-        OverviewNav,
-        StoreToggle
-    }
-
-    /// <summary>
-    /// Guides the player through setting up their first storefront after purchasing
-    /// the Westville Shack: place storage → stock product → set prices → view product →
-    /// turn on lights → open store → make a sale.
-    /// </summary>
-    public class StorefrontGrowthQuest : Quest
-    {
-        protected override string Title => "Storefront Growth";
+        protected override string Title => "Storefront Expansion";
         protected override string Description =>
-            "You've got the keys. Now turn this place into a working storefront.";
+            "Your new dispensary has room to grow. Get it running.";
         protected override bool AutoBegin => false;
         protected override Sprite QuestIcon => Core.OtcIconDir != null
             ? ImageUtils.LoadImage(Path.Combine(Core.OtcIconDir, "StoreAlertIcon.png"))
             : null;
 
-        // 0=not started, 1=place storage, 2=stock product, 3=set prices, 4=view product,
-        // 5=lights, 6=open store, 7=make sale, 8=done
-        [SaveableField("storefront_quest_stage")]
+        // 0=not started, 1=place storage, 2=place checkout, 3=stock product,
+        // 4=lights, 5=open store, 6=make sale, 7=done
+        [SaveableField("expansion_quest_stage")]
         private int _stage;
 
-        [SaveableField("storefront_quest_touched_pricing")]
-        private bool _hasTouchedPricing;
-
-        [SaveableField("storefront_quest_viewed_product")]
-        private bool _hasViewedProduct;
-
         private QuestEntry _placeStorageEntry;
+        private QuestEntry _placeCheckoutEntry;
         private QuestEntry _stockProductEntry;
-        private QuestEntry _setPricesEntry;
-        private QuestEntry _viewProductEntry;
         private QuestEntry _turnOnLightsEntry;
         private QuestEntry _openStoreEntry;
         private QuestEntry _makeSaleEntry;
 
-        public static StorefrontGrowthQuest Instance { get; private set; }
+        public static StorefrontExpansionQuest Instance { get; private set; }
         internal static void ResetInstance() => Instance = null;
 
-        /// <summary>Current quest stage index (0=not started, 1-7=in progress, 8=done).</summary>
+        /// <summary>Current quest stage index (0=not started, 1-6=in progress, 7=done).</summary>
         public int Stage => _stage;
 
-        /// <summary>
-        /// Returns the current highlight target for GreenTabApp to pulse.
-        /// When on the Inventory tab, the app upgrades InventoryNav to PricingArea or ProductRows.
-        /// </summary>
-        public static QuestHighlight ActiveHighlight
-        {
-            get
-            {
-                if (Instance == null) return QuestHighlight.None;
-                return Instance._stage switch
-                {
-                    3 => QuestHighlight.InventoryNav,
-                    4 => QuestHighlight.InventoryNav,
-                    6 => QuestHighlight.OverviewNav,
-                    _ => QuestHighlight.None
-                };
-            }
-        }
-
-        // Center of the Westville Shack (origin + half room dimensions)
-        private static readonly Vector3 ShackPosition = new(-164.4f, -3f, 76f);
+        // Center of the Big Dispensary (origin + half room dimensions)
+        private static readonly Vector3 DispensaryPosition = new(121.16f, 0f, -3.6f);
 
         private float _lastTickTime;
         private const float TickInterval = 3f;
@@ -99,9 +59,9 @@ namespace OverTheCounter.Quests
 
         private TutorialCustomerHelper GetTutorialCustomer() =>
             _tutorialCustomer ??= new TutorialCustomerHelper(
-                PropertySaveData.ShackId,
-                () => WestvilleShack.IsStoreOpen,
-                () => WestvilleShack.Target);
+                PropertySaveData.DispensaryId,
+                () => Dispensary.IsStoreOpen,
+                () => Dispensary.Target);
 
         private void TriggerInternalInit()
         {
@@ -120,7 +80,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Quest, $"StorefrontGrowth TriggerInternalInit failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"StorefrontExpansion TriggerInternalInit failed: {ex.Message}");
             }
         }
 
@@ -133,19 +93,18 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Quest, $"StorefrontGrowth Initialize failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"StorefrontExpansion Initialize failed: {ex.Message}");
             }
         }
 
         private void BuildEntries()
         {
-            _placeStorageEntry = AddEntry("Place a Display Cabinet or any storage in your new dispensary", ShackPosition);
-            _stockProductEntry = AddEntry("Stock your shelves with packaged weed", ShackPosition);
-            _setPricesEntry = AddEntry("Open the GreenTab app and set your product prices", ShackPosition);
-            _viewProductEntry = AddEntry("Click on a product in the Inventory tab to view its details", ShackPosition);
-            _turnOnLightsEntry = AddEntry("Turn on the lights using the light switch on the wall", ShackPosition);
-            _openStoreEntry = AddEntry("Open the store using the GreenTab app on your phone", ShackPosition);
-            _makeSaleEntry = AddEntry("Make your first sale. A customer is on their way!", ShackPosition);
+            _placeStorageEntry = AddEntry("Place storage in the showroom or backroom of your dispensary", DispensaryPosition);
+            _placeCheckoutEntry = AddEntry("Buy and place a Checkout Counter from the hardware store", DispensaryPosition);
+            _stockProductEntry = AddEntry("Stock your shelves with packaged weed", DispensaryPosition);
+            _turnOnLightsEntry = AddEntry("Turn on the lights using the light switch on the wall", DispensaryPosition);
+            _openStoreEntry = AddEntry("Open the store using the GreenTab app on your phone", DispensaryPosition);
+            _makeSaleEntry = AddEntry("Make your first sale at the dispensary. A customer is on their way!", DispensaryPosition);
         }
 
         public void StartQuest()
@@ -159,26 +118,8 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Quest, $"StorefrontGrowth StartQuest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"StorefrontExpansion StartQuest failed: {ex.Message}");
             }
-        }
-
-        // ==================================================================
-        //  Callbacks from GreenTabApp
-        // ==================================================================
-
-        /// <summary>Called by GreenTabApp when player interacts with auto-pricing or markup.</summary>
-        public void OnPricingTouched()
-        {
-            if (_stage != 3) return;
-            _hasTouchedPricing = true;
-        }
-
-        /// <summary>Called by GreenTabApp when player clicks a product row in inventory.</summary>
-        public void OnProductViewed()
-        {
-            if (_stage != 4) return;
-            _hasViewedProduct = true;
         }
 
         // ==================================================================
@@ -186,12 +127,12 @@ namespace OverTheCounter.Quests
         // ==================================================================
 
         /// <summary>
-        /// Polled from Core.OnLateUpdate. Checks quest conditions for stages 1–6.
-        /// Stage 7 is event-driven via OnSaleRecorded.
+        /// Polled from Core.OnLateUpdate. Checks quest conditions for stages 1-5.
+        /// Stage 6 is event-driven via OnSaleRecorded.
         /// </summary>
         public void Tick()
         {
-            if (_stage < 1 || _stage > 7) return;
+            if (_stage < 1 || _stage > 6) return;
 
             float now = Time.time;
             if (now - _lastTickTime < TickInterval) return;
@@ -199,7 +140,7 @@ namespace OverTheCounter.Quests
 
             try
             {
-                var grid = WestvilleShack.ShackGrid;
+                var grid = Dispensary.DispensaryGrid;
                 if (grid == null) return;
 
                 switch (_stage)
@@ -209,33 +150,29 @@ namespace OverTheCounter.Quests
                             AdvanceToStage2();
                         break;
                     case 2:
-                        if (PropertyInventory.HasDrugType(grid, EDrugType.Marijuana))
+                        if (PropertyInventory.HasCheckoutCounter(grid))
                             AdvanceToStage3();
                         break;
                     case 3:
-                        if (_hasTouchedPricing)
+                        if (PropertyInventory.HasDrugType(grid, EDrugType.Marijuana))
                             AdvanceToStage4();
                         break;
                     case 4:
-                        if (_hasViewedProduct)
+                        if (Dispensary.AreLightsOn)
                             AdvanceToStage5();
                         break;
                     case 5:
-                        if (WestvilleShack.AreLightsOn)
+                        if (Dispensary.IsStoreOpen)
                             AdvanceToStage6();
                         break;
                     case 6:
-                        if (WestvilleShack.IsStoreOpen)
-                            AdvanceToStage7();
-                        break;
-                    case 7:
                         GetTutorialCustomer().Tick();
                         break;
                 }
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Quest, $"StorefrontGrowth Tick failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"StorefrontExpansion Tick failed: {ex.Message}");
             }
         }
 
@@ -248,44 +185,36 @@ namespace OverTheCounter.Quests
             _stage = 2;
             _placeStorageEntry?.Begin();
             _placeStorageEntry?.Complete();
-            _stockProductEntry?.Begin();
+            _placeCheckoutEntry?.Begin();
         }
 
         private void AdvanceToStage3()
         {
             _stage = 3;
+            _placeCheckoutEntry?.Begin();
+            _placeCheckoutEntry?.Complete();
             _stockProductEntry?.Begin();
-            _stockProductEntry?.Complete();
-            _setPricesEntry?.Begin();
         }
 
         private void AdvanceToStage4()
         {
             _stage = 4;
-            _setPricesEntry?.Begin();
-            _setPricesEntry?.Complete();
-            _viewProductEntry?.Begin();
+            _stockProductEntry?.Begin();
+            _stockProductEntry?.Complete();
+            _turnOnLightsEntry?.Begin();
         }
 
         private void AdvanceToStage5()
         {
             _stage = 5;
-            _viewProductEntry?.Begin();
-            _viewProductEntry?.Complete();
-            _turnOnLightsEntry?.Begin();
-        }
-
-        private void AdvanceToStage6()
-        {
-            _stage = 6;
             _turnOnLightsEntry?.Begin();
             _turnOnLightsEntry?.Complete();
             _openStoreEntry?.Begin();
         }
 
-        private void AdvanceToStage7()
+        private void AdvanceToStage6()
         {
-            _stage = 7;
+            _stage = 6;
             _openStoreEntry?.Begin();
             _openStoreEntry?.Complete();
             _makeSaleEntry?.Begin();
@@ -295,7 +224,7 @@ namespace OverTheCounter.Quests
         {
             try
             {
-                _stage = 8;
+                _stage = 7;
                 _makeSaleEntry?.Begin();
                 _makeSaleEntry?.Complete();
                 Complete();
@@ -303,7 +232,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Quest, $"StorefrontGrowth CompleteQuest failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Quest, $"StorefrontExpansion CompleteQuest failed: {ex.Message}");
             }
         }
 
@@ -313,7 +242,7 @@ namespace OverTheCounter.Quests
 
         private void OnSaleRecorded(string buildingId)
         {
-            if (_stage == 7 && buildingId == PropertySaveData.ShackId)
+            if (_stage == 6 && buildingId == PropertySaveData.DispensaryId)
                 CompleteQuest();
         }
 
@@ -355,35 +284,30 @@ namespace OverTheCounter.Quests
                 if (_stage >= 2)
                 {
                     _placeStorageEntry?.Complete();
-                    _stockProductEntry?.Begin();
+                    _placeCheckoutEntry?.Begin();
                 }
                 if (_stage >= 3)
                 {
-                    _stockProductEntry?.Complete();
-                    _setPricesEntry?.Begin();
+                    _placeCheckoutEntry?.Complete();
+                    _stockProductEntry?.Begin();
                 }
                 if (_stage >= 4)
                 {
-                    _setPricesEntry?.Complete();
-                    _viewProductEntry?.Begin();
-                }
-                if (_stage >= 5)
-                {
-                    _viewProductEntry?.Complete();
+                    _stockProductEntry?.Complete();
                     _turnOnLightsEntry?.Begin();
                 }
-                if (_stage >= 6)
+                if (_stage >= 5)
                 {
                     _turnOnLightsEntry?.Complete();
                     _openStoreEntry?.Begin();
                 }
-                if (_stage >= 7)
+                if (_stage >= 6)
                 {
                     _openStoreEntry?.Complete();
                     _makeSaleEntry?.Begin();
                     SubscribeSaleEvent();
                 }
-                if (_stage >= 8)
+                if (_stage >= 7)
                 {
                     _makeSaleEntry?.Complete();
                     Complete();
@@ -396,7 +320,7 @@ namespace OverTheCounter.Quests
             }
             catch (Exception ex)
             {
-                OTCLog.Warning(OTCLog.Systems.Quest, $"StorefrontGrowth OnLoaded rebuild failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Quest, $"StorefrontExpansion OnLoaded rebuild failed: {ex.Message}");
             }
         }
     }

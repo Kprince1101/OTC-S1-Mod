@@ -346,6 +346,8 @@
 		<Compile Include="Quests\StaticUpgrade2Quest.cs" />
 		<Compile Include="Quests\DrifterDealQuest.cs" />
 		<Compile Include="Quests\StorefrontGrowthQuest.cs" />
+		<Compile Include="Quests\StorefrontExpansionQuest.cs" />
+		<Compile Include="Quests\TutorialCustomerHelper.cs" />
 		<Compile Include="UI\StoreAlertOverlay.cs" />
 		<Compile Include="Config.cs" />
 		<Compile Include="Utilities\ConfigEntry.cs" />

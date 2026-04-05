@@ -145,6 +145,7 @@ namespace OverTheCounter
             VicIntroQuest.ResetInstance();
             BellaProtocolQuest.ResetInstance();
             StorefrontGrowthQuest.ResetInstance();
+            StorefrontExpansionQuest.ResetInstance();
             Patches.BellaSummonPatch.Reset();
 
             // WORKAROUND: S1API bug — SaveableAutoRegistry never clears cached instances
@@ -557,8 +558,9 @@ namespace OverTheCounter
                 PerfTracker.Begin("QuestTicks");
                 _drifterManager?.ClientQuestTick();
 
-                // Storefront Growth quest polling (throttled internally)
+                // Storefront quest polling (throttled internally)
                 Quests.StorefrontGrowthQuest.Instance?.Tick();
+                Quests.StorefrontExpansionQuest.Instance?.Tick();
                 PerfTracker.End("QuestTicks");
 
             }

@@ -120,6 +120,18 @@ namespace OverTheCounter.Utilities
         }
 
         /// <summary>
+        /// Returns true if at least one checkout counter is placed on this grid.
+        /// </summary>
+        public static bool HasCheckoutCounter(Grid grid)
+        {
+            if (grid == null) return false;
+            foreach (var counter in CheckoutCounter.AllCounters)
+                if (counter.ParentGrid == grid)
+                    return true;
+            return false;
+        }
+
+        /// <summary>
         /// Scans all OTC building grids for unique packaged product IDs currently in stock.
         /// Filters out products disabled via PricingSaveData.
         /// Used as a replacement for ProductManager.ListedProducts.

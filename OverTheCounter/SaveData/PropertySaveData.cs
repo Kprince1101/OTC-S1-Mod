@@ -320,7 +320,7 @@ namespace OverTheCounter.SaveData
                 TipAmount = tipAmount,
                 BuildingId = buildingId
             });
-            OnSaleRecorded?.Invoke();
+            OnSaleRecorded?.Invoke(buildingId);
         }
 
         private int _txCounter;
@@ -328,8 +328,8 @@ namespace OverTheCounter.SaveData
         /// <summary>Returns a unique transaction ID for grouping products from the same checkout.</summary>
         public string NextTransactionId() => $"tx_{_txCounter++}";
 
-        /// <summary>Fired after each RecordSale call (host-only).</summary>
-        public static event Action OnSaleRecorded;
+        /// <summary>Fired after each RecordSale call (host-only). Parameter is the buildingId.</summary>
+        public static event Action<string> OnSaleRecorded;
 
         /// <summary>Returns all recorded sales.</summary>
         public List<OtcSaleRecord> GetSalesLog() => _salesLog;
@@ -398,7 +398,7 @@ namespace OverTheCounter.SaveData
                     BuildingId = string.IsNullOrEmpty(f[10]) ? null : UnescapeField(f[10])
                 });
             }
-            OnSaleRecorded?.Invoke();
+            OnSaleRecorded?.Invoke(null);
         }
 
         /// <summary>Escapes pipe and newline characters in a field for delimited serialization.</summary>
@@ -604,7 +604,10 @@ namespace OverTheCounter.SaveData
                 CreateStorefrontQuest();
             }
             else if (propertyId == DispensaryId)
+            {
                 Dispensary.UnlockDoor();
+                CreateExpansionQuest();
+            }
             else if (propertyId == WarehouseId)
                 OTCWarehouse.UnlockDoor();
 
@@ -631,6 +634,29 @@ namespace OverTheCounter.SaveData
             {
                 OTCLog.Error(OTCLog.Systems.Quest,
                     $"CreateStorefrontQuest failed: {ex.Message}");
+            }
+        }
+
+        private static void CreateExpansionQuest()
+        {
+            if (StorefrontExpansionQuest.Instance != null) return;
+            try
+            {
+                var quest = (StorefrontExpansionQuest)S1API.Quests.QuestManager
+                    .CreateQuest<StorefrontExpansionQuest>();
+                if (quest == null)
+                {
+                    OTCLog.Error(OTCLog.Systems.Quest,
+                        "CreateQuest<StorefrontExpansionQuest> returned null.");
+                    return;
+                }
+                quest.Initialize();
+                quest.StartQuest();
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Quest,
+                    $"CreateExpansionQuest failed: {ex.Message}");
             }
         }
 

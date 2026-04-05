@@ -451,7 +451,7 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>Host: broadcasts the full sales log to all clients when a new sale is recorded.</summary>
-        private static void OnSaleRecordedBroadcast()
+        private static void OnSaleRecordedBroadcast(string _)
         {
             if (!NetworkHelper.IsHost || !_p2pSubscribed) return;
             var psd = SaveData.PropertySaveData.Instance;

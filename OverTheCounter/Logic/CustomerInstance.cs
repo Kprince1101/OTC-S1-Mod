@@ -291,7 +291,14 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Spawns a new customer NPC and registers it in the Active dictionary.
         /// </summary>
-        public static CustomerInstance Create(string id, int seed, CustomerSpawnPoints.SpawnPoint spawnPoint)
+        public static CustomerInstance Create(string id, int seed, CustomerSpawnPoints.SpawnPoint spawnPoint) =>
+            Create(id, seed, spawnPoint, null);
+
+        /// <summary>
+        /// Spawns a new customer NPC targeting a specific building.
+        /// </summary>
+        internal static CustomerInstance Create(string id, int seed, CustomerSpawnPoints.SpawnPoint spawnPoint,
+            BuildingTarget target)
         {
             try
             {
@@ -311,7 +318,7 @@ namespace OverTheCounter.Logic
                 NpcSpawner.GenerateRandomAppearance(npc, seed);
                 SetVoiceDatabase(npc, seed);
 
-                var instance = new CustomerInstance(id, seed, spawnPoint, npc);
+                var instance = new CustomerInstance(id, seed, spawnPoint, npc, target);
 
                 // Capture FishNet ObjectId for client-side adoption
                 try
