@@ -361,6 +361,7 @@ namespace OverTheCounter
                 Logic.Placement.CheckoutCounter.AddToShop();
                 Logic.Placement.CasinoDeadDrop.Initialize();
                 CheckoutProcess.InitP2P();
+                CheckoutProcess.RequestSalesLog();
 
                 // Suppress per-item navigation rebuilds during batch restore —
                 // one rebuild per building at the end instead of per item.

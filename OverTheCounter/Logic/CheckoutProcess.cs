@@ -219,6 +219,8 @@ namespace OverTheCounter.Logic
         private const string P2P_LOCK_RES = "lock_res";
         private const string P2P_REG_REQ = "reg_req";
         private const string P2P_REG_RES = "reg_res";
+        private const string P2P_SALES_REQ = "sales_req";
+        private const string P2P_SALES_RES = "sales_res";
         private static bool _p2pSubscribed;
 
         /// <summary>The counter this checkout is operating on.</summary>
@@ -243,12 +245,6 @@ namespace OverTheCounter.Logic
             if (_p2pSubscribed) return;
             if (!SaveData.ConfigSyncData.IsNetworkLibAvailable) return;
 
-#if DEBUG
-            // P2P doesn't work with LocalLobby (same Steam account, same SteamID on both
-            // instances → ISteamNetworking can't establish a P2P channel to yourself).
-            // Debug builds use SyncVar quest actions instead. Release uses P2P.
-            OTCLog.Msg(OTCLog.Systems.Network, "Debug build: skipping P2P lock init, using SyncVar fallback");
-#else
             try
             {
                 InitP2PImpl();
@@ -258,18 +254,21 @@ namespace OverTheCounter.Logic
             {
                 OTCLog.Warning(OTCLog.Systems.Network, $"CheckoutProcess P2P init failed: {ex.Message}");
             }
-#endif
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static void InitP2PImpl()
         {
-            // Host listens for lock requests and register collection from clients
+            // Host listens for lock requests, register collection, and sales log requests
             SaveData.NetworkP2PBridge.Subscribe(P2P_LOCK_REQ, OnP2PLockRequest);
             SaveData.NetworkP2PBridge.Subscribe(P2P_REG_REQ, OnP2PRegisterRequest);
-            // Client listens for lock grant/deny and register grant from host
+            SaveData.NetworkP2PBridge.Subscribe(P2P_SALES_REQ, OnP2PSalesRequest);
+            // Client listens for lock grant/deny, register grant, and sales log response
             SaveData.NetworkP2PBridge.Subscribe(P2P_LOCK_RES, OnP2PLockResponse);
             SaveData.NetworkP2PBridge.Subscribe(P2P_REG_RES, OnP2PRegisterResponse);
+            SaveData.NetworkP2PBridge.Subscribe(P2P_SALES_RES, OnP2PSalesResponse);
+            // Host pushes updated sales log to all clients on each new sale
+            SaveData.PropertySaveData.OnSaleRecorded += OnSaleRecordedBroadcast;
         }
 
         private static void CleanupP2P()
@@ -293,6 +292,9 @@ namespace OverTheCounter.Logic
             SaveData.NetworkP2PBridge.Unsubscribe(P2P_LOCK_RES);
             SaveData.NetworkP2PBridge.Unsubscribe(P2P_REG_REQ);
             SaveData.NetworkP2PBridge.Unsubscribe(P2P_REG_RES);
+            SaveData.NetworkP2PBridge.Unsubscribe(P2P_SALES_REQ);
+            SaveData.NetworkP2PBridge.Unsubscribe(P2P_SALES_RES);
+            SaveData.PropertySaveData.OnSaleRecorded -= OnSaleRecordedBroadcast;
         }
 
         /// <summary>
@@ -425,6 +427,49 @@ namespace OverTheCounter.Logic
             if (!float.TryParse(value, System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out float amount) || amount <= 0f) return;
             S1API.Money.Money.ChangeCashBalance(amount, true, true);
+        }
+
+        /// <summary>Host: responds to a client's sales log request with the full log.</summary>
+        private static void OnP2PSalesRequest(ulong senderSteamId, string value)
+        {
+            if (!NetworkHelper.IsHost) return;
+            var psd = SaveData.PropertySaveData.Instance;
+            if (psd == null) return;
+            string payload = psd.SerializeSalesLog();
+            SaveData.NetworkP2PBridge.SendTo(new CSteamID(senderSteamId), P2P_SALES_RES, payload);
+            OTCLog.Msg(OTCLog.Systems.Network, $"Sent sales log to {senderSteamId} ({payload?.Length ?? 0} chars)");
+        }
+
+        /// <summary>Client: receives sales log response from host.</summary>
+        private static void OnP2PSalesResponse(ulong senderSteamId, string value)
+        {
+            if (NetworkHelper.IsHost) return;
+            var psd = SaveData.PropertySaveData.Instance;
+            if (psd == null) return;
+            psd.ApplySalesLog(value);
+            OTCLog.Msg(OTCLog.Systems.Network, $"Applied sales log from host ({value?.Length ?? 0} chars)");
+        }
+
+        /// <summary>Host: broadcasts the full sales log to all clients when a new sale is recorded.</summary>
+        private static void OnSaleRecordedBroadcast()
+        {
+            if (!NetworkHelper.IsHost || !_p2pSubscribed) return;
+            var psd = SaveData.PropertySaveData.Instance;
+            if (psd == null) return;
+            string payload = psd.SerializeSalesLog();
+            SaveData.NetworkP2PBridge.Broadcast(P2P_SALES_RES, payload);
+        }
+
+        /// <summary>
+        /// Client requests the sales log from host after P2P init.
+        /// Host ignores this call (already has the data).
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static void RequestSalesLog()
+        {
+            if (NetworkHelper.IsHost || !_p2pSubscribed) return;
+            SaveData.NetworkP2PBridge.SendToHost(P2P_SALES_REQ, "");
+            OTCLog.Msg(OTCLog.Systems.Network, "Requested sales log from host");
         }
 
         // =================================================================

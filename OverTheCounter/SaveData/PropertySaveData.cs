@@ -341,6 +341,109 @@ namespace OverTheCounter.SaveData
             _salesLog.RemoveAll(s => s.GameDay < cutoff);
         }
 
+        /// <summary>Serializes the sales log as a newline-delimited string for P2P sync.</summary>
+        internal string SerializeSalesLog()
+        {
+            if (_salesLog.Count == 0) return "";
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < _salesLog.Count; i++)
+            {
+                var s = _salesLog[i];
+                if (i > 0) sb.Append('\n');
+                sb.Append(EscapeField(s.ProductId)).Append('|');
+                sb.Append(EscapeField(s.ProductName)).Append('|');
+                sb.Append(s.Quantity).Append('|');
+                sb.Append(s.PricePerUnit.ToString("R", ci)).Append('|');
+                sb.Append(s.QualityLevel).Append('|');
+                sb.Append(s.GameDay).Append('|');
+                sb.Append(EscapeField(s.CustomerName)).Append('|');
+                sb.Append(s.GameHour).Append('|');
+                sb.Append(EscapeField(s.TransactionId)).Append('|');
+                sb.Append(s.TipAmount.ToString("R", ci)).Append('|');
+                sb.Append(EscapeField(s.BuildingId));
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Replaces the local sales log with data received from the host via P2P.</summary>
+        internal void ApplySalesLog(string payload)
+        {
+            _salesLog.Clear();
+            if (string.IsNullOrEmpty(payload)) return;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            var lines = payload.Split('\n');
+            foreach (var line in lines)
+            {
+                var f = line.Split('|');
+                if (f.Length < 11) continue;
+                float.TryParse(f[3], System.Globalization.NumberStyles.Float, ci, out float price);
+                int.TryParse(f[2], out int qty);
+                int.TryParse(f[4], out int quality);
+                int.TryParse(f[5], out int day);
+                int.TryParse(f[7], out int hour);
+                float.TryParse(f[9], System.Globalization.NumberStyles.Float, ci, out float tip);
+                _salesLog.Add(new OtcSaleRecord
+                {
+                    ProductId = UnescapeField(f[0]),
+                    ProductName = UnescapeField(f[1]),
+                    Quantity = qty,
+                    PricePerUnit = price,
+                    QualityLevel = quality,
+                    GameDay = day,
+                    CustomerName = string.IsNullOrEmpty(f[6]) ? null : UnescapeField(f[6]),
+                    GameHour = hour,
+                    TransactionId = string.IsNullOrEmpty(f[8]) ? null : UnescapeField(f[8]),
+                    TipAmount = tip,
+                    BuildingId = string.IsNullOrEmpty(f[10]) ? null : UnescapeField(f[10])
+                });
+            }
+            OnSaleRecorded?.Invoke();
+        }
+
+        /// <summary>Escapes pipe and newline characters in a field for delimited serialization.</summary>
+        private static string EscapeField(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            if (value.IndexOfAny(_escapeChars) < 0) return value;
+            var sb = new System.Text.StringBuilder(value.Length);
+            foreach (char c in value)
+            {
+                switch (c)
+                {
+                    case '\\': sb.Append("\\\\"); break;
+                    case '|':  sb.Append("\\P"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    default:   sb.Append(c); break;
+                }
+            }
+            return sb.ToString();
+        }
+
+        private static string UnescapeField(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return value;
+            if (value.IndexOf('\\') < 0) return value;
+            var sb = new System.Text.StringBuilder(value.Length);
+            for (int i = 0; i < value.Length; i++)
+            {
+                if (value[i] == '\\' && i + 1 < value.Length)
+                {
+                    switch (value[i + 1])
+                    {
+                        case '\\': sb.Append('\\'); i++; break;
+                        case 'P':  sb.Append('|'); i++; break;
+                        case 'n':  sb.Append('\n'); i++; break;
+                        default:   sb.Append(value[i]); break;
+                    }
+                }
+                else sb.Append(value[i]);
+            }
+            return sb.ToString();
+        }
+
+        private static readonly char[] _escapeChars = { '\\', '|', '\n' };
+
         // ==================================================================
         // Inventory snapshots (for GreenTab overview chart)
         // ==================================================================

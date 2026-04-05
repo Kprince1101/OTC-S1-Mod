@@ -34,8 +34,8 @@
 		<AssemblyName>OverTheCounter.Mono</AssemblyName>
 	</PropertyGroup>
 
-	<!-- MonoDebug: add DEBUG constant (MSBuild only auto-defines it for configs named exactly "Debug") -->
-	<PropertyGroup Condition="'$(Configuration)' == 'MonoDebug'">
+	<!-- Debug configs: add DEBUG constant (MSBuild only auto-defines it for configs named exactly "Debug") -->
+	<PropertyGroup Condition="'$(Configuration)' == 'MonoDebug' Or '$(Configuration)' == 'IL2CPPDebug'">
 		<DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
 	</PropertyGroup>
 

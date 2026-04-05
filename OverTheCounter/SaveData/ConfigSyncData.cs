@@ -172,7 +172,6 @@ namespace OverTheCounter.SaveData
             try
             {
                 string statePayload = SerializeGameState();
-                OTCLog.Msg(OTCLog.Systems.Network, $"PublishGameState: payload length={statePayload?.Length ?? 0}");
                 if (IsNetworkLibAvailable)
                     PublishGameStateImpl(statePayload);
             }

@@ -101,6 +101,21 @@ namespace OverTheCounter.SaveData
         private static readonly Dictionary<string, Action<ulong, string>> _handlers
             = new Dictionary<string, Action<ulong, string>>(StringComparer.OrdinalIgnoreCase);
 
+        // ---- Auto-chunking ----
+        /// <summary>
+        /// Maximum value size per P2P chunk. Kept conservative (255) until
+        /// SteamNetworkLib's packet-loss issue is fully resolved upstream.
+        /// </summary>
+        internal const int MaxChunkValueSize = 255;
+        private const string ChunkMarker = "#C";
+        private static int _nextMsgId;
+        // Buffer key: "steamId|originalKey|msgId" → chunks + creation time
+        private static readonly Dictionary<string, string[]> _chunkBuffers
+            = new Dictionary<string, string[]>();
+        private static readonly Dictionary<string, DateTime> _chunkTimestamps
+            = new Dictionary<string, DateTime>();
+        private const int ChunkTimeoutSeconds = 30;
+
         /// <summary>
         /// Initializes P2P message handling on the shared <see cref="SteamNetworkClient"/>.
         /// Called from <see cref="NetworkSyncBridge.EnsureNetworkReady"/> after the client
@@ -145,7 +160,7 @@ namespace OverTheCounter.SaveData
 
         /// <summary>
         /// Broadcasts a key-value message to ALL lobby members via P2P.
-        /// Typically used by the host to push state to clients.
+        /// Auto-chunks if value exceeds <see cref="MaxChunkValueSize"/>.
         /// </summary>
         internal static void Broadcast(string key, string value)
         {
@@ -153,12 +168,12 @@ namespace OverTheCounter.SaveData
 
             try
             {
-                var msg = new DataSyncMessage
+                if (value != null && value.Length > MaxChunkValueSize)
                 {
-                    Key = key,
-                    Value = value,
-                    DataType = "otc"
-                };
+                    SendChunked(default, key, value, broadcast: true);
+                    return;
+                }
+                var msg = new DataSyncMessage { Key = key, Value = value, DataType = "otc" };
                 _client.BroadcastMessage(msg);
             }
             catch (Exception ex)
@@ -169,7 +184,7 @@ namespace OverTheCounter.SaveData
 
         /// <summary>
         /// Sends a key-value message to a specific player via P2P.
-        /// Typically used by clients to send data to the host.
+        /// Auto-chunks if value exceeds <see cref="MaxChunkValueSize"/>.
         /// </summary>
         internal static void SendTo(CSteamID target, string key, string value)
         {
@@ -177,15 +192,14 @@ namespace OverTheCounter.SaveData
 
             try
             {
-                OTCLog.Msg(OTCLog.Systems.Network, $"P2P SendTo: key='{key}', target={target.m_SteamID}, valueLen={value?.Length ?? 0}");
-                var msg = new DataSyncMessage
+                if (value != null && value.Length > MaxChunkValueSize)
                 {
-                    Key = key,
-                    Value = value,
-                    DataType = "otc"
-                };
+                    SendChunked(target, key, value, broadcast: false);
+                    return;
+                }
+                OTCLog.Msg(OTCLog.Systems.Network, $"P2P SendTo: key='{key}', target={target.m_SteamID}, valueLen={value?.Length ?? 0}");
+                var msg = new DataSyncMessage { Key = key, Value = value, DataType = "otc" };
                 _ = _client.SendMessageToPlayerAsync(target, msg);
-                OTCLog.Msg(OTCLog.Systems.Network, $"P2P SendTo: SendMessageToPlayerAsync dispatched for key='{key}'");
             }
             catch (Exception ex)
             {
@@ -227,8 +241,39 @@ namespace OverTheCounter.SaveData
         internal static void Cleanup()
         {
             _handlers.Clear();
+            _chunkBuffers.Clear();
+            _chunkTimestamps.Clear();
             _client = null;
             _initialized = false;
+        }
+
+        // ==================================================================
+        // Internal — chunking
+        // ==================================================================
+
+        /// <summary>
+        /// Splits a large value into chunks and sends each as a separate message.
+        /// Key format per chunk: <c>{originalKey}#C{1-based idx}/{total}/{msgId}</c>.
+        /// </summary>
+        private static void SendChunked(CSteamID target, string key, string value, bool broadcast)
+        {
+            int total = (value.Length + MaxChunkValueSize - 1) / MaxChunkValueSize;
+            int msgId = _nextMsgId++;
+
+            for (int i = 0; i < total; i++)
+            {
+                int start = i * MaxChunkValueSize;
+                int len = Math.Min(MaxChunkValueSize, value.Length - start);
+                string chunkKey = $"{key}{ChunkMarker}{i + 1}/{total}/{msgId}";
+                string chunkValue = value.Substring(start, len);
+
+                var msg = new DataSyncMessage { Key = chunkKey, Value = chunkValue, DataType = "otc" };
+                if (broadcast)
+                    _client.BroadcastMessage(msg);
+                else
+                    _ = _client.SendMessageToPlayerAsync(target, msg);
+            }
+            OTCLog.Msg(OTCLog.Systems.Network, $"P2P sent {total} chunks for key='{key}', msgId={msgId}, totalLen={value.Length}");
         }
 
         // ==================================================================
@@ -279,6 +324,44 @@ namespace OverTheCounter.SaveData
 
             string key = message.Key;
             if (string.IsNullOrEmpty(key)) return;
+
+            // ---- Chunk reassembly ----
+            int cm = key.IndexOf(ChunkMarker, StringComparison.Ordinal);
+            if (cm >= 0)
+            {
+                string originalKey = key.Substring(0, cm);
+                string[] parts = key.Substring(cm + ChunkMarker.Length).Split('/');
+                if (parts.Length == 3
+                    && int.TryParse(parts[0], out int ci)
+                    && int.TryParse(parts[1], out int total)
+                    && int.TryParse(parts[2], out int msgId)
+                    && ci >= 1 && ci <= total && total > 0)
+                {
+                    string bufKey = $"{senderId.m_SteamID}|{originalKey}|{msgId}";
+                    if (!_chunkBuffers.TryGetValue(bufKey, out var buf)
+                        || (_chunkTimestamps.TryGetValue(bufKey, out var ts)
+                            && (DateTime.UtcNow - ts).TotalSeconds > ChunkTimeoutSeconds))
+                    {
+                        buf = new string[total];
+                        _chunkBuffers[bufKey] = buf;
+                        _chunkTimestamps[bufKey] = DateTime.UtcNow;
+                    }
+                    buf[ci - 1] = message.Value;
+
+                    // Check if all chunks arrived
+                    for (int i = 0; i < buf.Length; i++)
+                        if (buf[i] == null) return;
+
+                    _chunkBuffers.Remove(bufKey);
+                    _chunkTimestamps.Remove(bufKey);
+                    string fullValue = string.Concat(buf);
+                    OTCLog.Msg(OTCLog.Systems.Network, $"P2P RECV: reassembled {total} chunks for key='{originalKey}', totalLen={fullValue.Length}");
+
+                    if (_handlers.TryGetValue(originalKey, out var chunkHandler))
+                        chunkHandler(senderId.m_SteamID, fullValue);
+                    return;
+                }
+            }
 
             if (_handlers.TryGetValue(key, out var handler))
             {
