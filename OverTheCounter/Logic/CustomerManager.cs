@@ -77,8 +77,8 @@ namespace OverTheCounter.Logic
                 if (spawnSlot != _lastSpawnSlot && currentHour >= SpawnStartHour && currentHour < SpawnEndHour)
                     _lastSpawnSlot = spawnSlot;
 
-                // Process deferred deals at opening time — morning rush
-                if (currentMinute == 0 && currentHour == StoreHours.OpenHour)
+                // Process deferred deals 30 min before open — NPCs start walking early
+                if (currentMinute == 30 && currentHour == StoreHours.OpenHour - 1)
                     DispensaryDealManager.ProcessDeferredDeals();
 
                 ProcessCustomerLifecycles();
