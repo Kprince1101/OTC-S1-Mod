@@ -75,6 +75,10 @@ namespace OverTheCounter.Patches
             if (customer?.NPC == null)
                 return false;
 
+            // Desperation deals require in-person delivery — never redirect to store
+            if (DesperationManager.IsDesperate(customer.NPC.ID))
+                return false;
+
             // Already redirected this NPC — don't create duplicate CustomerInstances
             if (DispensaryDealManager.IsNpcRedirected(customer.NPC.ID))
                 return false;
