@@ -14,12 +14,16 @@ using RelationCircleType = Il2CppScheduleOne.UI.Relations.RelationCircle;
 using NPCManagerType = Il2CppScheduleOne.NPCs.NPCManager;
 using NPCType = Il2CppScheduleOne.NPCs.NPC;
 using GameManagerSingleton = Il2CppScheduleOne.DevUtilities.NetworkSingleton<Il2CppScheduleOne.DevUtilities.GameManager>;
+using GameInputType = Il2CppScheduleOne.GameInput;
+using ExitActionType = Il2CppScheduleOne.DevUtilities.ExitAction;
 #else
 using ContactsAppType = ScheduleOne.UI.Phone.ContactsApp.ContactsApp;
 using RelationCircleType = ScheduleOne.UI.Relations.RelationCircle;
 using NPCManagerType = ScheduleOne.NPCs.NPCManager;
 using NPCType = ScheduleOne.NPCs.NPC;
 using GameManagerSingleton = ScheduleOne.DevUtilities.NetworkSingleton<ScheduleOne.DevUtilities.GameManager>;
+using GameInputType = ScheduleOne.GameInput;
+using ExitActionType = ScheduleOne.DevUtilities.ExitAction;
 #endif
 
 namespace OverTheCounter.Patches
@@ -58,6 +62,12 @@ namespace OverTheCounter.Patches
         /// Prevents double-wiring across multiple repair runs.
         /// </summary>
         private static readonly HashSet<int> _wiredRegionButtons = new();
+
+        /// <summary>
+        /// Instance IDs for which we have pre-registered the Exit listener.
+        /// Prevents redundant registration on subsequent SetOpen(true) calls.
+        /// </summary>
+        private static readonly HashSet<int> _exitListenerEnsured = new();
 
         /// <summary>
         /// NPC connection IDs cached in NPC.Awake (before FishNet reconciliation destroys scene NPCs).
@@ -108,6 +118,18 @@ namespace OverTheCounter.Patches
                 {
                     harmony.Patch(updateMethod,
                         finalizer: new HarmonyMethod(typeof(ContactsAppFix), nameof(UpdateGuard_Finalizer)));
+                }
+
+                // ── EXIT LISTENER SAFETY NET: pre-register when app opens ─────────
+                // App<T>.Start() registers the Exit listener for right-click, but
+                // S1API defers Start() while waiting for custom NPCs. Without this,
+                // right-click during that window closes the entire phone.
+                var setOpenMethod = AccessTools.Method(typeof(ContactsAppType), "SetOpen");
+                if (setOpenMethod != null)
+                {
+                    harmony.Patch(setOpenMethod,
+                        prefix: new HarmonyMethod(typeof(ContactsAppFix),
+                            nameof(SetOpen_EnsureExitListener)));
                 }
 
                 // ── NPC.Awake cache: capture connections before FishNet destroys scene NPCs ─
@@ -390,6 +412,42 @@ namespace OverTheCounter.Patches
             {
                 OTCLog.Warning(OTCLog.Systems.Patch, $"CreateConnectionLines threw: {ex.Message}");
                 return 0;
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════
+        // EXIT LISTENER SAFETY NET — Prefix on SetOpen: ensure the Exit listener
+        // is registered before the app becomes visible.
+        //
+        // App<T>.Start() registers GameInput.RegisterExitListener(Exit, 1) which
+        // handles right-click to close the app. S1API defers Start() via coroutine
+        // while waiting for custom NPC types (OTC's drifters trigger this). During
+        // that window the user can open the contacts app via its icon, but right-
+        // click has no handler and bubbles up to Phone.Exit(), closing the phone.
+        //
+        // Double registration is harmless: the second Exit() invocation sees
+        // isOpen=false and is a no-op.
+        // ══════════════════════════════════════════════════════════════════════════
+
+        private static void SetOpen_EnsureExitListener(ContactsAppType __instance, bool open)
+        {
+            if (!open) return;
+            if (!_exitListenerEnsured.Add(__instance.GetInstanceID())) return;
+
+            try
+            {
+#if IL2CPP
+                GameInputType.RegisterExitListener(
+                    new Action<ExitActionType>(__instance.Exit), 1);
+#else
+                GameInputType.RegisterExitListener(
+                    new GameInputType.ExitDelegate(__instance.Exit), 1);
+#endif
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch,
+                    $"Exit listener pre-registration failed: {ex.Message}");
             }
         }
 
