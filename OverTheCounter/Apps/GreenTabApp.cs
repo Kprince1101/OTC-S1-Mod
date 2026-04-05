@@ -3,8 +3,10 @@ using S1API.UI;
 using UnityEngine;
 using UnityEngine.UI;
 using OverTheCounter.Logic.Placement;
+using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
 using OverTheCounter.UI;
+using OverTheCounter.Utilities;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -122,6 +124,19 @@ namespace OverTheCounter.Apps
         private bool _dropdownOpen;
         private GameObject _logoUnderline;
         private bool _wasOpen;
+
+        // ---- Quest highlight pulse ----
+        private static readonly Color HighlightDim = new(0.30f, 0.69f, 0.31f, 0.15f);
+        private static readonly Color HighlightBright = new(0.30f, 0.69f, 0.31f, 0.70f);
+        private QuestHighlight _lastHighlightTarget = QuestHighlight.None;
+        private Graphic _highlightedGraphic;
+        private Color _highlightOriginalColor;
+        private bool _highlightErrorLogged;
+        private Image _pricingHeaderBg;
+        private Image _firstProductRowBg;
+        private Image _logoUnderlineImage;
+        private Graphic _logoTitleGraphic;
+        private Graphic _storeNameLabel;
 
         // Card tracking for refresh
         private readonly List<CardEntry> _cardEntries = new();
@@ -514,6 +529,20 @@ namespace OverTheCounter.Apps
                     refreshTimer = 0f;
                 }
 
+                // Quest highlight pulse (every frame while open)
+                if (isOpen)
+                {
+                    try { UpdateQuestHighlights(); }
+                    catch (Exception hlEx)
+                    {
+                        if (!_highlightErrorLogged)
+                        {
+                            OTCLog.Warning(OTCLog.Systems.Quest, $"Highlight pulse failed: {hlEx.Message}");
+                            _highlightErrorLogged = true;
+                        }
+                    }
+                }
+
                 // Periodic refresh (every 3 seconds)
                 if (isOpen)
                 {
@@ -540,6 +569,84 @@ namespace OverTheCounter.Apps
                 case AppTab.Employees: RefreshStaffing(); break;
                 case AppTab.Customize: UpdateCardVisuals(); RefreshFooter(); break;
             }
+        }
+
+        // ==================================================================
+        //  Quest highlight pulse
+        // ==================================================================
+
+        private void UpdateQuestHighlights()
+        {
+            var baseTarget = StorefrontGrowthQuest.ActiveHighlight;
+
+            // Upgrade nav-level hints to specific UI targets when already on the right tab
+            QuestHighlight target = baseTarget;
+            if (baseTarget == QuestHighlight.InventoryNav && _activeTab == AppTab.Inventory)
+            {
+                int stage = StorefrontGrowthQuest.Instance?.Stage ?? 0;
+                target = stage == 3 ? QuestHighlight.PricingArea : QuestHighlight.ProductRows;
+            }
+            else if (baseTarget == QuestHighlight.OverviewNav && _activeTab == AppTab.Overview)
+            {
+                target = QuestHighlight.StoreToggle;
+            }
+
+            // Target changed — restore old element
+            if (target != _lastHighlightTarget && _highlightedGraphic != null)
+            {
+                _highlightedGraphic.color = _highlightOriginalColor;
+                // Re-enable Button color tint if we disabled it
+                var oldBtn = _highlightedGraphic.GetComponent<Button>();
+                if (oldBtn != null) oldBtn.transition = Selectable.Transition.ColorTint;
+                // Restore logo elements if we were pulsing them
+                if (_lastHighlightTarget == QuestHighlight.OverviewNav)
+                {
+                    if (_logoUnderline != null)
+                        _logoUnderline.SetActive(_activeTab == AppTab.Overview);
+                    if (_logoTitleGraphic != null)
+                        _logoTitleGraphic.color = AccentGreen;
+                }
+                _highlightedGraphic = null;
+            }
+            _lastHighlightTarget = target;
+
+            if (target == QuestHighlight.None) return;
+
+            // Resolve target Graphic
+            Graphic graphic = target switch
+            {
+                QuestHighlight.InventoryNav =>
+                    _navTabs.Count > 1 ? _navTabs[1].OuterImage : null,
+                QuestHighlight.PricingArea => _pricingHeaderBg,
+                QuestHighlight.ProductRows => _firstProductRowBg,
+                QuestHighlight.OverviewNav => _logoUnderlineImage,
+                QuestHighlight.StoreToggle => _storeNameLabel,
+                _ => null
+            };
+
+            // Guard against destroyed refs (inventory rebuilds every 3s)
+            if (graphic == null || !graphic) return;
+
+            // First frame on this target — capture original color
+            if (_highlightedGraphic != graphic)
+            {
+                _highlightedGraphic = graphic;
+                _highlightOriginalColor = graphic.color;
+                // Disable Button color tint so it doesn't override our pulse
+                var btn = graphic.GetComponent<Button>();
+                if (btn != null) btn.transition = Selectable.Transition.None;
+                // Force logo underline visible while pulsing
+                if (target == QuestHighlight.OverviewNav && _logoUnderline != null)
+                    _logoUnderline.SetActive(true);
+            }
+
+            float t = Mathf.PingPong(Time.time * 1.5f, 1f);
+            var pulseColor = Color.Lerp(HighlightDim, HighlightBright, t);
+            graphic.color = pulseColor;
+
+            // OverviewNav: also pulse the title text
+            if (target == QuestHighlight.OverviewNav && _logoTitleGraphic != null)
+                _logoTitleGraphic.color = pulseColor;
         }
 
         private void UpdateTooltipHover(List<(RectTransform rect, string text)> entries)

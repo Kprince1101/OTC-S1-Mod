@@ -12,6 +12,7 @@ using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Effects;
 using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Storage;
 using Il2CppScheduleOne.VoiceOver;
 using Customer = Il2CppScheduleOne.Economy.Customer;
@@ -23,6 +24,7 @@ using ScheduleOne.Economy;
 using ScheduleOne.Effects;
 using ScheduleOne.Employees;
 using ScheduleOne.NPCs;
+using ScheduleOne.PlayerScripts;
 using ScheduleOne.Storage;
 using ScheduleOne.VoiceOver;
 using Customer = ScheduleOne.Economy.Customer;
@@ -111,7 +113,7 @@ namespace OverTheCounter.Logic
         public string Id { get; }
         public int SpawnSeed { get; }
         public CustomerSpawnPoints.SpawnPoint SpawnPoint { get; }
-        public CustomerPreferences Preferences { get; private set; }
+        public CustomerPreferences Preferences { get; internal set; }
 
         /// <summary>0.0 to 1.0 — how many products the budtender recommends.
         /// Random customers: seeded random. Deal customers: vanilla relationship level.</summary>
@@ -249,6 +251,9 @@ namespace OverTheCounter.Logic
             public List<string> EffectIds;
         }
         private readonly List<ObservedProduct> _seenProducts = new();
+
+        internal enum RejectionReason { None, EmptyShelves, TooExpensive, LowAppeal }
+        internal RejectionReason LastRejection { get; private set; }
 
         // =====================================================================
         //  Movement (GC-pinned callbacks)
@@ -1073,6 +1078,78 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Scans player hotbar slots and adds any packaged products to _seenProducts.
+        /// Called after ObserveFromStorageList so items in the player's hands count
+        /// during consultation.
+        /// </summary>
+        internal void ObservePlayerInventory()
+        {
+            try
+            {
+                var inventory = PlayerSingleton<PlayerInventory>.Instance;
+                if (inventory?.hotbarSlots == null) return;
+
+                for (int i = 0; i < inventory.hotbarSlots.Count; i++)
+                {
+                    var slot = inventory.hotbarSlots[i];
+                    if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
+
+#if IL2CPP
+                    var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                    var productItem = slot.ItemInstance as ProductItemInstance;
+#endif
+                    if (productItem == null || productItem.AppliedPackaging == null) continue;
+
+                    try
+                    {
+#if IL2CPP
+                        var prodDef = productItem.Definition?.TryCast<ProductDefinition>();
+#else
+                        var prodDef = productItem.Definition as ProductDefinition;
+#endif
+                        if (prodDef == null) continue;
+
+                        if (PricingSaveData.Instance != null &&
+                            PricingSaveData.Instance.IsSellingDisabled(prodDef.ID))
+                            continue;
+
+                        var effectIds = new List<string>();
+                        if (prodDef.Properties != null)
+                        {
+                            for (int ei = 0; ei < prodDef.Properties.Count; ei++)
+                            {
+                                var e = prodDef.Properties[ei];
+                                if (e != null) effectIds.Add(e.name.ToLower());
+                            }
+                        }
+
+                        _seenProducts.Add(new ObservedProduct
+                        {
+                            ProductId = prodDef.ID,
+                            PackagingId = productItem.AppliedPackaging?.ID,
+                            ProductName = prodDef.name ?? "Product",
+                            Price = PricingSaveData.Instance?.GetPrice(prodDef) ?? prodDef.MarketValue,
+                            MarketValue = prodDef.MarketValue,
+                            QualityLevel = (int)productItem.Quality,
+                            AvailableQuantity = slot.Quantity,
+                            PkgMultiplier = productItem.AppliedPackaging.Quantity,
+                            EffectIds = effectIds
+                        });
+                    }
+                    catch (Exception slotEx)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Customer, $"ObservePlayerInventory slot {i} failed: {slotEx.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer, $"ObservePlayerInventory failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Limits _seenProducts to only N unique products based on Familiarity.
         /// Low familiarity = fewer recommendations; 1.0 = full menu.
         /// </summary>
@@ -1112,8 +1189,12 @@ namespace OverTheCounter.Logic
         /// </summary>
         public void DecidePurchases()
         {
+            LastRejection = RejectionReason.None;
             if (_seenProducts.Count == 0)
+            {
+                LastRejection = RejectionReason.EmptyShelves;
                 return;
+            }
 
             // 1. Deduplicate by ProductId — keep best quality, sum available UNITS across all packagings
             var unique = new Dictionary<string, ObservedProduct>();
@@ -1137,6 +1218,8 @@ namespace OverTheCounter.Logic
             // 2. Score each unique product using vanilla GetProductEnjoyment formula
             var scored = new List<(ObservedProduct product, float appeal)>();
             var rng = new System.Random(SpawnSeed + 7919); // deterministic but different from pref gen
+            int overBudgetCount = 0;
+            int lowAppealCount = 0;
 
             foreach (var obs in unique.Values)
             {
@@ -1184,14 +1267,21 @@ namespace OverTheCounter.Logic
                 float appeal = enjoyment + priceScalar;
 
                 // Budget hard cutoff
-                if (obs.Price > Preferences.MaxBudgetPerItem) continue;
+                if (obs.Price > Preferences.MaxBudgetPerItem) { overBudgetCount++; continue; }
 
                 if (appeal > 0f)
                     scored.Add((obs, appeal));
+                else
+                    lowAppealCount++;
             }
 
             if (scored.Count == 0)
+            {
+                LastRejection = overBudgetCount >= lowAppealCount
+                    ? RejectionReason.TooExpensive
+                    : RejectionReason.LowAppeal;
                 return;
+            }
 
             // 3. Sort by appeal descending
             scored.Sort((a, b) => b.appeal.CompareTo(a.appeal));
@@ -1294,10 +1384,32 @@ namespace OverTheCounter.Logic
         //  Voice lines
         // =====================================================================
 
-        private static readonly string[] DisappointedLines =
+        private static readonly string[] EmptyShelvesLines =
+        {
+            "You don't have anything to sell?",
+            "The shelves are empty...",
+            "There's nothing here."
+        };
+
+        private static readonly string[] TooExpensiveLines =
+        {
+            "Everything here is way too expensive.",
+            "These prices are insane.",
+            "I can't afford any of this.",
+            "Way out of my budget."
+        };
+
+        private static readonly string[] LowAppealLines =
+        {
+            "Not really my thing.",
+            "The quality isn't great...",
+            "I don't see anything I like.",
+            "Not what I'm looking for."
+        };
+
+        private static readonly string[] GenericDisappointedLines =
         {
             "Nothing for me...",
-            "Not what I'm looking for.",
             "I'll pass.",
             "Maybe next time.",
             "Nah, I'm good."
@@ -1313,7 +1425,14 @@ namespace OverTheCounter.Logic
             try
             {
                 var rng = new System.Random(SpawnSeed + 42);
-                string line = DisappointedLines[rng.Next(DisappointedLines.Length)];
+                string[] lines = LastRejection switch
+                {
+                    RejectionReason.EmptyShelves => EmptyShelvesLines,
+                    RejectionReason.TooExpensive => TooExpensiveLines,
+                    RejectionReason.LowAppeal => LowAppealLines,
+                    _ => GenericDisappointedLines
+                };
+                string line = lines[rng.Next(lines.Length)];
                 GameNpc.DialogueHandler?.WorldspaceRend?.ShowText(line, 3f);
                 GameNpc.VoiceOverEmitter?.Play(EVOLineType.Annoyed);
             }

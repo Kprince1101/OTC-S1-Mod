@@ -467,7 +467,7 @@ namespace OverTheCounter.Apps
                 UnityEngine.Object.Destroy(_overviewInvItemsContainer.GetChild(i).gameObject);
 
             var buildings = GetBuildingsForSelection();
-            var items = new Dictionary<string, int>();
+            var items = new Dictionary<string, (string name, int qty)>();
 
             foreach (var bid in buildings)
             {
@@ -481,11 +481,31 @@ namespace OverTheCounter.Apps
                     {
                         var slot = storage.ItemSlots[s];
                         if (slot?.ItemInstance == null || slot.Quantity <= 0) continue;
-                        string name = slot.ItemInstance.Name ?? "Unknown";
-                        if (items.ContainsKey(name))
-                            items[name] += slot.Quantity;
+
+                        string key = null;
+                        string displayName = slot.ItemInstance.Name ?? "Unknown";
+#if IL2CPP
+                        var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
+                        var prodDef = productItem?.Definition?.TryCast<ProductDefinition>();
+#else
+                        var productItem = slot.ItemInstance as ProductItemInstance;
+                        var prodDef = productItem?.Definition as ProductDefinition;
+#endif
+                        if (prodDef != null)
+                        {
+                            key = prodDef.ID;
+                            displayName = prodDef.Name ?? displayName;
+                        }
+                        if (key == null) key = displayName;
+
+                        int pkgMult = ContractAggregator.GetPackagingMultiplier(slot.ItemInstance);
+                        if (pkgMult <= 0) pkgMult = 1;
+                        int units = slot.Quantity * pkgMult;
+
+                        if (items.TryGetValue(key, out var existing))
+                            items[key] = (existing.name, existing.qty + units);
                         else
-                            items[name] = slot.Quantity;
+                            items[key] = (displayName, units);
                     }
                 }
             }
@@ -503,7 +523,7 @@ namespace OverTheCounter.Apps
                 return;
             }
 
-            var sorted = items.OrderByDescending(kv => kv.Value).Take(5).ToList();
+            var sorted = items.OrderByDescending(kv => kv.Value.qty).Take(5).ToList();
             float rowH = 24f;
 
             for (int i = 0; i < sorted.Count; i++)
@@ -521,7 +541,7 @@ namespace OverTheCounter.Apps
                 rRect.anchoredPosition = new Vector2(0, yPos);
 
                 // Name
-                var nameLabel = TMPFactory.Text($"Name_{i}", kv.Key, row.transform,
+                var nameLabel = TMPFactory.Text($"Name_{i}", kv.Value.name, row.transform,
                     15, TextAlignmentOptions.Left);
                 nameLabel.color = new Color(0.85f, 0.85f, 0.85f);
                 nameLabel.overflowMode = TextOverflowModes.Ellipsis;
@@ -530,12 +550,12 @@ namespace OverTheCounter.Apps
                 nlRect.anchorMax = new Vector2(0.72f, 1);
                 nlRect.offsetMin = new Vector2(6, 0);
                 nlRect.offsetMax = new Vector2(-4, 0);
-                _overviewTooltipEntries.Add((nlRect, kv.Key));
+                _overviewTooltipEntries.Add((nlRect, kv.Value.name));
 
                 AddVLine(row.transform, 0.72f);
 
                 // Qty
-                var qtyLabel = TMPFactory.Text($"Qty_{i}", $"x{kv.Value}", row.transform,
+                var qtyLabel = TMPFactory.Text($"Qty_{i}", $"x{kv.Value.qty}", row.transform,
                     15, TextAlignmentOptions.Right, FontStyles.Bold);
                 qtyLabel.color = AccentGreen;
                 var qlRect = qtyLabel.gameObject.GetComponent<RectTransform>();
@@ -657,6 +677,7 @@ namespace OverTheCounter.Apps
         {
             if (_overviewPropertyListContainer == null) return;
 
+            _storeNameLabel = null;
             for (int i = _overviewPropertyListContainer.childCount - 1; i >= 0; i--)
                 UnityEngine.Object.Destroy(_overviewPropertyListContainer.GetChild(i).gameObject);
 
@@ -702,6 +723,10 @@ namespace OverTheCounter.Apps
                 nlRect.offsetMin = new Vector2(6, 0);
                 nlRect.offsetMax = new Vector2(-4, 0);
                 _overviewTooltipEntries.Add((nlRect, name));
+
+                // Store shack name label for quest highlight
+                if (bid == PropertySaveData.ShackId)
+                    _storeNameLabel = nameLabel;
 
                 // Store status (Open / Closed / After Hours)
                 var (statusText, statusColor) = GetStoreStatus(bid);

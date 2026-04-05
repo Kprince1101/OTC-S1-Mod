@@ -1069,9 +1069,10 @@ namespace OverTheCounter.Logic
         {
             DestroySkillCheckBar();
 
-            // Scan all accessible storage and recommend products via familiarity filter
+            // Scan all accessible storage + player inventory, then recommend via familiarity filter
             var storages = BudtenderStorageSearch.GetAllAccessibleStorages(_counter);
             _customer.ObserveFromStorageList(storages);
+            _customer.ObservePlayerInventory();
             _customer.FilterByFamiliarity();
             _customer.DecidePurchases();
 
@@ -1084,6 +1085,7 @@ namespace OverTheCounter.Logic
             }
             else
             {
+                _customer.ShowDisappointed();
                 _state = State.CameraReturning;
                 _stateTimer = Time.time;
                 UnlockPlayerInput();

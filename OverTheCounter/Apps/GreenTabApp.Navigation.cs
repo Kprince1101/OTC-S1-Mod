@@ -339,6 +339,7 @@ namespace OverTheCounter.Apps
                 logoBtn.transform, 15, TextAlignmentOptions.Left, FontStyles.Bold);
             title.color = AccentGreen;
             title.raycastTarget = false;
+            _logoTitleGraphic = title;
             var titleRect = title.gameObject.GetComponent<RectTransform>();
             titleRect.anchorMin = Vector2.zero;
             titleRect.anchorMax = Vector2.one;
@@ -351,6 +352,7 @@ namespace OverTheCounter.Apps
 
             // Green underline — visible when Overview tab is active
             _logoUnderline = UIFactory.Panel("LogoUnderline", logoBtn.transform, AccentGreen);
+            _logoUnderlineImage = _logoUnderline.GetComponent<Image>();
             var ulRect = _logoUnderline.GetComponent<RectTransform>();
             ulRect.anchorMin = new Vector2(0, 0);
             ulRect.anchorMax = new Vector2(0, 0);

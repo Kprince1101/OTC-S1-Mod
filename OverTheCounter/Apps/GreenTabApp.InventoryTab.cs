@@ -1,4 +1,6 @@
+using OverTheCounter.Logic;
 using OverTheCounter.Logic.Placement;
+using OverTheCounter.Quests;
 using OverTheCounter.SaveData;
 using OverTheCounter.UI;
 using OverTheCounter.Utilities;
@@ -171,9 +173,11 @@ namespace OverTheCounter.Apps
                 _invTitleLabel.text = $"<b>{displayName}</b>  <color=#9E9E9E><size=90%>Select another property via dropdown</size></color>";
             }
 
-            // Clear tooltip entries + content
+            // Clear tooltip entries + content (nullify pulsable refs — they'll be recaptured)
             HideTooltip();
             _inventoryTooltipEntries = new List<(RectTransform, string)>();
+            _firstProductRowBg = null;
+            _pricingHeaderBg = null;
             for (int i = _inventoryContent.childCount - 1; i >= 0; i--)
                 UnityEngine.Object.Destroy(_inventoryContent.GetChild(i).gameObject);
 
@@ -244,6 +248,19 @@ namespace OverTheCounter.Apps
                 rRect.sizeDelta = new Vector2(0, rowH);
                 rRect.anchoredPosition = new Vector2(0, yOffset);
 
+                // Overlay for quest highlight pulse (separate from Button's targetGraphic)
+                if (idx == 0)
+                {
+                    var hlGo = UIFactory.Panel("QuestHighlight", row.transform, Color.clear);
+                    var hlRt = hlGo.GetComponent<RectTransform>();
+                    hlRt.anchorMin = Vector2.zero;
+                    hlRt.anchorMax = Vector2.one;
+                    hlRt.offsetMin = Vector2.zero;
+                    hlRt.offsetMax = Vector2.zero;
+                    hlGo.GetComponent<Image>().raycastTarget = false;
+                    _firstProductRowBg = hlGo.GetComponent<Image>();
+                }
+
                 // Make row clickable → navigate to product detail
                 var rowBtn = row.AddComponent<Button>();
                 rowBtn.transition = Selectable.Transition.ColorTint;
@@ -265,6 +282,7 @@ namespace OverTheCounter.Apps
                         _selectedProductId = capturedProductId;
                         _selectedProductName = capturedProductName;
                         _lastInventoryFingerprint = int.MinValue; // force rebuild
+                        StorefrontGrowthQuest.Instance?.OnProductViewed();
                         RefreshInventory();
                     }
 #if IL2CPP
@@ -378,6 +396,7 @@ namespace OverTheCounter.Apps
             float headerH = 28f;
 
             var headerPanel = UIFactory.Panel("PricingHeader", _inventoryContent, new Color(0.09f, 0.09f, 0.09f));
+            _pricingHeaderBg = headerPanel.GetComponent<Image>();
             var hpRect = headerPanel.GetComponent<RectTransform>();
             hpRect.anchorMin = new Vector2(0, 1);
             hpRect.anchorMax = new Vector2(1, 1);
@@ -429,6 +448,7 @@ namespace OverTheCounter.Apps
                     PricingSaveData.Instance.AutoPricingEnabled = !PricingSaveData.Instance.AutoPricingEnabled;
                     _lastInventoryFingerprint = int.MinValue; // force rebuild
                     ConfigSyncData.MarkPricingStateDirty();
+                    StorefrontGrowthQuest.Instance?.OnPricingTouched();
                     RefreshInventory();
                 }
 #if IL2CPP
@@ -481,6 +501,7 @@ namespace OverTheCounter.Apps
                         Mathf.Max(0f, Mathf.Round(raw * 20f) / 20f);
                     _lastInventoryFingerprint = int.MinValue; // force rebuild
                     ConfigSyncData.MarkPricingStateDirty();
+                    StorefrontGrowthQuest.Instance?.OnPricingTouched();
                     RefreshInventory();
                 }
 #if IL2CPP
@@ -531,6 +552,7 @@ namespace OverTheCounter.Apps
                         Mathf.Min(10f, Mathf.Round(raw * 20f) / 20f);
                     _lastInventoryFingerprint = int.MinValue; // force rebuild
                     ConfigSyncData.MarkPricingStateDirty();
+                    StorefrontGrowthQuest.Instance?.OnPricingTouched();
                     RefreshInventory();
                 }
 #if IL2CPP
@@ -604,10 +626,14 @@ namespace OverTheCounter.Apps
                     // Skip non-product items (raw materials etc.)
                     if (productId == null) continue;
 
+                    int pkgMult = ContractAggregator.GetPackagingMultiplier(slot.ItemInstance);
+                    if (pkgMult <= 0) pkgMult = 1;
+                    int units = slot.Quantity * pkgMult;
+
                     string key = $"{productId}_{quality}";
                     if (aggregated.TryGetValue(key, out var existing))
                     {
-                        existing.Quantity += slot.Quantity;
+                        existing.Quantity += units;
                         aggregated[key] = existing;
                     }
                     else
@@ -616,7 +642,7 @@ namespace OverTheCounter.Apps
                         {
                             ProductId = productId,
                             Name = name,
-                            Quantity = slot.Quantity,
+                            Quantity = units,
                             Quality = quality,
                             MarketValue = marketValue,
                             ProdDef = prodDef
