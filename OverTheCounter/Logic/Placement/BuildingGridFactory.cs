@@ -5,10 +5,12 @@ using System.Collections.Generic;
 using UnityEngine;
 
 #if IL2CPP
+using Il2CppScheduleOne.Lighting;
 using Il2CppScheduleOne.Tiles;
 using Grid = Il2CppScheduleOne.Tiles.Grid;
 #else
 using System.Reflection;
+using ScheduleOne.Lighting;
 using ScheduleOne.Tiles;
 using Grid = ScheduleOne.Tiles.Grid;
 #endif
@@ -121,6 +123,7 @@ namespace OverTheCounter.Logic.Placement
                     tile.x = x;
                     tile.y = z;
                     tile.OwnerGrid = grid;
+                    tile.LightExposureNode = tileGo.AddComponent<LightExposureNode>();
 
                     var col = tileGo.AddComponent<BoxCollider>();
                     col.isTrigger = true;

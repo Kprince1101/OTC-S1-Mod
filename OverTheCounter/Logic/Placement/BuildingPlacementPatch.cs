@@ -36,6 +36,9 @@ namespace OverTheCounter.Logic.Placement
         private static MethodInfo _initBuildableItem;
         private static Type _gridItemType;
 
+        // Cached reflection for GrowLight null-guard patches
+        private static MethodInfo _proceduralGridItemDestroy;
+
         // Stub Property assigned to OTC items so override code
         // (AddConfigurable, RegisterExitListener, etc.) runs without NullRef
         private static object _stubProperty;
@@ -216,6 +219,38 @@ namespace OverTheCounter.Logic.Placement
                     {
                         harmony.Patch(pickupItem,
                             prefix: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(PickupItemPrefix)));
+                    }
+                }
+
+                // --- GrowLight null-guard patches (safety net) ---
+                // GrowLight init/destroy access tile.LightExposureNode via the
+                // MatchedFootprintTile.MatchedStandardTile chain. BuildingGridFactory
+                // now adds LightExposureNode to OTC tiles so this resolves normally.
+                // Finalizers remain as a safety net in case the chain is null for
+                // any other reason (prevents ghost occupants and stuck racks).
+                var growLightType = FindGameType("ScheduleOne.ObjectScripts.GrowLight");
+                if (growLightType != null)
+                {
+                    var glInit = AccessTools.Method(growLightType, "InitializeProceduralGridItem");
+                    if (glInit != null)
+                    {
+                        harmony.Patch(glInit,
+                            finalizer: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(GrowLightInitFinalizer)));
+                    }
+
+                    var glDestroy = AccessTools.Method(growLightType, "Destroy");
+                    if (glDestroy != null)
+                    {
+                        harmony.Patch(glDestroy,
+                            finalizer: new HarmonyMethod(typeof(BuildingPlacementPatch), nameof(GrowLightDestroyFinalizer)));
+                    }
+
+                    // Cache ProceduralGridItem.Destroy so the finalizer can call it
+                    // when GrowLight.Destroy crashes before reaching base.Destroy()
+                    var procGridItemType = FindGameType("ScheduleOne.EntityFramework.ProceduralGridItem");
+                    if (procGridItemType != null)
+                    {
+                        _proceduralGridItemDestroy = AccessTools.Method(procGridItemType, "Destroy");
                     }
                 }
             }
@@ -491,6 +526,54 @@ namespace OverTheCounter.Logic.Placement
             {
                 OTCLog.Warning(OTCLog.Systems.Patch, $"PickupItemPrefix failed: {ex.Message}");
             }
+        }
+
+        // =====================================================================
+        //  GrowLight null-guard finalizers (safety net)
+        // =====================================================================
+        // BuildingGridFactory now adds LightExposureNode to every OTC tile,
+        // so the MatchedStandardTile.LightExposureNode chain resolves normally.
+        // These finalizers remain as a safety net for any remaining edge cases.
+
+        /// <summary>
+        /// Safety net: suppresses NullRef from GrowLight.InitializeProceduralGridItem
+        /// on OTC grids if LightExposureNode is somehow missing.
+        /// </summary>
+        private static Exception GrowLightInitFinalizer(object __instance, Exception __exception)
+        {
+            if (__exception is NullReferenceException)
+            {
+                OTCLog.Msg(OTCLog.Systems.Patch,
+                    "GrowLight init: suppressed NullRef on OTC grid");
+                return null;
+            }
+            return __exception;
+        }
+
+        /// <summary>
+        /// Safety net: catches NullRef from GrowLight.Destroy and calls
+        /// ProceduralGridItem.Destroy to clear position data (prevents rack
+        /// from being permanently stuck as "supporting another item").
+        /// </summary>
+        private static Exception GrowLightDestroyFinalizer(object __instance, Exception __exception)
+        {
+            if (__exception is NullReferenceException)
+            {
+                try
+                {
+                    _proceduralGridItemDestroy?.Invoke(__instance, null);
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch,
+                        $"GrowLight destroy: base.Destroy fallback failed: {ex.Message}");
+                }
+
+                OTCLog.Msg(OTCLog.Systems.Patch,
+                    "GrowLight destroy: suppressed NullRef, called base.Destroy");
+                return null;
+            }
+            return __exception;
         }
 
         /// <summary>
