@@ -34,9 +34,6 @@ namespace OverTheCounter.UI
     [RegisterTypeInIl2Cpp]
     public class StoreAlertOverlay : MonoBehaviour
     {
-        /// <summary>Set true to hide the overlay (e.g. during checkout camera lock).</summary>
-        public static bool Suppressed;
-
         // Deterministic building order for stable hash + consistent UI ordering
         private static readonly string[] BuildingIds = { PropertySaveData.ShackId, PropertySaveData.DispensaryId };
 
@@ -87,15 +84,9 @@ namespace OverTheCounter.UI
                     TryBuild();
                 if (!_built) return;
 
-                // Hide when paused
-                if (Singleton<PauseMenu>.InstanceExists && Singleton<PauseMenu>.Instance.IsPaused)
-                {
-                    if (_canvasObj.activeSelf) _canvasObj.SetActive(false);
-                    return;
-                }
-
-                // Hide when suppressed (checkout) or disabled
-                if (Suppressed || !Config.StoreAlertEnabled.Value)
+                // Hide when game HUD is hidden (pause, checkout, watering, dying, arrest, etc.) or disabled
+                bool gameHudHidden = Singleton<HUD>.InstanceExists && !Singleton<HUD>.Instance.canvas.enabled;
+                if (gameHudHidden || !Config.StoreAlertEnabled.Value)
                 {
                     if (_canvasObj.activeSelf) _canvasObj.SetActive(false);
                     return;

@@ -2392,8 +2392,6 @@ namespace OverTheCounter.Logic
                 cam.FreeMouse();
                 PlayerSingleton<PlayerMovement>.Instance.CanMove = false;
                 Singleton<HUD>.Instance.canvas.enabled = false;
-                UI.HUDOverlay.Suppressed = true;
-                UI.StoreAlertOverlay.Suppressed = true;
 
                 PlayCustomerVoice(EVOLineType.Greeting);
             }
@@ -2430,8 +2428,6 @@ namespace OverTheCounter.Logic
 
                 PlayerSingleton<PlayerMovement>.Instance.CanMove = true;
                 Singleton<HUD>.Instance.canvas.enabled = true;
-                UI.HUDOverlay.Suppressed = false;
-                UI.StoreAlertOverlay.Suppressed = false;
             }
             catch (Exception ex)
             {

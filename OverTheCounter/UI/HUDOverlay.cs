@@ -28,8 +28,6 @@ namespace OverTheCounter.UI
     [RegisterTypeInIl2Cpp]
     public class HUDOverlay : MonoBehaviour
     {
-        /// <summary>Set true to hide the entire HUD overlay (e.g. during checkout camera lock).</summary>
-        public static bool Suppressed;
         private static readonly string[] RankNames =
         {
             "Street Rat", "Hoodlum", "Peddler", "Hustler", "Bagman",
@@ -112,8 +110,9 @@ namespace OverTheCounter.UI
 
                 if (!_built) return;
 
-                // Hide when paused or suppressed
-                if (Suppressed || (Singleton<PauseMenu>.InstanceExists && Singleton<PauseMenu>.Instance.IsPaused))
+                // Hide when game HUD is hidden (pause, checkout, watering, dying, arrest, etc.)
+                bool gameHudHidden = Singleton<HUD>.InstanceExists && !Singleton<HUD>.Instance.canvas.enabled;
+                if (gameHudHidden)
                 {
                     if (_canvasObj != null && _canvasObj.activeSelf)
                         _canvasObj.SetActive(false);

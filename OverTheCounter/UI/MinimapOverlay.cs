@@ -151,8 +151,8 @@ namespace OverTheCounter.UI
                 }
                 catch { }
 
-                // Hide when game is paused
-                if (Singleton<PauseMenu>.InstanceExists && Singleton<PauseMenu>.Instance.IsPaused)
+                // Hide when game HUD is hidden (pause, checkout, watering, dying, arrest, etc.)
+                if (Singleton<HUD>.InstanceExists && !Singleton<HUD>.Instance.canvas.enabled)
                 {
                     if (_canvasObj != null && _canvasObj.activeSelf) _canvasObj.SetActive(false);
                     return;
