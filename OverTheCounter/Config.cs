@@ -65,6 +65,10 @@ namespace OverTheCounter
         public static ConfigEntry<bool> RecipePinEnabled;
         public static ConfigEntry<int> ShackDailyCustomerCap;
 
+        // ── Walk-In Customers ──
+        public static ConfigEntry<bool> PreserveVanillaDeals;
+        public static ConfigEntry<float> WalkInMirrorRate;
+
         // ── Desperation System ──
         private static MelonPreferences_Category _desperation;
 
@@ -301,6 +305,20 @@ namespace OverTheCounter
 
             ShackDailyCustomerCap = Register(_world.CreateEntry("ShackDailyCustomerCap", 12, "Shack Daily Customer Cap",
                 "Maximum customers redirected to the Westville Shack per day"));
+
+            PreserveVanillaDeals = Register(_world.CreateEntry("PreserveVanillaDeals", false,
+                "Preserve Vanilla Deals",
+                "When enabled, vanilla NPCs keep their normal deal behavior instead of being " +
+                "redirected to the dispensary. Each redirected deal has a chance (set by Mirror " +
+                "Spawn Rate) to also spawn a random walk-in customer. Off by default because " +
+                "keeping both vanilla deals AND dispensary sales effectively doubles income."));
+            WalkInMirrorRate = Register(_world.CreateEntry("WalkInMirrorRate", 0.4f,
+                "Mirror Spawn Rate",
+                "Only used when Preserve Vanilla Deals is enabled. Chance (0-1) that each " +
+                "vanilla deal that would have been redirected also spawns a random store " +
+                "customer. Has no effect when Preserve Vanilla Deals is off. " +
+                "0.4 = 40% of deals spawn one. 1.0 = every deal spawns one.",
+                validator: new ValueRange<float>(0f, 1f)));
 
             // ── Desperation System ──
             _desperation = MelonPreferences.CreateCategory("OverTheCounter", "Desperation System");

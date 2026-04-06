@@ -110,9 +110,17 @@ namespace OverTheCounter.Patches
             // Check operating hours (including 30-min cutoff buffer)
             if (!DispensaryDealManager.IsWithinOperatingHours())
             {
-                // Pre-open window (e.g. 7am): defer to opening time for a morning rush
+                // Pre-open window (e.g. 7am): defer to opening time for a morning rush.
+                // Mirror mode skips deferral only when dispensary would be the target —
+                // shack deferral still works so it keeps its morning rush.
                 if (DispensaryDealManager.IsInPreOpenWindow())
+                {
+                    if (Config.PreserveVanillaDeals.Value
+                        && Dispensary.IsStoreOpen && Dispensary.Target != null)
+                        return false;
+
                     return DispensaryDealManager.DeferDeal(customer, drugType);
+                }
 
                 return false;
             }
@@ -121,6 +129,15 @@ namespace OverTheCounter.Patches
             var target = DispensaryDealManager.FindAvailableBuilding(drugType, customer.NPC.Region);
             if (target == null)
                 return false;
+
+            // Mirror mode: let vanilla deal proceed, roll to spawn a random customer
+            if (Config.PreserveVanillaDeals.Value && target == Dispensary.Target)
+            {
+                float roll = UnityEngine.Random.value;
+                if (roll < Config.WalkInMirrorRate.Value)
+                    CustomerManager.Instance?.SpawnMirrorCustomer();
+                return false; // don't skip vanilla deal
+            }
 
             // Redirect the NPC to the building
             if (!DispensaryDealManager.Redirect(customer, drugType, target))

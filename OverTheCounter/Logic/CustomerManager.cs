@@ -2,6 +2,7 @@ using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using S1API.GameTime;
+using S1API.Leveling;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -27,6 +28,12 @@ namespace OverTheCounter.Logic
 
         private int _lastSpawnSlot = -1;  // tracks half-hour slots (hour*2 + 0or1)
         private bool _statePublishNeeded;
+
+        // Walk-in scheduling (dispensary preferred, shack fallback)
+        private List<int> _walkInSpawnTimes;    // pre-generated HHMM times for today
+        private int _walkInNextIndex;           // index into _walkInSpawnTimes
+        private int _walkInScheduleDay = -1;    // ElapsedDays when schedule was generated
+        private int _mirrorSpawnCounter;        // incrementing counter for mirror customer IDs
 
         // Customer lifecycle constants
         private const int MaxActiveCustomers = 5;
@@ -81,6 +88,8 @@ namespace OverTheCounter.Logic
                 if (currentMinute == 30 && currentHour == StoreHours.OpenHour - 1)
                     DispensaryDealManager.ProcessDeferredDeals();
 
+                TickWalkInSchedule(currentTime);
+
                 ProcessCustomerLifecycles();
             }
             catch (Exception ex)
@@ -92,6 +101,13 @@ namespace OverTheCounter.Logic
         private void OnDayPass()
         {
             _lastSpawnSlot = -1;
+
+            // Reset walk-in schedule
+            _walkInSpawnTimes = null;
+            _walkInNextIndex = 0;
+            _walkInScheduleDay = -1;
+            _mirrorSpawnCounter = 0;
+
             DispensaryDealManager.OnDayPass();
             foreach (var counter in CheckoutCounter.AllCounters)
             {
@@ -351,6 +367,214 @@ namespace OverTheCounter.Logic
                     count++;
             }
             return count;
+        }
+
+        /// <summary>
+        /// Counts customers inside a specific building (EnteringStore through ExitingStore).
+        /// </summary>
+        private static int CountCustomersInBuilding(BuildingTarget target)
+        {
+            int count = 0;
+            foreach (var c in CustomerInstance.Active.Values)
+            {
+                if (c.Target == target && c.State >= CustomerState.EnteringStore && c.State <= CustomerState.ExitingStore)
+                    count++;
+            }
+            return count;
+        }
+
+        // =====================================================================
+        //  Walk-in customer scheduling
+        // =====================================================================
+
+        /// <summary>
+        /// Resolves the walk-in target building. Dispensary is preferred when owned and open;
+        /// shack is fallback when dispensary is unavailable (not owned or closed).
+        /// Returns null if no building qualifies.
+        /// </summary>
+        private static BuildingTarget GetWalkInTarget()
+        {
+            // Dispensary preferred when owned and open
+            if (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.DispensaryId) == true
+                && Dispensary.IsStoreOpen && Dispensary.Target != null)
+            {
+                return Dispensary.Target;
+            }
+
+            // Shack as fallback when dispensary isn't available (not owned or closed)
+            if (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) == true
+                && WestvilleShack.IsStoreOpen && WestvilleShack.Target != null)
+            {
+                return WestvilleShack.Target;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Returns the spawn-point building ID for a given walk-in target.
+        /// </summary>
+        private static string GetBuildingId(BuildingTarget target)
+        {
+            if (target == Dispensary.Target) return Dispensary.DispensaryId;
+            return PropertySaveData.ShackId;
+        }
+
+        /// <summary>
+        /// Returns how many walk-in customers should visit the store today.
+        /// 3 at StreetRat (rank 0), 24 at Kingpin (rank 10), linear interpolation.
+        /// </summary>
+        private static int GetDailyWalkInCount()
+        {
+            int rankIndex = 0;
+            try
+            {
+                if (LevelManager.Exists)
+                    rankIndex = (int)LevelManager.Rank;
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer, $"Failed to read player rank: {ex.Message}");
+            }
+
+            return Mathf.RoundToInt(Mathf.Lerp(3f, 24f, rankIndex / 10f));
+        }
+
+        /// <summary>
+        /// Pre-generates random spawn times for today's walk-in customers.
+        /// Times are distributed across the operating window (8:00 AM to 7:30 PM)
+        /// with randomization so arrivals feel organic.
+        /// </summary>
+        private void GenerateWalkInSchedule()
+        {
+            int today = TimeManager.ElapsedDays;
+            if (_walkInScheduleDay == today) return;
+
+            _walkInScheduleDay = today;
+            _walkInNextIndex = 0;
+
+            int count = GetDailyWalkInCount();
+            var rng = new System.Random(today * 7919 + count);
+
+            _walkInSpawnTimes = new List<int>(count);
+
+            int openMinutes = StoreHours.OpenHour * 60;
+            int closeMinutes = StoreHours.CloseHour * 60 - 30; // 7:30 PM cutoff
+            int windowMinutes = closeMinutes - openMinutes;
+
+            for (int i = 0; i < count; i++)
+            {
+                int minuteOfDay = openMinutes + rng.Next(windowMinutes);
+                int hour = minuteOfDay / 60;
+                int minute = minuteOfDay % 60;
+                _walkInSpawnTimes.Add(hour * 100 + minute);
+            }
+
+            _walkInSpawnTimes.Sort();
+
+            // Skip past already-elapsed times (e.g. after save/load mid-day)
+            int currentTime = TimeManager.CurrentTime;
+            while (_walkInNextIndex < _walkInSpawnTimes.Count
+                   && _walkInSpawnTimes[_walkInNextIndex] < currentTime)
+            {
+                _walkInNextIndex++;
+            }
+
+            int remaining = _walkInSpawnTimes.Count - _walkInNextIndex;
+            OTCLog.Msg(OTCLog.Systems.Customer,
+                $"Walk-in schedule generated for day {today}: {count} total, {remaining} remaining, " +
+                $"first={(_walkInSpawnTimes.Count > 0 ? _walkInSpawnTimes[0] : 0)}, " +
+                $"last={(_walkInSpawnTimes.Count > 0 ? _walkInSpawnTimes[_walkInSpawnTimes.Count - 1] : 0)}");
+        }
+
+        /// <summary>
+        /// Checks if any scheduled walk-in customers are due and spawns them.
+        /// Called every tick from OnTimeTick (host only).
+        /// On success the index advances. On failure the index stays put so the
+        /// spawn retries next tick (e.g. building at capacity). Past closing time
+        /// the slot is skipped entirely.
+        /// </summary>
+        private void TickWalkInSchedule(int currentTime)
+        {
+            GenerateWalkInSchedule();
+
+            if (_walkInSpawnTimes == null || _walkInNextIndex >= _walkInSpawnTimes.Count)
+                return;
+
+            int nextTime = _walkInSpawnTimes[_walkInNextIndex];
+            if (currentTime < nextTime) return;
+
+            if (TrySpawnWalkIn())
+            {
+                _walkInNextIndex++;
+            }
+            else if (currentTime >= StoreHours.CloseHour * 100)
+            {
+                _walkInNextIndex++; // past closing — customer gave up
+            }
+            // else: at capacity or store closed — retry next tick
+        }
+
+        /// <summary>
+        /// Attempts to spawn the next scheduled walk-in customer.
+        /// </summary>
+        private bool TrySpawnWalkIn()
+        {
+            var target = GetWalkInTarget();
+            if (target == null) return false;
+
+            if (CustomerInstance.Active.Count >= MaxActiveCustomers) return false;
+            if (CountCustomersInBuilding(target) >= MaxCustomersInBuilding) return false;
+
+            var spawnPoint = CustomerSpawnPoints.GetRandomSpawnPoint(GetBuildingId(target));
+            if (spawnPoint == null) return false;
+
+            int today = TimeManager.ElapsedDays;
+            int seed = today * 10000 + _walkInNextIndex * 137 + 42;
+            string id = $"walkin_{today}_{_walkInNextIndex}";
+
+            var customer = CustomerInstance.Create(id, seed, spawnPoint, target);
+            if (customer == null) return false;
+
+            customer.WalkTo(target.ExteriorApproachPosition);
+            _statePublishNeeded = true;
+
+            OTCLog.Msg(OTCLog.Systems.Customer,
+                $"Walk-in #{_walkInNextIndex} spawned: {id} at {spawnPoint.Name}");
+
+            return true;
+        }
+
+        /// <summary>
+        /// Spawns a mirror customer in response to a vanilla deal firing (mirror mode).
+        /// Called from DealInterceptPatch when PreserveVanillaDeals is enabled.
+        /// </summary>
+        internal bool SpawnMirrorCustomer()
+        {
+            var target = GetWalkInTarget();
+            if (target == null) return false;
+
+            if (CustomerInstance.Active.Count >= MaxActiveCustomers) return false;
+            if (CountCustomersInBuilding(target) >= MaxCustomersInBuilding) return false;
+
+            var spawnPoint = CustomerSpawnPoints.GetRandomSpawnPoint(GetBuildingId(target));
+            if (spawnPoint == null) return false;
+
+            int today = TimeManager.ElapsedDays;
+            int index = _mirrorSpawnCounter++;
+            int seed = today * 10000 + index * 251 + 7;
+            string id = $"mirror_{today}_{index}";
+
+            var customer = CustomerInstance.Create(id, seed, spawnPoint, target);
+            if (customer == null) return false;
+
+            customer.WalkTo(target.ExteriorApproachPosition);
+            _statePublishNeeded = true;
+
+            OTCLog.Msg(OTCLog.Systems.Customer,
+                $"Mirror customer spawned: {id} at {spawnPoint.Name}");
+
+            return true;
         }
 
         /// <summary>
