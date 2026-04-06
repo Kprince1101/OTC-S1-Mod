@@ -57,6 +57,12 @@ namespace OverTheCounter.Logic.Placement
         private static readonly HashSet<string> _stationedAtWarehouseEver = new HashSet<string>();
         private static readonly Dictionary<string, int> _meetupExpireBySupplier = new Dictionary<string, int>();
 
+        /// <summary>
+        /// Suppliers whose stand position has been synced to clients via <see cref="NPCMovement.Warp"/>
+        /// after S1MAPI finished walking them to the stand. Cleared when the supplier leaves for a meetup.
+        /// </summary>
+        private static readonly HashSet<string> _syncedToStand = new HashSet<string>();
+
         private static Transform _warehouseTransform;
         private static bool _initialized;
         private static bool _routineActive;
@@ -148,6 +154,7 @@ namespace OverTheCounter.Logic.Placement
             _assignedSuppliers.Clear();
             _stationedAtWarehouseEver.Clear();
             _meetupExpireBySupplier.Clear();
+            _syncedToStand.Clear();
             _deliveryBay = null;
             _warehouseTransform = null;
             _initialized = false;
@@ -313,6 +320,10 @@ namespace OverTheCounter.Logic.Placement
             if (supplier == null) return;
             _assignedSuppliers.Remove(supplier);
 
+            string key = GetSupplierKey(supplier);
+            if (!string.IsNullOrEmpty(key))
+                _syncedToStand.Remove(key);
+
             for (int i = 0; i < _locations.Count; i++)
             {
                 if (_locations[i].ActiveSupplier == supplier)
@@ -345,8 +356,10 @@ namespace OverTheCounter.Logic.Placement
         }
 
         /// <summary>
-        /// Simple meetup handoff: release from OTC interior tracking, then warp to meetup.
-        /// This avoids getting stuck either inside or idling near the warehouse exit.
+        /// Meetup handoff: recall supplier from S1MAPI interior, wait for full release,
+        /// then warp to the meetup location. Vanilla's MeetAtLocation runs concurrently but
+        /// S1MAPI overrides its warp on the server — this coroutine does the authoritative
+        /// server-side warp once S1MAPI is no longer managing the NPC.
         /// </summary>
         public static void ReleaseAndWarpSupplierToMeetup(Supplier supplier, Vector3 meetupWorldPos, Vector3 meetupForward)
         {
@@ -361,14 +374,14 @@ namespace OverTheCounter.Logic.Placement
             if (meetupWorldPos == Vector3.zero) yield break;
 
             var nav = OTCWarehouse.NavBuilder;
-            bool recalled = false;
+            bool wasTracked = false;
             try
             {
                 if (nav != null && nav.IsNPCInside(supplier.Movement))
                 {
-                    recalled = true;
+                    wasTracked = true;
                     OTCLog.Msg(OTCLog.Systems.Patch,
-                        $"Supplier meetup handoff: {supplier.fullName} inside OTC interior, issuing RecallNPC");
+                        $"Supplier meetup handoff: {supplier.fullName} inside S1MAPI interior, issuing RecallNPC");
                     nav.RecallNPC(supplier.Movement);
                 }
             }
@@ -377,76 +390,76 @@ namespace OverTheCounter.Logic.Placement
                 OTCLog.Warning(OTCLog.Systems.Patch, $"ReleaseAndWarpSupplierToMeetup (recall): {ex.Message}");
             }
 
-            // If recalled from interior, wait until S1MAPI reports fully outside before warping.
-            if (recalled && nav != null)
+            // Wait for S1MAPI to fully release the NPC before warping.
+            // Any warp attempt while S1MAPI is tracking will be overridden by its position
+            // enforcement (InteriorNavigatorCore restores LastValidPos every frame).
+            if (wasTracked && nav != null)
             {
-                float timeoutAt = Time.time + 3.5f;
-                bool outside = false;
+                float timeoutAt = Time.time + 15f;
+                bool released = false;
                 while (Time.time < timeoutAt)
                 {
                     if (supplier?.Movement == null) yield break;
                     try
                     {
-                        outside = !nav.IsNPCInside(supplier.Movement);
-                        if (outside) break;
+                        released = !nav.IsNPCInside(supplier.Movement);
+                        if (released) break;
                     }
                     catch (Exception ex)
                     {
-                        OTCLog.Warning(OTCLog.Systems.Patch, $"ReleaseAndWarpSupplierToMeetup (outside poll): {ex.Message}");
+                        OTCLog.Warning(OTCLog.Systems.Patch,
+                            $"ReleaseAndWarpSupplierToMeetup (poll): {ex.Message}");
                         break;
                     }
 
                     yield return new WaitForSeconds(0.2f);
                 }
 
-                OTCLog.Msg(OTCLog.Systems.Patch,
-                    $"Supplier meetup handoff: {supplier.fullName} outsideAfterRecall={outside} " +
-                    $"pos={supplier.transform.position} target={meetupWorldPos}");
-
-                // Recall can fail to clear interior state in time; force an exterior step before meetup warp.
-                if (!outside)
+                if (!released)
                 {
-                    var doorExterior = OTCWarehouse.GetDoorExteriorPosition();
-                    supplier.SetVisible(true, false);
-                    supplier.Movement.Warp(doorExterior);
-                    supplier.Movement.SetDestination(doorExterior, null, 1f, 1f);
-                    yield return new WaitForSeconds(0.15f);
+                    OTCLog.Warning(OTCLog.Systems.Patch,
+                        $"Supplier meetup handoff: {supplier.fullName} S1MAPI release timed out after 15s — " +
+                        $"supplier may walk to meetup via NavMesh (PendingExteriorDestination)");
+                    yield break;
                 }
+
+                OTCLog.Msg(OTCLog.Systems.Patch,
+                    $"Supplier meetup handoff: {supplier.fullName} released from S1MAPI, warping to meetup");
             }
 
+            // S1MAPI no longer tracking — warp is safe.
+            // Stop() first: S1MAPI's ReleaseNPC restores HasDestination=true which
+            // causes the game's UpdateDestination to path the NPC on the next FixedUpdate.
+            // Without Stop(), the NPC walks away from the meetup immediately after warp.
             try
             {
-                supplier.SetVisible(true, false);
+                if (supplier?.Movement == null) yield break;
+                OTCWarehouse.SetDoorColliderEnabled(true);
+                supplier.Movement.Stop();
                 supplier.Movement.Warp(meetupWorldPos);
-                supplier.Movement.SetDestination(meetupWorldPos, null, 1f, 1f);
                 if (meetupForward.sqrMagnitude > 0.001f)
                 {
                     supplier.Movement.FaceDirection(meetupForward, 0f);
-                    MelonCoroutines.Start(ApplyMeetupFacingAfterSettle(supplier, meetupForward));
+                    // Re-apply facing after a short settle (agent path can override rotation)
+                    MelonCoroutines.Start(ApplyFacingAfterDelay(supplier, meetupForward, 0.35f));
                 }
                 OTCLog.Msg(OTCLog.Systems.Patch,
-                    $"Supplier meetup handoff: {supplier.fullName} warped to meetup target");
+                    $"Supplier meetup handoff: {supplier.fullName} warped to meetup at {meetupWorldPos}");
             }
             catch (Exception ex)
             {
-                OTCLog.Warning(OTCLog.Systems.Patch, $"ReleaseAndWarpSupplierToMeetup (warp): {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch,
+                    $"ReleaseAndWarpSupplierToMeetup (warp): {ex.Message}");
             }
         }
 
-        private static IEnumerator ApplyMeetupFacingAfterSettle(Supplier supplier, Vector3 meetupForward)
+        private static IEnumerator ApplyFacingAfterDelay(Supplier supplier, Vector3 forward, float delay)
         {
-            yield return new WaitForSeconds(0.35f);
+            yield return new WaitForSeconds(delay);
             if (supplier?.Movement == null) yield break;
-            if (meetupForward.sqrMagnitude <= 0.001f) yield break;
-
-            try
-            {
-                supplier.Movement.FaceDirection(meetupForward, 0f);
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch, $"ApplyMeetupFacingAfterSettle: {ex.Message}");
-            }
+            if (forward.sqrMagnitude <= 0.001f) yield break;
+            try { supplier.Movement.FaceDirection(forward, 0f); }
+            catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Patch, $"ApplyFacingAfterDelay: {ex.Message}"); }
         }
 
         /// <summary>
@@ -456,6 +469,10 @@ namespace OverTheCounter.Logic.Placement
         {
             if (supplier == null || !_assignedSuppliers.Remove(supplier))
                 return;
+
+            string key = GetSupplierKey(supplier);
+            if (!string.IsNullOrEmpty(key))
+                _syncedToStand.Remove(key);
 
             for (int i = 0; i < _locations.Count; i++)
             {
@@ -807,6 +824,24 @@ namespace OverTheCounter.Logic.Placement
                             else if (dist < 1.5f)
                             {
                                 supplier.Movement.FaceDirection(stand.forward, 0f);
+
+                                // Bug fix: re-show delivery bays after sleep.
+                                // SupplierLocation.OnSleep hides delivery bays, and
+                                // SetActiveSupplier is the only way to re-show them.
+                                _locations[slot].SetActiveSupplier(supplier);
+
+                                // Bug fix: one-time position sync to clients.
+                                // S1MAPI walks the supplier to the stand via direct
+                                // transform moves (no ReceiveWarp RPC), so clients
+                                // never see the final stand position. Warp here sends
+                                // ReceiveWarp to confirm the position on all clients.
+                                string syncKey = GetSupplierKey(supplier);
+                                if (!string.IsNullOrEmpty(syncKey) && _syncedToStand.Add(syncKey))
+                                {
+                                    supplier.Movement.Warp(stand.position);
+                                    OTCLog.Msg(OTCLog.Systems.Patch,
+                                        $"Synced {supplier.fullName} stand position to clients");
+                                }
                             }
                         }
                     }
