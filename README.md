@@ -19,12 +19,14 @@ Three new buildings you can purchase, furnish, and operate:
 
 Purchase properties through an encrypted messaging thread with Static, a completely rewritten quest system built on threaded conversations with unread tracking and property listing cards.
 
-* **Vanilla Walk-In Customers:** NPCs physically enter through the front door, consult with a budtender, pick products based on their preferences, queue at checkout counters, and pay.
+* **Walk-In Customers:** Random customers visit your store throughout the day (3-24 per day, scaling with your rank). Vanilla deal NPCs are also redirected to your store when you have matching stock. NPCs physically enter through the front door, consult with a budtender, pick products based on their preferences, queue at checkout counters, and pay.
+* **Preserve Vanilla Deals (opt-in):** Prefer keeping the vanilla deal flow? Enable this setting and vanilla NPCs keep their normal behavior. A configurable percentage of those deals also spawn a random walk-in customer at your store.
 * **Unit-Based Orders:** Preferences factor in product type, quality, and effects. Purchase volume scales with your rank and relationship.
 * **Region-Locked Traffic:** Customer flow is gated by the regions you control, with daily caps to keep things balanced.
+* **Dispensary Signage:** Rename your dispensary and customize the sign color from the GreenTab app.
 * **Interior Placement:** Full placement grid system for furnishing your buildings with storage, shelves, and equipment.
 * **Weather Protection:** Rain visuals, audio, and NPC umbrellas are suppressed inside your buildings.
-* **Storefront Growth Quest:** A progressive questline that walks you through setting up your first dispensary: acquire the property, stock your shelves with packaged product, install lighting, hire your first budtender, and complete your first sale.
+* **Guided Quests:** Each building has its own progressive questline. See **Storefront Quests** below.
 
 ## 2. Budtenders
 *Hire employees. Automate checkout.*
@@ -39,16 +41,17 @@ Purchase properties through an encrypted messaging thread with Static, a complet
 
 A dedicated phone app for running your storefronts:
 
-* **Overview Dashboard:** 7-day sales revenue and inventory charts, daily wage totals, property summary cards.
+* **Overview Dashboard:** 7-day sales revenue and inventory charts, daily wage totals, property summary cards, and store diagnostic warnings.
+* **Auto-Pricing:** Set per-product pricing from the inventory tab. Prices sync in multiplayer and persist across saves.
 * **Sales Log:** Every transaction grouped by checkout, with customer name, products, subtotal, tip, and total. Filter by property.
 * **Employees Tab:** Monitor budtenders, view daily wages, and current status.
 * **Customization:** Swap desk styles, wall finishes, floor materials, and lighting setups. All furniture/building customizations loaded through the S1MAPI and the MeshVault system.
 * **Per-Property Filter:** Dropdown to view stats and customize any owned building.
 
-## 4. Storefront Growth Quest
+## 4. Storefront Quests
 *A guided path from empty building to running business.*
 
-A progressive questline that walks you through setting up your first dispensary: acquire the property, stock your shelves with packaged product, install lighting, hire your first budtender, and complete your first sale.
+Each building has its own progressive questline that walks you through setup: acquire the property, stock your shelves with packaged product, install lighting, hire your first budtender, and complete your first sale. The dispensary expansion quest adds guided pricing stages and a tutorial customer to get you started.
 
 ## 5. The Manager Update (Endgame Automation)
 *Stop running errands. Start running an empire.*
@@ -150,8 +153,8 @@ Settings are stored in MelonLoader's config file and organized into the followin
 * **Manager System:** Daily wage, signing fee, and alternate hire mode toggle.
 * **Bella Protocol:** Minimum weed, meth, and cocaine mix value thresholds for the quest.
 * **Drifter System:** Enable/disable toggle, spawn chance per hour, max active drifters, active hours, offer window, delivery deadline, linger duration, and minimum deal value.
-* **World:** Stack size multiplier, graffiti re-edit toggle, and recipe pin toggle.
-* **HUD Overlay:** Show/hide toggles for the XP bar and health bar above the hotbar.
+* **World:** Stack size multiplier, graffiti re-edit toggle, recipe pin toggle, shack daily customer cap, preserve vanilla deals toggle, and mirror spawn rate.
+* **HUD Overlay:** Show/hide toggles for XP bar, health bar, stamina bar, and store checkout alerts.
 * **Minimap:** Enable/disable toggle (off by default), size, zoom level, toggle key (default: N), X/Y position offsets, circle/square shape, rotate-with-player, compass labels, edge indicators, border color/width, icon scale, time/day display, and 24-hour clock.
 * **Minimap POIs:** Per-category toggles for potential customers, unlocked customers (off by default), dealers, dead drops, contracts, quests, properties, and managers.
 * **Debug:** Per-system verbose logging toggles (Manager, Drifter, Desperation, NPC, Network, Quest, Notification, Patch) and a general verbose catch-all.
