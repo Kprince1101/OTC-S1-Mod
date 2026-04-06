@@ -26,14 +26,17 @@ using Il2CppScheduleOne.ObjectScripts.Cash;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Product;
 using Il2CppScheduleOne.Storage;
+using Il2CppScheduleOne.Quests;
 using Il2CppScheduleOne.UI;
 using Il2CppScheduleOne.VoiceOver;
+using DealCompletionPopup = Il2CppScheduleOne.UI.DealCompletionPopup;
 using ProductItemInstance = Il2CppScheduleOne.Product.ProductItemInstance;
 using ProductDefinition = Il2CppScheduleOne.Product.ProductDefinition;
 using PackagingDefinition = Il2CppScheduleOne.Product.Packaging.PackagingDefinition;
 using NativeMoneyManager = Il2CppScheduleOne.Money.MoneyManager;
 using NativeStorableItemDef = Il2CppScheduleOne.ItemFramework.StorableItemDefinition;
 using ItemSlot = Il2CppScheduleOne.ItemFramework.ItemSlot;
+using Customer = Il2CppScheduleOne.Economy.Customer;
 #else
 using TMPro;
 using GameCanvasScaler = ScheduleOne.UI.CanvasScaler;
@@ -45,14 +48,17 @@ using ScheduleOne.ObjectScripts.Cash;
 using ScheduleOne.PlayerScripts;
 using ScheduleOne.Product;
 using ScheduleOne.Storage;
+using ScheduleOne.Quests;
 using ScheduleOne.UI;
 using ScheduleOne.VoiceOver;
+using DealCompletionPopup = ScheduleOne.UI.DealCompletionPopup;
 using ProductItemInstance = ScheduleOne.Product.ProductItemInstance;
 using ProductDefinition = ScheduleOne.Product.ProductDefinition;
 using PackagingDefinition = ScheduleOne.Product.Packaging.PackagingDefinition;
 using NativeMoneyManager = ScheduleOne.Money.MoneyManager;
 using NativeStorableItemDef = ScheduleOne.ItemFramework.StorableItemDefinition;
 using ItemSlot = ScheduleOne.ItemFramework.ItemSlot;
+using Customer = ScheduleOne.Economy.Customer;
 #endif
 
 namespace OverTheCounter.Logic
@@ -709,7 +715,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                var parts = payload.Split(new[] { ':' }, 4);
+                var parts = payload.Split(new[] { ':' }, 6);
                 if (parts.Length < 2) return;
 
                 string custId = parts[0];
@@ -717,11 +723,15 @@ namespace OverTheCounter.Logic
                     System.Globalization.CultureInfo.InvariantCulture, out float totalPrice))
                     return;
 
-                // Parse skill check bonus (appended as 4th segment)
+                // Parse skill check bonus (4th segment) and highest addictiveness (5th segment)
                 float skillBonus = 0f;
+                float highestAddiction = 0f;
                 if (parts.Length > 3)
                     float.TryParse(parts[3], System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out skillBonus);
+                if (parts.Length > 4)
+                    float.TryParse(parts[4], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out highestAddiction);
 
                 // Resolve customer and compute tip once
                 CustomerInstance.Active.TryGetValue(custId, out var customer);
@@ -776,15 +786,30 @@ namespace OverTheCounter.Logic
                     // Floating notification above register
                     UI.RegisterFloatingText.Show(counter, totalPrice, totalTip);
 
-                    // Apply non-monetary deal rewards (XP, relationship, cooldown)
+                    // Apply non-monetary deal rewards (XP, cooldown)
                     if (customer.IsDealCustomer)
                         DispensaryDealManager.ApplyDealRewardsNonMonetary(customer, totalPrice);
+
+                    // Budtending relationship (host-authoritative for client requests).
+                    // The client already applied locally in CompleteCheckout for popup accuracy;
+                    // this ensures the host's save data reflects the change.
+                    if (customer.VanillaCustomer?.NPC?.RelationData != null)
+                    {
+                        float sat = DispensaryDealManager.CalculateSatisfaction(customer);
+                        float rel = sat * 0.25f;
+                        customer.VanillaCustomer.NPC.RelationData.ChangeRelationship(rel);
+                    }
 
                     customer.CheckoutArrivalTime = 0f;
                     customer.ArrivedAtDestination = false;
                     customer.State = CustomerState.ExitingStore;
                     customer.SetAvoidancePriority(10);
                     customer.RecallFromBuilding();
+
+                    // Addiction applied after release — highest addictiveness / 5 (same as vanilla)
+                    if (highestAddiction > 0f && customer.VanillaCustomer != null)
+                        customer.VanillaCustomer.ChangeAddiction(highestAddiction / 5f);
+
                     CustomerManager.Instance?.OnCheckoutComplete(custId);
                 }
 
@@ -2504,6 +2529,9 @@ namespace OverTheCounter.Logic
             else
                 PlayCustomerVoice(EVOLineType.Thanks);
 
+            // Budtending rewards: relationship increase + popup (local player)
+            ApplyBudtendingRewards();
+
             // Products already consumed at sprite-click time (OnSpriteClicked)
 
             if (NetworkHelper.IsHost)
@@ -2566,6 +2594,20 @@ namespace OverTheCounter.Logic
                 _customer.SetAvoidancePriority(10);
                 _customer.RecallFromBuilding();
 
+                // Addiction applied after release — highest addictiveness / 5 (same as vanilla)
+                if (_customer.VanillaCustomer != null)
+                {
+                    float highestAddiction = 0f;
+                    foreach (var p in _counterProducts)
+                    {
+                        if (p.ProductDef == null) continue;
+                        float a = p.ProductDef.GetAddictiveness();
+                        if (a > highestAddiction) highestAddiction = a;
+                    }
+                    if (highestAddiction > 0f)
+                        _customer.VanillaCustomer.ChangeAddiction(highestAddiction / 5f);
+                }
+
                 CustomerManager.Instance?.OnCheckoutComplete(_customer.Id);
                 SaveData.ConfigSyncData.Instance?.PublishCheckoutClear();
             }
@@ -2573,19 +2615,84 @@ namespace OverTheCounter.Logic
             {
                 // Client path: send completion to host with sale data
                 var saleParts = new List<string>();
+                float highestAddiction = 0f;
                 foreach (var product in _counterProducts)
                 {
                     saleParts.Add($"{product.ProductId},{product.ProductName}," +
                         $"{product.Price.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
                         $"{product.QualityLevel}");
+                    if (product.ProductDef != null)
+                    {
+                        float a = product.ProductDef.GetAddictiveness();
+                        if (a > highestAddiction) highestAddiction = a;
+                    }
                 }
                 string saleData = string.Join("~", saleParts);
                 string totalStr = _totalPlacedPrice.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 string bonusStr = _skillCheckTipBonus.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                SaveData.ConfigSyncData.SendQuestAction($"CHECKOUT_DONE:{_customer.Id}:{totalStr}:{saleData}:{bonusStr}");
+                string addictStr = highestAddiction.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                SaveData.ConfigSyncData.SendQuestAction($"CHECKOUT_DONE:{_customer.Id}:{totalStr}:{saleData}:{bonusStr}:{addictStr}");
             }
 
             Cleanup();
+        }
+
+        /// <summary>
+        /// Applies budtending rewards for deal customers: relationship (50% of vanilla deal value)
+        /// and the vanilla deal completion popup. Addiction is applied separately after customer
+        /// release in the host-side exit path. Runs on the local player who performed the checkout.
+        /// </summary>
+        private void ApplyBudtendingRewards()
+        {
+            var vc = _customer?.VanillaCustomer;
+            if (vc?.NPC?.RelationData == null) return;
+            if (_counterProducts.Count == 0) return;
+
+            try
+            {
+                float satisfaction = DispensaryDealManager.CalculateSatisfaction(_customer);
+
+                // 50% of vanilla deal value (vanilla max = +0.5, budtending max = +0.25)
+                // Always positive — budtending never penalises relationship
+                float relChange = satisfaction * 0.25f;
+                float originalDelta = vc.NPC.RelationData.RelationDelta;
+                vc.NPC.RelationData.ChangeRelationship(relChange);
+
+                // Show vanilla popup if relationship gained
+                if (relChange > 0f)
+                    ShowBudtendingPopup(vc, satisfaction, originalDelta);
+
+                OTCLog.Msg(OTCLog.Systems.Customer,
+                    $"Budtending rewards for {vc.NPC.fullName}: rel={relChange:+0.000;-0.000} satisfaction={satisfaction:P0}");
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer, $"ApplyBudtendingRewards: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Shows the vanilla <see cref="DealCompletionPopup"/> with an empty bonus list
+        /// and the current sale total as payment. Platform-specific generic list required.
+        /// </summary>
+        private void ShowBudtendingPopup(Customer vc, float satisfaction, float originalDelta)
+        {
+            try
+            {
+                var popup = Singleton<DealCompletionPopup>.Instance;
+                if (popup == null) return;
+
+#if IL2CPP
+                var bonuses = new Il2CppSystem.Collections.Generic.List<Contract.BonusPayment>();
+#else
+                var bonuses = new System.Collections.Generic.List<Contract.BonusPayment>();
+#endif
+                popup.PlayPopup(vc, satisfaction, originalDelta, _totalPlacedPrice, bonuses);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer, $"Budtending popup: {ex.Message}");
+            }
         }
 
         private void Abort()

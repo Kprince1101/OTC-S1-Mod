@@ -12,13 +12,17 @@ using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Storage;
 using Il2CppScheduleOne.ItemFramework;
+using Il2CppScheduleOne.Product;
 using Il2CppScheduleOne.VoiceOver;
+using ProductDefinition = Il2CppScheduleOne.Product.ProductDefinition;
 #else
 using ScheduleOne.NPCs;
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Storage;
 using ScheduleOne.ItemFramework;
+using ScheduleOne.Product;
 using ScheduleOne.VoiceOver;
+using ProductDefinition = ScheduleOne.Product.ProductDefinition;
 #endif
 
 namespace OverTheCounter.Logic
@@ -103,6 +107,7 @@ namespace OverTheCounter.Logic
             public int QualityLevel;
             public int UnitCount;    // packaging multiplier
             public bool Consumed;    // set to true when product was actually taken from storage
+            public ProductDefinition ProductDef;
         }
 
         private BudtenderInstance(string id, int seed, CheckoutCounterInstance counter)
@@ -868,6 +873,31 @@ namespace OverTheCounter.Logic
             CurrentCustomer.State = CustomerState.ExitingStore;
             CurrentCustomer.SetAvoidancePriority(10);
             CurrentCustomer.RecallFromBuilding();
+
+            // Budtending rewards (NPC cashier = half of player relationship, full addiction)
+            var vc = CurrentCustomer.VanillaCustomer;
+            if (vc?.NPC?.RelationData != null)
+            {
+                float sat = DispensaryDealManager.CalculateSatisfaction(CurrentCustomer);
+                float rel = sat * 0.125f;
+                vc.NPC.RelationData.ChangeRelationship(rel);
+
+                float highestAddiction = 0f;
+                if (FetchQueue != null)
+                {
+                    foreach (var t in FetchQueue)
+                    {
+                        if (!t.Consumed || t.ProductDef == null) continue;
+                        float a = t.ProductDef.GetAddictiveness();
+                        if (a > highestAddiction) highestAddiction = a;
+                    }
+                }
+                if (highestAddiction > 0f)
+                    vc.ChangeAddiction(highestAddiction / 5f);
+
+                OTCLog.Msg(OTCLog.Systems.Customer,
+                    $"Budtender {Id}: budtending rewards for {vc.NPC.fullName}: rel={rel:+0.000;-0.000} addiction={highestAddiction / 5f:F3} satisfaction={sat:P0}");
+            }
 
             CustomerManager.Instance?.OnCheckoutComplete(CurrentCustomer.Id);
 

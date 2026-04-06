@@ -360,7 +360,7 @@ namespace OverTheCounter.Logic
                 return;
 
             var vanillaCustomer = customer.VanillaCustomer;
-            ApplyXPAndRelationship(customer, vanillaCustomer);
+            ApplyXP();
 
             // Tip — based on preferred effect matches
             float tip = CalculateTip(customer, saleTotal);
@@ -378,8 +378,8 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Applies non-monetary deal rewards: XP, relationship, cooldown reset.
-        /// Used by player checkout path which handles its own tip deposit.
+        /// Applies non-monetary deal rewards: XP, cooldown reset.
+        /// Relationship + addiction are handled by budtending rewards in CheckoutProcess.
         /// </summary>
         internal static void ApplyDealRewardsNonMonetary(CustomerInstance customer, float saleTotal)
         {
@@ -387,16 +387,15 @@ namespace OverTheCounter.Logic
                 return;
 
             var vanillaCustomer = customer.VanillaCustomer;
-            ApplyXPAndRelationship(customer, vanillaCustomer);
+            ApplyXP();
             ResetDealCooldown(vanillaCustomer);
 
             OTCLog.Msg(OTCLog.Systems.Customer,
                 $"Deal rewards (non-monetary) for {vanillaCustomer.NPC?.fullName}: XP={DealXP}, sale=${saleTotal:F2}");
         }
 
-        private static void ApplyXPAndRelationship(CustomerInstance customer, Customer vanillaCustomer)
+        private static void ApplyXP()
         {
-            // XP — same as vanilla player handover
             try
             {
 #if IL2CPP
@@ -411,18 +410,6 @@ namespace OverTheCounter.Logic
             catch (System.Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Customer, $"AddXP failed: {ex.Message}");
-            }
-
-            // Relationship — based on satisfaction (effect match count)
-            try
-            {
-                float satisfaction = CalculateSatisfaction(customer);
-                float relChange = Mathf.Lerp(-0.5f, 0.5f, satisfaction) * 0.2f;
-                vanillaCustomer.NPC?.RelationData?.ChangeRelationship(relChange);
-            }
-            catch (System.Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Customer, $"Relationship change failed: {ex.Message}");
             }
         }
 
@@ -468,7 +455,7 @@ namespace OverTheCounter.Logic
         /// Satisfaction score for relationship calculation.
         /// 0 matches = 0.3, 1 = 0.5, 2 = 0.7, 3 = 1.0.
         /// </summary>
-        private static float CalculateSatisfaction(CustomerInstance customer)
+        internal static float CalculateSatisfaction(CustomerInstance customer)
         {
             int effectMatches = CountEffectMatches(customer);
             return effectMatches switch

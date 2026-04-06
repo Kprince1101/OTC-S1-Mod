@@ -144,7 +144,7 @@ namespace OverTheCounter.Logic
             if (storage?.ItemSlots == null || unitsNeeded <= 0) return 0;
 
             // Collect all candidates matching this ProductId
-            var candidates = new List<(ItemSlot slot, string pkgId, int mult, int available)>();
+            var candidates = new List<(ItemSlot slot, string pkgId, int mult, int available, ProductDefinition prodDef)>();
 
             for (int j = 0; j < storage.ItemSlots.Count; j++)
             {
@@ -172,7 +172,7 @@ namespace OverTheCounter.Logic
                 if (prodDef?.ID != selection.ProductId) continue;
 
                 candidates.Add((slot, productItem.AppliedPackaging.ID,
-                    productItem.AppliedPackaging.Quantity, slot.Quantity));
+                    productItem.AppliedPackaging.Quantity, slot.Quantity, prodDef));
             }
 
             if (candidates.Count == 0) return 0;
@@ -204,7 +204,8 @@ namespace OverTheCounter.Logic
                         ProductName = selection.ProductName,
                         Price = selection.Price * c.mult, // per-unit price × mult = per-package
                         QualityLevel = selection.QualityLevel,
-                        UnitCount = c.mult
+                        UnitCount = c.mult,
+                        ProductDef = c.prodDef
                     });
                     unitsFound += c.mult;
                 }
