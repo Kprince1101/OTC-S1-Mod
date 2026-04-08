@@ -11,6 +11,8 @@ using System.Reflection;
 using UnityEngine;
 
 #if IL2CPP
+using Il2CppFishNet.Object;
+using Il2CppFishNet;
 using Il2CppScheduleOne.ObjectScripts;
 using Il2CppScheduleOne.Storage;
 using Il2CppScheduleOne.ItemFramework;
@@ -19,6 +21,8 @@ using Il2CppScheduleOne.Persistence.Datas;
 using Il2CppScheduleOne.EntityFramework;
 using Grid = Il2CppScheduleOne.Tiles.Grid;
 #else
+using FishNet.Object;
+using FishNet;
 using ScheduleOne.ObjectScripts;
 using ScheduleOne.Storage;
 using ScheduleOne.ItemFramework;
@@ -742,6 +746,29 @@ namespace OverTheCounter.SaveData
             if (items.Count == 0)
                 return;
 
+            // ── DEDUP: fix saves corrupted by the counter duplication bug ──
+            // Multiple otc_checkout_counter entries accumulate over sessions when both the
+            // vanilla BuildManager and OTC save/restore the same GridItem. Keep only the first
+            // per building and purge the rest from _placedItems so the next save is clean.
+            bool counterSeen = false;
+            var dupItems = new List<OtcPlacedItem>();
+            foreach (var it in items)
+            {
+                if (it.PrefabId != "otc_checkout_counter") continue;
+                if (counterSeen) dupItems.Add(it);
+                else counterSeen = true;
+            }
+            if (dupItems.Count > 0)
+            {
+                OTCLog.Warning(OTCLog.Systems.General,
+                    $"RestorePlacedItems: pruning {dupItems.Count} duplicate counter save(s) for '{buildingId}'");
+                foreach (var dup in dupItems) _placedItems.Remove(dup);
+                items = GetPlacedItems(buildingId);
+            }
+
+            // Resolve building root for pre-existing GridItem detection
+            BuildingGridFactory.GridContainers.TryGetValue(grid, out var buildingRoot);
+
             // Track items with saved slots for deferred restoration
             var itemsWithSlots = new List<OtcPlacedItem>();
 
@@ -753,16 +780,35 @@ namespace OverTheCounter.SaveData
                     var coord = new Vector2(item.CoordX, item.CoordZ);
                     if (item.PrefabId == "otc_checkout_counter")
                     {
-                        CheckoutCounter.SpawnOnGrid(grid, coord, item.Rotation);
-
-                        // Apply saved desk style before the deferred visual fires (next frame)
-                        if (!string.IsNullOrEmpty(item.DeskStyleId))
+                        // ── ANTI-DUPE: reuse if vanilla BuildManager already restored this counter ──
+                        // Vanilla saves OTC GridItems via BuildManager and restores them on load.
+                        // CreateGridItemPostfix auto-registers them, so if one is already on the
+                        // grid we must NOT spawn a second one — just apply the saved desk style.
+                        Component existingGi = FindExistingCounter(buildingRoot);
+                        if (existingGi != null)
                         {
-                            var counter = CheckoutCounter.AllCounters.Count > 0
-                                ? CheckoutCounter.AllCounters[CheckoutCounter.AllCounters.Count - 1]
-                                : null;
-                            if (counter != null)
-                                counter.CurrentDeskStyleId = item.DeskStyleId;
+                            OTCLog.Msg(OTCLog.Systems.General,
+                                $"RestorePlacedItems: reusing existing counter for '{buildingId}' (skip spawn)");
+                            if (!string.IsNullOrEmpty(item.DeskStyleId))
+                            {
+                                var existing = CheckoutCounter.GetCounterByGameObject(existingGi.gameObject);
+                                if (existing != null)
+                                    existing.CurrentDeskStyleId = item.DeskStyleId;
+                            }
+                        }
+                        else
+                        {
+                            CheckoutCounter.SpawnOnGrid(grid, coord, item.Rotation);
+
+                            // Apply saved desk style before the deferred visual fires (next frame)
+                            if (!string.IsNullOrEmpty(item.DeskStyleId))
+                            {
+                                var counter = CheckoutCounter.AllCounters.Count > 0
+                                    ? CheckoutCounter.AllCounters[CheckoutCounter.AllCounters.Count - 1]
+                                    : null;
+                                if (counter != null)
+                                    counter.CurrentDeskStyleId = item.DeskStyleId;
+                            }
                         }
                     }
                     else
@@ -777,12 +823,75 @@ namespace OverTheCounter.SaveData
                 }
             }
 
+            // ── CLEANUP: destroy vanilla-restored duplicates from corrupted saves ──
+            // After dedup + anti-dupe above, exactly one counter should remain per building.
+            // Any extras on the grid are stale vanilla-restored copies — destroy them now,
+            // before RestoreSlotContentsDeferred runs, so items are restored to the survivor only.
+            // Inventory is NOT lost: the surviving counter will be populated by the deferred
+            // restore from the (now-deduplicated) _placedItems entry.
+            // Host-only: despawn via FishNet so the removal syncs to all clients.
+            // Clients receive the despawn automatically; they must not attempt local destroy.
+            if (buildingRoot != null && NetworkHelper.IsHost)
+                DestroyExtraCounters(buildingRoot, buildingId);
+
             // Apply saved register balance now that counters are registered
             ApplyRegisterBalance();
 
             // Defer slot restoration so grid items have time to initialize
             if (itemsWithSlots.Count > 0)
                 MelonCoroutines.Start(RestoreSlotContentsDeferred(itemsWithSlots));
+        }
+
+        /// <summary>
+        /// Returns the first otc_checkout_counter GridItem found under the building root,
+        /// or null if none exists. Used to detect vanilla-restored counters before spawning.
+        /// </summary>
+        private Component FindExistingCounter(Transform buildingRoot)
+        {
+            if (buildingRoot == null) return null;
+            var allGridItems = GetAllGridItems(buildingRoot);
+            if (allGridItems == null) return null;
+            foreach (var gi in allGridItems)
+            {
+                if (gi == null) continue;
+                if (string.Equals(GetItemId(gi), "otc_checkout_counter", StringComparison.OrdinalIgnoreCase))
+                    return gi;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Despawns all but the first otc_checkout_counter GridItem under the building root.
+        /// Handles existing saves that accumulated duplicates over multiple sessions.
+        /// Must be called on the host only — FishNet Despawn syncs the removal to all clients.
+        /// </summary>
+        private void DestroyExtraCounters(Transform buildingRoot, string buildingId)
+        {
+            var allGridItems = GetAllGridItems(buildingRoot);
+            if (allGridItems == null) return;
+
+            int destroyed = 0;
+            bool keeperFound = false;
+            foreach (var gi in allGridItems)
+            {
+                if (gi == null) continue;
+                if (!string.Equals(GetItemId(gi), "otc_checkout_counter", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!keeperFound) { keeperFound = true; continue; }
+
+                // Extra counter — unregister from OTC, then despawn via FishNet so clients sync.
+                CheckoutCounter.UnregisterInstance(gi.gameObject);
+                var netObj = gi.gameObject.GetComponent<NetworkObject>();
+                if (netObj != null && InstanceFinder.ServerManager != null && netObj.IsSpawned)
+                    InstanceFinder.ServerManager.Despawn(netObj);
+                else
+                    UnityEngine.Object.Destroy(gi.gameObject);
+                destroyed++;
+            }
+            if (destroyed > 0)
+                OTCLog.Warning(OTCLog.Systems.General,
+                    $"DestroyExtraCounters: removed {destroyed} duplicate counter(s) from '{buildingId}'");
         }
 
         private System.Collections.IEnumerator RestoreSlotContentsDeferred(List<OtcPlacedItem> items)

@@ -281,6 +281,17 @@ namespace OverTheCounter.Logic.Placement
         }
 
         /// <summary>
+        /// Disables all Collider components on a GameObject and its children.
+        /// Prevents decorative peripheral meshes from interfering with physics.
+        /// </summary>
+        private static void DisableColliders(GameObject go)
+        {
+            if (go == null) return;
+            foreach (var col in go.GetComponentsInChildren<Collider>(true))
+                col.enabled = false;
+        }
+
+        /// <summary>
         /// Spawns computer, keyboard, mouse, mousepad on the desk.
         /// </summary>
         private void SpawnPeripherals(Transform deskTransform)
@@ -290,6 +301,7 @@ namespace OverTheCounter.Logic.Placement
                 Quaternion.Euler(0f, 0f, 75f), deskTransform);
             if (computer != null)
             {
+                DisableColliders(computer);
                 Screen = new ComputerScreen(this);
                 Screen.Create(computer);
             }
@@ -297,20 +309,30 @@ namespace OverTheCounter.Logic.Placement
             var kbBase = Meshes.Keyboard.Instantiate("OTC_KeyboardBase",
                 new Vector3(0.70f, -0.13f, 0.48f),
                 Quaternion.Euler(0f, 0f, 75f), deskTransform);
-            if (kbBase != null) kbBase.transform.localScale = new Vector3(0.8f, 0.8f, 0.8f);
+            if (kbBase != null)
+            {
+                kbBase.transform.localScale = new Vector3(0.8f, 0.8f, 0.8f);
+                DisableColliders(kbBase);
+            }
 
             var keys = Meshes.Custom("Keys").Instantiate("OTC_Keys",
                 new Vector3(0.56f, -0.11f, 0.47f),
                 Quaternion.Euler(0f, 0f, 75f), deskTransform);
-            if (keys != null) keys.transform.localScale = new Vector3(0.03f, 0.03f, 0.03f);
+            if (keys != null)
+            {
+                keys.transform.localScale = new Vector3(0.03f, 0.03f, 0.03f);
+                DisableColliders(keys);
+            }
 
-            Meshes.Custom("MousePad").Instantiate("OTC_MousePad",
+            var mousepad = Meshes.Custom("MousePad").Instantiate("OTC_MousePad",
                 new Vector3(0.27f, -0.07f, 0.47f),
                 Quaternion.Euler(0f, 0f, 75f), deskTransform);
+            DisableColliders(mousepad);
 
-            Meshes.Mouse.Instantiate("OTC_Mouse",
+            var mouse = Meshes.Mouse.Instantiate("OTC_Mouse",
                 new Vector3(0.27f, -0.07f, 0.47f),
                 Quaternion.Euler(0f, 0f, 75f), deskTransform);
+            DisableColliders(mouse);
         }
 
         private void CaptureInteractable()
@@ -353,6 +375,10 @@ namespace OverTheCounter.Logic.Placement
                     col.enabled = false;
                 var box = register.AddComponent<BoxCollider>();
                 box.size = new Vector3(3f, 3f, 3f);
+                // Must be a trigger — at scale 0.14 this box spans world Y ≈ −3.87 to −3.45,
+                // which straddles the building floor at Y ≈ −3.6. A solid collider there
+                // ejects the CharacterController downward, falling the player through the floor.
+                box.isTrigger = true;
 
                 int deskLayer = deskTransform.gameObject.layer;
                 register.layer = deskLayer;
