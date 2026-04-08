@@ -6,7 +6,6 @@ using S1API.Saveables;
 using S1API.Utils;
 using System;
 using System.IO;
-using System.Reflection;
 using UnityEngine;
 
 namespace OverTheCounter.Quests
@@ -35,30 +34,10 @@ namespace OverTheCounter.Quests
 
         private static readonly Vector3 BellaBuilding = new Vector3(74.1f, 1.0f, 57.2f);
 
-        private void TriggerInternalInit()
-        {
-            try
-            {
-                var s1QuestField = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (s1QuestField == null) return;
-
-                var s1Quest = s1QuestField.GetValue(this) as ScheduleOne.Quests.Quest;
-                if (s1Quest == null) return;
-
-                s1Quest.InitializeQuest(Title, Description, Array.Empty<ScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Quest, $"TriggerInternalInit failed: {ex.Message}");
-            }
-        }
-
         public void Initialize()
         {
             try
             {
-                TriggerInternalInit();
-
                 _visitEntry = AddEntry("Visit Bella at the downtown apartment", BellaBuilding);
                 _weedEntry = AddEntry(GetWeedText(), BellaBuilding);
                 _methEntry = AddEntry(GetMethText(), BellaBuilding);

@@ -301,8 +301,9 @@ namespace OverTheCounter.SaveData
             if (hasBeenTexted && !_hasBeenTexted)
             {
                 _hasBeenTexted = true;
-                if (!questAlreadyDone)
-                    CreateOrResumeQuest();
+                // Don't call CreateOrResumeQuest() here — this can fire during save
+                // loading (via ApplyPendingGameState in OnLoaded), which races with
+                // QuestsLoaderLoad_Postfix. Tick()/ReconcileQuest() handles creation.
                 changed = true;
             }
 

@@ -397,8 +397,9 @@ namespace OverTheCounter.SaveData
             if (questTriggered && !_questTriggered)
             {
                 _questTriggered = true;
-                if (!questAlreadyDone)
-                    CreateOrResumeQuest();
+                // Don't call CreateOrResumeQuest() here — this can fire during save
+                // loading (via ApplyPendingGameState in OnLoaded), which races with
+                // QuestsLoaderLoad_Postfix. Tick()/ReconcileQuest() handles creation.
                 changed = true;
             }
 
@@ -454,8 +455,8 @@ namespace OverTheCounter.SaveData
             if (upgradeAccepted.HasValue && upgradeAccepted.Value != _upgradeAccepted)
             {
                 _upgradeAccepted = upgradeAccepted.Value;
-                if (_upgradeAccepted)
-                    CreateUpgradeQuest();
+                // Don't call CreateUpgradeQuest() here — same race condition as above.
+                // Tick()/ReconcileQuest() handles upgrade quest creation safely.
                 changed = true;
             }
 

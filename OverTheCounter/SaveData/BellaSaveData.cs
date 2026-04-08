@@ -328,12 +328,13 @@ namespace OverTheCounter.SaveData
                 int oldStage = _stage;
                 _stage = stage;
 
-                // If quest not created yet, create it and enable summoning
+                // If quest not created yet, enable summoning and let Tick()/ReconcileQuest()
+                // handle quest creation — calling CreateQuest() here races with
+                // QuestsLoaderLoad_Postfix (which also creates the quest from disk).
                 if (oldStage == 0 && stage >= 1 && !_questCreated)
                 {
                     _questCreated = true;
                     EnableBella();
-                    CreateQuest();
                 }
 
                 // Advance quest entries to match

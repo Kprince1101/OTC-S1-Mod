@@ -103,10 +103,10 @@ namespace OverTheCounter.SaveData
 
         // ---- Auto-chunking ----
         /// <summary>
-        /// Maximum value size per P2P chunk. Kept conservative (255) until
-        /// SteamNetworkLib's packet-loss issue is fully resolved upstream.
+        /// Maximum value size per P2P chunk. SteamNetworkLib 1.2.3 raised the
+        /// packet limit to ~8192 bytes, so we match that.
         /// </summary>
-        internal const int MaxChunkValueSize = 255;
+        internal const int MaxChunkValueSize = 8192;
         private const string ChunkMarker = "#C";
         private static int _nextMsgId;
         // Buffer key: "steamId|originalKey|msgId" → chunks + creation time
