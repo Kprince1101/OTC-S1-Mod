@@ -5,7 +5,6 @@ using S1API.Quests;
 using S1API.Saveables;
 using S1API.Utils;
 using System.IO;
-using System.Reflection;
 using UnityEngine;
 
 namespace OverTheCounter.Quests
@@ -15,8 +14,9 @@ namespace OverTheCounter.Quests
         protected override string Title => "Rinse Cycle";
         protected override string Description => "Help Vic with his party supplies and he'll help you clean some cash.";
         protected override bool AutoBegin => false;
-        protected override Sprite QuestIcon => ImageUtils.LoadImage(
-            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "RinseCycle.png"));
+        protected override Sprite QuestIcon => Core.OtcIconDir != null
+            ? ImageUtils.LoadImage(Path.Combine(Core.OtcIconDir, "RinseCycle.png"))
+            : null;
 
         [SaveableField("vic_quest_stage")]
         private int _stage; // 0=not started, 1=obj1 (meet Vic), 2=obj2 (bring weed), 3=done
@@ -31,30 +31,10 @@ namespace OverTheCounter.Quests
 
         private static readonly Vector3 VicPosition = new Vector3(67.75f, 0.97f, 32.36f);
 
-        private void TriggerInternalInit()
-        {
-            try
-            {
-                var s1QuestField = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (s1QuestField == null) return;
-
-                var s1Quest = s1QuestField.GetValue(this) as ScheduleOne.Quests.Quest;
-                if (s1Quest == null) return;
-
-                s1Quest.InitializeQuest(Title, Description, System.Array.Empty<ScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
-            }
-            catch (System.Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Quest, $"TriggerInternalInit failed: {ex.Message}");
-            }
-        }
-
         public void Initialize()
         {
             try
             {
-                TriggerInternalInit();
-
                 _meetVicEntry = AddEntry("Meet Vic in the alleyway behind the bank", VicPosition);
                 _bringWeedEntry = AddEntry(GetWeedText(), VicPosition);
             }

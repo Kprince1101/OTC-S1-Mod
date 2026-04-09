@@ -34,8 +34,8 @@
 		<AssemblyName>OverTheCounter.Mono</AssemblyName>
 	</PropertyGroup>
 
-	<!-- MonoDebug: add DEBUG constant (MSBuild only auto-defines it for configs named exactly "Debug") -->
-	<PropertyGroup Condition="'$(Configuration)' == 'MonoDebug'">
+	<!-- Debug configs: add DEBUG constant (MSBuild only auto-defines it for configs named exactly "Debug") -->
+	<PropertyGroup Condition="'$(Configuration)' == 'MonoDebug' Or '$(Configuration)' == 'IL2CPPDebug'">
 		<DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
 	</PropertyGroup>
 
@@ -49,6 +49,8 @@
 		<None Remove="Resources\ExecutivePrivilege.png" />
 		<None Remove="Resources\ManagerIcon.png" />
 		<None Remove="Resources\ChevronIcon.png" />
+		<None Remove="Resources\CheckoutCounter.png" />
+		<None Remove="Resources\GreenTabPOS\*.png" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -213,6 +215,8 @@
 		<Reference Include="S1API"><HintPath>$(S1APIModsPath)\S1API.Il2Cpp.MelonLoader.dll</HintPath></Reference>
 		<Reference Include="SteamNetworkLib"><HintPath>$(SteamNetworkLibPath)\SteamNetworkLib-IL2Cpp.dll</HintPath></Reference>
 		<Reference Include="S1APILoader"><HintPath>$(S1APIPluginsPath)\S1APILoader.MelonLoader.dll</HintPath></Reference>
+		<Reference Include="S1MAPI"><HintPath>$(S1MAPIPath)\S1MAPI_Il2Cpp.dll</HintPath></Reference>
+		<Reference Include="MeshVault"><HintPath>$(MeshVaultPath)\MeshVault.Il2Cpp.dll</HintPath></Reference>
 		<Reference Include="Il2CppScheduleOne.Core"><HintPath>$(GameDllPath)\Il2CppScheduleOne.Core.dll</HintPath></Reference>
 	</ItemGroup>
 
@@ -253,6 +257,8 @@
 		<Reference Include="VisualDesignCafe.ShaderX"><HintPath>$(GameDllPath)\VisualDesignCafe.ShaderX.dll</HintPath></Reference>
 		<Reference Include="S1API"><HintPath>$(MonoS1APIPath)\S1API.Mono.MelonLoader.dll</HintPath></Reference>
 		<Reference Include="SteamNetworkLib"><HintPath>$(MonoSteamNetworkLibPath)\SteamNetworkLib-Mono.dll</HintPath></Reference>
+		<Reference Include="S1MAPI"><HintPath>$(MonoS1MAPIPath)\S1MAPI_Mono.dll</HintPath></Reference>
+		<Reference Include="MeshVault"><HintPath>$(MonoMeshVaultPath)\MeshVault.Mono.dll</HintPath></Reference>
 		<Reference Include="ScheduleOne.Core"><HintPath>$(GameDllPath)\ScheduleOne.Core.dll</HintPath></Reference>
 	</ItemGroup>
 
@@ -266,10 +272,24 @@
 		<Compile Include="Apps\CustomersApp.ManagerDetail.cs" />
 		<Compile Include="Apps\CustomersApp.ManagerLog.cs" />
 		<Compile Include="Apps\CustomersApp.Customers.cs" />
+		<Compile Include="Apps\CustomersApp.Messages.cs" />
 		<Compile Include="Apps\CustomersApp.Employees.cs" />
 		<Compile Include="Apps\CustomersApp.EmployeeDetail.cs" />
 		<Compile Include="Apps\CustomersApp.CustomerDetail.cs" />
 		<Compile Include="Apps\CustomersApp.HireMeIntegration.cs" />
+		<Compile Include="Apps\GreenTabApp.cs" />
+		<Compile Include="Apps\GreenTabApp.Navigation.cs" />
+		<Compile Include="Apps\GreenTabApp.Cards.cs" />
+		<Compile Include="Apps\GreenTabApp.DeskTab.cs" />
+		<Compile Include="Apps\GreenTabApp.LightingTab.cs" />
+		<Compile Include="Apps\GreenTabApp.WallsTab.cs" />
+		<Compile Include="Apps\GreenTabApp.FlooringTab.cs" />
+		<Compile Include="Apps\GreenTabApp.Helpers.cs" />
+		<Compile Include="Apps\GreenTabApp.OverviewTab.cs" />
+		<Compile Include="Apps\GreenTabApp.SalesTab.cs" />
+		<Compile Include="Apps\GreenTabApp.InventoryTab.cs" />
+		<Compile Include="Apps\GreenTabApp.ProductDetail.cs" />
+		<Compile Include="Apps\GreenTabApp.EmployeesTab.cs" />
 		<Compile Include="Core.cs" />
 		<Compile Include="DebugHelpers.cs" />
 		<Compile Include="NPCs\VicNPC.cs" />
@@ -282,6 +302,20 @@
 		<Compile Include="Logic\DrifterManager.cs" />
 		<Compile Include="Logic\DrifterType.cs" />
 		<Compile Include="Logic\DrifterHotspots.cs" />
+		<Compile Include="Logic\NpcSpawner.cs" />
+		<Compile Include="Logic\CustomerState.cs" />
+		<Compile Include="Logic\CustomerSpawnPoints.cs" />
+		<Compile Include="Logic\CustomerInstance.cs" />
+		<Compile Include="Logic\CustomerManager.cs" />
+		<Compile Include="Logic\QueueSlotCalculator.cs" />
+		<Compile Include="Logic\CheckoutProcess.cs" />
+		<Compile Include="Logic\DispensaryDealManager.cs" />
+		<Compile Include="Logic\BudtenderHUD.cs" />
+		<Compile Include="Logic\BudtenderSpawner.cs" />
+		<Compile Include="Logic\BudtenderInstance.cs" />
+		<Compile Include="Logic\BudtenderController.cs" />
+		<Compile Include="Logic\BudtenderStorageSearch.cs" />
+		<Compile Include="Logic\StoreHours.cs" />
 		<Compile Include="Logic\DrifterSpawner.cs" />
 		<Compile Include="Logic\DrifterInstance.cs" />
 		<Compile Include="Logic\ManagerInstance.cs" />
@@ -299,22 +333,33 @@
 		<Compile Include="UI\SmartStashOverlayUI.cs" />
 		<Compile Include="UI\HandoverFillUI.cs" />
 		<Compile Include="Patches\StorageMenuPatch.cs" />
+		<Compile Include="Patches\GameProfilerPatches.cs" />
 		<Compile Include="SaveData\VicSaveData.cs" />
 		<Compile Include="SaveData\StaticSaveData.cs" />
+		<Compile Include="SaveData\PropertySaveData.cs" />
+		<Compile Include="SaveData\PricingSaveData.cs" />
+		<Compile Include="SaveData\StaticThreadSaveData.cs" />
 		<Compile Include="NPCs\StaticNPC.cs" />
 		<Compile Include="Quests\VicIntroQuest.cs" />
 		<Compile Include="Quests\StaticIntroQuest.cs" />
 		<Compile Include="Quests\StaticUpgrade1Quest.cs" />
 		<Compile Include="Quests\StaticUpgrade2Quest.cs" />
 		<Compile Include="Quests\DrifterDealQuest.cs" />
+		<Compile Include="Quests\StorefrontGrowthQuest.cs" />
+		<Compile Include="Quests\StorefrontExpansionQuest.cs" />
+		<Compile Include="Quests\TutorialCustomerHelper.cs" />
+		<Compile Include="UI\StoreAlertOverlay.cs" />
 		<Compile Include="Config.cs" />
 		<Compile Include="Utilities\ConfigEntry.cs" />
 		<Compile Include="Utilities\StorageFilterHelper.cs" />
+		<Compile Include="Utilities\PropertyInventory.cs" />
 		<Compile Include="Utilities\MugshotUtility.cs" />
 		<Compile Include="Utilities\OTCLog.cs" />
+		<Compile Include="Utilities\PerfTracker.cs" />
 		<Compile Include="SaveData\ConfigSyncData.cs" />
 		<Compile Include="SaveData\NetworkSyncBridge.cs" />
-
+		<Compile Include="SaveData\NetworkP2PBridge.cs" />
+		<Compile Include="Patches\ConfigReplicatorPatch.cs" />
 		<Compile Include="Patches\ContactsAppPatch.cs" />
 		<Compile Include="Patches\FixerDialoguePatch.cs" />
 		<Compile Include="Patches\ManagerClipboardPatch.cs" />
@@ -336,11 +381,40 @@
 		<Compile Include="Patches\QuestInitPatch.cs" />
 		<Compile Include="Patches\NpcTypeDiscoveryPatch.cs" />
 		<Compile Include="Patches\SafeTypeLoadPatch.cs" />
+		<Compile Include="Patches\SupplierWarehousePatch.cs" />
+		<Compile Include="Patches\SupplierFleePatch.cs" />
+		<Compile Include="UI\MapBuildingOverlay.cs" />
+		<Compile Include="UI\HUDOverlay.cs" />
 		<Compile Include="UI\MinimapOverlay.cs" />
+		<Compile Include="UI\MinimapPerfLimiter.cs" />
+		<Compile Include="Logic\Placement\BuildingGridFactory.cs" />
+		<Compile Include="Logic\Placement\BuildingPlacementPatch.cs" />
+		<Compile Include="Logic\Placement\BuildingSignage.cs" />
+		<Compile Include="Logic\Placement\CheckoutCounter.cs" />
+		<Compile Include="Logic\Placement\CheckoutCounterInstance.cs" />
+		<Compile Include="Logic\Placement\DeskStyle.cs" />
+		<Compile Include="Logic\Placement\LightingStyle.cs" />
+		<Compile Include="Logic\Placement\WallStyle.cs" />
+		<Compile Include="Logic\Placement\FloorStyle.cs" />
+		<Compile Include="Logic\Placement\ComputerScreen.cs" />
+		<Compile Include="Logic\Placement\Dispensary.cs" />
+		<Compile Include="Logic\Placement\FurnitureManager.cs" />
+		<Compile Include="Logic\Placement\CasinoDeadDrop.cs" />
+		<Compile Include="Logic\Placement\OTCSupplierArea.cs" />
+		<Compile Include="Logic\Placement\OTCWarehouse.cs" />
+		<Compile Include="Logic\Placement\BuildingTarget.cs" />
+		<Compile Include="Logic\Placement\WestvilleShack.cs" />
 		<Compile Include="UI\RecipeOverlay.cs" />
 		<Compile Include="UI\TMPFactory.cs" />
+		<Compile Include="UI\RegisterFloatingText.cs" />
+		<Compile Include="UI\RenamePopup.cs" />
+		<Compile Include="UI\ColorPickerPopup.cs" />
+		<Compile Include="UI\DependencyChecker.cs" />
 		<Compile Include="Patches\RecipePinPatch.cs" />
 		<Compile Include="Patches\CustomerStartPatch.cs" />
+		<Compile Include="Patches\CustomerCheckoutInterceptPatch.cs" />
+		<Compile Include="Patches\DealInterceptPatch.cs" />
+		<Compile Include="Patches\WeatherPatches.cs" />
 	</ItemGroup>
 
 	<!-- Embedded resources -->
@@ -353,6 +427,17 @@
 		<EmbeddedResource Include="Resources\ExecutivePrivilege.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\ManagerIcon.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 		<EmbeddedResource Include="Resources\ChevronIcon.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\LeafSign.glb"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\ShackSign.glb"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\CashRegister.glb"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\CheckoutCounter.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\StoreAlertIcon.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\ShackPhoto.png" Condition="Exists('Resources\ShackPhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\DispensaryPhoto.png" Condition="Exists('Resources\DispensaryPhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\WarehousePhoto.png" Condition="Exists('Resources\WarehousePhoto.png')"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\MeshDatabase.json"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\MeshVaultDecals\*.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
+		<EmbeddedResource Include="Resources\GreenTabPOS\*.png"><CopyToOutputDirectory>Never</CopyToOutputDirectory></EmbeddedResource>
 	</ItemGroup>
 
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="!$(Configuration.StartsWith('Mono'))">

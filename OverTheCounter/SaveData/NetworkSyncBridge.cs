@@ -44,8 +44,11 @@ namespace OverTheCounter.SaveData
         private static HostSyncVar<string> _configVar;
         private static HostSyncVar<string> _stateVar;
         private static HostSyncVar<string> _drifterVar;
+        private static HostSyncVar<string> _customerVar;
         private static HostSyncVar<string> _mgrMsgVar;
         private static HostSyncVar<string> _drifterMsgVar;
+        private static HostSyncVar<string> _checkoutVar;
+        private static HostSyncVar<string> _pricingVar;
         private static ClientSyncVar<string> _actionVar;
 
         internal const int ManagerSlotCount = 8;
@@ -60,6 +63,12 @@ namespace OverTheCounter.SaveData
         private static readonly Dictionary<ulong, string> _processedActions = new Dictionary<ulong, string>();
         private static long _lastActionPollTick;
         private const long ACTION_POLL_INTERVAL_MS = 1000;
+
+        // Client-side: periodic refresh of host state SyncVar (lights, door, store open/close).
+        // LobbyDataUpdate_t callbacks are unreliable for host→client propagation;
+        // Refresh() reads the local Steam cache which updates more reliably.
+        private static long _lastStateRefreshTick;
+        private const long STATE_REFRESH_INTERVAL_MS = 2000;
 
         // ==================================================================
         // Lifecycle
@@ -88,8 +97,11 @@ namespace OverTheCounter.SaveData
                 _configVar = _netClient.CreateHostSyncVar("cfg", "", _syncOptions);
                 _stateVar = _netClient.CreateHostSyncVar("state", "", _syncOptions);
                 _drifterVar = _netClient.CreateHostSyncVar("drifters", "", _syncOptions);
+                _customerVar = _netClient.CreateHostSyncVar("customers", "", _syncOptions);
                 _mgrMsgVar = _netClient.CreateHostSyncVar("mgrmsg", "", _syncOptions);
                 _drifterMsgVar = _netClient.CreateHostSyncVar("driftermsg", "", _syncOptions);
+                _checkoutVar = _netClient.CreateHostSyncVar("chk", "", _syncOptions);
+                _pricingVar = _netClient.CreateHostSyncVar("pricing", "", _syncOptions);
                 _actionVar = _netClient.CreateClientSyncVar("action", "", _syncOptions);
 
                 for (int i = 0; i < ManagerSlotCount; i++)
@@ -104,8 +116,11 @@ namespace OverTheCounter.SaveData
                 _configVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Config SyncVar error: {ex.Message}");
                 _stateVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"State SyncVar error: {ex.Message}");
                 _drifterVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Drifter SyncVar error: {ex.Message}");
+                _customerVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Customer SyncVar error: {ex.Message}");
                 _mgrMsgVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"MgrMsg SyncVar error: {ex.Message}");
                 _drifterMsgVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"DrifterMsg SyncVar error: {ex.Message}");
+                _checkoutVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Checkout SyncVar error: {ex.Message}");
+                _pricingVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Pricing SyncVar error: {ex.Message}");
                 _actionVar.OnSyncError += (ex) => OTCLog.Warning(OTCLog.Systems.Network, $"Action SyncVar error: {ex.Message}");
                 _configVar.OnWriteIgnored += (_) => { OTCLog.Msg(OTCLog.Systems.Network, "Config SyncVar write ignored (not lobby owner)."); };
                 _stateVar.OnWriteIgnored += (_) => { OTCLog.Msg(OTCLog.Systems.Network, "State SyncVar write ignored (not lobby owner)."); };
@@ -114,14 +129,20 @@ namespace OverTheCounter.SaveData
                 _configVar.OnValueChanged += OnConfigChanged;
                 _stateVar.OnValueChanged += OnStateChanged;
                 _drifterVar.OnValueChanged += OnDrifterStateChanged;
+                _customerVar.OnValueChanged += OnCustomerStateChanged;
                 _mgrMsgVar.OnValueChanged += OnManagerMessageChanged;
                 _drifterMsgVar.OnValueChanged += OnDrifterMessageChanged;
+                _checkoutVar.OnValueChanged += OnCheckoutChanged;
+                _pricingVar.OnValueChanged += OnPricingChanged;
 
                 // Host callback: receive quest actions from clients.
                 _actionVar.OnValueChanged += OnActionChanged;
 
                 // NOTE: Initial value push is deferred to ProcessMessages() after lobby
                 // discovery. SyncVar writes before _currentLobby is set fail silently.
+
+                // Initialize P2P bridge on the same client (shares ProcessIncomingMessages tick).
+                NetworkP2PBridge.Initialize(_netClient);
 
                 OTCLog.Msg(OTCLog.Systems.Network, $"SteamNetworkLib SyncVars initialized (inLobby={_netClient.IsInLobby}).");
             }
@@ -172,6 +193,14 @@ namespace OverTheCounter.SaveData
                     if (_drifterVar != null)
                         _drifterVar.Value = drifterState;
 
+                    string customerState = ConfigSyncData.GetSerializedCustomerState();
+                    if (_customerVar != null)
+                        _customerVar.Value = customerState;
+
+                    string pricingState = PricingSaveData.Instance?.Serialize() ?? "";
+                    if (_pricingVar != null)
+                        _pricingVar.Value = pricingState;
+
                     // Push per-manager slots
                     ConfigSyncData.WriteInitialManagerSlots();
 
@@ -180,10 +209,13 @@ namespace OverTheCounter.SaveData
                     _configVar?.Refresh();
                     _stateVar?.Refresh();
                     _drifterVar?.Refresh();
+                    _customerVar?.Refresh();
                     for (int i = 0; i < ManagerSlotCount; i++)
                         _mgrSlots[i]?.Refresh();
                     _mgrMsgVar?.Refresh();
                     _drifterMsgVar?.Refresh();
+                    _checkoutVar?.Refresh();
+                    _pricingVar?.Refresh();
                     _actionVar?.Refresh();
 
                     OTCLog.Msg(OTCLog.Systems.Network, $"Initial SyncVar sync after lobby discovery (lobbyHost={_netClient.IsHost}).");
@@ -240,6 +272,23 @@ namespace OverTheCounter.SaveData
                     }
                 }
             }
+
+            // Client-side: refresh host state SyncVar periodically.
+            // LobbyDataUpdate_t is unreliable; Refresh() reads Steam's local cache directly.
+            if (!_netClient.IsHost && _stateVar != null && _initialSyncDone)
+            {
+#if IL2CPP
+                long stateNow = Environment.TickCount64;
+#else
+                long stateNow = (long)Environment.TickCount;
+#endif
+                if (stateNow - _lastStateRefreshTick >= STATE_REFRESH_INTERVAL_MS)
+                {
+                    _lastStateRefreshTick = stateNow;
+                    try { _stateVar.Refresh(); }
+                    catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Network, $"State refresh failed: {ex.Message}"); }
+                }
+            }
         }
 
         /// <summary>
@@ -248,6 +297,8 @@ namespace OverTheCounter.SaveData
         /// </summary>
         internal static void Cleanup()
         {
+            NetworkP2PBridge.Cleanup();
+
             try
             {
                 _netClient?.Dispose();
@@ -261,12 +312,16 @@ namespace OverTheCounter.SaveData
             _configVar = null;
             _stateVar = null;
             _drifterVar = null;
+            _customerVar = null;
             for (int i = 0; i < ManagerSlotCount; i++)
                 _mgrSlots[i] = null;
             _mgrMsgVar = null;
             _drifterMsgVar = null;
+            _checkoutVar = null;
+            _pricingVar = null;
             _actionVar = null;
             _processedActions.Clear();
+            _lastStateRefreshTick = 0;
             _networkInitialized = false;
             _initialSyncDone = false;
         }
@@ -293,6 +348,12 @@ namespace OverTheCounter.SaveData
                 _drifterVar.Value = payload;
         }
 
+        internal static void PushCustomerState(string payload)
+        {
+            if (_customerVar != null)
+                _customerVar.Value = payload;
+        }
+
         internal static void PushManagerSlot(int slot, string payload)
         {
             if (slot >= 0 && slot < ManagerSlotCount && _mgrSlots[slot] != null)
@@ -315,6 +376,23 @@ namespace OverTheCounter.SaveData
         {
             if (_drifterMsgVar != null)
                 _drifterMsgVar.Value = payload;
+        }
+
+        internal static void PushCheckoutState(string payload)
+        {
+            if (_checkoutVar != null)
+                _checkoutVar.Value = payload;
+        }
+
+        internal static void PushPricingState(string payload)
+        {
+            if (_pricingVar != null)
+                _pricingVar.Value = payload;
+        }
+
+        internal static string GetLocalPlayerId()
+        {
+            return _netClient?.LocalPlayerId.m_SteamID.ToString() ?? "";
         }
 
         internal static void SendAction(string value)
@@ -340,14 +418,16 @@ namespace OverTheCounter.SaveData
         /// Manager slots are pushed separately via WriteInitialManagerSlots().
         /// </summary>
         internal static void PushOnLoaded(string configPayload, string statePayload,
-            string drifterPayload)
+            string drifterPayload, string customerPayload)
         {
             if (_configVar == null) return;
             _configVar.Value = configPayload;
             _stateVar.Value = statePayload;
             if (_drifterVar != null)
                 _drifterVar.Value = drifterPayload;
-            OTCLog.Msg(OTCLog.Systems.Network, "Pushed config, game state, and drifter state to SyncVars.");
+            if (_customerVar != null)
+                _customerVar.Value = customerPayload;
+            OTCLog.Msg(OTCLog.Systems.Network, "Pushed config, game state, drifter state, and customer state to SyncVars.");
         }
 
         // ==================================================================
@@ -375,6 +455,12 @@ namespace OverTheCounter.SaveData
             ConfigSyncData.HandleDrifterStateChanged(newValue);
         }
 
+        private static void OnCustomerStateChanged(string oldValue, string newValue)
+        {
+            if (_netClient?.IsHost == true) return;
+            ConfigSyncData.HandleCustomerStateChanged(newValue ?? "");
+        }
+
         private static void OnManagerSlotChanged(int slot, string oldValue, string newValue)
         {
             if (_netClient?.IsHost == true) return;
@@ -393,6 +479,18 @@ namespace OverTheCounter.SaveData
             if (_netClient?.IsHost == true) return;
             if (string.IsNullOrEmpty(newValue)) return;
             ConfigSyncData.HandleDrifterMessageChanged(newValue);
+        }
+
+        private static void OnCheckoutChanged(string oldValue, string newValue)
+        {
+            if (_netClient?.IsHost == true) return;
+            ConfigSyncData.HandleCheckoutStateChanged(newValue ?? "");
+        }
+
+        private static void OnPricingChanged(string oldValue, string newValue)
+        {
+            if (_netClient?.IsHost == true) return;
+            ConfigSyncData.HandlePricingChanged(newValue ?? "");
         }
 
         private static void OnActionChanged(CSteamID sender, string oldValue, string newValue)

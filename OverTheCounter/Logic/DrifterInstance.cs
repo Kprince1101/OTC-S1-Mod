@@ -602,7 +602,7 @@ namespace OverTheCounter.Logic
                 // Send product and activate the behaviour
                 try
                 {
-                    consumeBehaviour.SendProduct(productInstance);
+                    consumeBehaviour.SendProduct(productInstance, false);
                     consumeBehaviour.Activate();
                     OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: started consume animation for {productId}");
                 }

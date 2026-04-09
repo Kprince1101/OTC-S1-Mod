@@ -182,6 +182,7 @@ namespace OverTheCounter.Patches
         {
             try
             {
+                PerfTracker.Begin("ClipboardPatch");
                 // Tick the route entity selector even when clipboard is closed
                 // (RouteEntitySelector.Open() closes the clipboard, so it must tick independently)
                 if (RouteEntitySelector.IsOpen)
@@ -231,6 +232,7 @@ namespace OverTheCounter.Patches
             {
                 OTCLog.Warning(OTCLog.Systems.Manager, $"UpdatePostfix error: {ex.Message}");
             }
+            finally { PerfTracker.End("ClipboardPatch"); }
         }
 
         /// <summary>

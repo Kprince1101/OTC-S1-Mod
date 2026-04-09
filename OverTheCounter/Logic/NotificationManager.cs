@@ -263,7 +263,17 @@ namespace OverTheCounter.Logic
         {
             OTCLog.Msg(OTCLog.Systems.Notification, $"Creating ConsolidatedQuest for {contracts.Count} contracts, window {windowKey.Item1}-{windowKey.Item2}");
 
-            var quest = (ConsolidatedQuest)S1API.Quests.QuestManager.CreateQuest<ConsolidatedQuest>();
+            ConsolidatedQuest quest;
+            try
+            {
+                quest = (ConsolidatedQuest)S1API.Quests.QuestManager.CreateQuest<ConsolidatedQuest>();
+            }
+            catch (System.Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Notification, $"CreateQuest<ConsolidatedQuest> threw: {ex.Message}");
+                return;
+            }
+
             if (quest != null)
             {
                 quest.Initialize();

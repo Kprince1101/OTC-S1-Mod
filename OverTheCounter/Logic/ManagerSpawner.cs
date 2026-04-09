@@ -389,8 +389,8 @@ namespace OverTheCounter.Logic
                 settings.Gender = UnityEngine.Random.Range(0f, 1f);
                 bool isFemale = settings.Gender >= 0.5f;
 
-                // Biometrics — reuse DrifterSpawner skin tones and hair logic
-                var skinTone = DrifterSpawner.SkinTones[UnityEngine.Random.Range(0, DrifterSpawner.SkinTones.Length)];
+                // Biometrics — reuse NpcSpawner skin tones and hair logic
+                var skinTone = NpcSpawner.SkinTones[UnityEngine.Random.Range(0, NpcSpawner.SkinTones.Length)];
                 settings.SkinColor = skinTone;
 
                 var faceColor = new Color(skinTone.r * 0.92f, skinTone.g * 0.88f, skinTone.b * 0.85f);
@@ -411,7 +411,7 @@ namespace OverTheCounter.Logic
                     hairColor = new Color(0.55f, 0.25f, 0.15f);
                 settings.HairColor = hairColor;
 
-                var hairPool = isFemale ? DrifterSpawner.FemaleHairStyles : DrifterSpawner.MaleHairStyles;
+                var hairPool = isFemale ? NpcSpawner.FemaleHairStyles : NpcSpawner.MaleHairStyles;
                 settings.HairPath = hairPool[UnityEngine.Random.Range(0, hairPool.Length)];
 
                 settings.EyeBallTint = Color.white;
@@ -433,7 +433,7 @@ namespace OverTheCounter.Logic
 
                 // Face layer
                 var faceLayer = new AvatarSettings.LayerSetting();
-                faceLayer.layerPath = DrifterSpawner.FaceExpressions[UnityEngine.Random.Range(0, DrifterSpawner.FaceExpressions.Length)];
+                faceLayer.layerPath = NpcSpawner.FaceExpressions[UnityEngine.Random.Range(0, NpcSpawner.FaceExpressions.Length)];
                 faceLayer.layerTint = faceColor;
                 settings.FaceLayerSettings.Add(faceLayer);
 
@@ -1166,28 +1166,30 @@ namespace OverTheCounter.Logic
             agentTypeID = 0;
             areaMask = -1;
 
+            // First try: discover from any vanilla employee NPC
             try
             {
                 var props = ScheduleOne.Property.Property.OwnedProperties;
-                if (props == null) return false;
-
-                for (int p = 0; p < props.Count; p++)
+                if (props != null)
                 {
-                    var prop = props[p];
-                    if (prop?.Employees == null) continue;
-                    for (int e = 0; e < prop.Employees.Count; e++)
+                    for (int p = 0; p < props.Count; p++)
                     {
-                        var emp = prop.Employees[e];
-                        if (emp?.Movement?.Agent == null) continue;
+                        var prop = props[p];
+                        if (prop?.Employees == null) continue;
+                        for (int e = 0; e < prop.Employees.Count; e++)
+                        {
+                            var emp = prop.Employees[e];
+                            if (emp?.Movement?.Agent == null) continue;
 
-                        var empAgent = emp.Movement.Agent;
-                        _cachedEmployeeAgentTypeID = empAgent.agentTypeID;
-                        _cachedEmployeeAreaMask = empAgent.areaMask;
-                        agentTypeID = empAgent.agentTypeID;
-                        areaMask = empAgent.areaMask;
-                        if (Config.ManagerVerboseLogging.Value)
-                            OTCLog.Msg(OTCLog.Systems.Manager, $"Cached employee NavMesh settings: agentTypeID={agentTypeID}, areaMask={areaMask}");
-                        return true;
+                            var empAgent = emp.Movement.Agent;
+                            _cachedEmployeeAgentTypeID = empAgent.agentTypeID;
+                            _cachedEmployeeAreaMask = empAgent.areaMask;
+                            agentTypeID = empAgent.agentTypeID;
+                            areaMask = empAgent.areaMask;
+                            if (Config.ManagerVerboseLogging.Value)
+                                OTCLog.Msg(OTCLog.Systems.Manager, $"Cached employee NavMesh settings: agentTypeID={agentTypeID}, areaMask={areaMask}");
+                            return true;
+                        }
                     }
                 }
             }
@@ -1195,6 +1197,19 @@ namespace OverTheCounter.Logic
             {
                 OTCLog.Warning(OTCLog.Systems.Manager, $"TryGetEmployeeNavMeshSettings failed: {ex.Message}");
             }
+
+            // Fallback: use the known "Employee" agent type (discovered from game NavMesh settings)
+            const int EmployeeAgentTypeID = -1923039037;
+            string verifyName = UnityEngine.AI.NavMesh.GetSettingsNameFromID(EmployeeAgentTypeID);
+            if (!string.IsNullOrEmpty(verifyName))
+            {
+                _cachedEmployeeAgentTypeID = EmployeeAgentTypeID;
+                _cachedEmployeeAreaMask = UnityEngine.AI.NavMesh.AllAreas;
+                agentTypeID = EmployeeAgentTypeID;
+                areaMask = UnityEngine.AI.NavMesh.AllAreas;
+                return true;
+            }
+
             return false;
         }
 

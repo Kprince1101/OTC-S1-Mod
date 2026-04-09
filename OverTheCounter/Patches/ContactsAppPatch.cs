@@ -14,12 +14,16 @@ using RelationCircleType = Il2CppScheduleOne.UI.Relations.RelationCircle;
 using NPCManagerType = Il2CppScheduleOne.NPCs.NPCManager;
 using NPCType = Il2CppScheduleOne.NPCs.NPC;
 using GameManagerSingleton = Il2CppScheduleOne.DevUtilities.NetworkSingleton<Il2CppScheduleOne.DevUtilities.GameManager>;
+using GameInputType = Il2CppScheduleOne.GameInput;
+using ExitActionType = Il2CppScheduleOne.DevUtilities.ExitAction;
 #else
 using ContactsAppType = ScheduleOne.UI.Phone.ContactsApp.ContactsApp;
 using RelationCircleType = ScheduleOne.UI.Relations.RelationCircle;
 using NPCManagerType = ScheduleOne.NPCs.NPCManager;
 using NPCType = ScheduleOne.NPCs.NPC;
 using GameManagerSingleton = ScheduleOne.DevUtilities.NetworkSingleton<ScheduleOne.DevUtilities.GameManager>;
+using GameInputType = ScheduleOne.GameInput;
+using ExitActionType = ScheduleOne.DevUtilities.ExitAction;
 #endif
 
 namespace OverTheCounter.Patches
@@ -52,6 +56,18 @@ namespace OverTheCounter.Patches
         /// Prevents double-wiring if the coroutine runs twice for the same circle.
         /// </summary>
         private static readonly HashSet<int> _wiredCircles = new();
+
+        /// <summary>
+        /// Region button instance IDs for which we have wired Button.onClick directly.
+        /// Prevents double-wiring across multiple repair runs.
+        /// </summary>
+        private static readonly HashSet<int> _wiredRegionButtons = new();
+
+        /// <summary>
+        /// Instance IDs for which we have pre-registered the Exit listener.
+        /// Prevents redundant registration on subsequent SetOpen(true) calls.
+        /// </summary>
+        private static readonly HashSet<int> _exitListenerEnsured = new();
 
         /// <summary>
         /// NPC connection IDs cached in NPC.Awake (before FishNet reconciliation destroys scene NPCs).
@@ -102,6 +118,18 @@ namespace OverTheCounter.Patches
                 {
                     harmony.Patch(updateMethod,
                         finalizer: new HarmonyMethod(typeof(ContactsAppFix), nameof(UpdateGuard_Finalizer)));
+                }
+
+                // ── EXIT LISTENER SAFETY NET: pre-register when app opens ─────────
+                // App<T>.Start() registers the Exit listener for right-click, but
+                // S1API defers Start() while waiting for custom NPCs. Without this,
+                // right-click during that window closes the entire phone.
+                var setOpenMethod = AccessTools.Method(typeof(ContactsAppType), "SetOpen");
+                if (setOpenMethod != null)
+                {
+                    harmony.Patch(setOpenMethod,
+                        prefix: new HarmonyMethod(typeof(ContactsAppFix),
+                            nameof(SetOpen_EnsureExitListener)));
                 }
 
                 // ── NPC.Awake cache: capture connections before FishNet destroys scene NPCs ─
@@ -199,6 +227,79 @@ namespace OverTheCounter.Patches
                     return rui.ConnectionsContainer;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Populates RegionDict and wires region tab Button.onClick handlers if Start()
+        /// didn't reach its region setup loop (lines 115-124). Checks RegionDict count
+        /// against RegionUIs length to detect whether Start() already handled wiring.
+        /// </summary>
+        private static int RepairRegionButtons(ContactsAppType instance)
+        {
+            try
+            {
+                var regionUIs = instance.RegionUIs;
+                if (regionUIs == null || regionUIs.Length == 0) return 0;
+
+                // If RegionDict already has all regions, Start() handled the wiring — skip
+                int dictCount = GetRegionDictCount(instance);
+                if (dictCount >= regionUIs.Length) return 0;
+
+                // ── Populate missing RegionDict entries ──
+#if IL2CPP
+                var dict = instance.RegionDict;
+                if (dict != null)
+                {
+                    foreach (var rui in regionUIs)
+                    {
+                        if (rui != null && !dict.ContainsKey(rui.Region))
+                            dict.Add(rui.Region, rui);
+                    }
+                }
+#else
+                {
+                    _regionDictFieldMono ??= typeof(ContactsAppType)
+                        .GetField("RegionDict", BindingFlags.NonPublic | BindingFlags.Instance);
+                    var dict = _regionDictFieldMono?.GetValue(instance) as System.Collections.IDictionary;
+                    if (dict != null)
+                    {
+                        foreach (var rui in regionUIs)
+                        {
+                            if (rui == null) continue;
+                            if (!dict.Contains(rui.Region))
+                                dict.Add(rui.Region, rui);
+                        }
+                    }
+                }
+#endif
+
+                // ── Wire region tab button onClick handlers ──
+                int wired = 0;
+                foreach (var rui in regionUIs)
+                {
+                    if (rui?.Button == null) continue;
+                    if (!_wiredRegionButtons.Add(rui.Button.GetInstanceID())) continue;
+                    var capturedRui = rui;
+                    var capturedInst = instance;
+                    rui.Button.onClick.AddListener(new System.Action(() =>
+                    {
+                        try { capturedInst.SetSelectedRegion(capturedRui.Region, true); }
+                        catch (Exception ex)
+                        {
+                            OTCLog.Warning(OTCLog.Systems.Patch,
+                                $"Region button SetSelectedRegion failed: {ex.Message}");
+                        }
+                    }));
+                    wired++;
+                }
+
+                return wired;
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch, $"RepairRegionButtons threw: {ex.Message}");
+                return 0;
+            }
         }
 
         /// <summary>
@@ -315,12 +416,66 @@ namespace OverTheCounter.Patches
         }
 
         // ══════════════════════════════════════════════════════════════════════════
+        // EXIT LISTENER SAFETY NET — Prefix on SetOpen: ensure the Exit listener
+        // is registered before the app becomes visible.
+        //
+        // App<T>.Start() registers GameInput.RegisterExitListener(Exit, 1) which
+        // handles right-click to close the app. S1API defers Start() via coroutine
+        // while waiting for custom NPC types (OTC's drifters trigger this). During
+        // that window the user can open the contacts app via its icon, but right-
+        // click has no handler and bubbles up to Phone.Exit(), closing the phone.
+        //
+        // Double registration is harmless: the second Exit() invocation sees
+        // isOpen=false and is a no-op.
+        // ══════════════════════════════════════════════════════════════════════════
+
+        private static void SetOpen_EnsureExitListener(ContactsAppType __instance, bool open)
+        {
+            if (!open) return;
+            if (!_exitListenerEnsured.Add(__instance.GetInstanceID())) return;
+
+            try
+            {
+#if IL2CPP
+                GameInputType.RegisterExitListener(
+                    new Action<ExitActionType>(__instance.Exit), 1);
+#else
+                GameInputType.RegisterExitListener(
+                    new GameInputType.ExitDelegate(__instance.Exit), 1);
+#endif
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch,
+                    $"Exit listener pre-registration failed: {ex.Message}");
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════
         // FIX 1 — Prefix: skip Start() if GameManager not ready, retry later.
         // ══════════════════════════════════════════════════════════════════════════
 
         private static bool Fix1_StartPrefix(ContactsAppType __instance)
         {
             int id = __instance.GetInstanceID();
+
+            // If Start() already ran (RegionDict populated), block re-invocation.
+            // Prevents duplicate-key ArgumentException when S1API's WaitForNPCs
+            // or OTC's Fix1 retry calls Start() a second time.
+            // Fix2 + RepairRegionButtons handle any remaining setup gaps.
+            try
+            {
+                if (GetRegionDictCount(__instance) > 0)
+                {
+                    _fix1Pending.Remove(id);
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch,
+                    $"RegionDict check failed in Start prefix: {ex.Message}");
+            }
 
             // Our retry coroutine re-invokes Start() with id in _fix1Pending. Let it through.
             if (_fix1Pending.Contains(id))
@@ -491,6 +646,9 @@ namespace OverTheCounter.Patches
             yield return null;
             if (instance == null) { _repairRunning.Remove(instId); yield break; }
 
+            // ── Populate RegionDict + wire region tab buttons if Start() missed them ─
+            int regionButtonsWired = RepairRegionButtons(instance);
+
             // ── Re-call SetSelectedRegion ─────────────────────────────────────────
             try
             {
@@ -559,7 +717,7 @@ namespace OverTheCounter.Patches
             // and ContactsApp renders on top of other apps. Deactivate it if not open.
             EnsureAppContainerHidden(instance);
 
-            OTCLog.Msg(OTCLog.Systems.Patch, $"ContactsApp repaired: {repaired} portraits, {linesCreated} connection lines, {wired} clicks wired.");
+            OTCLog.Msg(OTCLog.Systems.Patch, $"ContactsApp repaired: {repaired} portraits, {linesCreated} lines, {wired} circles wired, {regionButtonsWired} region buttons wired.");
 
             _repairRunning.Remove(instId);
         }

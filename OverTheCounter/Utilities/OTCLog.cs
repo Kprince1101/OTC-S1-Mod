@@ -45,6 +45,9 @@ namespace OverTheCounter.Utilities
             public const string Quest = "Quest";
             public const string Notification = "Notification";
             public const string Patch = "Patch";
+            public const string Customer = "Customer";
+            public const string Furniture = "Furniture";
+            public const string General = "General";
         }
     }
 }

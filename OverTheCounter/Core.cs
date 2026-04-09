@@ -2,6 +2,7 @@ using MelonLoader;
 using MelonLoader.Utils;
 using OverTheCounter.Apps;
 using OverTheCounter.Logic;
+using OverTheCounter.Logic.Placement;
 using OverTheCounter.NPCs;
 using OverTheCounter.Patches;
 using OverTheCounter.Quests;
@@ -17,9 +18,12 @@ using UnityEngine;
 
 #if IL2CPP
 using Il2CppInterop.Runtime.Injection;
+using Il2CppFishNet.Object;
+#else
+using FishNet.Object;
 #endif
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "1.5.7", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "2.0.8", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 [assembly: MelonOptionalDependencies("SteamNetworkLib")]
 [assembly: HarmonyDontPatchAll]
@@ -32,8 +36,22 @@ namespace OverTheCounter
         private DesperationManager _desperationManager;
         private DrifterManager _drifterManager;
         private ManagerController _managerManager;
+        private CustomerManager _customerManager;
+        private bool _multiplayerDepChecked;
 
         public override void OnInitializeMelon()
+        {
+            DependencyChecker.RunChecks();
+            if (DependencyChecker.HasMissingDeps)
+            {
+                LoggerInstance.Warning("Missing dependencies — mod features disabled. " +
+                    "Check the main menu for details.");
+                return;
+            }
+            OnInitializeMelonImpl();
+        }
+
+        private void OnInitializeMelonImpl()
         {
             Config.Initialize();
             Config.SubscribeToChanges();
@@ -45,10 +63,34 @@ namespace OverTheCounter
             NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
             StackSizePatch.Apply(HarmonyInstance);
             ManagerClipboardPatch.Apply(HarmonyInstance);
+            try
+            {
+                BuildingPlacementPatch.Apply(HarmonyInstance);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Patch, $"BuildingPlacementPatch.Apply failed: {ex}");
+            }
+            try
+            {
+                ConfigReplicatorPatch.Apply(HarmonyInstance);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Patch, $"ConfigReplicatorPatch.Apply failed: {ex}");
+            }
             ContactsAppFix.Apply(HarmonyInstance);
             GraffitiPatch.Apply(HarmonyInstance);
             RecipePinPatch.Apply(HarmonyInstance);
+            SupplierWarehousePatch.Apply(HarmonyInstance);
+            SupplierFleePatch.Apply(HarmonyInstance);
+            SaveManagerPatch.Apply(HarmonyInstance);
+            GameProfilerPatches.Apply(HarmonyInstance);
+            WeatherPatches.Apply(HarmonyInstance);
+            CustomerCheckoutInterceptPatch.Apply(HarmonyInstance);
+
             TimeManager.OnSleepEnd += OnSleepEnd;
+            TimeManager.OnDayPass += OnDayPass;
 
             if (!ConfigSyncData.IsNetworkLibAvailable)
                 OTCLog.Warning(OTCLog.Systems.Network, "SteamNetworkLib not installed — multiplayer sync disabled. " +
@@ -58,6 +100,8 @@ namespace OverTheCounter
 
             ImmediateQuestWindowConfig.Register();
             MinimapOverlay.Register();
+            HUDOverlay.Register();
+            StoreAlertOverlay.Register();
             RecipeOverlay.Register();
 #if DEBUG
             DebugHelpers.Register();
@@ -68,14 +112,31 @@ namespace OverTheCounter
             _desperationManager = new DesperationManager();
             _drifterManager = new DrifterManager();
             _managerManager = new ManagerController();
+            _customerManager = new CustomerManager();
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
+        {
+            if (DependencyChecker.HasMissingDeps)
+            {
+                if (sceneName == "Menu")
+                    DependencyChecker.ShowPopup();
+                return;
+            }
+            OnSceneWasLoadedImpl(buildIndex, sceneName);
+        }
+
+        private static bool _meshVaultRegistered;
+
+        private void OnSceneWasLoadedImpl(int buildIndex, string sceneName)
         {
             // Clear stale singletons on every scene transition so save data
             // from a previous save never bleeds into the next one.
             // S1API recreates these from the save file after the scene loads.
             StaticSaveData.ResetInstance();
+            StaticThreadSaveData.ResetInstance();
+            PropertySaveData.ResetInstance();
+            PricingSaveData.ResetInstance();
             VicSaveData.ResetInstance();
             BellaSaveData.ResetInstance();
             StaticIntroQuest.ResetInstance();
@@ -83,6 +144,8 @@ namespace OverTheCounter
             StaticUpgrade2Quest.ResetInstance();
             VicIntroQuest.ResetInstance();
             BellaProtocolQuest.ResetInstance();
+            StorefrontGrowthQuest.ResetInstance();
+            StorefrontExpansionQuest.ResetInstance();
             Patches.BellaSummonPatch.Reset();
 
             // WORKAROUND: S1API bug — SaveableAutoRegistry never clears cached instances
@@ -104,9 +167,12 @@ namespace OverTheCounter
                 OTCLog.Warning(OTCLog.Systems.Patch, $"Failed to clear SaveableAutoRegistry: {ex.Message}");
             }
 
-            // Drifters are transient - despawn on scene transitions (save/load)
+            // Drifters + customers are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
+            CustomerInstance.CleanupAll();
             DrifterSpawner.ResetCache();
+            BudtenderInstance.CleanupAll();
+            _budtendersRestored = false;
 
             // Clean up previous scene's managers — respawned from ManagerSaveData after load
             ManagerSaveData.ResetInstance();
@@ -121,6 +187,13 @@ namespace OverTheCounter
                 GameObject.DontDestroyOnLoad(go);
             }
 
+            if (!GameObject.Find("OTC_HUDOverlay"))
+            {
+                var go = new GameObject("OTC_HUDOverlay");
+                go.AddComponent<HUDOverlay>();
+                GameObject.DontDestroyOnLoad(go);
+            }
+
             if (!GameObject.Find("OTC_RecipeOverlay"))
             {
                 var go = new GameObject("OTC_RecipeOverlay");
@@ -128,45 +201,281 @@ namespace OverTheCounter
                 GameObject.DontDestroyOnLoad(go);
             }
 
-#if DEBUG
-            if (!GameObject.Find("DebugController"))
+            if (!GameObject.Find("OTC_StoreAlertOverlay"))
             {
-                var go = new GameObject("DebugController");
-                go.AddComponent<DebugHelpers>();
+                var go = new GameObject("OTC_StoreAlertOverlay");
+                go.AddComponent<StoreAlertOverlay>();
                 GameObject.DontDestroyOnLoad(go);
             }
+
+#if DEBUG
+            var existingDbg = GameObject.Find("OTC_DebugController");
+            if (!existingDbg)
+            {
+                var go = new GameObject("OTC_DebugController");
+                go.AddComponent<DebugHelpers>();
+                GameObject.DontDestroyOnLoad(go);
+                OTCLog.Msg(OTCLog.Systems.Patch, "DebugHelpers component created on OTC_DebugController");
+            }
+            else
+            {
+                OTCLog.Msg(OTCLog.Systems.Patch, $"OTC_DebugController already exists, active={existingDbg.activeSelf}, component={existingDbg.GetComponent<DebugHelpers>() != null}");
+            }
+
 #endif
+            // Permanent building cleanup
+            WeatherPatches.Cleanup();
+            MapBuildingOverlay.Clear();
+            Logic.Placement.CheckoutCounter.Cleanup();
+            Logic.Placement.WestvilleShack.Cleanup();
+            Logic.Placement.Dispensary.Cleanup();
+            Logic.Placement.OTCWarehouse.Cleanup();
+            Logic.Placement.OTCSupplierArea.Cleanup();
+            Logic.Placement.CasinoDeadDrop.Cleanup();
+            CheckoutProcess.ResetStatic();
+            CustomerSpawnPoints.Cleanup();
+            BuildingGridFactory.Cleanup();
+            _loadHooked = false;
+        }
+
+        public override void OnSceneWasInitialized(int buildIndex, string sceneName)
+        {
+            if (DependencyChecker.HasMissingDeps) return;
+            OnSceneWasInitializedImpl(buildIndex, sceneName);
+        }
+
+        private void OnSceneWasInitializedImpl(int buildIndex, string sceneName)
+        {
+            if (sceneName == "Main")
+            {
+                MeshVault.MeshVaultAPI.Init();
+
+                // Register OTC custom meshes + decals (only once — MeshVault persists across scenes)
+                if (!_meshVaultRegistered)
+                {
+                    bool meshesRegistered = false;
+                    bool decalsRegistered = false;
+
+                    try
+                    {
+                        var meshBytes = S1MAPI.Utils.EmbeddedResourceLoader.LoadBytes(
+                            "OverTheCounter.Resources.MeshDatabase.json",
+                            System.Reflection.Assembly.GetExecutingAssembly());
+                        if (meshBytes != null)
+                        {
+                            MeshVault.MeshVaultAPI.RegisterMeshes(
+                                "otc", "OverTheCounter",
+                                System.Text.Encoding.UTF8.GetString(meshBytes));
+                            meshesRegistered = true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Patch, $"OTC mesh registration failed: {ex.Message}");
+                    }
+
+                    try
+                    {
+                        MeshVault.MeshVaultAPI.RegisterDecals(
+                            "otc", "OverTheCounter",
+                            System.Reflection.Assembly.GetExecutingAssembly(),
+                            "OverTheCounter.Resources.MeshVaultDecals.");
+                        decalsRegistered = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Patch, $"OTC decal registration failed: {ex.Message}");
+                    }
+
+                    _meshVaultRegistered = meshesRegistered || decalsRegistered;
+                }
+
+                Logic.Placement.CheckoutCounter.Register();
+                Logic.Placement.WestvilleShack.SpawnBuilding();
+                Logic.Placement.Dispensary.SpawnBuilding();
+                Logic.Placement.OTCWarehouse.Initialize();
+                Logic.Placement.OTCSupplierArea.Initialize(Logic.Placement.OTCWarehouse.BuildingTransform);
+
+                // Defer grid item spawning until after FishNet is ready
+                // (CreateGridItem calls networkObject.Spawn which requires network initialized)
+                HookLoadComplete();
+
+                // Also call here so multiplayer clients — who never trigger LoadManager.onLoadComplete
+                // because they don't load saves from disk — still see the counter in hardware stores.
+                // _shopItemAdded guard in AddToShop() makes this a no-op if OnGameLoaded fires first.
+                Logic.Placement.CheckoutCounter.AddToShop();
+            }
+        }
+
+        private static bool _loadHooked;
+        private static bool _budtendersRestored;
+
+        /// <summary>
+        /// Subscribes to LoadManager.onLoadComplete so we can spawn grid items
+        /// after FishNet networking is initialized. Safe to call multiple times.
+        /// </summary>
+        private static void HookLoadComplete()
+        {
+            if (_loadHooked) return;
+            try
+            {
+#if IL2CPP
+                var lm = Il2CppScheduleOne.DevUtilities.Singleton<Il2CppScheduleOne.Persistence.LoadManager>.Instance;
+                if (lm != null)
+                {
+                    lm.onLoadComplete.RemoveListener((UnityEngine.Events.UnityAction)OnGameLoaded);
+                    lm.onLoadComplete.AddListener((UnityEngine.Events.UnityAction)OnGameLoaded);
+                    _loadHooked = true;
+                    OTCLog.Msg(OTCLog.Systems.Patch, "Hooked LoadManager.onLoadComplete");
+                }
+                else
+                    OTCLog.Warning(OTCLog.Systems.Patch, "LoadManager.Instance is null — cannot hook onLoadComplete");
+#else
+                var lm = ScheduleOne.Persistence.LoadManager.Instance;
+                if (lm != null)
+                {
+                    lm.onLoadComplete.RemoveListener(OnGameLoaded);
+                    lm.onLoadComplete.AddListener(OnGameLoaded);
+                    _loadHooked = true;
+                    OTCLog.Msg(OTCLog.Systems.Patch, "Hooked LoadManager.onLoadComplete");
+                }
+                else
+                    OTCLog.Warning(OTCLog.Systems.Patch, "LoadManager.Instance is null — cannot hook onLoadComplete");
+#endif
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Patch, $"Failed to hook LoadManager.onLoadComplete: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Called when the game save finishes loading. Restores placed grid items
+        /// (checkout counter, storage, etc.) now that FishNet networking is ready.
+        /// </summary>
+        private static void OnGameLoaded()
+        {
+            try
+            {
+                Logic.Placement.WestvilleShack.ClearTerrain();
+                Logic.Placement.Dispensary.ClearTerrain();
+                Logic.Placement.OTCWarehouse.ClearTerrain();
+
+                Logic.Placement.WestvilleShack.SpawnNetworkedObjects();
+                Logic.Placement.Dispensary.SpawnNetworkedObjects();
+                Logic.Placement.OTCWarehouse.SpawnNetworkedObjects();
+
+                Logic.Placement.CheckoutCounter.AddToShop();
+                Logic.Placement.CasinoDeadDrop.Initialize();
+                CheckoutProcess.InitP2P();
+                CheckoutProcess.RequestSalesLog();
+
+                // Suppress per-item navigation rebuilds during batch restore —
+                // one rebuild per building at the end instead of per item.
+                Logic.Placement.BuildingGridFactory.SuppressNavigationRebuild = true;
+
+                // Restore placed items for all OTC grids
+                if (PropertySaveData.Instance != null)
+                {
+                    foreach (var kvp in Logic.Placement.BuildingGridFactory.GridRegistry)
+                        PropertySaveData.Instance.RestorePlacedItems(kvp.Value.BuildingId, kvp.Key);
+                }
+                else
+                {
+                    // No save data — spawn default checkout counter on shack grid
+                    var shackGrid = Logic.Placement.WestvilleShack.ShackGrid;
+                    if (shackGrid != null)
+                        Logic.Placement.CheckoutCounter.SpawnOnGrid(shackGrid);
+                }
+
+                Logic.Placement.BuildingGridFactory.SuppressNavigationRebuild = false;
+
+                // Rebuild pathfinding once per building now that terrain is cleared,
+                // MeshVault furniture is placed, and grid items are restored.
+                Logic.Placement.WestvilleShack.RebuildNavigation();
+                Logic.Placement.Dispensary.RebuildNavigation();
+                Logic.Placement.OTCWarehouse.RebuildNavigation();
+
+                // Paint OTC building footprints onto map sprite (phone map + minimap)
+                if (!MapBuildingOverlay.PaintBuildings())
+                    OTCLog.Warning(OTCLog.Systems.Patch, "MapBuildingOverlay.PaintBuildings failed — MapApp or MapPositionUtility not ready");
+            }
+            catch (Exception ex)
+            {
+                Logic.Placement.BuildingGridFactory.SuppressNavigationRebuild = false;
+                OTCLog.Error(OTCLog.Systems.General, $"OnGameLoaded restore failed: {ex.Message}\n{ex.StackTrace}");
+            }
         }
 
         public override void OnLateUpdate()
         {
+            if (DependencyChecker.HasMissingDeps) return;
+            OnLateUpdateImpl();
+        }
+
+        private void OnLateUpdateImpl()
+        {
+            PerfTracker.BeginFrame();
             try
             {
                 // Initialize lobby data callbacks on first tick (Steam is ready by now).
                 // Must run on both host and client, independent of Saveable lifecycle.
+                PerfTracker.Begin("NetworkInit");
                 ConfigSyncData.EnsureNetworkReady();
+                PerfTracker.End("NetworkInit");
 
                 // Process incoming SyncVar messages (both host and client).
+                PerfTracker.Begin("SyncMessages");
                 ConfigSyncData.ProcessMessages();
+                PerfTracker.End("SyncMessages");
 
+                // Check for SteamNetworkLib when a second player joins the lobby.
+                if (!_multiplayerDepChecked && !ConfigSyncData.IsNetworkLibAvailable)
+                {
+#if IL2CPP
+                    var lobby = Il2CppScheduleOne.DevUtilities.Singleton<Il2CppScheduleOne.Networking.Lobby>.Instance;
+#else
+                    var lobby = ScheduleOne.Networking.Lobby.Instance;
+#endif
+                    if (lobby != null && lobby.IsInLobby && lobby.PlayerCount > 1)
+                    {
+                        _multiplayerDepChecked = true;
+                        DependencyChecker.RunMultiplayerChecks();
+                        if (DependencyChecker.HasMultiplayerIssues)
+                            DependencyChecker.ShowMultiplayerPopup();
+                    }
+                }
+
+                PerfTracker.Begin("SaveDataTicks");
                 _notificationManager.ProcessContractState();
                 VicSaveData.Instance?.Tick();
                 StaticSaveData.Instance?.Tick();
                 BellaSaveData.Instance?.Tick();
                 ManagerSaveData.Instance?.Tick();
+                PerfTracker.End("SaveDataTicks");
 
                 // Retry pending NPC adoptions on client (FishNet timing)
+                PerfTracker.Begin("AdoptionRetries");
                 _drifterManager?.RetryPendingAdoptions();
+                _customerManager?.RetryPendingAdoptions();
                 ManagerInstance.RetryPendingAdoptions();
+                PerfTracker.End("AdoptionRetries");
+
+                PerfTracker.Begin("ManagerAI");
 
                 // Immediate wage payment when cash is deposited (host only)
+                PerfTracker.Begin("ManagerAI.Wages");
                 _managerManager?.CheckImmediateWages();
+                PerfTracker.End("ManagerAI.Wages");
 
                 // Resume interrupted manager walks (e.g. after dialogue)
+                PerfTracker.Begin("ManagerAI.EnsureMoving");
                 foreach (var mgr in ManagerInstance.Active.Values)
                     mgr.EnsureMoving();
+                PerfTracker.End("ManagerAI.EnsureMoving");
 
                 // Tick supply + distribution run behaviours (host only)
+                PerfTracker.Begin("ManagerAI.SupplyDistribution");
                 if (NetworkHelper.IsHost)
                 {
                     foreach (var mgr in ManagerInstance.Active.Values)
@@ -174,12 +483,25 @@ namespace OverTheCounter
                         mgr.SupplyBehaviour?.Tick();
                         mgr.DistributionBehaviour?.Tick();
                     }
+                }
+                PerfTracker.End("ManagerAI.SupplyDistribution");
+
+                PerfTracker.End("ManagerAI");
+
+                PerfTracker.Begin("NetworkPublish");
+                if (NetworkHelper.IsHost)
+                {
+                    // Flush dirty-flagged SyncVar channels (coalesces same-frame mutations)
+                    ConfigSyncData.FlushDirtyState();
 
                     // Publish pending text messages to client via dedicated message SyncVars
                     if (ManagerInstance.HasPendingMessages)
                         ConfigSyncData.Instance?.PublishManagerMessages();
                     if (DrifterManager.HasPendingDrifterMessages)
                         ConfigSyncData.Instance?.PublishDrifterMessages();
+
+                    // Publish customer state changes to clients
+                    _customerManager?.PublishIfNeeded();
 
                     // Publish manager state changes (State/PaidForToday) to per-slot SyncVars
                     if (ManagerInstance.StatePublishNeeded)
@@ -188,14 +510,70 @@ namespace OverTheCounter
                         ConfigSyncData.Instance?.PublishManagerState();
                     }
                 }
+                PerfTracker.End("NetworkPublish");
+
+                // Client: poll for FishNet-replicated doors arriving in buildings
+                PerfTracker.Begin("ClientDoorSetup");
+                if (!NetworkHelper.IsHost)
+                {
+                    Logic.Placement.WestvilleShack.TickClientDoorSetup();
+                    Logic.Placement.Dispensary.TickClientDoorSetup();
+                }
+                PerfTracker.End("ClientDoorSetup");
+
+                // Deferred budtender restore — after counters are placed from save
+                if (!_budtendersRestored && NetworkHelper.IsHost
+                    && CheckoutCounter.AllCounters.Count > 0
+                    && PropertySaveData.Instance != null)
+                {
+                    _budtendersRestored = true;
+                    string btState = PropertySaveData.Instance.BudtenderSaveState;
+                    if (!string.IsNullOrEmpty(btState))
+                        BudtenderController.Deserialize(btState);
+                }
+
+                PerfTracker.Begin("BudtenderAI");
+                if (NetworkHelper.IsHost)
+                    BudtenderController.Tick();
+                PerfTracker.End("BudtenderAI");
+
+                PerfTracker.Begin("Checkout");
+                // Interactive checkout process (camera, clicks, payment)
+                CheckoutProcess.Instance?.Tick();
+                CheckoutProcess.TryStartCheckout(); // Both host and client (internal routing)
+                CheckoutProcess.PollLockGrant();    // Client: check for lock grant from host
+
+                // Cash register collection — both host and client (client routes through host)
+                if (CheckoutProcess.Instance == null)
+                    CheckoutCounter.TryCollectRegister();
+
+                PerfTracker.End("Checkout");
+
+                // Periodic POS display refresh (2-second throttle for availability updates)
+                PerfTracker.Begin("ScreenTicks");
+                foreach (var counter in Logic.Placement.CheckoutCounter.AllCounters)
+                    counter.Screen?.Tick();
+                PerfTracker.End("ScreenTicks");
+
+                // Time-based light brightness (neon theme dims during day, bright at night)
+                Logic.Placement.Dispensary.UpdateLightBrightness();
+                Logic.Placement.WestvilleShack.UpdateLightBrightness();
 
                 // Update drifter quest timers on client (OnTimeTick is host-only)
+                PerfTracker.Begin("QuestTicks");
                 _drifterManager?.ClientQuestTick();
+
+                // Storefront quest polling (throttled internally)
+                Quests.StorefrontGrowthQuest.Instance?.Tick();
+                Quests.StorefrontExpansionQuest.Instance?.Tick();
+                PerfTracker.End("QuestTicks");
+
             }
             catch (Exception ex)
             {
                 OTCLog.Error(OTCLog.Systems.Patch, $"Error in OnLateUpdate: {ex.Message}\n{ex.StackTrace}");
             }
+            PerfTracker.EndFrame();
         }
 
         /// <summary>
@@ -207,38 +585,76 @@ namespace OverTheCounter
         private static void OnSleepEnd(int minutesSkipped)
         {
             if (!NetworkHelper.IsHost) return;
+#if IL2CPP
+            var lm = Il2CppScheduleOne.DevUtilities.Singleton<Il2CppScheduleOne.Persistence.LoadManager>.Instance;
+#else
+            var lm = ScheduleOne.Persistence.LoadManager.Instance;
+#endif
+            if (lm == null || !lm.IsGameLoaded) return;
             StaticNPC.Instance?.WarpToSpawn();
             BellaNPC.Instance?.ReInjectIntoBuilding();
         }
 
         public override void OnDeinitializeMelon()
         {
+            if (DependencyChecker.HasMissingDeps) return;
+            OnDeinitializeMelonImpl();
+        }
+
+        /// <summary>Daily property maintenance: inventory snapshots and sales log trimming.</summary>
+        private static void OnDayPass()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            var psd = PropertySaveData.Instance;
+            if (psd == null) return;
+
+            // Snapshot total inventory for the overview chart
+            int total = 0;
+            if (psd.IsPropertyOwned(PropertySaveData.ShackId))
+                total += PropertyInventory.GetTotalProductCount(WestvilleShack.ShackGrid);
+            if (psd.IsPropertyOwned(PropertySaveData.DispensaryId))
+                total += PropertyInventory.GetTotalProductCount(Dispensary.DispensaryGrid);
+            psd.RecordInventorySnapshot(TimeManager.ElapsedDays, total);
+
+            // Trim sales log to last 7 days
+            psd.TrimSalesLog(TimeManager.ElapsedDays);
+        }
+
+        private void OnDeinitializeMelonImpl()
+        {
+            PerfTracker.WriteReport();
             TimeManager.OnSleepEnd -= OnSleepEnd;
+            TimeManager.OnDayPass -= OnDayPass;
             ConfigSyncData.Cleanup();
             _notificationManager?.Cleanup();
             _desperationManager?.Cleanup();
             _drifterManager?.Cleanup();
             _managerManager?.Cleanup();
+            _customerManager?.Cleanup();
         }
 
+        /// <summary>OTC icon directory path (UserData/OverTheCounter/Icons).</summary>
+        internal static string OtcIconDir { get; private set; }
+
         /// <summary>
-        /// Extracts embedded icons to the S1API Icons folder for phone app usage.
+        /// Extracts embedded icons to OverTheCounter/Icons.
         /// </summary>
         private void ExtractIcons()
         {
-            string iconDir = Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons");
-            if (!Directory.Exists(iconDir))
-            {
-                Directory.CreateDirectory(iconDir);
-            }
+            OtcIconDir = Path.Combine(MelonEnvironment.UserDataDirectory, "OverTheCounter", "Icons");
+            if (!Directory.Exists(OtcIconDir))
+                Directory.CreateDirectory(OtcIconDir);
 
-            ExtractResource(iconDir, "CustomersIcon.png");
-            ExtractResource(iconDir, "DrifterQuestIcon.png");
-            ExtractResource(iconDir, "DrifterProfileIcon.png");
-            ExtractResource(iconDir, "RinseCycle.png");
-            ExtractResource(iconDir, "CrimeWareQuest.png");
-            ExtractResource(iconDir, "ExecutivePrivilege.png");
-            ExtractResource(iconDir, "ManagerIcon.png");
+            ExtractResource(OtcIconDir, "CustomersIcon.png");
+            ExtractResource(OtcIconDir, "DrifterQuestIcon.png");
+            ExtractResource(OtcIconDir, "DrifterProfileIcon.png");
+            ExtractResource(OtcIconDir, "RinseCycle.png");
+            ExtractResource(OtcIconDir, "CrimeWareQuest.png");
+            ExtractResource(OtcIconDir, "ExecutivePrivilege.png");
+            ExtractResource(OtcIconDir, "ManagerIcon.png");
+            ExtractResource(OtcIconDir, "CheckoutCounter.png");
+            ExtractResource(OtcIconDir, "StoreAlertIcon.png");
         }
 
         private void ExtractResource(string directory, string fileName)

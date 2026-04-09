@@ -39,7 +39,7 @@ namespace OverTheCounter.Apps
         protected override string IconLabel => "OTC";
         protected override EOrientation Orientation => EOrientation.Horizontal;
 
-        protected override string IconFileName => Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "CustomersIcon.png");
+        protected override string IconFileName => Path.Combine(Core.OtcIconDir, "CustomersIcon.png");
 
         // Layout constants
         internal const float HEADER_HEIGHT = 40f;
@@ -66,6 +66,12 @@ namespace OverTheCounter.Apps
 
         // Tab styling
         private static readonly Color ActiveTabBg = new Color(0f, 0f, 0f, 0.3f);
+        private static readonly Color TabUnderlineColor = new Color(0.3f, 0.75f, 0.6f);
+        private Image _managersTabUnderline;
+        private Image _employeesTabUnderline;
+        private Image _customersTabUnderline;
+        private Image _msgTabUnderline;
+        private Image _msgBtnImage;
 
         // Managers page
         private GameObject _managersPage;
@@ -96,6 +102,7 @@ namespace OverTheCounter.Apps
         private GameObject _billingBar;
         private TextMeshProUGUI _billingText;
         private RectTransform _customersScrollRect;
+        private string _customerSearchText = "";
 
         // Manager detail page (overlay)
         private GameObject _managerDetailPage;
@@ -153,6 +160,60 @@ namespace OverTheCounter.Apps
         private ManagerInstance _logPageManager;
         private TextMeshProUGUI _logText;
         private ScrollRect _logScrollRect;
+
+        // Messages overlay
+        internal GameObject _messagesOverlay;
+        private GameObject _messageBadge;
+        private Image _messageBadgeImage;
+        private object _badgePulseCoroutine;
+
+        // Home screen notification badge (mirrors game's App<T>.notificationContainer)
+        private GameObject _homeNotificationContainer;
+        private Text _homeNotificationText;
+        private bool _homeNotificationSearched;
+
+        /// <summary>
+        /// Updates the home screen app icon notification badge (red circle with count).
+        /// Searches for the Notifications child once; no-ops if not found.
+        /// </summary>
+        internal void UpdateHomeScreenBadge(int unreadCount)
+        {
+            if (_homeNotificationContainer == null)
+            {
+                if (_homeNotificationSearched) return;
+                try
+                {
+#if IL2CPP
+                    var homeScreen = Il2CppScheduleOne.DevUtilities.PlayerSingleton<Il2CppScheduleOne.UI.Phone.HomeScreen>.Instance;
+#else
+                    var homeScreen = ScheduleOne.DevUtilities.PlayerSingleton<ScheduleOne.UI.Phone.HomeScreen>.Instance;
+#endif
+                    if (homeScreen == null) return; // Not loaded yet — retry next tick
+
+                    // S1API names the icon GameObject after AppName
+                    Transform iconTransform = null;
+                    foreach (var t in homeScreen.GetComponentsInChildren<Transform>(true))
+                    {
+                        if (t.name == AppName) { iconTransform = t; break; }
+                    }
+                    if (iconTransform == null) return; // Icon not built yet — retry next tick
+
+                    var notifTransform = iconTransform.Find("Notifications");
+                    if (notifTransform == null) return; // Notification child not built yet — retry next tick
+
+                    _homeNotificationSearched = true;
+                    _homeNotificationContainer = notifTransform.gameObject;
+                    _homeNotificationText = notifTransform.Find("Text")?.GetComponent<Text>();
+                }
+                catch (Exception ex) { OTCLog.Error(OTCLog.Systems.Notification, $"Home badge lookup failed: {ex}"); return; }
+            }
+
+            if (_homeNotificationContainer == null) return;
+
+            if (_homeNotificationText != null)
+                _homeNotificationText.text = unreadCount.ToString();
+            _homeNotificationContainer.SetActive(unreadCount > 0);
+        }
 
         public static CustomersApp Instance { get; private set; }
 
@@ -467,7 +528,7 @@ namespace OverTheCounter.Apps
 
         private void BuildHeader(Transform parent)
         {
-            var headerObj = UIFactory.Panel("Header", parent, new Color(0.15f, 0.35f, 0.45f));
+            var headerObj = UIFactory.Panel("Header", parent, new Color(0.10f, 0.22f, 0.30f));
             var headerRect = headerObj.GetComponent<RectTransform>();
             headerRect.anchorMin = new Vector2(0, 1);
             headerRect.anchorMax = new Vector2(1, 1);
@@ -488,12 +549,12 @@ namespace OverTheCounter.Apps
             _tabContainer = UIFactory.Panel("TabContainer", headerObj.transform, Color.clear);
             var tabRect = _tabContainer.GetComponent<RectTransform>();
             tabRect.anchorMin = new Vector2(0.45f, 0.1f);
-            tabRect.anchorMax = new Vector2(0.98f, 0.9f);
+            tabRect.anchorMax = new Vector2(0.92f, 0.9f);
             tabRect.offsetMin = Vector2.zero;
             tabRect.offsetMax = Vector2.zero;
 
             // Managers tab (left third)
-            var mgrTab = UIFactory.Panel("ManagersTab", _tabContainer.transform, ActiveTabBg);
+            var mgrTab = UIFactory.Panel("ManagersTab", _tabContainer.transform, Color.clear);
             var mgrTabRect = mgrTab.GetComponent<RectTransform>();
             mgrTabRect.anchorMin = Vector2.zero;
             mgrTabRect.anchorMax = new Vector2(0.32f, 1);
@@ -502,13 +563,21 @@ namespace OverTheCounter.Apps
             _managersTabImage = mgrTab.GetComponent<Image>();
             mgrTab.AddComponent<Button>().onClick.AddListener(new Action(() => SwitchTab(AppTab.Managers)));
 
-            _managersTabText = TMPFactory.Text("MgrLabel", "<b>Managers</b>", mgrTab.transform, 15, TextAlignmentOptions.Center);
+            _managersTabText = TMPFactory.Text("MgrLabel", "<b>Managers</b>", mgrTab.transform, 18, TextAlignmentOptions.Center);
             var mgrTextRect = _managersTabText.gameObject.GetComponent<RectTransform>();
             mgrTextRect.anchorMin = Vector2.zero;
             mgrTextRect.anchorMax = Vector2.one;
             mgrTextRect.offsetMin = Vector2.zero;
             mgrTextRect.offsetMax = Vector2.zero;
             _managersTabText.color = Color.white;
+
+            var mgrUnderline = UIFactory.Panel("MgrUnderline", mgrTab.transform, TabUnderlineColor);
+            var mgrUlRect = mgrUnderline.GetComponent<RectTransform>();
+            mgrUlRect.anchorMin = new Vector2(0.15f, 0);
+            mgrUlRect.anchorMax = new Vector2(0.85f, 0);
+            mgrUlRect.pivot = new Vector2(0.5f, 0);
+            mgrUlRect.sizeDelta = new Vector2(0, 2);
+            _managersTabUnderline = mgrUnderline.GetComponent<Image>();
 
             // Employees tab (middle third)
             var empTab = UIFactory.Panel("EmployeesTab", _tabContainer.transform, Color.clear);
@@ -520,13 +589,21 @@ namespace OverTheCounter.Apps
             _employeesTabImage = empTab.GetComponent<Image>();
             empTab.AddComponent<Button>().onClick.AddListener(new Action(() => SwitchTab(AppTab.Employees)));
 
-            _employeesTabText = TMPFactory.Text("EmpLabel", "Employees", empTab.transform, 15, TextAlignmentOptions.Center);
+            _employeesTabText = TMPFactory.Text("EmpLabel", "Employees", empTab.transform, 18, TextAlignmentOptions.Center);
             var empTextRect = _employeesTabText.gameObject.GetComponent<RectTransform>();
             empTextRect.anchorMin = Vector2.zero;
             empTextRect.anchorMax = Vector2.one;
             empTextRect.offsetMin = Vector2.zero;
             empTextRect.offsetMax = Vector2.zero;
             _employeesTabText.color = new Color(0.7f, 0.7f, 0.7f);
+
+            var empUnderline = UIFactory.Panel("EmpUnderline", empTab.transform, TabUnderlineColor);
+            var empUlRect = empUnderline.GetComponent<RectTransform>();
+            empUlRect.anchorMin = new Vector2(0.15f, 0);
+            empUlRect.anchorMax = new Vector2(0.85f, 0);
+            empUlRect.pivot = new Vector2(0.5f, 0);
+            empUlRect.sizeDelta = new Vector2(0, 2);
+            _employeesTabUnderline = empUnderline.GetComponent<Image>();
 
             // Customers tab (right third)
             var custTab = UIFactory.Panel("CustomersTab", _tabContainer.transform, Color.clear);
@@ -538,13 +615,68 @@ namespace OverTheCounter.Apps
             _customersTabImage = custTab.GetComponent<Image>();
             custTab.AddComponent<Button>().onClick.AddListener(new Action(() => SwitchTab(AppTab.Customers)));
 
-            _customersTabText = TMPFactory.Text("CustLabel", "Customers", custTab.transform, 15, TextAlignmentOptions.Center);
+            _customersTabText = TMPFactory.Text("CustLabel", "Customers", custTab.transform, 18, TextAlignmentOptions.Center);
             var custTextRect = _customersTabText.gameObject.GetComponent<RectTransform>();
             custTextRect.anchorMin = Vector2.zero;
             custTextRect.anchorMax = Vector2.one;
             custTextRect.offsetMin = Vector2.zero;
             custTextRect.offsetMax = Vector2.zero;
             _customersTabText.color = new Color(0.7f, 0.7f, 0.7f);
+
+            var custUnderline = UIFactory.Panel("CustUnderline", custTab.transform, TabUnderlineColor);
+            var custUlRect = custUnderline.GetComponent<RectTransform>();
+            custUlRect.anchorMin = new Vector2(0.15f, 0);
+            custUlRect.anchorMax = new Vector2(0.85f, 0);
+            custUlRect.pivot = new Vector2(0.5f, 0);
+            custUlRect.sizeDelta = new Vector2(0, 2);
+            _customersTabUnderline = custUnderline.GetComponent<Image>();
+
+            // Message icon (right edge of header)
+            var msgBtn = UIFactory.Panel("MsgIconBtn", headerObj.transform, Color.clear);
+            _msgBtnImage = msgBtn.GetComponent<Image>();
+            var msgBtnRect = msgBtn.GetComponent<RectTransform>();
+            msgBtnRect.anchorMin = new Vector2(1, 0.1f);
+            msgBtnRect.anchorMax = new Vector2(1, 0.9f);
+            msgBtnRect.pivot = new Vector2(1, 0.5f);
+            msgBtnRect.sizeDelta = new Vector2(54, 0);
+            msgBtnRect.anchoredPosition = new Vector2(-4, 0);
+            msgBtn.AddComponent<Button>().onClick.AddListener(new Action(OpenMessagesOverlay));
+
+            // Envelope-style label (placeholder)
+            var msgLabel = UIFactory.Text("MsgLabel", "\u2709", msgBtn.transform, 32, TextAnchor.MiddleCenter);
+            var msgLabelRect = msgLabel.gameObject.GetComponent<RectTransform>();
+            msgLabelRect.anchorMin = Vector2.zero;
+            msgLabelRect.anchorMax = Vector2.one;
+            msgLabelRect.offsetMin = Vector2.zero;
+            msgLabelRect.offsetMax = Vector2.zero;
+            msgLabel.color = Color.white;
+
+            // Message underline (hidden by default, shown when messages overlay is open)
+            var msgUnderline = UIFactory.Panel("MsgUnderline", msgBtn.transform, Color.clear);
+            var msgUlRect = msgUnderline.GetComponent<RectTransform>();
+            msgUlRect.anchorMin = new Vector2(0.15f, 0);
+            msgUlRect.anchorMax = new Vector2(0.85f, 0);
+            msgUlRect.pivot = new Vector2(0.5f, 0);
+            msgUlRect.sizeDelta = new Vector2(0, 2);
+            _msgTabUnderline = msgUnderline.GetComponent<Image>();
+
+            // Red notification badge (pulsing)
+            _messageBadge = UIFactory.Panel("MsgBadge", msgBtn.transform, new Color(0.9f, 0.15f, 0.15f));
+            _messageBadgeImage = _messageBadge.GetComponent<Image>();
+            var badgeRect = _messageBadge.GetComponent<RectTransform>();
+            badgeRect.anchorMin = new Vector2(1, 1);
+            badgeRect.anchorMax = new Vector2(1, 1);
+            badgeRect.pivot = new Vector2(1, 1);
+            badgeRect.sizeDelta = new Vector2(12, 12);
+            badgeRect.anchoredPosition = new Vector2(-1, -1);
+
+            // Red glow around the dot
+            var outline = _messageBadge.AddComponent<Outline>();
+            outline.effectColor = new Color(0.9f, 0.1f, 0.1f, 0.4f);
+            outline.effectDistance = new Vector2(2, 2);
+
+            _messageBadge.SetActive(false);
+
         }
 
         // ==================================================================
@@ -555,6 +687,9 @@ namespace OverTheCounter.Apps
         {
             _activeTab = tab;
             if (_landingPage != null) _landingPage.SetActive(false);
+
+            // Close messages overlay if open
+            CloseMessagesOverlay();
 
             // Close log page if open
             if (_managerLogPage != null)
@@ -622,7 +757,9 @@ namespace OverTheCounter.Apps
             _employeesPage.SetActive(tab == AppTab.Employees);
             _customersPage.SetActive(tab == AppTab.Customers);
 
-            // Tab styling
+            // Tab styling - underline active, dim inactive
+            if (_msgTabUnderline != null) _msgTabUnderline.color = Color.clear;
+            if (_msgBtnImage != null) _msgBtnImage.color = Color.clear;
             if (_managersTabImage != null)
                 _managersTabImage.color = tab == AppTab.Managers ? ActiveTabBg : Color.clear;
             if (_employeesTabImage != null)
@@ -630,20 +767,27 @@ namespace OverTheCounter.Apps
             if (_customersTabImage != null)
                 _customersTabImage.color = tab == AppTab.Customers ? ActiveTabBg : Color.clear;
 
+            if (_managersTabUnderline != null)
+                _managersTabUnderline.color = tab == AppTab.Managers ? TabUnderlineColor : Color.clear;
+            if (_employeesTabUnderline != null)
+                _employeesTabUnderline.color = tab == AppTab.Employees ? TabUnderlineColor : Color.clear;
+            if (_customersTabUnderline != null)
+                _customersTabUnderline.color = tab == AppTab.Customers ? TabUnderlineColor : Color.clear;
+
             if (_managersTabText != null)
             {
                 _managersTabText.text = tab == AppTab.Managers ? "<b>Managers</b>" : "Managers";
-                _managersTabText.color = tab == AppTab.Managers ? Color.white : new Color(0.7f, 0.7f, 0.7f);
+                _managersTabText.color = tab == AppTab.Managers ? Color.white : new Color(0.55f, 0.55f, 0.55f);
             }
             if (_employeesTabText != null)
             {
                 _employeesTabText.text = tab == AppTab.Employees ? "<b>Employees</b>" : "Employees";
-                _employeesTabText.color = tab == AppTab.Employees ? Color.white : new Color(0.7f, 0.7f, 0.7f);
+                _employeesTabText.color = tab == AppTab.Employees ? Color.white : new Color(0.55f, 0.55f, 0.55f);
             }
             if (_customersTabText != null)
             {
                 _customersTabText.text = tab == AppTab.Customers ? "<b>Customers</b>" : "Customers";
-                _customersTabText.color = tab == AppTab.Customers ? Color.white : new Color(0.7f, 0.7f, 0.7f);
+                _customersTabText.color = tab == AppTab.Customers ? Color.white : new Color(0.55f, 0.55f, 0.55f);
             }
 
             // Header title — tier suffix only on Customers tab
@@ -695,6 +839,9 @@ namespace OverTheCounter.Apps
         internal void RefreshApp()
         {
             UpdateLayout();
+            RefreshMessagesBadge();
+            if (_messagesOverlay != null)
+                return;
             if (GetEffectiveTier() < 1) return;
             if (_managerLogPage != null)
             {
@@ -730,6 +877,10 @@ namespace OverTheCounter.Apps
             while (true)
             {
                 yield return new WaitForSeconds(MANAGER_REFRESH_INTERVAL);
+                UpdateLayout();
+                RefreshMessagesBadge();
+                if (_messagesOverlay != null)
+                    continue;
                 if (_managerLogPage != null)
                     RefreshLogContent();
                 else if (_managerDetailPage != null)

@@ -6,7 +6,6 @@ using S1API.Entities.Appearances.FaceLayerFields;
 using S1API.Entities.Appearances.BodyLayerFields;
 using S1API.Entities.Appearances.AccessoryFields;
 using S1API.GameTime;
-using S1API.Money;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using UnityEngine;
@@ -68,6 +67,9 @@ namespace OverTheCounter.NPCs
         {
             try
             {
+                // Movement may be null during load (OnSleepEnd fires before NPC is fully initialized)
+                if (Movement == null) return;
+
                 // Pre-snap position to NavMesh surface so the Warp RPC sends
                 // the correct ground-level Y to clients. Without this, clients
                 // with a disabled NavMeshAgent receive the raw SpawnPosition Y
@@ -87,8 +89,7 @@ namespace OverTheCounter.NPCs
         }
 
         private bool CanTalkToStatic =>
-            (StaticSaveData.Instance?.QuestTriggered ?? false) ||
-            ScheduleOne.Money.ATM.WeeklyDepositSum >= Config.AtmDepositTrigger.Value;
+            StaticSaveData.Instance?.QuestTriggered ?? false;
 
         protected override void ConfigurePrefab(NPCPrefabBuilder builder)
         {
@@ -194,6 +195,27 @@ namespace OverTheCounter.NPCs
                 catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"StaticSaveData fallback creation failed: {ex.Message}"); }
             }
 
+            if (StaticThreadSaveData.Instance == null)
+            {
+                try { new StaticThreadSaveData(); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Quest, $"StaticThreadSaveData fallback creation failed: {ex.Message}"); }
+            }
+
+            if (PropertySaveData.Instance == null)
+            {
+                try { new PropertySaveData(); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Quest, $"PropertySaveData fallback creation failed: {ex.Message}"); }
+            }
+
+            // Host: reconcile thread from current state variables.
+            // Fixes old saves with missing/incomplete messages without losing IsSeen state.
+            if (NetworkHelper.IsHost)
+                StaticThreadSaveData.Instance?.ReconcileHostThread();
+
+            // Apply pending state AFTER all save data instances exist,
+            // so ReconstructClientThread can find StaticThreadSaveData.Instance
+            ConfigSyncData.ApplyPendingGameState();
+
             StaticSaveData.Instance?.OnStaticSpawned();
         }
 
@@ -276,50 +298,21 @@ namespace OverTheCounter.NPCs
                 }
                 else if (!introCompleted)
                 {
-                    // ── Intro: Focused pitch on actual features ──
-                    container.AddNode("ENTRY", "*nods at your phone* \u2014 You're scaling and you don't even know it. I'm Static. I build software for operations like yours \u2014 keeps everything managed so you're not doing it in your head.", choices =>
+                    // ── Intro: redirect to OTC app ──
+                    container.AddNode("ENTRY", "*nods at your phone* \u2014 Check the OTC app. Everything's in there. I don't do sales pitches in person anymore.", choices =>
                     {
-                        choices.Add("PITCH_START", "What software?", "PITCH1");
-                        choices.Add("LEAVE", "Not interested.", "LEAVE_EXIT");
+                        choices.Add("LEAVE", "Got it.", "LEAVE_EXIT");
                     });
 
-                    container.AddNode("PITCH1", "One app. You see your managers \u2014 where they are, what they're running. Your employees \u2014 which property, what's in their inventory, if there's a problem. Your customers \u2014 who they are, what they buy. *taps head* Tight operation.", choices =>
-                    {
-                        choices.Add("PITCH1_NEXT", "What's it cost?", "COST");
-                    });
-
-                    container.AddNode("COST", $"${Config.StaticTier1BankCost.Value:N0} \u2014 bank transfer, not cash \u2014 and {Config.StaticTier1WeedGrams.Value} grams of weed. Call the weed a licensing fee. *sniffs* Bring both.", choices =>
-                    {
-                        choices.Add("ACCEPT", "Deal.", "ACCEPT_EXIT");
-                        choices.Add("LEAVE", "I'll think about it.", "LEAVE_EXIT");
-                    });
-
-                    container.AddNode("ACCEPT_EXIT", "*taps temple* Good. Come back with it.");
                     container.AddNode("LEAVE_EXIT", "*scratches neck* You know where I am.");
                 }
                 else if (crmTier == 0)
                 {
-                    // ── Initial Purchase: bank transfer + weed ──
-                    float bankBalance = Money.GetOnlineBalance();
-                    int weedGrams = CountWeedInInventory();
-
-                    if (bankBalance >= Config.StaticTier1BankCost.Value && weedGrams >= Config.StaticTier1WeedGrams.Value)
+                    // ── Awaiting purchase: redirect to app + dead drop ──
+                    container.AddNode("ENTRY", "*taps foot* \u2014 Pay through the app. Drop the product at the dead drop near me. I don't handle goods in person.", choices =>
                     {
-                        container.AddNode("ENTRY", $"*sniffs* You got it? ${Config.StaticTier1BankCost.Value:N0} in the bank, {Config.StaticTier1WeedGrams.Value} grams. I'm showing {weedGrams}g on you and ${bankBalance:N0} in your account. We doing this or what?", choices =>
-                        {
-                            choices.Add("BUY_INITIAL", $"Buy Software (${Config.StaticTier1BankCost.Value:N0} transfer + {Config.StaticTier1WeedGrams.Value}g Weed)", "BUY_INITIAL_EXIT");
-                            choices.Add("LEAVE", "Not yet.", "LEAVE_EXIT");
-                        });
-
-                        container.AddNode("BUY_INITIAL_EXIT", $"*cracks knuckles* \u2014 You're live. Check the app \u2014 managers, employees, customers, all of it. Northtown and Westville covered. I'm billing ${Config.SaasWeeklyCost.Value:N0} a week from your bank. Don't let it run dry.");
-                    }
-                    else
-                    {
-                        container.AddNode("ENTRY", $"*taps foot* \u2014 I need ${Config.StaticTier1BankCost.Value:N0} in your bank and {Config.StaticTier1WeedGrams.Value} grams of weed. You're sitting on ${bankBalance:N0} and {weedGrams}g. That's not enough. Come back ready.", choices =>
-                        {
-                            choices.Add("LEAVE", "I'll be back.", "LEAVE_EXIT");
-                        });
-                    }
+                        choices.Add("LEAVE", "I'll handle it.", "LEAVE_EXIT");
+                    });
 
                     container.AddNode("LEAVE_EXIT", "*waves dismissively* \u2014 Tick tock.");
                 }
@@ -363,116 +356,14 @@ namespace OverTheCounter.NPCs
                     container.AddNode("RESTORE_EXIT", "*nods once* \u2014 You're back online. Don't let the balance dry up again. I won't be this nice next time.");
                     container.AddNode("LEAVE_EXIT", "*waves dismissively* \u2014 Tick tock.");
                 }
-                else if (crmTier == 1)
+                else if (StaticSaveData.Instance?.UpgradeAvailable == true)
                 {
-                    // ── Tier 1→2 Upgrade: Private Server pitch with fee misdirection ──
-                    float bankBalance = Money.GetOnlineBalance();
-                    int methGrams = CountMethInInventory();
-
-                    if (bankBalance >= Config.StaticTier2BankCost.Value && methGrams >= Config.StaticTier2MethGrams.Value)
+                    // ── Upgrade available: redirect to app + cancel option ──
+                    container.AddNode("ENTRY", "*jittery* \u2014 Upgrade's in the app. Pay through OTC, drop the goods at the dead drop. I don't handle product anymore.", choices =>
                     {
-                        container.AddNode("ENTRY", $"*rubs hands together* \u2014 Hey. Hey. I've been up all night. Cracked something. Fix for those dead zones.", choices =>
-                        {
-                            choices.Add("T2_PITCH_Q", "What fix?", "T2_PITCH");
-                        });
-
-                        container.AddNode("T2_PITCH", "Private server. Dedicated box \u2014 bypasses the firmware garbage. Every region lights up, not just the two. Plus I'm adding addiction tracking per customer. *sniffs* The whole picture.", choices =>
-                        {
-                            choices.Add("T2_FEE_Q", "What about the weekly fee?", "T2_FEE");
-                        });
-
-                        container.AddNode("T2_FEE", "*waves hand* \u2014 The grand a week? Yeah, that might drop off once the hardware pays for itself. No promises, but... it's on my list. Probably.", choices =>
-                        {
-                            choices.Add("T2_COST_Q", "What do you need?", "T2_COST");
-                        });
-
-                        container.AddNode("T2_COST", $"${Config.StaticTier2BankCost.Value:N0}, bank transfer. And {Config.StaticTier2MethGrams.Value} grams of meth \u2014 server maintenance runs hot, I need to stay sharp. You've got {methGrams}g on you and ${bankBalance:N0} in the bank.", choices =>
-                        {
-                            choices.Add("BUY_UPGRADE", $"Upgrade to Premium (${Config.StaticTier2BankCost.Value:N0} + {Config.StaticTier2MethGrams.Value}g Meth)", "BUY_UPGRADE_EXIT");
-                            choices.Add("LEAVE", "Not yet.", "LEAVE_EXIT");
-                            choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
-                        });
-
-                        container.AddNode("BUY_UPGRADE_EXIT", "*pupils dilate* \u2014 Private server's spinning. Full coverage, addiction metrics \u2014 you're Premium. You're welcome.");
-                    }
-                    else
-                    {
-                        container.AddNode("ENTRY", $"*jittery* \u2014 Premium's unlocked. ${Config.StaticTier2BankCost.Value:N0} in the bank, {Config.StaticTier2MethGrams.Value} grams of meth. You're not there yet.", choices =>
-                        {
-                            choices.Add("T2_PITCH_SHORT_Q", "What's the upgrade?", "T2_PITCH_SHORT");
-                            choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
-                        });
-
-                        container.AddNode("T2_PITCH_SHORT", "Private server. Nukes the dead zones, full coverage. Fee might drop once it's paid off. *scratches jaw* ...Probably.", choices =>
-                        {
-                            choices.Add("LEAVE", "I'll get it.", "LEAVE_EXIT");
-                        });
-                    }
-
-                    container.AddNode("CANCEL_WARN", "*stops fidgeting* \u2014 You pull the plug, everything goes dark. No refunds. No chargebacks. I don't negotiate with quitters.", choices =>
-                    {
-                        choices.Add("CANCEL_CONFIRM", "Cancel it.", "CANCEL_EXIT");
-                        choices.Add("CANCEL_BACK", "Never mind.", "LEAVE_EXIT");
+                        choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
+                        choices.Add("LEAVE", "Got it.", "LEAVE_EXIT");
                     });
-                    container.AddNode("CANCEL_EXIT", "*shrugs* \u2014 Your funeral. Service is dead. You want back in, it'll cost you. And I'll remember this.");
-                    container.AddNode("LEAVE_EXIT", "*nods, twitches*");
-                }
-                else if (crmTier == 2)
-                {
-                    // ── Tier 2→3 Upgrade: THE TRAP — fee is permanent ──
-                    float bankBalance = Money.GetOnlineBalance();
-                    int methGrams = CountMethInInventory(EQuality.Premium);
-
-                    if (bankBalance >= Config.StaticTier3BankCost.Value && methGrams >= Config.StaticTier3PremiumMethGrams.Value)
-                    {
-                        container.AddNode("ENTRY", "*bouncing on heels* \u2014 Final tier. Enterprise. This is the big one.", choices =>
-                        {
-                            choices.Add("T3_PITCH_Q", "What does it do?", "T3_PITCH");
-                        });
-
-                        container.AddNode("T3_PITCH", "GPS. Every customer, pinned live on your map. You see them walking around. Route to them, hit the desperate ones first. *sniffs* Never miss a sale again.", choices =>
-                        {
-                            choices.Add("T3_REVEAL_Q", "What about dropping the weekly fee?", "T3_REVEAL");
-                        });
-
-                        container.AddNode("T3_REVEAL", "*stops bouncing* ...Yeah. About that. The GPS pings? They're not automated. I'm doing those by hand \u2014 triangulating towers, spoofing cell data. That's labor. My labor.", choices =>
-                        {
-                            choices.Add("T3_TRAP_Q", "So the fee stays?", "T3_TRAP");
-                        });
-
-                        container.AddNode("T3_TRAP", "*dead stare* \u2014 The thousand a week is permanent. Protection money. You're paying for the infrastructure and the guy running it \u2014 *points to self* \u2014 which is me. That's the deal. That was always the deal.", choices =>
-                        {
-                            choices.Add("T3_COST_Q", "Fine. What do you need?", "T3_COST");
-                            choices.Add("T3_SCAM_Q", "That's a scam.", "T3_SCAM");
-                        });
-
-                        container.AddNode("T3_COST", $"${Config.StaticTier3BankCost.Value:N0}, bank transfer. {Config.StaticTier3PremiumMethGrams.Value} grams of premium meth \u2014 not that stepped-on garbage, the real thing. You've got {methGrams}g premium and ${bankBalance:N0} in the bank.", choices =>
-                        {
-                            choices.Add("BUY_UPGRADE", $"Upgrade to Enterprise (${Config.StaticTier3BankCost.Value:N0} + {Config.StaticTier3PremiumMethGrams.Value}g Premium Meth)", "BUY_UPGRADE_EXIT");
-                            choices.Add("LEAVE", "Not yet.", "LEAVE_EXIT");
-                        });
-
-                        container.AddNode("T3_SCAM", "*laughs* \u2014 Scam? You've been running three tiers of my intel and your operation's still standing. Call it whatever helps you sleep. You want GPS tracking or not?", choices =>
-                        {
-                            choices.Add("T3_COST_Q", "Fine. What do you need?", "T3_COST");
-                            choices.Add("LEAVE", "I'm out.", "LEAVE_EXIT");
-                        });
-
-                        container.AddNode("BUY_UPGRADE_EXIT", "Enterprise. Full stack \u2014 GPS, addiction data, every region, every customer. *sniffs* And yeah. The thousand a week stays. Every week. Forever. Welcome aboard.");
-                    }
-                    else
-                    {
-                        container.AddNode("ENTRY", $"*pacing* \u2014 Enterprise. ${Config.StaticTier3BankCost.Value:N0} in the bank. {Config.StaticTier3PremiumMethGrams.Value} grams premium meth. You're short.", choices =>
-                        {
-                            choices.Add("T3_PITCH_SHORT_Q", "Tell me about it.", "T3_PITCH_SHORT");
-                            choices.Add("CANCEL", "Cancel Service", "CANCEL_WARN");
-                        });
-
-                        container.AddNode("T3_PITCH_SHORT", "GPS tracking. Every customer on the map. *pauses* ...But I'll level with you \u2014 the weekly fee? Permanent. Protection money. Non-negotiable. That's the price of the full stack.", choices =>
-                        {
-                            choices.Add("LEAVE", "I'll get the goods.", "LEAVE_EXIT");
-                        });
-                    }
 
                     container.AddNode("CANCEL_WARN", "*stops fidgeting* \u2014 You pull the plug, everything goes dark. No refunds. No chargebacks. I don't negotiate with quitters.", choices =>
                     {
@@ -530,89 +421,6 @@ namespace OverTheCounter.NPCs
             Dialogue.OnChoiceSelected("EARLY_DENY", () =>
             {
                 StaticSaveData.Instance?.OnEarlyVisitSeen();
-            });
-
-            Dialogue.OnChoiceSelected("ACCEPT", () =>
-            {
-                try
-                {
-                    if (NetworkHelper.IsHost)
-                        StaticSaveData.Instance?.OnIntroCompleted();
-                    else
-                        ConfigSyncData.SendQuestAction("STATIC_INTRO_COMPLETED");
-
-                    RefreshDialogue();
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Error(OTCLog.Systems.NPC, $"ACCEPT callback failed: {ex.Message}");
-                }
-            });
-
-            Dialogue.OnChoiceSelected("BUY_INITIAL", () =>
-            {
-                try
-                {
-                    if (Money.GetOnlineBalance() < Config.StaticTier1BankCost.Value || CountWeedInInventory() < Config.StaticTier1WeedGrams.Value)
-                        return;
-
-                    // Local player effects — always execute (it's this player's money/inventory).
-                    Money.CreateOnlineTransaction("OTC License", -Config.StaticTier1BankCost.Value, 1f, "Static Services");
-                    RemoveWeedFromInventory(Config.StaticTier1WeedGrams.Value);
-
-                    if (NetworkHelper.IsHost)
-                        StaticSaveData.Instance?.PurchaseInitial();
-                    else
-                        ConfigSyncData.SendQuestAction("STATIC_PURCHASE_INITIAL");
-
-                    TriggerCocaineConsumption();
-                    RefreshDialogue();
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Error(OTCLog.Systems.NPC, $"BUY_INITIAL callback failed: {ex.Message}");
-                }
-            });
-
-            Dialogue.OnChoiceSelected("BUY_UPGRADE", () =>
-            {
-                try
-                {
-                    int tier = StaticSaveData.Instance?.CrmTier ?? 0;
-
-                    if (tier == 1)
-                    {
-                        if (Money.GetOnlineBalance() < Config.StaticTier2BankCost.Value || CountMethInInventory() < Config.StaticTier2MethGrams.Value)
-                            return;
-
-                        Money.CreateOnlineTransaction("OTC Premium", -Config.StaticTier2BankCost.Value, 1f, "Static Services");
-                        RemoveMethFromInventory(Config.StaticTier2MethGrams.Value);
-                    }
-                    else if (tier == 2)
-                    {
-                        if (Money.GetOnlineBalance() < Config.StaticTier3BankCost.Value || CountMethInInventory(EQuality.Premium) < Config.StaticTier3PremiumMethGrams.Value)
-                            return;
-
-                        Money.CreateOnlineTransaction("OTC Enterprise", -Config.StaticTier3BankCost.Value, 1f, "Static Services");
-                        RemoveMethFromInventory(Config.StaticTier3PremiumMethGrams.Value, EQuality.Premium);
-                    }
-                    else
-                    {
-                        return;
-                    }
-
-                    if (NetworkHelper.IsHost)
-                        StaticSaveData.Instance?.PurchaseUpgrade();
-                    else
-                        ConfigSyncData.SendQuestAction("STATIC_PURCHASE_UPGRADE");
-
-                    TriggerCocaineConsumption();
-                    RefreshDialogue();
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Error(OTCLog.Systems.NPC, $"BUY_UPGRADE callback failed: {ex.Message}");
-                }
             });
 
             Dialogue.OnChoiceSelected("RESTORE_FINAL", () =>
@@ -718,183 +526,6 @@ namespace OverTheCounter.NPCs
             {
                 OTCLog.Warning(OTCLog.Systems.NPC, $"OnCocaineConsumed failed: {ex.Message}");
             }
-        }
-
-        // ── Inventory helpers ──────────────────────────────────────────
-
-        private bool IsPackagedWeed(ScheduleOne.ItemFramework.ItemSlot slot, out int packagingQuantity)
-        {
-            packagingQuantity = 0;
-            if (slot == null || slot.ItemInstance == null || slot.Quantity <= 0)
-                return false;
-
-            try
-            {
-                var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
-                if (productItem == null) return false;
-
-                var packaging = productItem.AppliedPackaging;
-                if (packaging == null || packaging.Quantity <= 0) return false;
-
-                if (productItem.Definition == null) return false;
-                if (productItem.Definition.TryCast<WeedDefinition>() == null) return false;
-
-                packagingQuantity = packaging.Quantity;
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private bool IsPackagedMeth(ScheduleOne.ItemFramework.ItemSlot slot, out int packagingQuantity, EQuality minQuality = EQuality.Trash)
-        {
-            packagingQuantity = 0;
-            if (slot == null || slot.ItemInstance == null || slot.Quantity <= 0)
-                return false;
-
-            try
-            {
-                var productItem = slot.ItemInstance.TryCast<ProductItemInstance>();
-                if (productItem == null) return false;
-
-                var packaging = productItem.AppliedPackaging;
-                if (packaging == null || packaging.Quantity <= 0) return false;
-
-                if (productItem.Definition == null) return false;
-                if (productItem.Definition.TryCast<MethDefinition>() == null) return false;
-                if (productItem.Quality < minQuality) return false;
-
-                packagingQuantity = packaging.Quantity;
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private int CountWeedInInventory()
-        {
-            int totalGrams = 0;
-            try
-            {
-                var playerInv = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerInventory>.Instance;
-                if (playerInv?.hotbarSlots == null) return 0;
-
-                for (int i = 0; i < playerInv.hotbarSlots.Count; i++)
-                {
-                    var slot = playerInv.hotbarSlots[i];
-                    if (!IsPackagedWeed(slot, out int multiplier)) continue;
-                    totalGrams += slot.Quantity * multiplier;
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.NPC, $"CountWeedInInventory failed: {ex.Message}");
-            }
-            return totalGrams;
-        }
-
-        private int CountMethInInventory(EQuality minQuality = EQuality.Trash)
-        {
-            int totalGrams = 0;
-            try
-            {
-                var playerInv = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerInventory>.Instance;
-                if (playerInv?.hotbarSlots == null) return 0;
-
-                for (int i = 0; i < playerInv.hotbarSlots.Count; i++)
-                {
-                    var slot = playerInv.hotbarSlots[i];
-                    if (!IsPackagedMeth(slot, out int multiplier, minQuality)) continue;
-                    totalGrams += slot.Quantity * multiplier;
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.NPC, $"CountMethInInventory failed: {ex.Message}");
-            }
-            return totalGrams;
-        }
-
-        private bool RemoveWeedFromInventory(int grams)
-        {
-            int remaining = grams;
-            try
-            {
-                var playerInv = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerInventory>.Instance;
-                if (playerInv?.hotbarSlots == null) return false;
-
-                for (int i = 0; i < playerInv.hotbarSlots.Count && remaining > 0; i++)
-                {
-                    var slot = playerInv.hotbarSlots[i];
-                    if (!IsPackagedWeed(slot, out int multiplier)) continue;
-
-                    int slotGrams = slot.Quantity * multiplier;
-
-                    if (slotGrams <= remaining)
-                    {
-                        remaining -= slotGrams;
-                        slot.ClearStoredInstance();
-                    }
-                    else
-                    {
-                        int stacksToRemove = remaining / multiplier;
-                        if (remaining % multiplier != 0)
-                            stacksToRemove++;
-
-                        slot.ChangeQuantity(-stacksToRemove);
-                        remaining = 0;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.NPC, $"RemoveWeedFromInventory failed: {ex.Message}");
-                return false;
-            }
-            return remaining <= 0;
-        }
-
-        private bool RemoveMethFromInventory(int grams, EQuality minQuality = EQuality.Trash)
-        {
-            int remaining = grams;
-            try
-            {
-                var playerInv = PlayerSingleton<ScheduleOne.PlayerScripts.PlayerInventory>.Instance;
-                if (playerInv?.hotbarSlots == null) return false;
-
-                for (int i = 0; i < playerInv.hotbarSlots.Count && remaining > 0; i++)
-                {
-                    var slot = playerInv.hotbarSlots[i];
-                    if (!IsPackagedMeth(slot, out int multiplier, minQuality)) continue;
-
-                    int slotGrams = slot.Quantity * multiplier;
-
-                    if (slotGrams <= remaining)
-                    {
-                        remaining -= slotGrams;
-                        slot.ClearStoredInstance();
-                    }
-                    else
-                    {
-                        int stacksToRemove = remaining / multiplier;
-                        if (remaining % multiplier != 0)
-                            stacksToRemove++;
-
-                        slot.ChangeQuantity(-stacksToRemove);
-                        remaining = 0;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.NPC, $"RemoveMethFromInventory failed: {ex.Message}");
-                return false;
-            }
-            return remaining <= 0;
         }
 
         protected override void OnDestroyed()

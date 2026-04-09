@@ -6,7 +6,6 @@ using S1API.Saveables;
 using S1API.Utils;
 using System;
 using System.IO;
-using System.Reflection;
 using UnityEngine;
 
 namespace OverTheCounter.Quests
@@ -16,8 +15,9 @@ namespace OverTheCounter.Quests
         protected override string Title => "Executive Privilege";
         protected override string Description => "Someone at the Fixer's mentioned a contact who can help with warehouse access.";
         protected override bool AutoBegin => false;
-        protected override Sprite QuestIcon => ImageUtils.LoadImage(
-            Path.Combine(MelonEnvironment.UserDataDirectory, "S1API", "Icons", "ExecutivePrivilege.png"));
+        protected override Sprite QuestIcon => Core.OtcIconDir != null
+            ? ImageUtils.LoadImage(Path.Combine(Core.OtcIconDir, "ExecutivePrivilege.png"))
+            : null;
 
         [SaveableField("bella_quest_stage")]
         private int _stage; // 0=not started, 1=visit Bella, 2=bring weed, 3=bring meth, 4=bring coke, 5=done
@@ -34,30 +34,10 @@ namespace OverTheCounter.Quests
 
         private static readonly Vector3 BellaBuilding = new Vector3(74.1f, 1.0f, 57.2f);
 
-        private void TriggerInternalInit()
-        {
-            try
-            {
-                var s1QuestField = typeof(Quest).GetField("S1Quest", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                if (s1QuestField == null) return;
-
-                var s1Quest = s1QuestField.GetValue(this) as ScheduleOne.Quests.Quest;
-                if (s1Quest == null) return;
-
-                s1Quest.InitializeQuest(Title, Description, Array.Empty<ScheduleOne.Persistence.Datas.QuestEntryData>(), s1Quest.StaticGUID);
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Quest, $"TriggerInternalInit failed: {ex.Message}");
-            }
-        }
-
         public void Initialize()
         {
             try
             {
-                TriggerInternalInit();
-
                 _visitEntry = AddEntry("Visit Bella at the downtown apartment", BellaBuilding);
                 _weedEntry = AddEntry(GetWeedText(), BellaBuilding);
                 _methEntry = AddEntry(GetMethText(), BellaBuilding);

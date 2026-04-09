@@ -47,7 +47,6 @@ namespace OverTheCounter
 
         public static ConfigEntry<float> SaasWeeklyCost;
         public static ConfigEntry<int> SaasCycleDays;
-        public static ConfigEntry<float> AtmDepositTrigger;
         public static ConfigEntry<float> StaticTier1BankCost;
         public static ConfigEntry<int> StaticTier1WeedGrams;
         public static ConfigEntry<float> StaticTier2BankCost;
@@ -57,10 +56,18 @@ namespace OverTheCounter
 
         // ── World ──
         private static MelonPreferences_Category _world;
+        public static ConfigEntry<float> ShackPurchasePrice;
+        public static ConfigEntry<float> WarehousePurchasePrice;
+        public static ConfigEntry<float> DispensaryPurchasePrice;
 
         public static ConfigEntry<int> StackSizeMultiplier;
         public static ConfigEntry<bool> GraffitiReEdit;
         public static ConfigEntry<bool> RecipePinEnabled;
+        public static ConfigEntry<int> ShackDailyCustomerCap;
+
+        // ── Walk-In Customers ──
+        public static ConfigEntry<bool> PreserveVanillaDeals;
+        public static ConfigEntry<float> WalkInMirrorRate;
 
         // ── Desperation System ──
         private static MelonPreferences_Category _desperation;
@@ -103,6 +110,7 @@ namespace OverTheCounter
         public static ConfigEntry<bool> QuestVerboseLogging;
         public static ConfigEntry<bool> NotificationVerboseLogging;
         public static ConfigEntry<bool> PatchVerboseLogging;
+        public static ConfigEntry<bool> ProfilingEnabled;
 
         // ── Minimap ──
         private static MelonPreferences_Category _minimap;
@@ -122,9 +130,17 @@ namespace OverTheCounter
         public static ConfigEntry<bool> MinimapShowTime;
         public static ConfigEntry<bool> MinimapShowDay;
         public static ConfigEntry<bool> MinimapUse24HourClock;
-        public static ConfigEntry<bool> MinimapShowRank;
         public static ConfigEntry<bool> MinimapShowCompass;
         public static ConfigEntry<bool> MinimapShowEdgeIndicators;
+        public static ConfigEntry<bool> MinimapPerfLimit;
+
+        // ── HUD Overlay ──
+        private static MelonPreferences_Category _hud;
+
+        public static ConfigEntry<bool> HUDShowRankXP;
+        public static ConfigEntry<bool> HUDShowHealth;
+        public static ConfigEntry<bool> HUDShowStamina;
+        public static ConfigEntry<bool> StoreAlertEnabled;
 
         // ── Minimap POIs ──
         private static MelonPreferences_Category _minimapPoi;
@@ -158,6 +174,7 @@ namespace OverTheCounter
             "QuestVerboseLogging",
             "NotificationVerboseLogging",
             "PatchVerboseLogging",
+            "ProfilingEnabled",
             "VerboseLogging",
             "MinimapEnabled",
             "MinimapSize",
@@ -181,9 +198,13 @@ namespace OverTheCounter
             "MinimapShowProperties",
             "MinimapShowManagers",
             "MinimapShowModdedNPCs",
-            "MinimapShowRank",
             "MinimapShowCompass",
             "MinimapShowEdgeIndicators",
+            "MinimapPerfLimit",
+            "HUDShowRankXP",
+            "HUDShowHealth",
+            "HUDShowStamina",
+            "StoreAlertEnabled",
             "RecipePinEnabled"
         };
 
@@ -242,11 +263,9 @@ namespace OverTheCounter
                 "Bank balance deducted each billing cycle"));
             SaasCycleDays = Register(_subscription.CreateEntry("SaasCycleDays", 7, "Cycle Days",
                 "Number of days between subscription payments"));
-            AtmDepositTrigger = Register(_subscription.CreateEntry("AtmDepositTrigger", 5000f, "ATM Deposit Trigger",
-                "Weekly ATM deposit sum that triggers Static's intro quest"));
-            StaticTier1BankCost = Register(_subscription.CreateEntry("StaticTier1BankCost", 1500f, "Tier 1 Bank Cost",
+            StaticTier1BankCost = Register(_subscription.CreateEntry("StaticTier1BankCost", 3000f, "Tier 1 Bank Cost",
                 "Bank transfer cost for the initial software package"));
-            StaticTier1WeedGrams = Register(_subscription.CreateEntry("StaticTier1WeedGrams", 12, "Tier 1 Weed Grams",
+            StaticTier1WeedGrams = Register(_subscription.CreateEntry("StaticTier1WeedGrams", 20, "Tier 1 Weed Grams",
                 "Grams of weed required for the initial package"));
             StaticTier2BankCost = Register(_subscription.CreateEntry("StaticTier2BankCost", 6000f, "Tier 2 Bank Cost",
                 "Bank transfer cost for the Premium upgrade"));
@@ -256,9 +275,15 @@ namespace OverTheCounter
                 "Bank transfer cost for the Enterprise upgrade"));
             StaticTier3PremiumMethGrams = Register(_subscription.CreateEntry("StaticTier3PremiumMethGrams", 10, "Tier 3 Premium Meth Grams",
                 "Grams of premium meth required for Enterprise upgrade"));
-
             // ── World ──
             _world = MelonPreferences.CreateCategory("OverTheCounter_World", "World");
+
+            ShackPurchasePrice = Register(_world.CreateEntry("ShackPurchasePrice", 5000f, "Shack Purchase Price",
+                "Bank transfer cost for the Westville Shack property"));
+            WarehousePurchasePrice = Register(_world.CreateEntry("WarehousePurchasePrice", 18000f, "Warehouse Purchase Price",
+                "Bank transfer cost for the Warehouse property"));
+            DispensaryPurchasePrice = Register(_world.CreateEntry("DispensaryPurchasePrice", 30000f, "Dispensary Purchase Price",
+                "Bank transfer cost for the Big Dispensary property"));
 
             StackSizeMultiplier = Register(_world.CreateEntry("StackSizeMultiplier", 1,
                 "Stack Size Multiplier",
@@ -277,6 +302,23 @@ namespace OverTheCounter
                 "Recipe Pin",
                 "Show a Pin Recipe button in the Product Manager app. " +
                 "Pins a draggable overlay showing the full mixing chain for a product."));
+
+            ShackDailyCustomerCap = Register(_world.CreateEntry("ShackDailyCustomerCap", 12, "Shack Daily Customer Cap",
+                "Maximum customers redirected to the Westville Shack per day"));
+
+            PreserveVanillaDeals = Register(_world.CreateEntry("PreserveVanillaDeals", false,
+                "Preserve Vanilla Deals",
+                "When enabled, vanilla NPCs keep their normal deal behavior instead of being " +
+                "redirected to the dispensary. Each redirected deal has a chance (set by Mirror " +
+                "Spawn Rate) to also spawn a random walk-in customer. Off by default because " +
+                "keeping both vanilla deals AND dispensary sales effectively doubles income."));
+            WalkInMirrorRate = Register(_world.CreateEntry("WalkInMirrorRate", 0.4f,
+                "Mirror Spawn Rate",
+                "Only used when Preserve Vanilla Deals is enabled. Chance (0-1) that each " +
+                "vanilla deal that would have been redirected also spawns a random store " +
+                "customer. Has no effect when Preserve Vanilla Deals is off. " +
+                "0.4 = 40% of deals spawn one. 1.0 = every deal spawns one.",
+                validator: new ValueRange<float>(0f, 1f)));
 
             // ── Desperation System ──
             _desperation = MelonPreferences.CreateCategory("OverTheCounter", "Desperation System");
@@ -349,6 +391,8 @@ namespace OverTheCounter
                 "Enable detailed notification system logging"));
             PatchVerboseLogging = Register(_debug.CreateEntry("PatchVerboseLogging", false, "Verbose: Patch",
                 "Enable detailed Harmony patch logging"));
+            ProfilingEnabled = Register(_debug.CreateEntry("ProfilingEnabled", false, "Performance Profiling",
+                "Write periodic performance reports to UserData/OTC_PerfReport.txt"));
 
             // ── Minimap POIs ──
             _minimapPoi = MelonPreferences.CreateCategory("OverTheCounter_MinimapPOI", "Minimap POIs");
@@ -396,7 +440,7 @@ namespace OverTheCounter
                 "Vertical Offset", "Vertical position (0=top, 100=bottom)",
                 validator: new ValueRange<int>(0, 100)));
             MinimapInfoOnTop = Register(_minimap.CreateEntry("MinimapInfoOnTop", false,
-                "Info Panels On Top", "Place time/day and rank bar above the minimap instead of below"));
+                "Info Panels On Top", "Place clock and day display above the minimap instead of below"));
             MinimapBorderColor = _minimap.CreateEntry("MinimapBorderColor",
                 new Color(0.2f, 0.2f, 0.2f, 0.9f), "Border Color",
                 "Minimap border color");
@@ -408,12 +452,24 @@ namespace OverTheCounter
                 "Show Day", "Display the current day near the minimap"));
             MinimapUse24HourClock = Register(_minimap.CreateEntry("MinimapUse24HourClock", false,
                 "24-Hour Clock", "Use 24-hour time format instead of 12-hour AM/PM"));
-            MinimapShowRank = Register(_minimap.CreateEntry("MinimapShowRank", false,
-                "Show Rank/XP", "Display rank name and XP progress bar near the minimap"));
             MinimapShowCompass = Register(_minimap.CreateEntry("MinimapShowCompass", true,
                 "Show Compass", "Display N/S/E/W cardinal direction labels on the minimap edge"));
             MinimapShowEdgeIndicators = Register(_minimap.CreateEntry("MinimapShowEdgeIndicators", true,
                 "Edge Indicators", "Show POI icons pinned to the minimap edge for off-screen points of interest"));
+            MinimapPerfLimit = Register(_minimap.CreateEntry("MinimapPerfLimit", true,
+                "Performance Limiting", "Adaptively reduce minimap update rate to limit CPU usage"));
+
+            // ── HUD Overlay ──
+            _hud = MelonPreferences.CreateCategory("OverTheCounter_HUD", "HUD Overlay");
+
+            HUDShowRankXP = Register(_hud.CreateEntry("HUDShowRankXP", false,
+                "Show Rank/XP", "Display rank and XP progress bar above the hotbar"));
+            HUDShowHealth = Register(_hud.CreateEntry("HUDShowHealth", false,
+                "Show Health", "Display health bar above the hotbar"));
+            HUDShowStamina = Register(_hud.CreateEntry("HUDShowStamina", false,
+                "Show Stamina", "Display stamina bar above the hotbar"));
+            StoreAlertEnabled = Register(_hud.CreateEntry("StoreAlertEnabled", true,
+                "Show Store Alerts", "Show checkout queue alerts on the right side of the screen"));
         }
 
         private static ConfigEntry<float> Register(MelonPreferences_Entry<float> entry)

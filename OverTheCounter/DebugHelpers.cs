@@ -5,6 +5,7 @@ using S1API.Items;
 using S1API.Money;
 using S1API.Products;
 using OverTheCounter.Logic;
+using OverTheCounter.Logic.Placement;
 using OverTheCounter.Utilities;
 using UnityEngine;
 using System;
@@ -14,8 +15,10 @@ using System.Reflection;
 #if IL2CPP
 using Il2CppInterop.Runtime.Injection;
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.UI;
 #else
 using ScheduleOne.DevUtilities;
+using ScheduleOne.UI;
 #endif
 
 namespace OverTheCounter
@@ -274,6 +277,62 @@ namespace OverTheCounter
 
             GUILayout.Space(8);
 
+            // --- Supplier Stand Positioning ---
+#if !IL2CPP
+            GUILayout.Label("--- Supplier Stands ---");
+            for (int i = 0; i < 4; i++)
+            {
+                int idx = i; // capture for closure
+                if (GUILayout.Button($"Move Supplier Stand {idx + 1}"))
+                {
+                    var stand = OTCSupplierArea.GetStandObject(idx);
+                    if (stand != null)
+                    {
+                        var menu = Singleton<GameplayMenu>.Instance;
+                        if (menu != null && menu.IsOpen)
+                            menu.SetIsOpen(false);
+
+                        var origPos = stand.transform.localPosition;
+                        var origRot = stand.transform.localRotation;
+                        MeshVault.MeshVaultAPI.EnterEditorMode(stand, $"Supplier Stand {idx + 1}",
+                            onConfirm: () => LogSupplierPosition(idx, stand.transform),
+                            onCancel: () =>
+                            {
+                                stand.transform.localPosition = origPos;
+                                stand.transform.localRotation = origRot;
+                            });
+                    }
+                    else
+                        OTCLog.Warning(OTCLog.Systems.Patch, $"Supplier stand {idx} not found");
+                }
+            }
+
+            if (GUILayout.Button("Move Storage Bay"))
+            {
+                var bay = OTCSupplierArea.GetDeliveryBayObject();
+                if (bay != null)
+                {
+                    var menu = Singleton<GameplayMenu>.Instance;
+                    if (menu != null && menu.IsOpen)
+                        menu.SetIsOpen(false);
+
+                    var origPos = bay.transform.localPosition;
+                    var origRot = bay.transform.localRotation;
+                    MeshVault.MeshVaultAPI.EnterEditorMode(bay, "Storage Bay",
+                        onConfirm: () => LogStorageBayPosition(bay.transform),
+                        onCancel: () =>
+                        {
+                            bay.transform.localPosition = origPos;
+                            bay.transform.localRotation = origRot;
+                        });
+                }
+                else
+                    OTCLog.Warning(OTCLog.Systems.Patch, "Storage bay not found");
+            }
+#endif
+
+            GUILayout.Space(8);
+
             // --- Hotspot Editor ---
             GUILayout.Label("--- Hotspot Editor ---");
 
@@ -416,6 +475,24 @@ namespace OverTheCounter
             return value;
         }
 
+        private static void LogSupplierPosition(int index, Transform t)
+        {
+            var lp = t.localPosition;
+            var lr = t.localEulerAngles;
+            string code = $"// Stand {index}: pos=({lp.x:F4}f, {lp.y:F4}f, {lp.z:F4}f) rot=({lr.x:F2}f, {lr.y:F2}f, {lr.z:F2}f)";
+            GUIUtility.systemCopyBuffer = code;
+            OTCLog.Msg(OTCLog.Systems.Patch, $"[SupplierStand] {code}");
+        }
+
+        private static void LogStorageBayPosition(Transform t)
+        {
+            var lp = t.localPosition;
+            var lr = t.localEulerAngles;
+            string code = $"// StorageBay: pos=({lp.x:F4}f, {lp.y:F4}f, {lp.z:F4}f) rot=({lr.x:F2}f, {lr.y:F2}f, {lr.z:F2}f)";
+            GUIUtility.systemCopyBuffer = code;
+            OTCLog.Msg(OTCLog.Systems.Patch, $"[StorageBay] {code}");
+        }
+
         private void ToggleSpeedBoost()
         {
             try
@@ -552,5 +629,6 @@ namespace OverTheCounter
             }
         }
     }
+
 }
 #endif

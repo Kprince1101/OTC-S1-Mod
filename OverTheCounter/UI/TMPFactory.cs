@@ -114,7 +114,7 @@ namespace OverTheCounter.UI
             return (maskGO, btn, tmp);
         }
 
-        private static Sprite GetRoundedSprite()
+        internal static Sprite GetRoundedSprite()
         {
             if (_roundedSprite != null)
                 return _roundedSprite;

@@ -138,7 +138,7 @@ namespace OverTheCounter.Logic
                     DespawnDrifter(evt, drifter);
                 }
                 _activeEvents.Clear();
-                ConfigSyncData.Instance?.PublishDrifterState();
+                ConfigSyncData.MarkDrifterStateDirty();
             }
         }
 
@@ -245,7 +245,7 @@ namespace OverTheCounter.Logic
                     OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Spawned {drifterId}: Type={type}, Hotspot={hotspot.Name}, NetObjId={evt.NetworkObjectId}, Spawn={hotspot.SpawnPosition}, Dest={hotspot.Position}");
 
                     // Sync to clients
-                    ConfigSyncData.Instance?.PublishDrifterState();
+                    ConfigSyncData.MarkDrifterStateDirty();
 
                     // FishNet may assign ObjectId asynchronously. If still 0,
                     // schedule a delayed re-capture + re-publish.
@@ -460,7 +460,7 @@ namespace OverTheCounter.Logic
                             SendIntroText(evt, drifter);
                             evt.TextSent = true;
                             evt.State = DrifterEventState.OfferSent;
-                            ConfigSyncData.Instance?.PublishDrifterState();
+                            ConfigSyncData.MarkDrifterStateDirty();
                         }
                         // Check offer deadline
                         if (currentMinutes >= evt.OfferDeadline)
@@ -567,7 +567,7 @@ namespace OverTheCounter.Logic
                 _activeEvents.Remove(id);
 
             if (toRemove.Count > 0)
-                ConfigSyncData.Instance?.PublishDrifterState();
+                ConfigSyncData.MarkDrifterStateDirty();
         }
 
         private void SendIntroText(DrifterEvent evt, DrifterInstance drifter)
@@ -746,7 +746,7 @@ namespace OverTheCounter.Logic
                 if (drifter != null)
                     drifter.State = DrifterState.Lingering;
 
-                ConfigSyncData.Instance?.PublishDrifterState();
+                ConfigSyncData.MarkDrifterStateDirty();
             }
         }
 
@@ -1082,7 +1082,7 @@ namespace OverTheCounter.Logic
                             evt.State = DrifterEventState.Lingering;
                             if (drifter != null)
                                 drifter.State = DrifterState.Lingering;
-                            ConfigSyncData.Instance?.PublishDrifterState();
+                            ConfigSyncData.MarkDrifterStateDirty();
                         }
 
                         return;
@@ -1706,7 +1706,7 @@ namespace OverTheCounter.Logic
                     {
                         evt.NetworkObjectId = objId;
                         OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Delayed ObjectId capture: {evt.DrifterId} → {objId} (attempt {attempt + 1})");
-                        ConfigSyncData.Instance?.PublishDrifterState();
+                        ConfigSyncData.MarkDrifterStateDirty();
                         yield break;
                     }
                 }
@@ -1863,7 +1863,7 @@ namespace OverTheCounter.Logic
             catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Drifter, $"[Manager] Quest creation failed: {ex.Message}"); }
 
             OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Deal accepted for {drifterId}. Delivery deadline: {Config.DrifterDeliveryDeadlineMin.Value} min");
-            ConfigSyncData.Instance?.PublishDrifterState();
+            ConfigSyncData.MarkDrifterStateDirty();
         }
 
         /// <summary>
@@ -1902,7 +1902,7 @@ namespace OverTheCounter.Logic
             }
 
             OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Deal completed for {drifterId}. Type={evt.Type}");
-            ConfigSyncData.Instance?.PublishDrifterState();
+            ConfigSyncData.MarkDrifterStateDirty();
 
             return evt.Type;
         }

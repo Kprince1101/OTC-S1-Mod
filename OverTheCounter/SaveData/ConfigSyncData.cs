@@ -24,6 +24,11 @@ namespace OverTheCounter.SaveData
         private static int _msgSeq;
         private static int _actionSeq;
 
+        // Dirty flags — set by MarkXxxDirty(), flushed once per frame in FlushDirtyState()
+        private static bool _gameStateDirty;
+        private static bool _drifterStateDirty;
+        private static bool _pricingStateDirty;
+
         public static ConfigSyncData Instance { get; private set; }
 
         // ==================================================================
@@ -32,14 +37,48 @@ namespace OverTheCounter.SaveData
 
         private static bool? _networkLibAvailable;
 
+        // The exact AssemblyVersion OTC was compiled against.
+        // If the installed DLL has a different version, the JIT will throw FileNotFoundException.
+        private static readonly Version RequiredSteamNetworkLibVersion =
+            typeof(ConfigSyncData).Assembly
+                .GetReferencedAssemblies()
+                .FirstOrDefault(r => r.Name != null && r.Name.Contains("SteamNetworkLib"))
+                ?.Version;
+
         /// <summary>
-        /// True when the SteamNetworkLib assembly is loaded. Cached on first access.
-        /// All calls to NetworkSyncBridge are gated behind this check to prevent
-        /// TypeLoadException when the DLL is absent.
+        /// True when SteamNetworkLib is loaded with a compatible version.
+        /// Cached on first access. Gates all NetworkSyncBridge calls.
         /// </summary>
-        internal static bool IsNetworkLibAvailable =>
-            _networkLibAvailable ??= AppDomain.CurrentDomain.GetAssemblies()
-                .Any(a => a.GetName().Name.Contains("SteamNetworkLib"));
+        internal static bool IsNetworkLibAvailable
+        {
+            get
+            {
+                if (_networkLibAvailable.HasValue) return _networkLibAvailable.Value;
+
+                var loaded = AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name != null && a.GetName().Name.Contains("SteamNetworkLib"));
+
+                if (loaded == null)
+                {
+                    _networkLibAvailable = false;
+                    return false;
+                }
+
+                // If version doesn't match what we compiled against, the JIT will throw
+                // FileNotFoundException when our code tries to use SteamNetworkLib types.
+                if (RequiredSteamNetworkLibVersion != null && loaded.GetName().Version != RequiredSteamNetworkLibVersion)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Network,
+                        $"SteamNetworkLib version mismatch: installed={loaded.GetName().Version}, required={RequiredSteamNetworkLibVersion}. " +
+                        "Multiplayer sync disabled. Update SteamNetworkLib to the correct version.");
+                    _networkLibAvailable = false;
+                    return false;
+                }
+
+                _networkLibAvailable = true;
+                return true;
+            }
+        }
 
         // ==================================================================
         // Lifecycle
@@ -54,6 +93,9 @@ namespace OverTheCounter.SaveData
         {
             Instance = this;
             _pendingGameState = null; // Prevent stale state from previous save
+            _gameStateDirty = false;
+            _drifterStateDirty = false;
+            _pricingStateDirty = false;
 
             // The save file payload contains config from the last save. Don't
             // apply it as overrides here — the host's authority is its current
@@ -75,7 +117,8 @@ namespace OverTheCounter.SaveData
             NetworkSyncBridge.PushOnLoaded(
                 Config.SerializeAll(),
                 SerializeGameState(),
-                DrifterManager.Instance?.SerializeDrifterState() ?? "");
+                DrifterManager.Instance?.SerializeDrifterState() ?? "",
+                CustomerManager.Instance?.SerializeCustomerState() ?? "");
             // Manager slots are pushed via WriteInitialManagerSlots() in ProcessMessages,
             // or via PublishManagerState() once managers are restored from save.
         }
@@ -96,13 +139,23 @@ namespace OverTheCounter.SaveData
             {
                 EnsureNetworkReadyImpl();
             }
-            catch (Exception ex) when (ex is TypeLoadException || ex.InnerException is TypeLoadException
-                                       || ex.Message.Contains("type load"))
+            catch (Exception ex) when (IsAssemblyLoadFailure(ex))
             {
                 _networkLibAvailable = false;
-                OTCLog.Warning(OTCLog.Systems.Network, "SteamNetworkLib is loaded but incompatible (wrong branch?) — multiplayer sync disabled.");
+                OTCLog.Warning(OTCLog.Systems.Network, $"SteamNetworkLib incompatible (version mismatch or wrong branch) — multiplayer sync disabled. ({ex.Message})");
             }
         }
+
+        /// <summary>
+        /// Returns true for exceptions caused by failing to load/resolve the SteamNetworkLib
+        /// assembly — covers both wrong-branch TypeLoadExceptions and version-mismatch
+        /// FileNotFoundExceptions (e.g., assembly compiled against 1.2.3.0 but 1.2.2.0 is installed).
+        /// </summary>
+        private static bool IsAssemblyLoadFailure(Exception ex) =>
+            ex is TypeLoadException || ex is System.IO.FileNotFoundException || ex is System.IO.FileLoadException
+            || ex.InnerException is TypeLoadException || ex.InnerException is System.IO.FileNotFoundException
+            || ex.Message.Contains("type load") || ex.Message.Contains("Could not load file or assembly");
+
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void EnsureNetworkReadyImpl() => NetworkSyncBridge.EnsureNetworkReady();
@@ -114,7 +167,15 @@ namespace OverTheCounter.SaveData
         public static void ProcessMessages()
         {
             if (!IsNetworkLibAvailable) return;
-            ProcessMessagesImpl();
+            try
+            {
+                ProcessMessagesImpl();
+            }
+            catch (Exception ex) when (IsAssemblyLoadFailure(ex))
+            {
+                _networkLibAvailable = false;
+                OTCLog.Warning(OTCLog.Systems.Network, $"SteamNetworkLib version mismatch — multiplayer sync disabled. ({ex.Message})");
+            }
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -135,7 +196,7 @@ namespace OverTheCounter.SaveData
         private static void CleanupImpl() => NetworkSyncBridge.Cleanup();
 
         /// <summary>
-        /// Called by host after config changes (e.g. ModsApp Apply postfix).
+        /// Called by host after config changes (see <see cref="OverTheCounter.Config.SubscribeToChanges"/>).
         /// Updates the saveable payload and pushes to SyncVar for connected clients.
         /// </summary>
         public void RefreshFromConfig()
@@ -163,7 +224,6 @@ namespace OverTheCounter.SaveData
             try
             {
                 string statePayload = SerializeGameState();
-                OTCLog.Msg(OTCLog.Systems.Network, $"PublishGameState: payload length={statePayload?.Length ?? 0}");
                 if (IsNetworkLibAvailable)
                     PublishGameStateImpl(statePayload);
             }
@@ -198,6 +258,87 @@ namespace OverTheCounter.SaveData
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void PublishDrifterStateImpl(string payload) => NetworkSyncBridge.PushDrifterState(payload);
+
+        /// <summary>
+        /// Publishes customer state to the dedicated customer SyncVar.
+        /// </summary>
+        public void PublishCustomerState()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                string customerState = CustomerManager.Instance?.SerializeCustomerState() ?? "";
+                if (IsNetworkLibAvailable)
+                    PublishCustomerStateImpl(customerState);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Network, $"PublishCustomerState failed: {ex.Message}");
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PublishCustomerStateImpl(string payload) => NetworkSyncBridge.PushCustomerState(payload);
+
+        /// <summary>
+        /// Publishes pricing state to the dedicated pricing SyncVar.
+        /// </summary>
+        public void PublishPricingState()
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                string pricingState = PricingSaveData.Instance?.Serialize() ?? "";
+                if (IsNetworkLibAvailable)
+                    PublishPricingStateImpl(pricingState);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Network, $"PublishPricingState failed: {ex.Message}");
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PublishPricingStateImpl(string payload) => NetworkSyncBridge.PushPricingState(payload);
+
+        // ==================================================================
+        // Dirty-flag batched publishing
+        // ==================================================================
+
+        /// <summary>Marks game state for publish on next flush (end of frame).</summary>
+        internal static void MarkGameStateDirty() => _gameStateDirty = true;
+
+        /// <summary>Marks drifter state for publish on next flush (end of frame).</summary>
+        internal static void MarkDrifterStateDirty() => _drifterStateDirty = true;
+
+        /// <summary>Marks pricing state for publish on next flush (end of frame).</summary>
+        internal static void MarkPricingStateDirty() => _pricingStateDirty = true;
+
+        /// <summary>
+        /// Flushes all dirty SyncVar channels. Called once per frame from
+        /// Core.OnLateUpdate's NetworkPublish block. Coalesces multiple
+        /// mutations in the same frame into a single SyncVar write per channel.
+        /// </summary>
+        internal static void FlushDirtyState()
+        {
+            if (_gameStateDirty)
+            {
+                _gameStateDirty = false;
+                Instance?.PublishGameState();
+            }
+            if (_drifterStateDirty)
+            {
+                _drifterStateDirty = false;
+                Instance?.PublishDrifterState();
+            }
+            if (_pricingStateDirty)
+            {
+                _pricingStateDirty = false;
+                Instance?.PublishPricingState();
+            }
+        }
 
         /// <summary>
         /// Publishes each active manager to its own SyncVar slot.
@@ -314,6 +455,57 @@ namespace OverTheCounter.SaveData
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void PublishDrifterMessagesImpl(string payload) => NetworkSyncBridge.PushDrifterMessages(payload);
 
+        // Checkout lock sequence counter (prevents SyncVar dedup on repeated lock/unlock)
+        private static int _checkoutSeq;
+
+        /// <summary>
+        /// Publishes checkout lock state and total register balance to clients.
+        /// Format: "seq|lockHolder|customerId|registerBal"
+        /// </summary>
+        public void PublishCheckoutState(string lockHolder, string customerId)
+        {
+            if (!NetworkHelper.IsHost) return;
+
+            try
+            {
+                float registerBal = 0f;
+                foreach (var counter in Logic.Placement.CheckoutCounter.AllCounters)
+                    registerBal += counter.RegisterBalance;
+
+                string payload = $"{++_checkoutSeq}|{lockHolder}|{customerId}|{registerBal.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+                if (IsNetworkLibAvailable)
+                    PublishCheckoutStateImpl(payload);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Network, $"PublishCheckoutState failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>Publishes with empty lock (no checkout active).</summary>
+        public void PublishCheckoutClear()
+        {
+            PublishCheckoutState("", "");
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PublishCheckoutStateImpl(string payload) => NetworkSyncBridge.PushCheckoutState(payload);
+
+        /// <summary>
+        /// Returns the local player's Steam ID as a string, or empty if not available.
+        /// </summary>
+        public static string LocalPlayerId
+        {
+            get
+            {
+                if (!IsNetworkLibAvailable) return "";
+                return GetLocalPlayerIdImpl();
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string GetLocalPlayerIdImpl() => NetworkSyncBridge.GetLocalPlayerId();
+
         /// <summary>
         /// Sends a quest action to the host via ClientSyncVar.
         /// No-ops on the host (host executes state changes directly).
@@ -353,6 +545,12 @@ namespace OverTheCounter.SaveData
         /// </summary>
         internal static string GetSerializedDrifterState() =>
             DrifterManager.Instance?.SerializeDrifterState() ?? "";
+
+        /// <summary>
+        /// Provides serialized customer state for the bridge's initial sync push.
+        /// </summary>
+        internal static string GetSerializedCustomerState() =>
+            CustomerManager.Instance?.SerializeCustomerState() ?? "";
 
         /// <summary>
         /// Clears config overrides on the host during initial lobby sync.
@@ -408,6 +606,66 @@ namespace OverTheCounter.SaveData
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Network, $"HandleDrifterStateChanged failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Client callback: host customer state SyncVar changed.
+        /// </summary>
+        internal static void HandleCustomerStateChanged(string newValue)
+        {
+            try
+            {
+                CustomerManager.Instance?.ApplyHostCustomerState(newValue);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Network, $"HandleCustomerStateChanged failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Client callback: host checkout SyncVar changed.
+        /// Format: "seq|lockHolder|customerId|registerBal"
+        /// </summary>
+        internal static void HandleCheckoutStateChanged(string newValue)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(newValue))
+                {
+                    Logic.CheckoutProcess.OnLockStateChanged("", "");
+                    return;
+                }
+
+                var parts = newValue.Split('|');
+                if (parts.Length < 3) return;
+
+                string lockHolder = parts[1];
+                string customerId = parts[2];
+
+                Logic.CheckoutProcess.OnLockStateChanged(lockHolder, customerId);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Network, $"HandleCheckoutStateChanged failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Client callback: host pricing SyncVar changed — apply to PricingSaveData.
+        /// </summary>
+        internal static void HandlePricingChanged(string newValue)
+        {
+            try
+            {
+                if (PricingSaveData.Instance == null) return;
+                PricingSaveData.Instance.Deserialize(newValue);
+                OTCLog.Msg(OTCLog.Systems.Network, $"Client applied pricing state from SyncVar ({newValue?.Length ?? 0} chars).");
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Network, $"HandlePricingChanged failed: {ex.Message}");
             }
         }
 
@@ -515,13 +773,22 @@ namespace OverTheCounter.SaveData
         {
             switch (action)
             {
-                case "STATIC_ATM_TRIGGERED":
                 case "STATIC_INTRO_COMPLETED":
                 case "STATIC_PURCHASE_INITIAL":
                 case "STATIC_PURCHASE_UPGRADE":
                 case "STATIC_REACTIVATE":
                 case "STATIC_CANCEL":
                     StaticSaveData.Instance?.HandleRemoteAction(action);
+                    break;
+
+                case "PURCHASE_WESTVILLE_SHACK":
+                    PropertySaveData.Instance?.PurchaseProperty(PropertySaveData.ShackId);
+                    break;
+                case "PURCHASE_DISPENSARY":
+                    PropertySaveData.Instance?.PurchaseProperty(PropertySaveData.DispensaryId);
+                    break;
+                case "PURCHASE_WAREHOUSE":
+                    PropertySaveData.Instance?.PurchaseProperty(PropertySaveData.WarehouseId);
                     break;
 
                 case "VIC_QUEST_ACCEPTED":
@@ -566,6 +833,20 @@ namespace OverTheCounter.SaveData
                     {
                         string managerId = action.Substring("MANAGER_FIRE:".Length);
                         ManagerController.Instance?.FireManagerRemote(managerId);
+                    }
+                    else if (action.StartsWith("BUDTENDER_HIRE:"))
+                    {
+                        string idxStr = action.Substring("BUDTENDER_HIRE:".Length);
+                        if (int.TryParse(idxStr, out int idx))
+                        {
+                            var counter = Logic.Placement.CheckoutCounter.GetCounterByIndex(idx);
+                            if (counter != null) Logic.BudtenderController.Hire(counter);
+                        }
+                    }
+                    else if (action.StartsWith("BUDTENDER_FIRE:"))
+                    {
+                        string budtenderId = action.Substring("BUDTENDER_FIRE:".Length);
+                        Logic.BudtenderController.Fire(budtenderId);
                     }
                     else if (action.StartsWith("MANAGER_TRANSFER:"))
                     {
@@ -623,12 +904,137 @@ namespace OverTheCounter.SaveData
                         string playerCode = sep > 0 ? payload.Substring(sep + 1) : "";
                         DrifterManager.Instance?.OnRemoteDealCompleted(drifterId, playerCode);
                     }
+                    else if (action.StartsWith("CHECKOUT_REQUEST:"))
+                    {
+                        // SyncVar fallback (Debug builds / P2P unavailable)
+                        Logic.CheckoutProcess.HandleCheckoutRequest(action.Substring("CHECKOUT_REQUEST:".Length));
+                    }
+                    else if (action.StartsWith("CHECKOUT_DONE:"))
+                    {
+                        Logic.CheckoutProcess.HandleCheckoutDone(action.Substring("CHECKOUT_DONE:".Length));
+                    }
+                    else if (action == "CHECKOUT_ABORT")
+                    {
+                        Logic.CheckoutProcess.HandleCheckoutAbort();
+                    }
+                    else if (action.StartsWith("REGISTER_COLLECT:"))
+                    {
+                        Logic.CheckoutProcess.HandleRegisterCollect(action.Substring("REGISTER_COLLECT:".Length));
+                    }
+                    else if (action.StartsWith("SHACK_LIGHTS:"))
+                    {
+                        bool on = action.Substring("SHACK_LIGHTS:".Length) == "1";
+                        Logic.Placement.WestvilleShack.SetLightsFromSync(on);
+                        MarkGameStateDirty();
+                    }
+                    else if (action.StartsWith("SHACK_STORE:"))
+                    {
+                        bool open = action.Substring("SHACK_STORE:".Length) == "1";
+                        Logic.Placement.WestvilleShack.SetStoreOpen(open);
+                        MarkGameStateDirty();
+                    }
+                    else if (action.StartsWith("DISP_LIGHTS:"))
+                    {
+                        bool on = action.Substring("DISP_LIGHTS:".Length) == "1";
+                        Logic.Placement.Dispensary.SetLightsFromSync(on);
+                        MarkGameStateDirty();
+                    }
+                    else if (action.StartsWith("DISP_STORE:"))
+                    {
+                        bool open = action.Substring("DISP_STORE:".Length) == "1";
+                        Logic.Placement.Dispensary.SetStoreOpen(open);
+                        MarkGameStateDirty();
+                    }
+                    else if (action.StartsWith("WH_LIGHTS:"))
+                    {
+                        bool on = action.Substring("WH_LIGHTS:".Length) == "1";
+                        Logic.Placement.OTCWarehouse.SetLightsFromSync(on);
+                        MarkGameStateDirty();
+                    }
+                    else if (action.StartsWith("STYLE:"))
+                    {
+                        // Format: STYLE:buildingId:type:styleId
+                        var parts = action.Substring("STYLE:".Length).Split(':');
+                        if (parts.Length == 3)
+                            ApplyRemoteStyleChange(parts[0], parts[1], parts[2]);
+                    }
                     else
                     {
                         OTCLog.Warning(OTCLog.Systems.Network, $"Unknown quest action: {action}");
                     }
                     break;
             }
+        }
+
+        /// <summary>
+        /// Host-side handler for client style change requests.
+        /// Applies the style locally and publishes updated game state.
+        /// </summary>
+        private static void ApplyRemoteStyleChange(string buildingId, string styleType, string styleId)
+        {
+            bool isShack = buildingId == PropertySaveData.ShackId;
+            bool isDisp = buildingId == PropertySaveData.DispensaryId;
+            if (!isShack && !isDisp) return;
+
+            switch (styleType)
+            {
+                case "lighting":
+                    var lightStyle = Logic.Placement.LightingStyle.Get(styleId);
+                    if (lightStyle == null) return;
+                    if (isShack) Logic.Placement.WestvilleShack.ApplyLightingStyle(lightStyle);
+                    else Logic.Placement.Dispensary.ApplyLightingStyle(lightStyle);
+                    break;
+                case "ext_wall":
+                    var extWall = Logic.Placement.WallStyle.GetExterior(styleId);
+                    var extMat = S1MAPI.S1.Materials.Find(extWall.MaterialName);
+                    if (extMat == null) return;
+                    if (isShack)
+                    {
+                        Logic.Placement.WestvilleShack.CurrentExteriorWallStyleId = styleId;
+                        Logic.Placement.WestvilleShack.SwapExteriorWallMaterial(extMat);
+                    }
+                    else
+                    {
+                        Logic.Placement.Dispensary.CurrentExteriorWallStyleId = styleId;
+                        Logic.Placement.Dispensary.SwapExteriorWallMaterial(extMat);
+                    }
+                    break;
+                case "int_wall":
+                    var intWall = Logic.Placement.WallStyle.GetInterior(styleId);
+                    var intMat = S1MAPI.S1.Materials.Find(intWall.MaterialName);
+                    if (intMat == null) return;
+                    if (isShack)
+                    {
+                        Logic.Placement.WestvilleShack.CurrentInteriorWallStyleId = styleId;
+                        Logic.Placement.WestvilleShack.SwapInteriorWallMaterial(intMat);
+                    }
+                    else
+                    {
+                        Logic.Placement.Dispensary.CurrentInteriorWallStyleId = styleId;
+                        Logic.Placement.Dispensary.SwapInteriorWallMaterial(intMat);
+                    }
+                    break;
+                case "floor":
+                    var floorStyle = Logic.Placement.FloorStyle.Get(styleId);
+                    var floorMat = S1MAPI.S1.Materials.Find(floorStyle.MaterialName);
+                    if (floorMat == null) return;
+                    if (isShack)
+                    {
+                        Logic.Placement.WestvilleShack.CurrentFloorStyleId = styleId;
+                        Logic.Placement.WestvilleShack.SwapFloorMaterial(floorMat);
+                    }
+                    else
+                    {
+                        Logic.Placement.Dispensary.CurrentFloorStyleId = styleId;
+                        Logic.Placement.Dispensary.SwapFloorMaterial(floorMat);
+                    }
+                    break;
+                default:
+                    OTCLog.Warning(OTCLog.Systems.Network, $"Unknown style type: {styleType}");
+                    return;
+            }
+
+            MarkGameStateDirty();
         }
 
         // ==================================================================
@@ -682,8 +1088,23 @@ namespace OverTheCounter.SaveData
                 parts.Add($"static_tier={StaticSaveData.Instance.CrmTier}");
                 parts.Add($"static_saas={BoolToStr(StaticSaveData.Instance.SaasActive)}");
                 parts.Add($"static_upgrade={BoolToStr(StaticSaveData.Instance.UpgradeAvailable)}");
+                parts.Add($"static_upg_accepted={BoolToStr(StaticSaveData.Instance.UpgradeAccepted)}");
                 parts.Add($"static_next_payment={StaticSaveData.Instance.SaasNextPaymentDay}");
                 parts.Add($"static_day_pass={StaticSaveData.Instance.DayPassCount}");
+                parts.Add($"static_t1_money={BoolToStr(StaticSaveData.Instance.Tier1MoneyPaid)}");
+                parts.Add($"static_t1_product={BoolToStr(StaticSaveData.Instance.Tier1ProductDelivered)}");
+                parts.Add($"static_upg_money={BoolToStr(StaticSaveData.Instance.UpgradeMoneyPaid)}");
+                parts.Add($"static_upg_product={BoolToStr(StaticSaveData.Instance.UpgradeProductDelivered)}");
+                if (!string.IsNullOrEmpty(StaticSaveData.Instance.ThreadOrder))
+                    parts.Add($"static_thread_order={StaticSaveData.Instance.ThreadOrder}");
+            }
+
+            if (PropertySaveData.Instance != null)
+            {
+                parts.Add($"prop_shack_listed={BoolToStr(PropertySaveData.Instance.GetProperty(PropertySaveData.ShackId) != null)}");
+                parts.Add($"prop_shack={BoolToStr(PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.ShackId))}");
+                parts.Add($"prop_dispensary={BoolToStr(PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.DispensaryId))}");
+                parts.Add($"prop_warehouse={BoolToStr(PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.WarehouseId))}");
             }
 
             if (VicSaveData.Instance != null)
@@ -704,7 +1125,66 @@ namespace OverTheCounter.SaveData
             if (!string.IsNullOrEmpty(despIds))
                 parts.Add($"desp_ids={despIds}");
 
+            // Shack switch states
+            parts.Add($"shack_lights={BoolToStr(Logic.Placement.WestvilleShack.AreLightsOn)}");
+            parts.Add($"shack_open={BoolToStr(Logic.Placement.WestvilleShack.IsStoreOpen)}");
+
+            // Shack styles
+            if (!string.IsNullOrEmpty(Logic.Placement.WestvilleShack.CurrentLightingStyleId))
+                parts.Add($"shack_lighting={Logic.Placement.WestvilleShack.CurrentLightingStyleId}");
+            if (!string.IsNullOrEmpty(Logic.Placement.WestvilleShack.CurrentExteriorWallStyleId))
+                parts.Add($"shack_ext_wall={Logic.Placement.WestvilleShack.CurrentExteriorWallStyleId}");
+            if (!string.IsNullOrEmpty(Logic.Placement.WestvilleShack.CurrentInteriorWallStyleId))
+                parts.Add($"shack_int_wall={Logic.Placement.WestvilleShack.CurrentInteriorWallStyleId}");
+            if (!string.IsNullOrEmpty(Logic.Placement.WestvilleShack.CurrentFloorStyleId))
+                parts.Add($"shack_floor={Logic.Placement.WestvilleShack.CurrentFloorStyleId}");
+
+            // Dispensary switch states
+            parts.Add($"disp_lights={BoolToStr(Logic.Placement.Dispensary.AreLightsOn)}");
+            parts.Add($"disp_open={BoolToStr(Logic.Placement.Dispensary.IsStoreOpen)}");
+
+            // Dispensary custom display name
+            var dispName = PropertySaveData.Instance?.DispensaryDisplayName;
+            if (!string.IsNullOrEmpty(dispName) && dispName != "Dispensary" && dispName != "Big Dispensary")
+                parts.Add($"disp_name={dispName}");
+
+            // Dispensary sign colors
+            if (PropertySaveData.Instance != null)
+            {
+                var stc = UnityEngine.ColorUtility.ToHtmlStringRGB(PropertySaveData.Instance.SignTextColor);
+                parts.Add($"disp_stc={stc}");
+                var sbc = UnityEngine.ColorUtility.ToHtmlStringRGB(PropertySaveData.Instance.SignBackColor);
+                parts.Add($"disp_sbc={sbc}");
+            }
+
+            // Warehouse switch states
+            parts.Add($"wh_lights={BoolToStr(Logic.Placement.OTCWarehouse.AreLightsOn)}");
+
+            // Dispensary lighting style
+            if (!string.IsNullOrEmpty(Logic.Placement.Dispensary.CurrentLightingStyleId))
+                parts.Add($"disp_lighting={Logic.Placement.Dispensary.CurrentLightingStyleId}");
+
+            // Dispensary wall/floor styles
+            if (!string.IsNullOrEmpty(Logic.Placement.Dispensary.CurrentExteriorWallStyleId))
+                parts.Add($"disp_ext_wall={Logic.Placement.Dispensary.CurrentExteriorWallStyleId}");
+            if (!string.IsNullOrEmpty(Logic.Placement.Dispensary.CurrentInteriorWallStyleId))
+                parts.Add($"disp_int_wall={Logic.Placement.Dispensary.CurrentInteriorWallStyleId}");
+            if (!string.IsNullOrEmpty(Logic.Placement.Dispensary.CurrentFloorStyleId))
+                parts.Add($"disp_floor={Logic.Placement.Dispensary.CurrentFloorStyleId}");
+
+            // Checkout desk styles (per counter)
+            var counters = Logic.Placement.CheckoutCounter.AllCounters;
+            for (int i = 0; i < counters.Count; i++)
+            {
+                parts.Add($"desk_style_{i}={counters[i].CurrentDeskStyleId}");
+            }
+
             // Manager data is on per-manager SyncVar slots (_mgrSlots) to avoid lobby data truncation.
+
+            // Budtender assignments (tiny payload, max ~50 chars)
+            string btState = Logic.BudtenderController.Serialize();
+            if (!string.IsNullOrEmpty(btState))
+                parts.Add($"budtenders={btState}");
 
             return string.Join("|", parts);
         }
@@ -718,8 +1198,14 @@ namespace OverTheCounter.SaveData
                 int tier = state.TryGetValue("static_tier", out var tierStr) && int.TryParse(tierStr, out var tierVal) ? tierVal : -1;
                 bool? saas = state.TryGetValue("static_saas", out var s) ? StrToBool(s) : (bool?)null;
                 bool? upgrade = state.TryGetValue("static_upgrade", out var u) ? StrToBool(u) : (bool?)null;
+                bool? upgAccepted = state.TryGetValue("static_upg_accepted", out var ua) ? StrToBool(ua) : (bool?)null;
                 int nextPayment = state.TryGetValue("static_next_payment", out var npStr) && int.TryParse(npStr, out var npVal) ? npVal : -1;
                 int dayPass = state.TryGetValue("static_day_pass", out var dpStr) && int.TryParse(dpStr, out var dpVal) ? dpVal : -1;
+
+                bool? t1Money = state.TryGetValue("static_t1_money", out var t1m) ? StrToBool(t1m) : (bool?)null;
+                bool? t1Product = state.TryGetValue("static_t1_product", out var t1p) ? StrToBool(t1p) : (bool?)null;
+                bool? upgMoney = state.TryGetValue("static_upg_money", out var um) ? StrToBool(um) : (bool?)null;
+                bool? upgProduct = state.TryGetValue("static_upg_product", out var up) ? StrToBool(up) : (bool?)null;
 
                 StaticSaveData.Instance.ApplyHostState(
                     questTriggered: triggered,
@@ -728,7 +1214,63 @@ namespace OverTheCounter.SaveData
                     saasActive: saas,
                     upgradeAvailable: upgrade,
                     saasNextPaymentDay: nextPayment,
-                    dayPassCount: dayPass);
+                    dayPassCount: dayPass,
+                    tier1MoneyPaid: t1Money,
+                    tier1ProductDelivered: t1Product,
+                    upgradeAccepted: upgAccepted,
+                    upgradeMoneyPaid: upgMoney,
+                    upgradeProductDelivered: upgProduct);
+            }
+
+            {
+                bool shackListed = state.TryGetValue("prop_shack_listed", out var pl) && StrToBool(pl);
+                bool shackOwned = state.TryGetValue("prop_shack", out var ps) && StrToBool(ps);
+
+                if (shackOwned)
+                    PropertySaveData.Instance?.ApplyHostPropertyState(PropertySaveData.ShackId, true);
+
+                bool dispensaryOwned = state.TryGetValue("prop_dispensary", out var pd) && StrToBool(pd);
+                if (dispensaryOwned)
+                    PropertySaveData.Instance?.ApplyHostPropertyState(PropertySaveData.DispensaryId, true);
+
+                bool warehouseOwned = state.TryGetValue("prop_warehouse", out var pw) && StrToBool(pw);
+                if (warehouseOwned)
+                    PropertySaveData.Instance?.ApplyHostPropertyState(PropertySaveData.WarehouseId, true);
+
+                bool introCompleted = state.TryGetValue("static_intro", out var si) && StrToBool(si);
+                int crmTier = state.TryGetValue("static_tier", out var st) && int.TryParse(st, out var stVal) ? stVal : 0;
+                bool saasActive = state.TryGetValue("static_saas", out var ss) && StrToBool(ss);
+                bool upgradeAvail = state.TryGetValue("static_upgrade", out var su) && StrToBool(su);
+                bool upgAccepted2 = state.TryGetValue("static_upg_accepted", out var rua) && StrToBool(rua);
+
+                bool t1MoneyPaid = state.TryGetValue("static_t1_money", out var rt1m) && StrToBool(rt1m);
+                bool t1ProductDelivered = state.TryGetValue("static_t1_product", out var rt1p) && StrToBool(rt1p);
+                bool upgMoneyPaid = state.TryGetValue("static_upg_money", out var rum) && StrToBool(rum);
+                bool upgProductDelivered = state.TryGetValue("static_upg_product", out var rup) && StrToBool(rup);
+                bool questTriggered2 = state.TryGetValue("static_triggered", out var qt2) && StrToBool(qt2);
+                string threadOrder = state.TryGetValue("static_thread_order", out var toVal) ? toVal : "";
+
+                if (StaticThreadSaveData.Instance != null)
+                {
+                    StaticThreadSaveData.Instance.ReconstructClientThread(
+                        introCompleted: introCompleted,
+                        crmTier: crmTier,
+                        saasActive: saasActive,
+                        upgradeAvailable: upgradeAvail,
+                        shackListed: shackListed,
+                        shackOwned: shackOwned,
+                        questTriggered: questTriggered2,
+                        tier1MoneyPaid: t1MoneyPaid,
+                        tier1ProductDelivered: t1ProductDelivered,
+                        upgradeAccepted: upgAccepted2,
+                        upgradeMoneyPaid: upgMoneyPaid,
+                        upgradeProductDelivered: upgProductDelivered,
+                        threadOrder: threadOrder);
+                }
+                else
+                {
+                    OTCLog.Warning(OTCLog.Systems.Network, "[MsgSync] StaticThreadSaveData.Instance is NULL — cannot reconstruct thread.");
+                }
             }
 
             if (VicSaveData.Instance != null)
@@ -764,7 +1306,166 @@ namespace OverTheCounter.SaveData
             }
             DesperationManager.UpdateClientDesperateIds(despIds);
 
+            // Shack switch states
+            if (state.TryGetValue("shack_lights", out var sl))
+                Logic.Placement.WestvilleShack.SetLightsFromSync(StrToBool(sl));
+            if (state.TryGetValue("shack_open", out var so))
+                Logic.Placement.WestvilleShack.SetStoreOpen(StrToBool(so));
+
+            // Shack styles
+            if (state.TryGetValue("shack_lighting", out var shackLighting)
+                && !string.IsNullOrEmpty(shackLighting)
+                && shackLighting != Logic.Placement.WestvilleShack.CurrentLightingStyleId)
+            {
+                var lightStyle = Logic.Placement.LightingStyle.Get(shackLighting);
+                Logic.Placement.WestvilleShack.ApplyLightingStyle(lightStyle);
+            }
+
+            if (state.TryGetValue("shack_ext_wall", out var shackExtWall)
+                && !string.IsNullOrEmpty(shackExtWall)
+                && shackExtWall != Logic.Placement.WestvilleShack.CurrentExteriorWallStyleId)
+            {
+                var style = Logic.Placement.WallStyle.GetExterior(shackExtWall);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.WestvilleShack.SwapExteriorWallMaterial(mat);
+                    Logic.Placement.WestvilleShack.CurrentExteriorWallStyleId = shackExtWall;
+                }
+            }
+
+            if (state.TryGetValue("shack_int_wall", out var shackIntWall)
+                && !string.IsNullOrEmpty(shackIntWall)
+                && shackIntWall != Logic.Placement.WestvilleShack.CurrentInteriorWallStyleId)
+            {
+                var style = Logic.Placement.WallStyle.GetInterior(shackIntWall);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.WestvilleShack.SwapInteriorWallMaterial(mat);
+                    Logic.Placement.WestvilleShack.CurrentInteriorWallStyleId = shackIntWall;
+                }
+            }
+
+            if (state.TryGetValue("shack_floor", out var shackFloor)
+                && !string.IsNullOrEmpty(shackFloor)
+                && shackFloor != Logic.Placement.WestvilleShack.CurrentFloorStyleId)
+            {
+                var style = Logic.Placement.FloorStyle.Get(shackFloor);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.WestvilleShack.SwapFloorMaterial(mat);
+                    Logic.Placement.WestvilleShack.CurrentFloorStyleId = shackFloor;
+                }
+            }
+
+            // Dispensary switch states
+            if (state.TryGetValue("disp_lights", out var dl))
+                Logic.Placement.Dispensary.SetLightsFromSync(StrToBool(dl));
+            if (state.TryGetValue("disp_open", out var dso))
+                Logic.Placement.Dispensary.SetStoreOpen(StrToBool(dso));
+
+            // Dispensary custom display name
+            if (state.TryGetValue("disp_name", out var syncDispName))
+            {
+                if (PropertySaveData.Instance != null)
+                    PropertySaveData.Instance.DispensaryDisplayName = syncDispName;
+                Logic.Placement.Dispensary.UpdateSignText(syncDispName);
+            }
+
+            // Dispensary sign colors
+            if (state.TryGetValue("disp_stc", out var syncStc) && PropertySaveData.Instance != null)
+            {
+                if (UnityEngine.ColorUtility.TryParseHtmlString("#" + syncStc, out var tc))
+                {
+                    PropertySaveData.Instance.SignTextColor = tc;
+                    Logic.Placement.Dispensary.UpdateSignColors(tc, null);
+                }
+            }
+            if (state.TryGetValue("disp_sbc", out var syncSbc) && PropertySaveData.Instance != null)
+            {
+                if (UnityEngine.ColorUtility.TryParseHtmlString("#" + syncSbc, out var bc))
+                {
+                    PropertySaveData.Instance.SignBackColor = bc;
+                    Logic.Placement.Dispensary.UpdateSignColors(null, bc);
+                }
+            }
+
+            // Warehouse switch states
+            if (state.TryGetValue("wh_lights", out var wl))
+                Logic.Placement.OTCWarehouse.SetLightsFromSync(StrToBool(wl));
+
+            // Dispensary lighting style
+            if (state.TryGetValue("disp_lighting", out var dispLighting)
+                && !string.IsNullOrEmpty(dispLighting)
+                && dispLighting != Logic.Placement.Dispensary.CurrentLightingStyleId)
+            {
+                var lightStyle = Logic.Placement.LightingStyle.Get(dispLighting);
+                Logic.Placement.Dispensary.ApplyLightingStyle(lightStyle);
+            }
+
+            // Dispensary wall/floor styles
+            if (state.TryGetValue("disp_ext_wall", out var extWall)
+                && !string.IsNullOrEmpty(extWall)
+                && extWall != Logic.Placement.Dispensary.CurrentExteriorWallStyleId)
+            {
+                var style = Logic.Placement.WallStyle.GetExterior(extWall);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.Dispensary.SwapExteriorWallMaterial(mat);
+                    Logic.Placement.Dispensary.CurrentExteriorWallStyleId = extWall;
+                }
+            }
+
+            if (state.TryGetValue("disp_int_wall", out var intWall)
+                && !string.IsNullOrEmpty(intWall)
+                && intWall != Logic.Placement.Dispensary.CurrentInteriorWallStyleId)
+            {
+                var style = Logic.Placement.WallStyle.GetInterior(intWall);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.Dispensary.SwapInteriorWallMaterial(mat);
+                    Logic.Placement.Dispensary.CurrentInteriorWallStyleId = intWall;
+                }
+            }
+
+            if (state.TryGetValue("disp_floor", out var floorStyle)
+                && !string.IsNullOrEmpty(floorStyle)
+                && floorStyle != Logic.Placement.Dispensary.CurrentFloorStyleId)
+            {
+                var style = Logic.Placement.FloorStyle.Get(floorStyle);
+                var mat = S1MAPI.S1.Materials.Find(style.MaterialName);
+                if (mat != null)
+                {
+                    Logic.Placement.Dispensary.SwapFloorMaterial(mat);
+                    Logic.Placement.Dispensary.CurrentFloorStyleId = floorStyle;
+                }
+            }
+
+            // Checkout desk styles (per counter)
+            {
+                var deskCounters = Logic.Placement.CheckoutCounter.AllCounters;
+                for (int i = 0; i < deskCounters.Count; i++)
+                {
+                    if (!state.TryGetValue($"desk_style_{i}", out var deskStyle) || string.IsNullOrEmpty(deskStyle))
+                        continue;
+
+                    if (deskCounters[i].CurrentDeskStyleId != deskStyle)
+                    {
+                        var style = Logic.Placement.DeskStyle.Get(deskStyle);
+                        deskCounters[i].SwapDesk(style);
+                    }
+                }
+            }
+
             // Manager data is on per-manager SyncVar slots — handled in HandleManagerSlotChanged.
+
+            // Budtender state (client-side: spawn/despawn to match host)
+            if (state.TryGetValue("budtenders", out var btData))
+                Logic.BudtenderController.Deserialize(btData ?? "");
         }
 
         private static string BoolToStr(bool v) => v ? "1" : "0";
