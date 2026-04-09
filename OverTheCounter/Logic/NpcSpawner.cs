@@ -559,11 +559,10 @@ namespace OverTheCounter.Logic
                 return;
             }
 
+            var state = UnityEngine.Random.state;
+            UnityEngine.Random.InitState(seed);
             try
             {
-                var state = UnityEngine.Random.state;
-                UnityEngine.Random.InitState(seed);
-
                 var settings = npc.Avatar.CurrentSettings;
                 if (settings == null)
                     settings = ScriptableObject.CreateInstance<AvatarSettings>();
@@ -666,11 +665,14 @@ namespace OverTheCounter.Logic
                 }
 
                 npc.Avatar.LoadAvatarSettings(settings);
-                UnityEngine.Random.state = state;
             }
             catch (Exception ex)
             {
-                OTCLog.Warning(OTCLog.Systems.Drifter,$"GenerateRandomAppearance failed for {npc.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"GenerateRandomAppearance failed for {npc.ID}: {ex.Message}");
+            }
+            finally
+            {
+                UnityEngine.Random.state = state;
             }
         }
 
