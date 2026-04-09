@@ -748,15 +748,15 @@ namespace OverTheCounter.SaveData
 
             // ── DEDUP: fix saves corrupted by the counter duplication bug ──
             // Multiple otc_checkout_counter entries accumulate over sessions when both the
-            // vanilla BuildManager and OTC save/restore the same GridItem. Keep only the first
-            // per building and purge the rest from _placedItems so the next save is clean.
-            bool counterSeen = false;
+            // vanilla BuildManager and OTC save/restore the same GridItem. Prune only entries
+            // at the same coordinate — two counters at different positions (e.g. a dispensary
+            // with two checkouts) are valid and must both be preserved.
+            var seenCounterCoords = new HashSet<(float, float)>();
             var dupItems = new List<OtcPlacedItem>();
             foreach (var it in items)
             {
                 if (it.PrefabId != "otc_checkout_counter") continue;
-                if (counterSeen) dupItems.Add(it);
-                else counterSeen = true;
+                if (!seenCounterCoords.Add((it.CoordX, it.CoordZ))) dupItems.Add(it);
             }
             if (dupItems.Count > 0)
             {
@@ -772,6 +772,10 @@ namespace OverTheCounter.SaveData
             // Track items with saved slots for deferred restoration
             var itemsWithSlots = new List<OtcPlacedItem>();
 
+            // Track which existing vanilla-restored counters have been claimed by a save entry,
+            // so two counter entries don't both latch onto the same existing instance.
+            var claimedCounters = new HashSet<Component>();
+
             for (int idx = 0; idx < items.Count; idx++)
             {
                 var item = items[idx];
@@ -784,9 +788,12 @@ namespace OverTheCounter.SaveData
                         // Vanilla saves OTC GridItems via BuildManager and restores them on load.
                         // CreateGridItemPostfix auto-registers them, so if one is already on the
                         // grid we must NOT spawn a second one — just apply the saved desk style.
-                        Component existingGi = FindExistingCounter(buildingRoot);
+                        // Use claimedCounters so each existing instance is only matched once,
+                        // allowing two save entries to map to two distinct existing counters.
+                        Component existingGi = FindUnclaimedCounter(buildingRoot, claimedCounters);
                         if (existingGi != null)
                         {
+                            claimedCounters.Add(existingGi);
                             OTCLog.Msg(OTCLog.Systems.General,
                                 $"RestorePlacedItems: reusing existing counter for '{buildingId}' (skip spawn)");
                             if (!string.IsNullOrEmpty(item.DeskStyleId))
@@ -831,8 +838,14 @@ namespace OverTheCounter.SaveData
             // restore from the (now-deduplicated) _placedItems entry.
             // Host-only: despawn via FishNet so the removal syncs to all clients.
             // Clients receive the despawn automatically; they must not attempt local destroy.
+            int expectedCounterCount = 0;
+            foreach (var it in items)
+                if (it.PrefabId == "otc_checkout_counter") expectedCounterCount++;
+
             if (buildingRoot != null && NetworkHelper.IsHost)
-                DestroyExtraCounters(buildingRoot, buildingId);
+                // Math.Max(1, ...) guards against edge cases (fresh install, migrated save) where
+                // the save has no counter entry yet but vanilla already restored a counter to the grid.
+                DestroyExtraCounters(buildingRoot, buildingId, Math.Max(1, expectedCounterCount));
 
             // Apply saved register balance now that counters are registered
             ApplyRegisterBalance();
@@ -843,10 +856,10 @@ namespace OverTheCounter.SaveData
         }
 
         /// <summary>
-        /// Returns the first otc_checkout_counter GridItem found under the building root,
-        /// or null if none exists. Used to detect vanilla-restored counters before spawning.
+        /// Returns the first otc_checkout_counter GridItem under the building root that hasn't
+        /// already been claimed by a prior save entry, or null if none exists.
         /// </summary>
-        private Component FindExistingCounter(Transform buildingRoot)
+        private Component FindUnclaimedCounter(Transform buildingRoot, HashSet<Component> claimed)
         {
             if (buildingRoot == null) return null;
             var allGridItems = GetAllGridItems(buildingRoot);
@@ -854,31 +867,33 @@ namespace OverTheCounter.SaveData
             foreach (var gi in allGridItems)
             {
                 if (gi == null) continue;
-                if (string.Equals(GetItemId(gi), "otc_checkout_counter", StringComparison.OrdinalIgnoreCase))
-                    return gi;
+                if (!string.Equals(GetItemId(gi), "otc_checkout_counter", StringComparison.OrdinalIgnoreCase)) continue;
+                if (claimed.Contains(gi)) continue;
+                return gi;
             }
             return null;
         }
 
         /// <summary>
-        /// Despawns all but the first otc_checkout_counter GridItem under the building root.
-        /// Handles existing saves that accumulated duplicates over multiple sessions.
-        /// Must be called on the host only — FishNet Despawn syncs the removal to all clients.
+        /// Despawns all but <paramref name="expectedCount"/> otc_checkout_counter GridItems under
+        /// the building root. A dispensary may have two legitimate counters at different coordinates,
+        /// so <paramref name="expectedCount"/> comes from the (deduped) save entry count rather than
+        /// being hardcoded to 1. Must be called on host — FishNet Despawn syncs to all clients.
         /// </summary>
-        private void DestroyExtraCounters(Transform buildingRoot, string buildingId)
+        private void DestroyExtraCounters(Transform buildingRoot, string buildingId, int expectedCount)
         {
             var allGridItems = GetAllGridItems(buildingRoot);
             if (allGridItems == null) return;
 
             int destroyed = 0;
-            bool keeperFound = false;
+            int kept = 0;
             foreach (var gi in allGridItems)
             {
                 if (gi == null) continue;
                 if (!string.Equals(GetItemId(gi), "otc_checkout_counter", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                if (!keeperFound) { keeperFound = true; continue; }
+                if (kept < expectedCount) { kept++; continue; }
 
                 // Extra counter — unregister from OTC, then despawn via FishNet so clients sync.
                 CheckoutCounter.UnregisterInstance(gi.gameObject);
