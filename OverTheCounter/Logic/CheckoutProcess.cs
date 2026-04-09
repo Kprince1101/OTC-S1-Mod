@@ -2778,6 +2778,7 @@ namespace OverTheCounter.Logic
         public static void ResetStatic()
         {
             CleanupP2P();
+            Instance?.Cleanup(); // tear down HUD, visuals, and coroutines before clearing statics
             Instance = null;
             CurrentLockHolder = "";
             _pendingLockType = PendingLockType.None;
