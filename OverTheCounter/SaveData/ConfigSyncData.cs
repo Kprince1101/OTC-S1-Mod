@@ -958,6 +958,13 @@ namespace OverTheCounter.SaveData
                         if (parts.Length == 3)
                             ApplyRemoteStyleChange(parts[0], parts[1], parts[2]);
                     }
+                    else if (action.StartsWith("DESK_STYLE:"))
+                    {
+                        // Format: DESK_STYLE:buildingId:styleId
+                        var parts = action.Substring("DESK_STYLE:".Length).Split(':');
+                        if (parts.Length == 2)
+                            ApplyRemoteDeskStyleChange(parts[0], parts[1]);
+                    }
                     else
                     {
                         OTCLog.Warning(OTCLog.Systems.Network, $"Unknown quest action: {action}");
@@ -1034,6 +1041,19 @@ namespace OverTheCounter.SaveData
                     return;
             }
 
+            MarkGameStateDirty();
+        }
+
+        /// <summary>
+        /// Host-side handler for client desk style change requests.
+        /// Applies the new desk style to all counters in the building and publishes updated game state.
+        /// </summary>
+        private static void ApplyRemoteDeskStyleChange(string buildingId, string styleId)
+        {
+            var style = Logic.Placement.DeskStyle.Get(styleId);
+            if (style == null) return;
+            foreach (var c in Logic.Placement.CheckoutCounter.AllCounters)
+                if (c.BuildingId == buildingId) c.SwapDesk(style);
             MarkGameStateDirty();
         }
 
