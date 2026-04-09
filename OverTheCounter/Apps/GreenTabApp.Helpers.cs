@@ -254,48 +254,54 @@ namespace OverTheCounter.Apps
         private void ApplyBuildingExteriorWall(string styleId)
         {
             var style = WallStyle.GetExterior(styleId);
+            if (style == null) return;
             var mat = Materials.Find(style.MaterialName);
+            if (mat == null) return;
             if (IsShackSelected)
             {
                 WestvilleShack.CurrentExteriorWallStyleId = styleId;
-                if (mat != null) WestvilleShack.SwapExteriorWallMaterial(mat);
+                WestvilleShack.SwapExteriorWallMaterial(mat);
             }
             else
             {
                 Dispensary.CurrentExteriorWallStyleId = styleId;
-                if (mat != null) Dispensary.SwapExteriorWallMaterial(mat);
+                Dispensary.SwapExteriorWallMaterial(mat);
             }
         }
 
         private void ApplyBuildingInteriorWall(string styleId)
         {
             var style = WallStyle.GetInterior(styleId);
+            if (style == null) return;
             var mat = Materials.Find(style.MaterialName);
+            if (mat == null) return;
             if (IsShackSelected)
             {
                 WestvilleShack.CurrentInteriorWallStyleId = styleId;
-                if (mat != null) WestvilleShack.SwapInteriorWallMaterial(mat);
+                WestvilleShack.SwapInteriorWallMaterial(mat);
             }
             else
             {
                 Dispensary.CurrentInteriorWallStyleId = styleId;
-                if (mat != null) Dispensary.SwapInteriorWallMaterial(mat);
+                Dispensary.SwapInteriorWallMaterial(mat);
             }
         }
 
         private void ApplyBuildingFloor(string styleId)
         {
             var newStyle = FloorStyle.Get(styleId);
+            if (newStyle == null) return;
             var mat = Materials.Find(newStyle.MaterialName);
+            if (mat == null) return;
             if (IsShackSelected)
             {
                 WestvilleShack.CurrentFloorStyleId = styleId;
-                if (mat != null) WestvilleShack.SwapFloorMaterial(mat);
+                WestvilleShack.SwapFloorMaterial(mat);
             }
             else
             {
                 Dispensary.CurrentFloorStyleId = styleId;
-                if (mat != null) Dispensary.SwapFloorMaterial(mat);
+                Dispensary.SwapFloorMaterial(mat);
             }
         }
 
