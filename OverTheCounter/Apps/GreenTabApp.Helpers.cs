@@ -168,8 +168,7 @@ namespace OverTheCounter.Apps
                 }
             }
             catch { }
-            _starSprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd");
-            return _starSprite;
+            return Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd");
         }
 
         /// <summary>Returns the color for a quality star based on quality level.</summary>
