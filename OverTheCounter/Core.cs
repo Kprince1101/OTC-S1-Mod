@@ -23,7 +23,7 @@ using Il2CppFishNet.Object;
 using FishNet.Object;
 #endif
 
-[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "2.0.6", "hdlmrell", null)]
+[assembly: MelonInfo(typeof(OverTheCounter.Core), "OverTheCounter", "2.0.7", "hdlmrell", null)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 [assembly: MelonOptionalDependencies("SteamNetworkLib")]
 [assembly: HarmonyDontPatchAll]
@@ -299,6 +299,11 @@ namespace OverTheCounter
                 // Defer grid item spawning until after FishNet is ready
                 // (CreateGridItem calls networkObject.Spawn which requires network initialized)
                 HookLoadComplete();
+
+                // Also call here so multiplayer clients — who never trigger LoadManager.onLoadComplete
+                // because they don't load saves from disk — still see the counter in hardware stores.
+                // _shopItemAdded guard in AddToShop() makes this a no-op if OnGameLoaded fires first.
+                Logic.Placement.CheckoutCounter.AddToShop();
             }
         }
 

@@ -37,14 +37,48 @@ namespace OverTheCounter.SaveData
 
         private static bool? _networkLibAvailable;
 
+        // The exact AssemblyVersion OTC was compiled against.
+        // If the installed DLL has a different version, the JIT will throw FileNotFoundException.
+        private static readonly Version RequiredSteamNetworkLibVersion =
+            typeof(ConfigSyncData).Assembly
+                .GetReferencedAssemblies()
+                .FirstOrDefault(r => r.Name != null && r.Name.Contains("SteamNetworkLib"))
+                ?.Version;
+
         /// <summary>
-        /// True when the SteamNetworkLib assembly is loaded. Cached on first access.
-        /// All calls to NetworkSyncBridge are gated behind this check to prevent
-        /// TypeLoadException when the DLL is absent.
+        /// True when SteamNetworkLib is loaded with a compatible version.
+        /// Cached on first access. Gates all NetworkSyncBridge calls.
         /// </summary>
-        internal static bool IsNetworkLibAvailable =>
-            _networkLibAvailable ??= AppDomain.CurrentDomain.GetAssemblies()
-                .Any(a => a.GetName().Name.Contains("SteamNetworkLib"));
+        internal static bool IsNetworkLibAvailable
+        {
+            get
+            {
+                if (_networkLibAvailable.HasValue) return _networkLibAvailable.Value;
+
+                var loaded = AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name != null && a.GetName().Name.Contains("SteamNetworkLib"));
+
+                if (loaded == null)
+                {
+                    _networkLibAvailable = false;
+                    return false;
+                }
+
+                // If version doesn't match what we compiled against, the JIT will throw
+                // FileNotFoundException when our code tries to use SteamNetworkLib types.
+                if (RequiredSteamNetworkLibVersion != null && loaded.GetName().Version != RequiredSteamNetworkLibVersion)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Network,
+                        $"SteamNetworkLib version mismatch: installed={loaded.GetName().Version}, required={RequiredSteamNetworkLibVersion}. " +
+                        "Multiplayer sync disabled. Update SteamNetworkLib to the correct version.");
+                    _networkLibAvailable = false;
+                    return false;
+                }
+
+                _networkLibAvailable = true;
+                return true;
+            }
+        }
 
         // ==================================================================
         // Lifecycle
@@ -105,13 +139,23 @@ namespace OverTheCounter.SaveData
             {
                 EnsureNetworkReadyImpl();
             }
-            catch (Exception ex) when (ex is TypeLoadException || ex.InnerException is TypeLoadException
-                                       || ex.Message.Contains("type load"))
+            catch (Exception ex) when (IsAssemblyLoadFailure(ex))
             {
                 _networkLibAvailable = false;
-                OTCLog.Warning(OTCLog.Systems.Network, "SteamNetworkLib is loaded but incompatible (wrong branch?) — multiplayer sync disabled.");
+                OTCLog.Warning(OTCLog.Systems.Network, $"SteamNetworkLib incompatible (version mismatch or wrong branch) — multiplayer sync disabled. ({ex.Message})");
             }
         }
+
+        /// <summary>
+        /// Returns true for exceptions caused by failing to load/resolve the SteamNetworkLib
+        /// assembly — covers both wrong-branch TypeLoadExceptions and version-mismatch
+        /// FileNotFoundExceptions (e.g., assembly compiled against 1.2.3.0 but 1.2.2.0 is installed).
+        /// </summary>
+        private static bool IsAssemblyLoadFailure(Exception ex) =>
+            ex is TypeLoadException || ex is System.IO.FileNotFoundException || ex is System.IO.FileLoadException
+            || ex.InnerException is TypeLoadException || ex.InnerException is System.IO.FileNotFoundException
+            || ex.Message.Contains("type load") || ex.Message.Contains("Could not load file or assembly");
+
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void EnsureNetworkReadyImpl() => NetworkSyncBridge.EnsureNetworkReady();
@@ -123,7 +167,15 @@ namespace OverTheCounter.SaveData
         public static void ProcessMessages()
         {
             if (!IsNetworkLibAvailable) return;
-            ProcessMessagesImpl();
+            try
+            {
+                ProcessMessagesImpl();
+            }
+            catch (Exception ex) when (IsAssemblyLoadFailure(ex))
+            {
+                _networkLibAvailable = false;
+                OTCLog.Warning(OTCLog.Systems.Network, $"SteamNetworkLib version mismatch — multiplayer sync disabled. ({ex.Message})");
+            }
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

@@ -49,6 +49,7 @@ namespace OverTheCounter.Logic.Placement
 
         private static BuildableItemDefinition _counterDef;
         private static Sprite _cachedIcon;
+        private static bool _shopItemAdded;
 
         private static readonly string[] HardwareShopNames =
             { "Handy Hank's Hardware", "Dan's Hardware" };
@@ -275,17 +276,27 @@ namespace OverTheCounter.Logic.Placement
         }
 
         /// <summary>
-        /// Adds the checkout counter to both hardware stores.
-        /// Must be called after game load completes (shops aren't available during OnSceneWasInitialized).
+        /// Adds the checkout counter to both hardware stores. Idempotent — safe to call
+        /// multiple times (guarded by _shopItemAdded). Called from both OnSceneWasInitialized
+        /// (handles multiplayer clients who never trigger onLoadComplete) and OnGameLoaded
+        /// (handles the host path and ensures FishNet is ready before spawning grid items).
         /// </summary>
         public static void AddToShop()
         {
-            if (_counterDef == null) return;
+            if (_counterDef == null || _shopItemAdded) return;
 
             try
             {
                 int added = ShopManager.AddToShops(_counterDef, 150f, HardwareShopNames);
-                OTCLog.Msg(OTCLog.Systems.Patch, $"Added checkout counter to {added} hardware store(s)");
+                if (added > 0)
+                {
+                    _shopItemAdded = true;
+                    OTCLog.Msg(OTCLog.Systems.Patch, $"Added checkout counter to {added} hardware store(s)");
+                }
+                else
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch, "AddToShop: no hardware stores found — will retry on OnGameLoaded");
+                }
             }
             catch (Exception ex)
             {
@@ -591,6 +602,7 @@ namespace OverTheCounter.Logic.Placement
             // Must clear _counterDef so Register() re-adds it to the game Registry,
             // which clears "runtime items" on scene transitions.
             _counterDef = null;
+            _shopItemAdded = false;
         }
     }
 }
