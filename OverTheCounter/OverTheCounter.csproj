@@ -415,6 +415,7 @@
 		<Compile Include="Patches\CustomerCheckoutInterceptPatch.cs" />
 		<Compile Include="Patches\DealInterceptPatch.cs" />
 		<Compile Include="Patches\WeatherPatches.cs" />
+		<Compile Include="Patches\CustomerInteriorReleasePatch.cs" />
 	</ItemGroup>
 
 	<!-- Embedded resources -->
