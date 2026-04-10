@@ -1,0 +1,17 @@
+# CodeRabbit configuration.
+#
+# Automatic reviews are disabled so CodeRabbit never races the
+# Inject Jira Context workflow. That workflow injects Jira ticket
+# context into the PR body on opened / synchronize / reopened events,
+# then posts `@coderabbitai review` once the body is ready. This
+# guarantees every review CodeRabbit performs has the latest Jira
+# context available instead of the pre-injection body.
+#
+# If auto_review is ever re-enabled without reworking the workflow,
+# CodeRabbit will review the PR before the Jira block is injected and
+# then refuse to re-review (it dedups by commit SHA), so reviews will
+# silently miss Jira context.
+
+reviews:
+  auto_review:
+    enabled: false

@@ -5,9 +5,14 @@ name: Inject Jira Context for CodeRabbit
 # from the Jira v3 REST API, and prepends it to the PR body inside a collapsible
 # block delimited by <!-- jira-injected --> / <!-- /jira-injected --> sentinels.
 # On subsequent edits the existing block is stripped and replaced with fresh
-# Jira data, so ticket updates flow through to the PR body. GitHub Actions does
-# not retrigger workflows from edits made by the default GITHUB_TOKEN, so there
-# is no infinite-loop risk from our own gh pr edit call.
+# Jira data, so ticket updates flow through to the PR body.
+#
+# CodeRabbit auto-review is disabled via .coderabbit.yaml, so this workflow is
+# the sole trigger for CodeRabbit reviews. After the Jira block is injected
+# (or skipped if there's no OM-XX key), we post `@coderabbitai review` on
+# code-affecting events (opened / synchronize / reopened) so CodeRabbit always
+# sees the final body with Jira context. `edited` events don't ping CodeRabbit
+# because they represent body/title tweaks where the code hasn't changed.
 
 on:
   pull_request:
@@ -148,7 +153,24 @@ jobs:
 
           gh pr edit --repo "$GH_REPO" "$PR_NUMBER" --body-file final_body.txt
 
-          # Re-prompt CodeRabbit so its review runs against the injected body
-          # rather than the pre-injection version it may have already processed.
-          # Only fires when the body actually changed (see cmp guard above).
-          gh pr comment --repo "$GH_REPO" "$PR_NUMBER" --body "@coderabbitai review, Jira context injected from $JIRA_KEY."
+      - name: Trigger CodeRabbit review
+        # CodeRabbit auto-review is disabled in .coderabbit.yaml, so this step
+        # is the sole trigger. We only ping on code-affecting events — `edited`
+        # events are title/body tweaks (including our own injection), not code
+        # changes, and shouldn't queue a new review. This runs regardless of
+        # whether the previous step skipped (no Jira key) or short-circuited
+        # (body already up to date), so PRs without an OM-XX key still get
+        # reviewed and every code push gets a fresh review.
+        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ -n "${JIRA_KEY:-}" ]; then
+            BODY="@coderabbitai review, Jira context injected from $JIRA_KEY."
+          else
+            BODY="@coderabbitai review"
+          fi
+          gh pr comment --repo "$GH_REPO" "$PR_NUMBER" --body "$BODY"
