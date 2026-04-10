@@ -109,6 +109,14 @@ jobs:
             { print }
           ' current_body.txt > original_body.txt
 
+          # Drop leading blank lines from the remainder. Our rebuild emits a
+          # blank line after the "---" separator, so without this the strip +
+          # rebuild cycle would accumulate one extra blank line on every run
+          # (the emitted blank becomes part of the next "original", then a new
+          # blank gets emitted on top of it). That drift made cmp below false-
+          # negative every retrigger, causing endless CodeRabbit pings.
+          sed -i '/./,$!d' original_body.txt
+
           {
             echo "<!-- jira-injected -->"
             echo "### [$JIRA_KEY]($URL) — $SUMMARY"
