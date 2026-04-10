@@ -3,8 +3,11 @@ name: Inject Jira Context for CodeRabbit
 # Fires when a PR is opened or its title/body is edited. Parses an OM-XX ticket
 # key out of the PR title, pulls the issue's summary + rendered description
 # from the Jira v3 REST API, and prepends it to the PR body inside a collapsible
-# block. Re-runs are guarded by an HTML comment marker so editing the injected
-# body doesn't cause an infinite loop.
+# block delimited by <!-- jira-injected --> / <!-- /jira-injected --> sentinels.
+# On subsequent edits the existing block is stripped and replaced with fresh
+# Jira data, so ticket updates flow through to the PR body. GitHub Actions does
+# not retrigger workflows from edits made by the default GITHUB_TOKEN, so there
+# is no infinite-loop risk from our own gh pr edit call.
 
 on:
   pull_request:
@@ -16,8 +19,6 @@ permissions:
 
 jobs:
   inject-jira:
-    # Skip if we've already injected context into this PR body.
-    if: ${{ !contains(github.event.pull_request.body, '<!-- jira-injected -->') }}
     runs-on: ubuntu-latest
     steps:
       - name: Extract Jira key from PR title
@@ -66,7 +67,28 @@ jobs:
           URL="https://$JIRA_DOMAIN/browse/$JIRA_KEY"
 
           # Preserve the author's existing PR body beneath the injected block.
-          gh pr view "$PR_NUMBER" --json body -q '.body' > original_body.txt || true
+          # Explicit --repo avoids gh shelling out to git (no checkout on this runner).
+          # No "|| true": if gh fails, abort instead of clobbering the PR body with
+          # only the Jira block (set -euo pipefail will surface the failure).
+          gh pr view --repo "$GH_REPO" "$PR_NUMBER" --json body -q '.body' > current_body.txt
+
+          # Strip any previously injected block (inclusive of sentinels and the
+          # trailing --- separator) so edits re-inject fresh Jira data instead of
+          # stacking. The awk filter drops everything between the sentinels, plus
+          # the first blank line and --- that follow the closing sentinel.
+          awk '
+            BEGIN { skip = 0; trim = 0 }
+            /<!-- jira-injected -->/ { skip = 1; next }
+            /<!-- \/jira-injected -->/ { skip = 0; trim = 2; next }
+            skip { next }
+            trim > 0 {
+              # Eat the blank line + "---" separator we emit after the block.
+              if (trim == 2 && $0 == "") { trim = 1; next }
+              if (trim == 1 && $0 == "---") { trim = 0; next }
+              trim = 0
+            }
+            { print }
+          ' current_body.txt > original_body.txt
 
           {
             echo "<!-- jira-injected -->"
@@ -79,14 +101,15 @@ jobs:
             echo "$DESCRIPTION"
             echo ""
             echo "</details>"
+            echo "<!-- /jira-injected -->"
             echo ""
             echo "---"
             echo ""
             cat original_body.txt
           } > final_body.txt
 
-          gh pr edit "$PR_NUMBER" --body-file final_body.txt
+          gh pr edit --repo "$GH_REPO" "$PR_NUMBER" --body-file final_body.txt
 
           # Re-prompt CodeRabbit so its review runs against the injected body
           # rather than the pre-injection version it may have already processed.
-          gh pr comment "$PR_NUMBER" --body "@coderabbitai review — Jira context injected from $JIRA_KEY."
+          gh pr comment --repo "$GH_REPO" "$PR_NUMBER" --body "@coderabbitai review, Jira context injected from $JIRA_KEY."
