@@ -340,6 +340,7 @@
 		<Compile Include="SaveData\PricingSaveData.cs" />
 		<Compile Include="SaveData\StaticThreadSaveData.cs" />
 		<Compile Include="NPCs\StaticNPC.cs" />
+		<Compile Include="Quests\QuestHelper.cs" />
 		<Compile Include="Quests\VicIntroQuest.cs" />
 		<Compile Include="Quests\StaticIntroQuest.cs" />
 		<Compile Include="Quests\StaticUpgrade1Quest.cs" />

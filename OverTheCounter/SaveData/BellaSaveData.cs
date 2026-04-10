@@ -25,6 +25,14 @@ namespace OverTheCounter.SaveData
         [SaveableField("bella_night_market_unlocked")]
         private bool _nightMarketUnlocked;
 
+        // Deterministic GUID shared between host and client so the game's
+        // native FishNet quest RPCs route state changes correctly. Backfilled
+        // from the loaded quest on legacy saves that predate this field.
+        [SaveableField("bella_quest_guid")]
+        private string _questGuid = "";
+
+        private const string BellaQuestKey = "bella-protocol";
+
         private bool _questCreated;
         private bool _needsSpawn;
         private bool _needsStatePublish;
@@ -64,6 +72,21 @@ namespace OverTheCounter.SaveData
             if (_stage > 0)
                 _questCreated = true;
 
+            // Backwards compat: legacy saves have no _questGuid stored.
+            // If the game already loaded a BellaProtocolQuest from disk,
+            // adopt its existing (random) GUID so future sync uses the
+            // same value. New saves populate _questGuid on first creation.
+            if (string.IsNullOrEmpty(_questGuid) && BellaProtocolQuest.Instance != null)
+            {
+                var existing = QuestHelper.GetCurrentGuid(BellaProtocolQuest.Instance);
+                if (!string.IsNullOrEmpty(existing))
+                {
+                    _questGuid = existing;
+                    if (NetworkHelper.IsHost)
+                        _needsStatePublish = true;
+                }
+            }
+
             // If quest was in progress when saved, defer Bella respawn
             if (_stage >= 1 && _stage < 5)
                 _needsSpawn = true;
@@ -101,7 +124,7 @@ namespace OverTheCounter.SaveData
             {
                 try
                 {
-                    var quest = (BellaProtocolQuest)QuestManager.CreateQuest<BellaProtocolQuest>();
+                    var quest = QuestHelper.CreateWithGuid<BellaProtocolQuest>(ResolveQuestGuid());
                     if (quest != null) { quest.Initialize(); quest.StartQuest(); created = true; }
                 }
                 catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: quest creation failed: {ex.Message}"); }
@@ -246,15 +269,11 @@ namespace OverTheCounter.SaveData
 
             try
             {
-                var quest = (BellaProtocolQuest)QuestManager.CreateQuest<BellaProtocolQuest>();
+                var quest = QuestHelper.CreateWithGuid<BellaProtocolQuest>(ResolveQuestGuid());
                 if (quest != null)
                 {
                     quest.Initialize();
                     quest.StartQuest();
-                }
-                else
-                {
-                    OTCLog.Error(OTCLog.Systems.NPC, "QuestManager.CreateQuest<BellaProtocolQuest> returned null.");
                 }
             }
             catch (Exception ex)
@@ -262,6 +281,24 @@ namespace OverTheCounter.SaveData
                 OTCLog.Error(OTCLog.Systems.NPC, $"CreateQuest failed: {ex.Message}");
             }
         }
+
+        /// <summary>
+        /// Returns the GUID this quest should use. Populates <see cref="_questGuid"/>
+        /// on first call so subsequent creates (and the sync blob) reuse it.
+        /// Falls back to the deterministic derived GUID when nothing is stored.
+        /// </summary>
+        private string ResolveQuestGuid()
+        {
+            if (string.IsNullOrEmpty(_questGuid))
+                _questGuid = QuestHelper.StableGuid(BellaQuestKey);
+            return _questGuid;
+        }
+
+        /// <summary>
+        /// Accessor for ConfigSyncData to publish the quest GUID in the sync blob.
+        /// Returns empty string until the quest has been created at least once.
+        /// </summary>
+        public string QuestGuid => _questGuid ?? string.Empty;
 
         /// <summary>
         /// Called by BellaNPC dialogue when the player completes the current stage.
@@ -316,10 +353,20 @@ namespace OverTheCounter.SaveData
 
         /// <summary>
         /// Called by ConfigSyncData when the client receives game state from the host.
+        /// <paramref name="hostQuestGuid"/> is the host's Bella quest GUID so the
+        /// client's reconciled quest uses the same GUID and game-native RPCs route.
         /// </summary>
-        public void ApplyHostState(int stage, bool unlocked)
+        public void ApplyHostState(int stage, bool unlocked, string hostQuestGuid = null)
         {
             bool changed = false;
+
+            // Adopt the host's quest GUID if we don't already have one.
+            // Takes precedence over the deterministic fallback so late-joining
+            // clients match whatever the host persisted (legacy random GUIDs
+            // included). Never overwrite a GUID we already committed to — the
+            // quest object may already be registered in GUIDManager with it.
+            if (!string.IsNullOrEmpty(hostQuestGuid) && string.IsNullOrEmpty(_questGuid))
+                _questGuid = hostQuestGuid;
 
             OTCLog.Msg(OTCLog.Systems.NPC, $"ApplyHostState: host stage={stage}, local _stage={_stage}, quest Instance={(BellaProtocolQuest.Instance != null ? $"exists (stage={BellaProtocolQuest.Instance.Stage})" : "null")}");
 

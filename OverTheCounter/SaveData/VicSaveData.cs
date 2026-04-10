@@ -44,6 +44,14 @@ namespace OverTheCounter.SaveData
         [SaveableField("vic_tier2_intro_shown")]
         private bool _tier2IntroShown;
 
+        // Deterministic GUID shared between host and client so the game's
+        // native FishNet quest RPCs route state changes correctly. Backfilled
+        // from the loaded quest on legacy saves that predate this field.
+        [SaveableField("vic_quest_guid")]
+        private string _questGuid = "";
+
+        private const string VicQuestKey = "vic-intro";
+
         // Runtime-only: intro text deferred until Vic spawns.
         private bool _needsIntroText;
 
@@ -110,6 +118,21 @@ namespace OverTheCounter.SaveData
                     _needsStatePublish = true;
             }
 
+            // Backwards compat: legacy saves have no _questGuid stored.
+            // If the game already loaded a VicIntroQuest from disk, adopt its
+            // existing (random) GUID so future sync uses the same value.
+            // New saves populate _questGuid on first creation.
+            if (string.IsNullOrEmpty(_questGuid) && VicIntroQuest.Instance != null)
+            {
+                var existing = QuestHelper.GetCurrentGuid(VicIntroQuest.Instance);
+                if (!string.IsNullOrEmpty(existing))
+                {
+                    _questGuid = existing;
+                    if (NetworkHelper.IsHost)
+                        _needsStatePublish = true;
+                }
+            }
+
             _dialogueStale = true;
             ConfigSyncData.ApplyPendingGameState();
             // ReconcileQuest deferred to Tick safety net — OnLoaded fires before
@@ -134,7 +157,7 @@ namespace OverTheCounter.SaveData
             {
                 try
                 {
-                    var quest = (VicIntroQuest)QuestManager.CreateQuest<VicIntroQuest>();
+                    var quest = QuestHelper.CreateWithGuid<VicIntroQuest>(ResolveQuestGuid());
                     if (quest != null) { quest.Initialize(); quest.StartQuest(); created = true; }
                 }
                 catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: quest creation failed: {ex.Message}"); }
@@ -269,7 +292,7 @@ namespace OverTheCounter.SaveData
             {
                 if (VicIntroQuest.Instance != null) return;
 
-                var quest = (VicIntroQuest)QuestManager.CreateQuest<VicIntroQuest>();
+                var quest = QuestHelper.CreateWithGuid<VicIntroQuest>(ResolveQuestGuid());
                 if (quest != null)
                 {
                     quest.Initialize();
@@ -287,12 +310,41 @@ namespace OverTheCounter.SaveData
         }
 
         /// <summary>
+        /// Returns the GUID this quest should use. Populates <see cref="_questGuid"/>
+        /// on first call so subsequent creates (and the sync blob) reuse it.
+        /// Falls back to the deterministic derived GUID when nothing is stored.
+        /// </summary>
+        private string ResolveQuestGuid()
+        {
+            if (string.IsNullOrEmpty(_questGuid))
+                _questGuid = QuestHelper.StableGuid(VicQuestKey);
+            return _questGuid;
+        }
+
+        /// <summary>
+        /// Accessor for ConfigSyncData to publish the quest GUID in the sync blob.
+        /// Returns empty string until the quest has been created at least once.
+        /// </summary>
+        public string QuestGuid => _questGuid ?? string.Empty;
+
+        /// <summary>
         /// Called by ConfigSyncData when the client receives game state from the host.
         /// Syncs all flags, advances quest objectives, and refreshes dialogue.
+        /// <paramref name="hostQuestGuid"/> is the host's Vic quest GUID so the
+        /// client's reconciled quest uses the same GUID and game-native FishNet
+        /// quest RPCs route correctly.
         /// </summary>
-        public void ApplyHostState(bool hasBeenTexted = false, bool questAccepted = false, bool unlocked = false, int trustLevel = -1)
+        public void ApplyHostState(bool hasBeenTexted = false, bool questAccepted = false, bool unlocked = false, int trustLevel = -1, string hostQuestGuid = null)
         {
             bool changed = false;
+
+            // Adopt the host's quest GUID if we don't already have one.
+            // Takes precedence over the deterministic fallback so late-joining
+            // clients match whatever the host persisted (legacy random GUIDs
+            // included). Never overwrite a GUID we already committed to — the
+            // quest object may already be registered in GUIDManager with it.
+            if (!string.IsNullOrEmpty(hostQuestGuid) && string.IsNullOrEmpty(_questGuid))
+                _questGuid = hostQuestGuid;
 
             // Determine if the intro quest is already fully completed in the
             // incoming state so we can skip quest creation / objective noise.

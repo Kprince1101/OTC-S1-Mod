@@ -65,6 +65,22 @@ namespace OverTheCounter.SaveData
         [SaveableField("static_thread_order")]
         private string _threadOrder = "";
 
+        // Deterministic GUIDs shared between host and client so the game's
+        // native FishNet quest RPCs route state changes correctly.
+        // Backfilled from already-loaded quests on legacy saves.
+        [SaveableField("static_intro_quest_guid")]
+        private string _introQuestGuid = "";
+
+        [SaveableField("static_upgrade1_quest_guid")]
+        private string _upgrade1QuestGuid = "";
+
+        [SaveableField("static_upgrade2_quest_guid")]
+        private string _upgrade2QuestGuid = "";
+
+        private const string StaticIntroKey = "static-intro";
+        private const string StaticUpgrade1Key = "static-upgrade1";
+        private const string StaticUpgrade2Key = "static-upgrade2";
+
         private int _tickCounter;
         private const int TICK_INTERVAL = 300;
         private bool _positionFixed;
@@ -160,6 +176,14 @@ namespace OverTheCounter.SaveData
                 }
             }
 
+            // Backwards compat: legacy saves have no quest GUIDs stored.
+            // Adopt whatever GUID the game already loaded for each quest so
+            // future sync reuses the same value. New saves populate these
+            // on first creation via ResolveXxxQuestGuid().
+            BackfillQuestGuid(ref _introQuestGuid, StaticIntroQuest.Instance);
+            BackfillQuestGuid(ref _upgrade1QuestGuid, StaticUpgrade1Quest.Instance);
+            BackfillQuestGuid(ref _upgrade2QuestGuid, StaticUpgrade2Quest.Instance);
+
             _dialogueStale = true;
 
             ConfigSyncData.ApplyPendingGameState();
@@ -188,7 +212,7 @@ namespace OverTheCounter.SaveData
             {
                 try
                 {
-                    var quest = (StaticIntroQuest)QuestManager.CreateQuest<StaticIntroQuest>();
+                    var quest = QuestHelper.CreateWithGuid<StaticIntroQuest>(ResolveIntroQuestGuid());
                     if (quest != null) { quest.Initialize(); quest.StartQuest(); created = true; }
                 }
                 catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReconcileQuest: intro quest creation failed: {ex.Message}"); }
@@ -353,7 +377,7 @@ namespace OverTheCounter.SaveData
             {
                 if (StaticIntroQuest.Instance != null) return;
 
-                var quest = (StaticIntroQuest)QuestManager.CreateQuest<StaticIntroQuest>();
+                var quest = QuestHelper.CreateWithGuid<StaticIntroQuest>(ResolveIntroQuestGuid());
                 if (quest != null)
                 {
                     quest.Initialize();
@@ -373,6 +397,10 @@ namespace OverTheCounter.SaveData
         /// <summary>
         /// Called by ConfigSyncData when the client receives game state from the host.
         /// Syncs all flags, advances quest objectives, and refreshes dialogue.
+        /// The <c>hostIntroQuestGuid</c>, <c>hostUpgrade1QuestGuid</c>, and
+        /// <c>hostUpgrade2QuestGuid</c> parameters carry the host's persisted
+        /// quest GUIDs so the client's reconciled quests use the same GUIDs and
+        /// game-native FishNet quest RPCs route correctly.
         /// </summary>
         public void ApplyHostState(
             bool questTriggered = false,
@@ -386,9 +414,24 @@ namespace OverTheCounter.SaveData
             bool? tier1ProductDelivered = null,
             bool? upgradeAccepted = null,
             bool? upgradeMoneyPaid = null,
-            bool? upgradeProductDelivered = null)
+            bool? upgradeProductDelivered = null,
+            string hostIntroQuestGuid = null,
+            string hostUpgrade1QuestGuid = null,
+            string hostUpgrade2QuestGuid = null)
         {
             bool changed = false;
+
+            // Adopt host quest GUIDs if we don't already have one. Takes
+            // precedence over the deterministic fallback so late-joining
+            // clients match whatever the host persisted (legacy random GUIDs
+            // included). Never overwrite GUIDs we already committed to — the
+            // quest objects may already be registered in GUIDManager with them.
+            if (!string.IsNullOrEmpty(hostIntroQuestGuid) && string.IsNullOrEmpty(_introQuestGuid))
+                _introQuestGuid = hostIntroQuestGuid;
+            if (!string.IsNullOrEmpty(hostUpgrade1QuestGuid) && string.IsNullOrEmpty(_upgrade1QuestGuid))
+                _upgrade1QuestGuid = hostUpgrade1QuestGuid;
+            if (!string.IsNullOrEmpty(hostUpgrade2QuestGuid) && string.IsNullOrEmpty(_upgrade2QuestGuid))
+                _upgrade2QuestGuid = hostUpgrade2QuestGuid;
 
             // Determine if the intro quest is already fully completed in the
             // incoming state so we can skip quest creation / objective noise.
@@ -1025,7 +1068,7 @@ namespace OverTheCounter.SaveData
                 {
                     if (StaticUpgrade1Quest.Instance != null) return;
 
-                    var quest = (StaticUpgrade1Quest)QuestManager.CreateQuest<StaticUpgrade1Quest>();
+                    var quest = QuestHelper.CreateWithGuid<StaticUpgrade1Quest>(ResolveUpgrade1QuestGuid());
                     if (quest != null)
                     {
                         quest.Initialize();
@@ -1040,7 +1083,7 @@ namespace OverTheCounter.SaveData
                 {
                     if (StaticUpgrade2Quest.Instance != null) return;
 
-                    var quest = (StaticUpgrade2Quest)QuestManager.CreateQuest<StaticUpgrade2Quest>();
+                    var quest = QuestHelper.CreateWithGuid<StaticUpgrade2Quest>(ResolveUpgrade2QuestGuid());
                     if (quest != null)
                     {
                         quest.Initialize();
@@ -1057,6 +1100,54 @@ namespace OverTheCounter.SaveData
                 OTCLog.Error(OTCLog.Systems.NPC, $"CreateUpgradeQuest failed: {ex.Message}");
             }
         }
+
+        private string ResolveIntroQuestGuid()
+        {
+            if (string.IsNullOrEmpty(_introQuestGuid))
+                _introQuestGuid = QuestHelper.StableGuid(StaticIntroKey);
+            return _introQuestGuid;
+        }
+
+        private string ResolveUpgrade1QuestGuid()
+        {
+            if (string.IsNullOrEmpty(_upgrade1QuestGuid))
+                _upgrade1QuestGuid = QuestHelper.StableGuid(StaticUpgrade1Key);
+            return _upgrade1QuestGuid;
+        }
+
+        private string ResolveUpgrade2QuestGuid()
+        {
+            if (string.IsNullOrEmpty(_upgrade2QuestGuid))
+                _upgrade2QuestGuid = QuestHelper.StableGuid(StaticUpgrade2Key);
+            return _upgrade2QuestGuid;
+        }
+
+        /// <summary>
+        /// Populates a GUID field from a legacy-loaded quest instance that
+        /// already has a random StaticGUID assigned by the game. Called from
+        /// OnLoaded so pre-existing saves keep their original GUID rather than
+        /// switching to the deterministic fallback (which would break already
+        /// registered quest objects in GUIDManager).
+        /// </summary>
+        private void BackfillQuestGuid(ref string field, Quest quest)
+        {
+            if (!string.IsNullOrEmpty(field) || quest == null) return;
+            var existing = QuestHelper.GetCurrentGuid(quest);
+            if (string.IsNullOrEmpty(existing)) return;
+
+            field = existing;
+            if (NetworkHelper.IsHost)
+                _needsStatePublish = true;
+        }
+
+        /// <summary>
+        /// Accessors for ConfigSyncData to publish quest GUIDs in the sync
+        /// blob. Return empty strings until the corresponding quest has been
+        /// created at least once (or backfilled from a legacy save).
+        /// </summary>
+        public string IntroQuestGuid => _introQuestGuid ?? string.Empty;
+        public string Upgrade1QuestGuid => _upgrade1QuestGuid ?? string.Empty;
+        public string Upgrade2QuestGuid => _upgrade2QuestGuid ?? string.Empty;
 
         private void SendUpgradeOfferText()
         {
