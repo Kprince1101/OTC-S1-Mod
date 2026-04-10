@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using UnityEngine;
 
 namespace OverTheCounter.SaveData
 {
@@ -972,6 +973,22 @@ namespace OverTheCounter.SaveData
                             PropertySaveData.Instance.DispensaryDisplayName = name;
                         Logic.Placement.Dispensary.UpdateSignText(name);
                         MarkGameStateDirty();
+                    }
+                    else if (action.StartsWith("SIGN_COLORS:"))
+                    {
+                        // Format: SIGN_COLORS:textHex:backHex
+                        var parts = action.Substring("SIGN_COLORS:".Length).Split(':');
+                        if (parts.Length == 2 && PropertySaveData.Instance != null)
+                        {
+                            if (ColorUtility.TryParseHtmlString("#" + parts[0], out var tc))
+                                PropertySaveData.Instance.SignTextColor = tc;
+                            if (ColorUtility.TryParseHtmlString("#" + parts[1], out var bc))
+                                PropertySaveData.Instance.SignBackColor = bc;
+                            Logic.Placement.Dispensary.UpdateSignColors(
+                                PropertySaveData.Instance.SignTextColor,
+                                PropertySaveData.Instance.SignBackColor);
+                            MarkGameStateDirty();
+                        }
                     }
                     else
                     {

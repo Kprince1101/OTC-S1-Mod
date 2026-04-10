@@ -1063,13 +1063,25 @@ namespace OverTheCounter.Apps
             {
                 if (psd != null) psd.SignTextColor = color;
                 Dispensary.UpdateSignColors(color, null);
-                ConfigSyncData.MarkGameStateDirty();
+                if (NetworkHelper.IsHost)
+                    ConfigSyncData.MarkGameStateDirty();
+                else
+                {
+                    var backHex = ColorUtility.ToHtmlStringRGB(psd?.SignBackColor ?? Color.white);
+                    ConfigSyncData.SendQuestAction($"SIGN_COLORS:{ColorUtility.ToHtmlStringRGB(color)}:{backHex}");
+                }
             });
             BuildColorRow(wrapper.transform, "Backplate Color", psd?.SignBackColor ?? Color.white, color =>
             {
                 if (psd != null) psd.SignBackColor = color;
                 Dispensary.UpdateSignColors(null, color);
-                ConfigSyncData.MarkGameStateDirty();
+                if (NetworkHelper.IsHost)
+                    ConfigSyncData.MarkGameStateDirty();
+                else
+                {
+                    var textHex = ColorUtility.ToHtmlStringRGB(psd?.SignTextColor ?? Color.white);
+                    ConfigSyncData.SendQuestAction($"SIGN_COLORS:{textHex}:{ColorUtility.ToHtmlStringRGB(color)}");
+                }
             });
         }
 
