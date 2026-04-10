@@ -974,6 +974,12 @@ namespace OverTheCounter.SaveData
                         Logic.Placement.Dispensary.UpdateSignText(name);
                         MarkGameStateDirty();
                     }
+                    else if (action.StartsWith("PRICING_STATE:"))
+                    {
+                        string payload = action.Substring("PRICING_STATE:".Length);
+                        PricingSaveData.Instance?.Deserialize(payload);
+                        MarkPricingStateDirty();
+                    }
                     else if (action.StartsWith("SIGN_COLORS:"))
                     {
                         // Format: SIGN_COLORS:textHex:backHex

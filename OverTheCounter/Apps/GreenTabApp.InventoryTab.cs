@@ -447,7 +447,8 @@ namespace OverTheCounter.Apps
                     if (PricingSaveData.Instance == null) return;
                     PricingSaveData.Instance.AutoPricingEnabled = !PricingSaveData.Instance.AutoPricingEnabled;
                     _lastInventoryFingerprint = int.MinValue; // force rebuild
-                    ConfigSyncData.MarkPricingStateDirty();
+                    if (NetworkHelper.IsHost) ConfigSyncData.MarkPricingStateDirty();
+                    else ConfigSyncData.SendQuestAction($"PRICING_STATE:{PricingSaveData.Instance.Serialize()}");
                     StorefrontGrowthQuest.Instance?.OnPricingTouched();
                     RefreshInventory();
                 }
@@ -500,7 +501,8 @@ namespace OverTheCounter.Apps
                     PricingSaveData.Instance.PricingMultiplier =
                         Mathf.Max(0f, Mathf.Round(raw * 20f) / 20f);
                     _lastInventoryFingerprint = int.MinValue; // force rebuild
-                    ConfigSyncData.MarkPricingStateDirty();
+                    if (NetworkHelper.IsHost) ConfigSyncData.MarkPricingStateDirty();
+                    else ConfigSyncData.SendQuestAction($"PRICING_STATE:{PricingSaveData.Instance.Serialize()}");
                     StorefrontGrowthQuest.Instance?.OnPricingTouched();
                     RefreshInventory();
                 }
@@ -551,7 +553,8 @@ namespace OverTheCounter.Apps
                     PricingSaveData.Instance.PricingMultiplier =
                         Mathf.Min(10f, Mathf.Round(raw * 20f) / 20f);
                     _lastInventoryFingerprint = int.MinValue; // force rebuild
-                    ConfigSyncData.MarkPricingStateDirty();
+                    if (NetworkHelper.IsHost) ConfigSyncData.MarkPricingStateDirty();
+                    else ConfigSyncData.SendQuestAction($"PRICING_STATE:{PricingSaveData.Instance.Serialize()}");
                     StorefrontGrowthQuest.Instance?.OnPricingTouched();
                     RefreshInventory();
                 }
