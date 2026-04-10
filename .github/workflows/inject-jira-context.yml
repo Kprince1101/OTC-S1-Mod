@@ -74,7 +74,13 @@ jobs:
           fi
 
           SUMMARY=$(jq -r '.fields.summary // "(no summary)"' jira.json)
-          DESCRIPTION=$(jq -r '.renderedFields.description // "<em>No description provided.</em>"' jira.json)
+          # Jira returns renderedFields.description as an empty string (not null)
+          # when the ticket has no description, so the `//` fallback alone isn't
+          # enough. Treat empty/whitespace-only as "no description" too.
+          DESCRIPTION=$(jq -r '.renderedFields.description // ""' jira.json)
+          if [ -z "$(echo "$DESCRIPTION" | tr -d '[:space:]')" ]; then
+            DESCRIPTION="<em>No description provided.</em>"
+          fi
           STATUS=$(jq -r '.fields.status.name // "Unknown"' jira.json)
           ISSUE_TYPE=$(jq -r '.fields.issuetype.name // "Issue"' jira.json)
           URL="https://$JIRA_DOMAIN/browse/$JIRA_KEY"
