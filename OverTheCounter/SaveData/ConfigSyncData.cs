@@ -1174,10 +1174,18 @@ namespace OverTheCounter.SaveData
 
             if (PropertySaveData.Instance != null)
             {
+                // Listed == property record exists (Static has offered it in the OTC
+                // message thread). Owned == the player has purchased it. Clients need
+                // both states so the Static message thread shows warehouse/dispensary
+                // listing cards before purchase — without the "_listed" keys below
+                // the client's PropertySaveData has no record for listing-only
+                // properties and ReconcileHostThread hides those threads entirely.
                 parts.Add($"prop_shack_listed={BoolToStr(PropertySaveData.Instance.GetProperty(PropertySaveData.ShackId) != null)}");
                 parts.Add($"prop_shack={BoolToStr(PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.ShackId))}");
-                parts.Add($"prop_dispensary={BoolToStr(PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.DispensaryId))}");
+                parts.Add($"prop_warehouse_listed={BoolToStr(PropertySaveData.Instance.GetProperty(PropertySaveData.WarehouseId) != null)}");
                 parts.Add($"prop_warehouse={BoolToStr(PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.WarehouseId))}");
+                parts.Add($"prop_dispensary_listed={BoolToStr(PropertySaveData.Instance.GetProperty(PropertySaveData.DispensaryId) != null)}");
+                parts.Add($"prop_dispensary={BoolToStr(PropertySaveData.Instance.IsPropertyOwned(PropertySaveData.DispensaryId))}");
             }
 
             if (VicSaveData.Instance != null)
@@ -1287,6 +1295,7 @@ namespace OverTheCounter.SaveData
                 string staticIntroQg = state.TryGetValue("static_intro_qg", out var siqg) ? siqg : null;
                 string staticUpg1Qg = state.TryGetValue("static_upg1_qg", out var su1qg) ? su1qg : null;
                 string staticUpg2Qg = state.TryGetValue("static_upg2_qg", out var su2qg) ? su2qg : null;
+                string staticThreadOrder = state.TryGetValue("static_thread_order", out var sto) ? sto : null;
 
                 StaticSaveData.Instance.ApplyHostState(
                     questTriggered: triggered,
@@ -1303,59 +1312,47 @@ namespace OverTheCounter.SaveData
                     upgradeProductDelivered: upgProduct,
                     hostIntroQuestGuid: staticIntroQg,
                     hostUpgrade1QuestGuid: staticUpg1Qg,
-                    hostUpgrade2QuestGuid: staticUpg2Qg);
+                    hostUpgrade2QuestGuid: staticUpg2Qg,
+                    threadOrder: staticThreadOrder);
             }
 
+            // Apply property listing + ownership state from host. Both flags
+            // matter for the OTC Static message thread: "listed" makes the
+            // listing card appear, "owned" marks it as purchased. Previously
+            // clients only received ownership, so warehouse/dispensary
+            // listing cards were invisible until purchase.
+            if (PropertySaveData.Instance != null)
             {
-                bool shackListed = state.TryGetValue("prop_shack_listed", out var pl) && StrToBool(pl);
-                bool shackOwned = state.TryGetValue("prop_shack", out var ps) && StrToBool(ps);
+                bool shackListed = state.TryGetValue("prop_shack_listed", out var psl) && StrToBool(psl);
+                bool shackOwned = state.TryGetValue("prop_shack", out var pso) && StrToBool(pso);
+                PropertySaveData.Instance.ApplyHostPropertyState(PropertySaveData.ShackId, shackListed, shackOwned);
 
-                if (shackOwned)
-                    PropertySaveData.Instance?.ApplyHostPropertyState(PropertySaveData.ShackId, true);
+                bool warehouseListed = state.TryGetValue("prop_warehouse_listed", out var pwl) && StrToBool(pwl);
+                bool warehouseOwned = state.TryGetValue("prop_warehouse", out var pwo) && StrToBool(pwo);
+                PropertySaveData.Instance.ApplyHostPropertyState(PropertySaveData.WarehouseId, warehouseListed, warehouseOwned);
 
-                bool dispensaryOwned = state.TryGetValue("prop_dispensary", out var pd) && StrToBool(pd);
-                if (dispensaryOwned)
-                    PropertySaveData.Instance?.ApplyHostPropertyState(PropertySaveData.DispensaryId, true);
-
-                bool warehouseOwned = state.TryGetValue("prop_warehouse", out var pw) && StrToBool(pw);
-                if (warehouseOwned)
-                    PropertySaveData.Instance?.ApplyHostPropertyState(PropertySaveData.WarehouseId, true);
-
-                bool introCompleted = state.TryGetValue("static_intro", out var si) && StrToBool(si);
-                int crmTier = state.TryGetValue("static_tier", out var st) && int.TryParse(st, out var stVal) ? stVal : 0;
-                bool saasActive = state.TryGetValue("static_saas", out var ss) && StrToBool(ss);
-                bool upgradeAvail = state.TryGetValue("static_upgrade", out var su) && StrToBool(su);
-                bool upgAccepted2 = state.TryGetValue("static_upg_accepted", out var rua) && StrToBool(rua);
-
-                bool t1MoneyPaid = state.TryGetValue("static_t1_money", out var rt1m) && StrToBool(rt1m);
-                bool t1ProductDelivered = state.TryGetValue("static_t1_product", out var rt1p) && StrToBool(rt1p);
-                bool upgMoneyPaid = state.TryGetValue("static_upg_money", out var rum) && StrToBool(rum);
-                bool upgProductDelivered = state.TryGetValue("static_upg_product", out var rup) && StrToBool(rup);
-                bool questTriggered2 = state.TryGetValue("static_triggered", out var qt2) && StrToBool(qt2);
-                string threadOrder = state.TryGetValue("static_thread_order", out var toVal) ? toVal : "";
-
-                if (StaticThreadSaveData.Instance != null)
-                {
-                    StaticThreadSaveData.Instance.ReconstructClientThread(
-                        introCompleted: introCompleted,
-                        crmTier: crmTier,
-                        saasActive: saasActive,
-                        upgradeAvailable: upgradeAvail,
-                        shackListed: shackListed,
-                        shackOwned: shackOwned,
-                        questTriggered: questTriggered2,
-                        tier1MoneyPaid: t1MoneyPaid,
-                        tier1ProductDelivered: t1ProductDelivered,
-                        upgradeAccepted: upgAccepted2,
-                        upgradeMoneyPaid: upgMoneyPaid,
-                        upgradeProductDelivered: upgProductDelivered,
-                        threadOrder: threadOrder);
-                }
-                else
-                {
-                    OTCLog.Warning(OTCLog.Systems.Network, "[MsgSync] StaticThreadSaveData.Instance is NULL — cannot reconstruct thread.");
-                }
+                bool dispensaryListed = state.TryGetValue("prop_dispensary_listed", out var pdl) && StrToBool(pdl);
+                bool dispensaryOwned = state.TryGetValue("prop_dispensary", out var pdo) && StrToBool(pdo);
+                PropertySaveData.Instance.ApplyHostPropertyState(PropertySaveData.DispensaryId, dispensaryListed, dispensaryOwned);
             }
+
+            // Rebuild the OTC Static message thread from the now-authoritative
+            // local state. This used to call ReconstructClientThread directly
+            // with a long parameter list duplicated from the sync blob, but
+            // the list was missing warehouse/dispensary listed+owned flags so
+            // the client's thread was incomplete. Calling ReconcileHostThread
+            // is safe on clients because StaticSaveData + PropertySaveData
+            // have just been synced above, making it a single authoritative
+            // rebuild path shared with the host.
+            //
+            // When Instance is null we silently skip: on initial lobby join
+            // the SyncVar can fire before StaticThreadSaveData has loaded.
+            // All three relevant Saveables (this one, PropertySaveData,
+            // StaticSaveData) call ApplyPendingGameState in their OnLoaded,
+            // so the state we cached in HandleStateChanged (_pendingGameState)
+            // will be re-applied once the last Saveable is ready and the
+            // reconcile will run successfully then.
+            StaticThreadSaveData.Instance?.ReconcileHostThread();
 
             if (VicSaveData.Instance != null)
             {

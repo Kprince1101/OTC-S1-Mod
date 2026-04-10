@@ -401,6 +401,9 @@ namespace OverTheCounter.SaveData
         /// <c>hostUpgrade2QuestGuid</c> parameters carry the host's persisted
         /// quest GUIDs so the client's reconciled quests use the same GUIDs and
         /// game-native FishNet quest RPCs route correctly.
+        /// The <c>threadOrder</c> parameter carries the host's authoritative
+        /// thread activation order so the client's OTC message thread renders
+        /// sections in the same sequence as the host.
         /// </summary>
         public void ApplyHostState(
             bool questTriggered = false,
@@ -417,7 +420,8 @@ namespace OverTheCounter.SaveData
             bool? upgradeProductDelivered = null,
             string hostIntroQuestGuid = null,
             string hostUpgrade1QuestGuid = null,
-            string hostUpgrade2QuestGuid = null)
+            string hostUpgrade2QuestGuid = null,
+            string threadOrder = null)
         {
             bool changed = false;
 
@@ -533,6 +537,18 @@ namespace OverTheCounter.SaveData
             if (upgradeProductDelivered.HasValue && upgradeProductDelivered.Value != _upgradeProductDelivered)
             {
                 _upgradeProductDelivered = upgradeProductDelivered.Value;
+                changed = true;
+            }
+
+            // Adopt host's thread activation order so client renders the OTC
+            // message thread sections (crm / upgrade / shack / warehouse /
+            // dispensary) in the same sequence as the host. Without this, the
+            // client falls back to ReconcileHostThread's heal branch which
+            // infers order from current state flags and can produce a
+            // different ordering than the host's persisted sequence.
+            if (!string.IsNullOrEmpty(threadOrder) && threadOrder != _threadOrder)
+            {
+                _threadOrder = threadOrder;
                 changed = true;
             }
 

@@ -954,20 +954,33 @@ namespace OverTheCounter.SaveData
         // Multiplayer sync
         // ==================================================================
 
-        /// <summary>Applies property ownership from the host (multiplayer sync).</summary>
-        public void ApplyHostPropertyState(string propertyId, bool owned)
+        /// <summary>
+        /// Applies property listing + ownership state from the host (multiplayer sync).
+        /// A property is "listed" as soon as Static offers it in the OTC message thread
+        /// (record exists in <c>_properties</c>). It becomes "owned" once purchased
+        /// (<see cref="OtcPropertyRecord.IsOwned"/> == true). Clients need both states
+        /// so <see cref="StaticThreadSaveData.ReconcileHostThread"/> can rebuild the
+        /// message thread with the correct listing cards visible — previously the
+        /// client only received the <c>owned</c> flag, so listing-only properties
+        /// (warehouse/dispensary before purchase) were invisible on clients.
+        /// </summary>
+        public void ApplyHostPropertyState(string propertyId, bool listed, bool owned)
         {
-            if (!owned) return;
-            var record = GetOrCreateProperty(propertyId);
-            if (record.IsOwned) return;
-            record.IsOwned = true;
+            if (!listed && !owned) return;
 
-            if (propertyId == ShackId)
-                WestvilleShack.UnlockDoor();
-            else if (propertyId == DispensaryId)
-                Dispensary.UnlockDoor();
-            else if (propertyId == WarehouseId)
-                OTCWarehouse.UnlockDoor();
+            var record = GetOrCreateProperty(propertyId);
+
+            if (owned && !record.IsOwned)
+            {
+                record.IsOwned = true;
+
+                if (propertyId == ShackId)
+                    WestvilleShack.UnlockDoor();
+                else if (propertyId == DispensaryId)
+                    Dispensary.UnlockDoor();
+                else if (propertyId == WarehouseId)
+                    OTCWarehouse.UnlockDoor();
+            }
         }
 
         // ==================================================================
