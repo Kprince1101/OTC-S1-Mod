@@ -968,6 +968,7 @@ namespace OverTheCounter.SaveData
                     }
                     else if (action.StartsWith("DISP_RENAME:"))
                     {
+                        if (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.DispensaryId) != true) break;
                         string name = action.Substring("DISP_RENAME:".Length).Trim();
                         if (string.IsNullOrEmpty(name)) name = "Dispensary";
                         if (name.Length > 20) name = name.Substring(0, 20);
@@ -991,6 +992,7 @@ namespace OverTheCounter.SaveData
                     }
                     else if (action.StartsWith("SIGN_COLORS:"))
                     {
+                        if (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.DispensaryId) != true) break;
                         // Format: SIGN_COLORS:textHex:backHex
                         var parts = action.Substring("SIGN_COLORS:".Length).Split(':');
                         if (parts.Length == 2 && PropertySaveData.Instance != null)
@@ -1090,6 +1092,11 @@ namespace OverTheCounter.SaveData
         /// </summary>
         private static void ApplyRemoteDeskStyleChange(string buildingId, string styleId)
         {
+            bool isShack = buildingId == PropertySaveData.ShackId;
+            bool isDisp = buildingId == PropertySaveData.DispensaryId;
+            if (isShack && PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) != true) return;
+            if (isDisp && PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.DispensaryId) != true) return;
+            if (!isShack && !isDisp) return;
             var style = Logic.Placement.DeskStyle.Get(styleId);
             if (style == null) return;
             foreach (var c in Logic.Placement.CheckoutCounter.AllCounters)
