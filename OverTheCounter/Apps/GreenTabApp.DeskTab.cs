@@ -220,7 +220,10 @@ namespace OverTheCounter.Apps
             }
             OTCLog.Msg(OTCLog.Systems.Patch, $"Swapped {swapped}/{CheckoutCounter.AllCounters.Count} counters to '{newStyle.DisplayName}' (building={_selectedBuildingId})");
 
-            ConfigSyncData.MarkGameStateDirty();
+            if (NetworkHelper.IsHost)
+                ConfigSyncData.MarkGameStateDirty();
+            else
+                ConfigSyncData.SendQuestAction($"DESK_STYLE:{_selectedBuildingId}:{_pendingStyleId}");
 
             OTCLog.Msg(OTCLog.Systems.Patch, $"Desk upgraded to '{newStyle.DisplayName}' for ${cost:F0}");
             RefreshCards();

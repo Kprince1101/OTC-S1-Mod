@@ -177,7 +177,10 @@ namespace OverTheCounter.UI
                 if (PropertySaveData.Instance != null)
                     PropertySaveData.Instance.DispensaryDisplayName = name;
                 Dispensary.UpdateSignText(name);
-                ConfigSyncData.MarkGameStateDirty();
+                if (NetworkHelper.IsHost)
+                    ConfigSyncData.MarkGameStateDirty();
+                else
+                    ConfigSyncData.SendQuestAction($"DISP_RENAME:{name}");
 
                 _onRenamed?.Invoke();
                 Close();

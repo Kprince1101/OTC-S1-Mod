@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using UnityEngine;
 
 namespace OverTheCounter.SaveData
 {
@@ -958,6 +959,54 @@ namespace OverTheCounter.SaveData
                         if (parts.Length == 3)
                             ApplyRemoteStyleChange(parts[0], parts[1], parts[2]);
                     }
+                    else if (action.StartsWith("DESK_STYLE:"))
+                    {
+                        // Format: DESK_STYLE:buildingId:styleId
+                        var parts = action.Substring("DESK_STYLE:".Length).Split(':');
+                        if (parts.Length == 2)
+                            ApplyRemoteDeskStyleChange(parts[0], parts[1]);
+                    }
+                    else if (action.StartsWith("DISP_RENAME:"))
+                    {
+                        if (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.DispensaryId) != true) break;
+                        string name = action.Substring("DISP_RENAME:".Length).Trim();
+                        if (string.IsNullOrEmpty(name)) name = "Dispensary";
+                        if (name.Length > 20) name = name.Substring(0, 20);
+                        name = name.Replace("|", "").Replace("=", ""); // prevent game-state payload corruption
+                        if (PropertySaveData.Instance != null)
+                            PropertySaveData.Instance.DispensaryDisplayName = name;
+                        Logic.Placement.Dispensary.UpdateSignText(name);
+                        MarkGameStateDirty();
+                    }
+                    else if (action.StartsWith("PRICING_STATE:"))
+                    {
+                        string payload = action.Substring("PRICING_STATE:".Length);
+                        if (PricingSaveData.Instance != null)
+                        {
+                            PricingSaveData.Instance.Deserialize(payload);
+                            // Re-assign through the setter to enforce clamping — Deserialize writes the backing
+                            // field directly, which bypasses the Math.Max(0.01f) guard on PricingMultiplier.
+                            PricingSaveData.Instance.PricingMultiplier = PricingSaveData.Instance.PricingMultiplier;
+                        }
+                        MarkPricingStateDirty();
+                    }
+                    else if (action.StartsWith("SIGN_COLORS:"))
+                    {
+                        if (PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.DispensaryId) != true) break;
+                        // Format: SIGN_COLORS:textHex:backHex
+                        var parts = action.Substring("SIGN_COLORS:".Length).Split(':');
+                        if (parts.Length == 2 && PropertySaveData.Instance != null)
+                        {
+                            if (ColorUtility.TryParseHtmlString("#" + parts[0], out var tc))
+                                PropertySaveData.Instance.SignTextColor = tc;
+                            if (ColorUtility.TryParseHtmlString("#" + parts[1], out var bc))
+                                PropertySaveData.Instance.SignBackColor = bc;
+                            Logic.Placement.Dispensary.UpdateSignColors(
+                                PropertySaveData.Instance.SignTextColor,
+                                PropertySaveData.Instance.SignBackColor);
+                            MarkGameStateDirty();
+                        }
+                    }
                     else
                     {
                         OTCLog.Warning(OTCLog.Systems.Network, $"Unknown quest action: {action}");
@@ -1034,6 +1083,24 @@ namespace OverTheCounter.SaveData
                     return;
             }
 
+            MarkGameStateDirty();
+        }
+
+        /// <summary>
+        /// Host-side handler for client desk style change requests.
+        /// Applies the new desk style to all counters in the building and publishes updated game state.
+        /// </summary>
+        private static void ApplyRemoteDeskStyleChange(string buildingId, string styleId)
+        {
+            bool isShack = buildingId == PropertySaveData.ShackId;
+            bool isDisp = buildingId == PropertySaveData.DispensaryId;
+            if (isShack && PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.ShackId) != true) return;
+            if (isDisp && PropertySaveData.Instance?.IsPropertyOwned(PropertySaveData.DispensaryId) != true) return;
+            if (!isShack && !isDisp) return;
+            var style = Logic.Placement.DeskStyle.Get(styleId);
+            if (style == null) return;
+            foreach (var c in Logic.Placement.CheckoutCounter.AllCounters)
+                if (c.BuildingId == buildingId) c.SwapDesk(style);
             MarkGameStateDirty();
         }
 
