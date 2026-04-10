@@ -965,6 +965,14 @@ namespace OverTheCounter.SaveData
                         if (parts.Length == 2)
                             ApplyRemoteDeskStyleChange(parts[0], parts[1]);
                     }
+                    else if (action.StartsWith("DISP_RENAME:"))
+                    {
+                        string name = action.Substring("DISP_RENAME:".Length);
+                        if (PropertySaveData.Instance != null)
+                            PropertySaveData.Instance.DispensaryDisplayName = name;
+                        Logic.Placement.Dispensary.UpdateSignText(name);
+                        MarkGameStateDirty();
+                    }
                     else
                     {
                         OTCLog.Warning(OTCLog.Systems.Network, $"Unknown quest action: {action}");
