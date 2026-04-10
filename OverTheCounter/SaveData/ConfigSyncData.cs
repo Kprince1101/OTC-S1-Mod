@@ -980,7 +980,13 @@ namespace OverTheCounter.SaveData
                     else if (action.StartsWith("PRICING_STATE:"))
                     {
                         string payload = action.Substring("PRICING_STATE:".Length);
-                        PricingSaveData.Instance?.Deserialize(payload);
+                        if (PricingSaveData.Instance != null)
+                        {
+                            PricingSaveData.Instance.Deserialize(payload);
+                            // Re-assign through the setter to enforce clamping — Deserialize writes the backing
+                            // field directly, which bypasses the Math.Max(0.01f) guard on PricingMultiplier.
+                            PricingSaveData.Instance.PricingMultiplier = PricingSaveData.Instance.PricingMultiplier;
+                        }
                         MarkPricingStateDirty();
                     }
                     else if (action.StartsWith("SIGN_COLORS:"))
