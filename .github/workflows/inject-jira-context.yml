@@ -127,8 +127,20 @@ jobs:
             cat original_body.txt
           } > final_body.txt
 
+          # Short-circuit if the rebuilt body is byte-identical to what's already
+          # on the PR. Other bots (Atlassian Smart Links, CodeRabbit walkthroughs)
+          # edit the PR body and fire their own `edited` events, which retrigger
+          # this workflow. Without this guard we'd re-edit the body (no visible
+          # change) and re-ping CodeRabbit on every bot touch. Exit cleanly so
+          # the run shows as success without generating noise.
+          if cmp -s current_body.txt final_body.txt; then
+            echo "::notice::PR body already contains up-to-date Jira context; skipping edit."
+            exit 0
+          fi
+
           gh pr edit --repo "$GH_REPO" "$PR_NUMBER" --body-file final_body.txt
 
           # Re-prompt CodeRabbit so its review runs against the injected body
           # rather than the pre-injection version it may have already processed.
+          # Only fires when the body actually changed (see cmp guard above).
           gh pr comment --repo "$GH_REPO" "$PR_NUMBER" --body "@coderabbitai review, Jira context injected from $JIRA_KEY."
