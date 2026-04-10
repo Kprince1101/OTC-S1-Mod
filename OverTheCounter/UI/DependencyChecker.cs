@@ -66,7 +66,7 @@ namespace OverTheCounter.UI
                     expectedFolder: "Plugins", folderPaths: folders),
                 Check("S1API", "S1API",
                     "Install S1API. The S1API mod file goes in your Mods folder.",
-                    excludePrefix: "S1APILoader", minVersion: "3.0.1",
+                    excludePrefix: "S1APILoader", minVersion: "3.0.3",
                     expectedFolder: "Mods", folderPaths: folders),
                 Check("S1MAPI", "S1MAPI",
                     "Install S1MAPI. Place the S1MAPI DLL in your UserLibs folder.",
