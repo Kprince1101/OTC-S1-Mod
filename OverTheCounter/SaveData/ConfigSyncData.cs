@@ -1164,6 +1164,12 @@ namespace OverTheCounter.SaveData
                 parts.Add($"static_upg_product={BoolToStr(StaticSaveData.Instance.UpgradeProductDelivered)}");
                 if (!string.IsNullOrEmpty(StaticSaveData.Instance.ThreadOrder))
                     parts.Add($"static_thread_order={StaticSaveData.Instance.ThreadOrder}");
+                if (!string.IsNullOrEmpty(StaticSaveData.Instance.IntroQuestGuid))
+                    parts.Add($"static_intro_qg={StaticSaveData.Instance.IntroQuestGuid}");
+                if (!string.IsNullOrEmpty(StaticSaveData.Instance.Upgrade1QuestGuid))
+                    parts.Add($"static_upg1_qg={StaticSaveData.Instance.Upgrade1QuestGuid}");
+                if (!string.IsNullOrEmpty(StaticSaveData.Instance.Upgrade2QuestGuid))
+                    parts.Add($"static_upg2_qg={StaticSaveData.Instance.Upgrade2QuestGuid}");
             }
 
             if (PropertySaveData.Instance != null)
@@ -1180,12 +1186,16 @@ namespace OverTheCounter.SaveData
                 parts.Add($"vic_accepted={BoolToStr(VicSaveData.Instance.QuestAccepted)}");
                 parts.Add($"vic_unlocked={BoolToStr(VicSaveData.Instance.Unlocked)}");
                 parts.Add($"vic_trust={VicSaveData.Instance.TrustLevel}");
+                if (!string.IsNullOrEmpty(VicSaveData.Instance.QuestGuid))
+                    parts.Add($"vic_qg={VicSaveData.Instance.QuestGuid}");
             }
 
             if (BellaSaveData.Instance != null)
             {
                 parts.Add($"bella_stage={BellaSaveData.Instance.Stage}");
                 parts.Add($"bella_unlocked={BoolToStr(BellaSaveData.Instance.NightMarketUnlocked)}");
+                if (!string.IsNullOrEmpty(BellaSaveData.Instance.QuestGuid))
+                    parts.Add($"bella_qg={BellaSaveData.Instance.QuestGuid}");
             }
 
             string despIds = DesperationManager.GetDesperateIdsForSync();
@@ -1274,6 +1284,10 @@ namespace OverTheCounter.SaveData
                 bool? upgMoney = state.TryGetValue("static_upg_money", out var um) ? StrToBool(um) : (bool?)null;
                 bool? upgProduct = state.TryGetValue("static_upg_product", out var up) ? StrToBool(up) : (bool?)null;
 
+                string staticIntroQg = state.TryGetValue("static_intro_qg", out var siqg) ? siqg : null;
+                string staticUpg1Qg = state.TryGetValue("static_upg1_qg", out var su1qg) ? su1qg : null;
+                string staticUpg2Qg = state.TryGetValue("static_upg2_qg", out var su2qg) ? su2qg : null;
+
                 StaticSaveData.Instance.ApplyHostState(
                     questTriggered: triggered,
                     introCompleted: intro,
@@ -1286,7 +1300,10 @@ namespace OverTheCounter.SaveData
                     tier1ProductDelivered: t1Product,
                     upgradeAccepted: upgAccepted,
                     upgradeMoneyPaid: upgMoney,
-                    upgradeProductDelivered: upgProduct);
+                    upgradeProductDelivered: upgProduct,
+                    hostIntroQuestGuid: staticIntroQg,
+                    hostUpgrade1QuestGuid: staticUpg1Qg,
+                    hostUpgrade2QuestGuid: staticUpg2Qg);
             }
 
             {
@@ -1346,19 +1363,22 @@ namespace OverTheCounter.SaveData
                 bool questAccepted = state.TryGetValue("vic_accepted", out var va) && StrToBool(va);
                 bool unlocked = state.TryGetValue("vic_unlocked", out var vu) && StrToBool(vu);
                 int trust = state.TryGetValue("vic_trust", out var vtrust) && int.TryParse(vtrust, out var trustVal) ? trustVal : -1;
+                string vicQg = state.TryGetValue("vic_qg", out var vqg) ? vqg : null;
 
                 VicSaveData.Instance.ApplyHostState(
                     hasBeenTexted: texted,
                     questAccepted: questAccepted,
                     unlocked: unlocked,
-                    trustLevel: trust);
+                    trustLevel: trust,
+                    hostQuestGuid: vicQg);
             }
 
             if (BellaSaveData.Instance != null)
             {
                 int bellaStage = state.TryGetValue("bella_stage", out var bs) && int.TryParse(bs, out var bsVal) ? bsVal : 0;
                 bool bellaUnlocked = state.TryGetValue("bella_unlocked", out var bu) && StrToBool(bu);
-                BellaSaveData.Instance.ApplyHostState(bellaStage, bellaUnlocked);
+                string bellaQg = state.TryGetValue("bella_qg", out var bqg) ? bqg : null;
+                BellaSaveData.Instance.ApplyHostState(bellaStage, bellaUnlocked, bellaQg);
             }
 
             // Sync desperation customer IDs to client
