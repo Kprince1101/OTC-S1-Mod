@@ -805,6 +805,7 @@ namespace OverTheCounter.Logic.Placement
                 ExteriorApproachPosition = _building.transform.TransformPoint(new Vector3(4f, 0f, 17.5f)),
                 ExitWalkPosition = _building.transform.TransformPoint(new Vector3(4f, 0f, 19f)),
                 RoomCenterWorld = _building.transform.TransformPoint(new Vector3(7f, 0f, 8.5f)),
+                RoomSize = new Vector3(RoomWidth, RoomHeight, RoomDepth),
                 Name = "Dispensary",
                 BuildingId = DispensaryId,
                 BrowseZoneMinZ = BackroomWallZ,  // exclude backroom (Z < 4.75)

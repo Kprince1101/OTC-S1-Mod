@@ -44,6 +44,13 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>World position of the building (for warp point distance sorting).</summary>
         public Vector3 BuildingPosition;
 
+        /// <summary>
+        /// Interior room dimensions in building-local space (X=width, Z=depth).
+        /// Must match the roomSize passed to S1MAPI's NavigationBuilder so we can
+        /// mirror its IsInsideBuilding AABB check when picking exit destinations.
+        /// </summary>
+        public Vector3 RoomSize;
+
         /// <summary>Building name for logging.</summary>
         public string Name;
 
@@ -53,6 +60,24 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>Room center in building-local coordinates for SendNPCToPosition.</summary>
         public Vector3 RoomCenterLocal =>
             NavBuilder != null ? NavBuilder.WorldToLocal(RoomCenterWorld) : Vector3.zero;
+
+        /// <summary>
+        /// Mirrors S1MAPI's <c>InteriorNavigatorCore.IsInsideBuilding</c> AABB check.
+        /// Returns true if <paramref name="worldPos"/> lies within the interior room
+        /// rectangle (expanded by <paramref name="margin"/>) in building-local space.
+        /// <para>
+        /// Use this to reject exit destinations that S1MAPI would classify as "inside"
+        /// and re-intercept via its SetDestination Harmony prefix — this is how
+        /// nearby-but-technically-outside exterior points trap customers on exit.
+        /// </para>
+        /// </summary>
+        public bool IsWorldPositionInsideInterior(Vector3 worldPos, float margin = 0f)
+        {
+            if (NavBuilder == null || RoomSize == Vector3.zero) return false;
+            var local = NavBuilder.WorldToLocal(worldPos);
+            return local.x >= -margin && local.x <= RoomSize.x + margin &&
+                   local.z >= -margin && local.z <= RoomSize.z + margin;
+        }
 
         /// <summary>Storage IDs excluded from browsing (checkout counter, locker, etc.).</summary>
         private static readonly HashSet<string> ExcludedStorageIds = new()

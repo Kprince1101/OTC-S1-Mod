@@ -280,10 +280,15 @@ namespace OverTheCounter.Logic
                                 OTCLog.Warning(OTCLog.Systems.Customer, $"{customer.Id}: ExitingStore failed after {MaxNavRetries} retries, warping outside");
                                 customer.RestoreObstacleAvoidance();
                                 customer.SetAvoidancePriority(50);
-                                var exitTarget = customer.WarpReturnPosition
-                                    ?? customer.SpawnPoint?.Position
-                                    ?? customer.Target?.ExitWalkPosition
-                                    ?? Vector3.zero;
+                                var exitTarget = customer.GetSafeExitTarget();
+                                if (exitTarget == Vector3.zero)
+                                {
+                                    // GetSafeExitTarget already logged the fallthrough. Force despawn
+                                    // rather than warping to world origin and re-triggering OM-17.
+                                    customer.State = CustomerState.Despawning;
+                                    toRemove.Add(customer.Id);
+                                    break;
+                                }
                                 customer.WarpTo(exitTarget);
                                 customer.State = CustomerState.LeavingStore;
                                 customer.WalkTo(exitTarget);
@@ -304,12 +309,19 @@ namespace OverTheCounter.Logic
                                 customer.RestoreObstacleAvoidance();
                                 customer.SetAvoidancePriority(50);
 
-                                // Deal customers walk back to their warp point; random customers to spawn point
-                                var exitTarget = customer.WarpReturnPosition
-                                    ?? customer.SpawnPoint?.Position
-                                    ?? customer.Target?.ExitWalkPosition
-                                    ?? Vector3.zero;
-                                customer.WalkTo(exitTarget);
+                                // Deal customers walk back to their warp point; random customers to spawn point.
+                                // GetSafeExitTarget skips any option that overlaps S1MAPI's interior AABB,
+                                // which would otherwise re-capture the NPC via the SetDestination prefix.
+                                var exitTarget = customer.GetSafeExitTarget();
+                                if (exitTarget == Vector3.zero)
+                                {
+                                    customer.State = CustomerState.Despawning;
+                                    toRemove.Add(customer.Id);
+                                }
+                                else
+                                {
+                                    customer.WalkTo(exitTarget);
+                                }
                             }
                         }
                         break;

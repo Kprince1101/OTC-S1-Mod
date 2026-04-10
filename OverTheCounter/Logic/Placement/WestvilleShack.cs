@@ -724,6 +724,7 @@ namespace OverTheCounter.Logic.Placement
                 ExteriorApproachPosition = CustomerSpawnPoints.StairApproachPosition,
                 ExitWalkPosition = CustomerSpawnPoints.RampBottomPosition,
                 RoomCenterWorld = CustomerSpawnPoints.RoomCenterPosition,
+                RoomSize = new Vector3(RoomWidth, RoomHeight, RoomDepth),
                 Name = "WestvilleShack",
                 BuildingId = SaveData.PropertySaveData.ShackId
             };

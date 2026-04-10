@@ -617,6 +617,50 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Computes a world-space exit target guaranteed to lie OUTSIDE S1MAPI's
+        /// interior AABB. Preference order: WarpReturnPosition (deal customers) →
+        /// SpawnPoint.Position (walk-ins) → Target.ExitWalkPosition (door-approach
+        /// fallback, always outside by design).
+        /// <para>
+        /// Any preferred option that overlaps the interior AABB is skipped, because
+        /// sending the NPC there would re-trigger S1MAPI's SetDestination prefix and
+        /// re-capture them into interior navigation — trapping them in the building.
+        /// </para>
+        /// </summary>
+        public Vector3 GetSafeExitTarget()
+        {
+            var t = Target;
+
+            if (WarpReturnPosition.HasValue)
+            {
+                var p = WarpReturnPosition.Value;
+                if (t == null || !t.IsWorldPositionInsideInterior(p))
+                    return p;
+            }
+
+            if (SpawnPoint != null)
+            {
+                var p = SpawnPoint.Position;
+                if (t == null || !t.IsWorldPositionInsideInterior(p))
+                    return p;
+            }
+
+            if (t != null)
+            {
+                var exit = t.ExitWalkPosition;
+                if (!t.IsWorldPositionInsideInterior(exit))
+                    return exit;
+            }
+
+            OTCLog.Warning(OTCLog.Systems.Customer,
+                $"{Id}: GetSafeExitTarget fell through to Vector3.zero " +
+                $"(target={(t != null ? t.Name : "null")}, " +
+                $"warp={WarpReturnPosition?.ToString() ?? "null"}, " +
+                $"spawn={(SpawnPoint != null ? SpawnPoint.Position.ToString() : "null")})");
+            return Vector3.zero;
+        }
+
+        /// <summary>
         /// Recalls the NPC from the building via S1MAPI NavigationBuilder.
         /// NPC exits through the doorway and is released back to exterior NavMesh.
         /// </summary>

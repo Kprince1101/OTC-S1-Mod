@@ -96,7 +96,8 @@ namespace OverTheCounter.Logic
             get
             {
                 if (_dynamicShackPoints == null)
-                    _dynamicShackPoints = FindNearbyVanillaSpawnPoints(RoomCenterPosition, 5, "Shack_");
+                    _dynamicShackPoints = FindNearbyVanillaSpawnPoints(
+                        RoomCenterPosition, 5, "Shack_", Placement.WestvilleShack.Target);
                 return _dynamicShackPoints;
             }
         }
@@ -106,7 +107,8 @@ namespace OverTheCounter.Logic
             get
             {
                 if (_dynamicWarehousePoints == null)
-                    _dynamicWarehousePoints = FindNearbyVanillaSpawnPoints(WarehouseCenterPosition, 5, "Warehouse_");
+                    _dynamicWarehousePoints = FindNearbyVanillaSpawnPoints(
+                        WarehouseCenterPosition, 5, "Warehouse_", buildingTarget: null);
                 return _dynamicWarehousePoints;
             }
         }
@@ -135,7 +137,16 @@ namespace OverTheCounter.Logic
             _allSpawnPointsCached = null;
         }
 
-        private static List<SpawnPoint> FindNearbyVanillaSpawnPoints(Vector3 origin, int count, string prefix)
+        /// <summary>
+        /// Finds the nearest vanilla DeliveryLocation TeleportPoints to <paramref name="origin"/>.
+        /// When <paramref name="buildingTarget"/> is supplied, candidates whose position falls
+        /// inside the building's interior AABB are rejected — they would otherwise trap
+        /// customers on exit because S1MAPI's SetDestination prefix re-captures any destination
+        /// that its IsInsideBuilding check classifies as "inside," even if the point is
+        /// physically outside the walls.
+        /// </summary>
+        private static List<SpawnPoint> FindNearbyVanillaSpawnPoints(
+            Vector3 origin, int count, string prefix, Placement.BuildingTarget buildingTarget)
         {
             var results = new List<SpawnPoint>();
             var allLocations = new List<DeliveryLocation>();
@@ -176,15 +187,29 @@ namespace OverTheCounter.Logic
                 return distA.CompareTo(distB);
             });
 
-            int limit = Mathf.Min(count, allLocations.Count);
-            for (int i = 0; i < limit; i++)
+            // Walk the sorted list and skip any candidate whose position falls inside
+            // the building's interior AABB. S1MAPI's SetDestination Harmony prefix checks
+            // only the local-space rectangle, so a physically-outside point that happens
+            // to overlap the room XZ bounds gets re-intercepted and traps customers.
+            int produced = 0;
+            for (int i = 0; i < allLocations.Count && produced < count; i++)
             {
                 var loc = allLocations[i];
                 var pt = loc.TeleportPoint; // Point A (hidden spawn)
+
+                if (buildingTarget != null && buildingTarget.IsWorldPositionInsideInterior(pt.position))
+                {
+                    OTCLog.Msg(OTCLog.Systems.Customer,
+                        $"SpawnPoint {loc.name} at ({pt.position.x:F1}, {pt.position.y:F1}, {pt.position.z:F1}) " +
+                        $"rejected — falls inside {buildingTarget.Name} interior AABB");
+                    continue;
+                }
+
                 float dist = Vector3.Distance(origin, pt.position);
                 OTCLog.Msg(OTCLog.Systems.Customer,
-                    $"SpawnPoint {prefix}{i}: {loc.name} at ({pt.position.x:F1}, {pt.position.y:F1}, {pt.position.z:F1}) dist={dist:F0}");
-                results.Add(new SpawnPoint($"{prefix}{i}", pt.position, pt.rotation));
+                    $"SpawnPoint {prefix}{produced}: {loc.name} at ({pt.position.x:F1}, {pt.position.y:F1}, {pt.position.z:F1}) dist={dist:F0}");
+                results.Add(new SpawnPoint($"{prefix}{produced}", pt.position, pt.rotation));
+                produced++;
             }
 
             OTCLog.Msg(OTCLog.Systems.Customer,
