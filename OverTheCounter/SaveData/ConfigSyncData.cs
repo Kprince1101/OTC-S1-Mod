@@ -968,7 +968,10 @@ namespace OverTheCounter.SaveData
                     }
                     else if (action.StartsWith("DISP_RENAME:"))
                     {
-                        string name = action.Substring("DISP_RENAME:".Length);
+                        string name = action.Substring("DISP_RENAME:".Length).Trim();
+                        if (string.IsNullOrEmpty(name)) name = "Dispensary";
+                        if (name.Length > 20) name = name.Substring(0, 20);
+                        name = name.Replace("|", "").Replace("=", ""); // prevent game-state payload corruption
                         if (PropertySaveData.Instance != null)
                             PropertySaveData.Instance.DispensaryDisplayName = name;
                         Logic.Placement.Dispensary.UpdateSignText(name);
