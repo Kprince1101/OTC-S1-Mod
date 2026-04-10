@@ -11,7 +11,12 @@ name: Inject Jira Context for CodeRabbit
 
 on:
   pull_request:
-    types: [opened, edited]
+    # opened       — first PR creation
+    # edited       — title/body edits (so Jira key changes in the title get picked up)
+    # synchronize  — new commits pushed to the PR branch (re-pull Jira data to catch
+    #                ticket updates that happened since the PR was opened)
+    # reopened     — closed PRs being reopened
+    types: [opened, edited, synchronize, reopened]
 
 permissions:
   pull-requests: write
@@ -21,6 +26,14 @@ jobs:
   inject-jira:
     runs-on: ubuntu-latest
     steps:
+      # gh CLI shells out to git for some startup probes even when --repo is
+      # provided, so we need a real git context on the runner. A shallow
+      # checkout is enough — we never read the source, just need .git to exist.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - name: Extract Jira key from PR title
         id: parse
         env:
