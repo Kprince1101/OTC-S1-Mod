@@ -1,0 +1,91 @@
+name: Inject Jira Context for CodeRabbit
+
+# Fires when a PR is opened or its title/body is edited. Parses an OM-XX ticket
+# key out of the PR title, pulls the issue's summary + rendered description
+# from the Jira v3 REST API, and prepends it to the PR body inside a collapsible
+# block. Re-runs are guarded by an HTML comment marker so editing the injected
+# body doesn't cause an infinite loop.
+
+on:
+  pull_request:
+    types: [opened, edited]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  inject-jira:
+    # Skip if we've already injected context into this PR body.
+    if: ${{ !contains(github.event.pull_request.body, '<!-- jira-injected -->') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract Jira key from PR title
+        id: parse
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # Match the first OM-<digits> token in the title (case-sensitive).
+          JIRA_KEY=$(echo "$PR_TITLE" | grep -oP 'OM-\d+' | head -n1 || true)
+          echo "JIRA_KEY=$JIRA_KEY" >> "$GITHUB_ENV"
+          if [ -z "$JIRA_KEY" ]; then
+            echo "No Jira key found in title; skipping injection."
+          else
+            echo "Found Jira key: $JIRA_KEY"
+          fi
+
+      - name: Fetch Jira issue and inject into PR body
+        if: env.JIRA_KEY != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          JIRA_DOMAIN: ${{ secrets.JIRA_DOMAIN }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # v3 + expand=renderedFields returns the description as HTML instead of
+          # Jira wiki markup, so GitHub will render headings/bold/code correctly.
+          HTTP_CODE=$(curl -sS -o jira.json -w "%{http_code}" \
+            -u "$JIRA_EMAIL:$JIRA_TOKEN" \
+            -H "Accept: application/json" \
+            "https://$JIRA_DOMAIN/rest/api/3/issue/$JIRA_KEY?expand=renderedFields")
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::Jira API returned HTTP $HTTP_CODE for $JIRA_KEY; skipping injection."
+            cat jira.json || true
+            exit 0
+          fi
+
+          SUMMARY=$(jq -r '.fields.summary // "(no summary)"' jira.json)
+          DESCRIPTION=$(jq -r '.renderedFields.description // "<em>No description provided.</em>"' jira.json)
+          STATUS=$(jq -r '.fields.status.name // "Unknown"' jira.json)
+          ISSUE_TYPE=$(jq -r '.fields.issuetype.name // "Issue"' jira.json)
+          URL="https://$JIRA_DOMAIN/browse/$JIRA_KEY"
+
+          # Preserve the author's existing PR body beneath the injected block.
+          gh pr view "$PR_NUMBER" --json body -q '.body' > original_body.txt || true
+
+          {
+            echo "<!-- jira-injected -->"
+            echo "### [$JIRA_KEY]($URL) — $SUMMARY"
+            echo ""
+            echo "**Type:** \`$ISSUE_TYPE\`  •  **Status:** \`$STATUS\`"
+            echo ""
+            echo "<details><summary>Jira ticket description</summary>"
+            echo ""
+            echo "$DESCRIPTION"
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "---"
+            echo ""
+            cat original_body.txt
+          } > final_body.txt
+
+          gh pr edit "$PR_NUMBER" --body-file final_body.txt
+
+          # Re-prompt CodeRabbit so its review runs against the injected body
+          # rather than the pre-injection version it may have already processed.
+          gh pr comment "$PR_NUMBER" --body "@coderabbitai review — Jira context injected from $JIRA_KEY."
