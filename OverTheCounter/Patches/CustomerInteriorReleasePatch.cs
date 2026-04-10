@@ -92,6 +92,10 @@ namespace OverTheCounter.Patches
         {
             if (npc == null) return;
 
+            // Host-authoritative: clients must not issue their own SetDestination here,
+            // or they'll fight the host's movement sync and desync the NPC.
+            if (!NetworkHelper.IsHost) return;
+
             try
             {
                 int id = npc.GetInstanceID();
@@ -108,6 +112,14 @@ namespace OverTheCounter.Patches
                 }
 
                 if (match == null) return;
+
+                // ReleaseNPC fires for every tracked NPC during nav rebuilds too
+                // (see SafeRebuildNavigation in BuildingPlacementPatch). Only force an
+                // exit when the customer is actually trying to leave — otherwise
+                // browsing/checking-out customers would get ejected during storage placement.
+                if (match.State != CustomerState.ExitingStore &&
+                    match.State != CustomerState.LeavingStore)
+                    return;
 
                 var exitTarget = match.GetSafeExitTarget();
                 if (exitTarget == Vector3.zero)
