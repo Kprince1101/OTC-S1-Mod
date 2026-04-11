@@ -466,11 +466,12 @@ namespace OverTheCounter.Logic.Placement
 
             // Trash can is placed as MeshVault furniture in the Furniture array (decorative only)
 
-            // Disable light switch until property is purchased
-            if (!(PropertySaveData.Instance?.IsPropertyOwned(DispensaryId) ?? false))
-            {
-                if (_lightSwitchGo != null) _lightSwitchGo.SetActive(false);
-            }
+            // Light switch is always visible/interactable (matches shack behavior).
+            // Previously gated behind IsPropertyOwned(DispensaryId), but that had no retry
+            // path if PropertySaveData.Instance was null or the dispensary record was missing
+            // at spawn time — the switch would stay hidden forever, blocking the "turn on
+            // lights" quest step (OM-24). Allowing a non-owner to toggle lights is preferable
+            // to a legitimate owner losing access to the switch entirely.
 
             // Re-apply saved styles (may have been set before building existed)
             ApplyLightingStyle(LightingStyle.Get(CurrentLightingStyleId));
