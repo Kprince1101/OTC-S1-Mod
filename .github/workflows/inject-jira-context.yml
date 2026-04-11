@@ -1,18 +1,14 @@
 name: Inject Jira Context for CodeRabbit
 
-# Fires when a PR is opened or its title/body is edited. Parses an OM-XX ticket
-# key out of the PR title, pulls the issue's summary + rendered description
-# from the Jira v3 REST API, and injects it into the PR body inside a collapsible
-# block delimited by <!-- jira-injected --> / <!-- /jira-injected --> sentinels.
-# On subsequent edits the existing block is stripped and replaced with fresh
-# Jira data, so ticket updates flow through to the PR body.
+# Parses an OM-XX ticket key from the PR title, pulls the ticket's summary and
+# rendered description from Jira, and injects them into the PR body inside a
+# collapsible block delimited by <!-- jira-injected --> / <!-- /jira-injected -->
+# sentinels. On subsequent edits the existing block is stripped and replaced
+# with fresh Jira data so ticket updates flow through to the PR body.
 #
-# CodeRabbit auto-review is disabled via .coderabbit.yaml. To trigger reviews
-# we embed `@coderabbitai review` in the PR body itself inside
-# <!-- coderabbit-trigger --> / <!-- /coderabbit-trigger --> sentinels.
-# CodeRabbit reads the PR description on open/push and triggers a review when
-# it sees the marker. This replaces the previous approach of posting a bot
-# comment, which CodeRabbit intentionally ignores to prevent bot-to-bot loops.
+# CodeRabbit's github-checks integration waits on this workflow before running
+# auto-review, so the Jira block is present in the PR body by the time the
+# review starts.
 
 on:
   pull_request:
@@ -53,10 +49,7 @@ jobs:
             echo "Found Jira key: $JIRA_KEY"
           fi
 
-      - name: Rebuild PR body (Jira context + CodeRabbit trigger)
-        # Runs on every event (no JIRA_KEY guard) because we always need to
-        # keep the coderabbit-trigger block present, even on PRs without an
-        # OM-XX key. Jira injection is conditional inside the script.
+      - name: Rebuild PR body with Jira context
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -67,9 +60,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Fetch Jira data only when we have a key. HAVE_JIRA toggles the
-          # block emission below so PRs without an OM-XX key still get the
-          # CodeRabbit trigger embedded.
+          # Fetch Jira data when a key is present. HAVE_JIRA gates the block
+          # emission so PRs without an OM-XX key still pass through unchanged.
           HAVE_JIRA=0
           if [ -n "${JIRA_KEY:-}" ]; then
             # v3 + expand=renderedFields returns description as HTML instead of
@@ -105,10 +97,11 @@ jobs:
           # clobbering the PR body (set -euo pipefail will surface the failure).
           gh pr view --repo "$GH_REPO" "$PR_NUMBER" --json body -q '.body' > current_body.txt
 
-          # Strip any previously injected jira block AND any coderabbit-trigger
-          # block so we can re-emit fresh copies. Both sentinel pairs follow the
-          # same pattern; the trim counter also eats the trailing blank + "---"
-          # separator we emit after the jira block.
+          # Strip any previously injected jira block so we can re-emit a fresh
+          # copy. Also strips the legacy coderabbit-trigger block from bodies
+          # authored under the old manual-trigger flow; harmless on PRs that
+          # never had one. The trim counter eats the trailing blank + "---"
+          # separator that used to sit after the jira block.
           awk '
             BEGIN { skip = 0; trim = 0 }
             /<!-- jira-injected -->/ { skip = 1; next }
@@ -124,20 +117,15 @@ jobs:
             { print }
           ' current_body.txt > original_body.txt
 
-          # Drop leading blank lines. Our rebuild emits a blank after the "---"
-          # separator, so without this the strip + rebuild cycle would accumulate
-          # one extra blank line on every run, false-negating the cmp check below
-          # and causing endless retriggers.
+          # Drop leading and trailing blank lines so the strip + rebuild cycle
+          # converges on a stable body. Without this, the blank after the
+          # "---" separator would accumulate on every run and defeat the cmp
+          # short-circuit below, causing endless edit loops.
           sed -i '/./,$!d' original_body.txt
-          # Drop trailing blank lines for the same reason, now that we append the
-          # coderabbit-trigger block at the end of the body.
           tac original_body.txt | sed '/./,$!d' | tac > original_body.trimmed
           mv original_body.trimmed original_body.txt
 
-          # Assemble final body: [optional jira block] + [original content] +
-          # [coderabbit-trigger block]. Trigger lives at the end so it stays out
-          # of the way of CodeRabbit's own auto-generated summary, which sits at
-          # the top of the body after the first review.
+          # Assemble final body: [optional jira block] + [original content].
           {
             if [ "$HAVE_JIRA" = "1" ]; then
               echo "<!-- jira-injected -->"
@@ -156,21 +144,12 @@ jobs:
               echo ""
             fi
             cat original_body.txt
-            echo ""
-            echo ""
-            echo "<!-- coderabbit-trigger -->"
-            echo "<!-- CodeRabbit auto-review is disabled in .coderabbit.yaml. -->"
-            echo "<!-- The marker below is how this repo triggers reviews on each -->"
-            echo "<!-- new push. Managed by .github/workflows/inject-jira-context.yml -->"
-            echo "<!-- — do not remove by hand. -->"
-            echo "@coderabbitai review"
-            echo "<!-- /coderabbit-trigger -->"
           } > final_body.txt
 
-          # Short-circuit if the rebuilt body is byte-identical to what's on the
-          # PR. Other bots (Atlassian Smart Links, CodeRabbit walkthroughs) edit
-          # the PR body and fire their own `edited` events; without this guard
-          # we'd re-edit on every bot touch and loop forever.
+          # Short-circuit if the rebuilt body is byte-identical to what's on
+          # the PR. Other bots (Atlassian Smart Links, CodeRabbit walkthroughs)
+          # edit the body and fire their own `edited` events; without this
+          # guard we'd re-edit on every bot touch and loop forever.
           if cmp -s current_body.txt final_body.txt; then
             echo "::notice::PR body already up to date; skipping edit."
             exit 0
