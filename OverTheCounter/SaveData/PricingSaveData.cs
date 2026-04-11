@@ -51,6 +51,23 @@ namespace OverTheCounter.SaveData
             Instance = this;
         }
 
+        /// <summary>
+        /// Ensures a runtime instance exists. On host, S1API constructs one from
+        /// the save file. On client, Saveables are host-only — call this before
+        /// any code path that needs a non-null <see cref="Instance"/> so the
+        /// client can hold synced pricing state and drive its own UI.
+        /// </summary>
+        internal static void EnsureInstance()
+        {
+            if (Instance != null) return;
+            try { _ = new PricingSaveData(); }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.General,
+                    $"PricingSaveData.EnsureInstance failed: {ex.Message}");
+            }
+        }
+
         protected override void OnLoaded()
         {
             Instance = this;

@@ -303,6 +303,12 @@ namespace OverTheCounter.Apps
 
         protected override void OnCreatedUI(GameObject container)
         {
+            // On clients, PricingSaveData is never constructed by S1API (Saveables
+            // are host-only). Bootstrap it here so every click handler in this
+            // app can rely on a non-null Instance — the SyncVar callback will
+            // overwrite the defaults with the host's real state on next sync.
+            PricingSaveData.EnsureInstance();
+
             _rootPanel = UIFactory.Panel("GreenTabRoot", container.transform, BgDark, fullAnchor: true);
 
             // Pick initial building

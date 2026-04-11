@@ -668,8 +668,8 @@ namespace OverTheCounter.SaveData
         {
             try
             {
-                if (PricingSaveData.Instance == null) return;
-                PricingSaveData.Instance.Deserialize(newValue);
+                PricingSaveData.EnsureInstance();
+                PricingSaveData.Instance?.Deserialize(newValue);
                 OTCLog.Msg(OTCLog.Systems.Network, $"Client applied pricing state from SyncVar ({newValue?.Length ?? 0} chars).");
             }
             catch (Exception ex)
@@ -996,6 +996,13 @@ namespace OverTheCounter.SaveData
                             // field directly, which bypasses the Math.Max(0.01f) guard on PricingMultiplier.
                             PricingSaveData.Instance.PricingMultiplier = PricingSaveData.Instance.PricingMultiplier;
                         }
+                        // Advance the host's storefront growth quest too — the client's
+                        // local OnPricingTouched() call only mutates the client's own
+                        // quest instance, which is irrelevant since the quest is
+                        // host-authoritative. Without this, the host stays stuck on
+                        // the "open GreenTab and set a price" step forever even though
+                        // the client already did it.
+                        StorefrontGrowthQuest.Instance?.OnPricingTouched();
                         MarkPricingStateDirty();
                     }
                     else if (action.StartsWith("SIGN_COLORS:"))
