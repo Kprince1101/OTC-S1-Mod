@@ -2,17 +2,17 @@ name: Inject Jira Context for CodeRabbit
 
 # Fires when a PR is opened or its title/body is edited. Parses an OM-XX ticket
 # key out of the PR title, pulls the issue's summary + rendered description
-# from the Jira v3 REST API, and prepends it to the PR body inside a collapsible
+# from the Jira v3 REST API, and injects it into the PR body inside a collapsible
 # block delimited by <!-- jira-injected --> / <!-- /jira-injected --> sentinels.
 # On subsequent edits the existing block is stripped and replaced with fresh
 # Jira data, so ticket updates flow through to the PR body.
 #
-# CodeRabbit auto-review is disabled via .coderabbit.yaml, so this workflow is
-# the sole trigger for CodeRabbit reviews. After the Jira block is injected
-# (or skipped if there's no OM-XX key), we post `@coderabbitai review` on
-# code-affecting events (opened / synchronize / reopened) so CodeRabbit always
-# sees the final body with Jira context. `edited` events don't ping CodeRabbit
-# because they represent body/title tweaks where the code hasn't changed.
+# CodeRabbit auto-review is disabled via .coderabbit.yaml. To trigger reviews
+# we embed `@coderabbitai review` in the PR body itself inside
+# <!-- coderabbit-trigger --> / <!-- /coderabbit-trigger --> sentinels.
+# CodeRabbit reads the PR description on open/push and triggers a review when
+# it sees the marker. This replaces the previous approach of posting a bot
+# comment, which CodeRabbit intentionally ignores to prevent bot-to-bot loops.
 
 on:
   pull_request:
@@ -28,7 +28,7 @@ permissions:
   contents: read
 
 jobs:
-  inject-jira:
+  rebuild-pr-body:
     runs-on: ubuntu-latest
     steps:
       # gh CLI shells out to git for some startup probes even when --repo is
@@ -53,8 +53,10 @@ jobs:
             echo "Found Jira key: $JIRA_KEY"
           fi
 
-      - name: Fetch Jira issue and inject into PR body
-        if: env.JIRA_KEY != ''
+      - name: Rebuild PR body (Jira context + CodeRabbit trigger)
+        # Runs on every event (no JIRA_KEY guard) because we always need to
+        # keep the coderabbit-trigger block present, even on PRs without an
+        # OM-XX key. Jira injection is conditional inside the script.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -65,48 +67,56 @@ jobs:
         run: |
           set -euo pipefail
 
-          # v3 + expand=renderedFields returns the description as HTML instead of
-          # Jira wiki markup, so GitHub will render headings/bold/code correctly.
-          HTTP_CODE=$(curl -sS -o jira.json -w "%{http_code}" \
-            -u "$JIRA_EMAIL:$JIRA_TOKEN" \
-            -H "Accept: application/json" \
-            "https://$JIRA_DOMAIN/rest/api/3/issue/$JIRA_KEY?expand=renderedFields")
+          # Fetch Jira data only when we have a key. HAVE_JIRA toggles the
+          # block emission below so PRs without an OM-XX key still get the
+          # CodeRabbit trigger embedded.
+          HAVE_JIRA=0
+          if [ -n "${JIRA_KEY:-}" ]; then
+            # v3 + expand=renderedFields returns description as HTML instead of
+            # Jira wiki markup, so GitHub renders headings/bold/code correctly.
+            HTTP_CODE=$(curl -sS -o jira.json -w "%{http_code}" \
+              -u "$JIRA_EMAIL:$JIRA_TOKEN" \
+              -H "Accept: application/json" \
+              "https://$JIRA_DOMAIN/rest/api/3/issue/$JIRA_KEY?expand=renderedFields")
 
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "::warning::Jira API returned HTTP $HTTP_CODE for $JIRA_KEY; skipping injection."
-            cat jira.json || true
-            exit 0
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "::warning::Jira API returned HTTP $HTTP_CODE for $JIRA_KEY; skipping Jira injection."
+              cat jira.json || true
+            else
+              HAVE_JIRA=1
+              SUMMARY=$(jq -r '.fields.summary // "(no summary)"' jira.json)
+              # Jira returns renderedFields.description as an empty string (not
+              # null) when the ticket has no description, so the `//` fallback
+              # alone isn't enough. Treat empty/whitespace-only as "no description".
+              DESCRIPTION=$(jq -r '.renderedFields.description // ""' jira.json)
+              if [ -z "$(echo "$DESCRIPTION" | tr -d '[:space:]')" ]; then
+                DESCRIPTION="<em>No description provided.</em>"
+              fi
+              STATUS=$(jq -r '.fields.status.name // "Unknown"' jira.json)
+              ISSUE_TYPE=$(jq -r '.fields.issuetype.name // "Issue"' jira.json)
+              URL="https://$JIRA_DOMAIN/browse/$JIRA_KEY"
+            fi
           fi
 
-          SUMMARY=$(jq -r '.fields.summary // "(no summary)"' jira.json)
-          # Jira returns renderedFields.description as an empty string (not null)
-          # when the ticket has no description, so the `//` fallback alone isn't
-          # enough. Treat empty/whitespace-only as "no description" too.
-          DESCRIPTION=$(jq -r '.renderedFields.description // ""' jira.json)
-          if [ -z "$(echo "$DESCRIPTION" | tr -d '[:space:]')" ]; then
-            DESCRIPTION="<em>No description provided.</em>"
-          fi
-          STATUS=$(jq -r '.fields.status.name // "Unknown"' jira.json)
-          ISSUE_TYPE=$(jq -r '.fields.issuetype.name // "Issue"' jira.json)
-          URL="https://$JIRA_DOMAIN/browse/$JIRA_KEY"
-
-          # Preserve the author's existing PR body beneath the injected block.
-          # Explicit --repo avoids gh shelling out to git (no checkout on this runner).
-          # No "|| true": if gh fails, abort instead of clobbering the PR body with
-          # only the Jira block (set -euo pipefail will surface the failure).
+          # Snapshot the current PR body so we can diff the rebuild against it
+          # and skip redundant edits (see the cmp guard near the bottom).
+          # Explicit --repo avoids gh shelling out to git beyond what checkout
+          # already provided. No "|| true": if gh fails, abort instead of
+          # clobbering the PR body (set -euo pipefail will surface the failure).
           gh pr view --repo "$GH_REPO" "$PR_NUMBER" --json body -q '.body' > current_body.txt
 
-          # Strip any previously injected block (inclusive of sentinels and the
-          # trailing --- separator) so edits re-inject fresh Jira data instead of
-          # stacking. The awk filter drops everything between the sentinels, plus
-          # the first blank line and --- that follow the closing sentinel.
+          # Strip any previously injected jira block AND any coderabbit-trigger
+          # block so we can re-emit fresh copies. Both sentinel pairs follow the
+          # same pattern; the trim counter also eats the trailing blank + "---"
+          # separator we emit after the jira block.
           awk '
             BEGIN { skip = 0; trim = 0 }
             /<!-- jira-injected -->/ { skip = 1; next }
             /<!-- \/jira-injected -->/ { skip = 0; trim = 2; next }
+            /<!-- coderabbit-trigger -->/ { skip = 1; next }
+            /<!-- \/coderabbit-trigger -->/ { skip = 0; trim = 2; next }
             skip { next }
             trim > 0 {
-              # Eat the blank line + "---" separator we emit after the block.
               if (trim == 2 && $0 == "") { trim = 1; next }
               if (trim == 1 && $0 == "---") { trim = 0; next }
               trim = 0
@@ -114,63 +124,56 @@ jobs:
             { print }
           ' current_body.txt > original_body.txt
 
-          # Drop leading blank lines from the remainder. Our rebuild emits a
-          # blank line after the "---" separator, so without this the strip +
-          # rebuild cycle would accumulate one extra blank line on every run
-          # (the emitted blank becomes part of the next "original", then a new
-          # blank gets emitted on top of it). That drift made cmp below false-
-          # negative every retrigger, causing endless CodeRabbit pings.
+          # Drop leading blank lines. Our rebuild emits a blank after the "---"
+          # separator, so without this the strip + rebuild cycle would accumulate
+          # one extra blank line on every run, false-negating the cmp check below
+          # and causing endless retriggers.
           sed -i '/./,$!d' original_body.txt
+          # Drop trailing blank lines for the same reason, now that we append the
+          # coderabbit-trigger block at the end of the body.
+          tac original_body.txt | sed '/./,$!d' | tac > original_body.trimmed
+          mv original_body.trimmed original_body.txt
 
+          # Assemble final body: [optional jira block] + [original content] +
+          # [coderabbit-trigger block]. Trigger lives at the end so it stays out
+          # of the way of CodeRabbit's own auto-generated summary, which sits at
+          # the top of the body after the first review.
           {
-            echo "<!-- jira-injected -->"
-            echo "### [$JIRA_KEY]($URL) — $SUMMARY"
-            echo ""
-            echo "**Type:** \`$ISSUE_TYPE\`  •  **Status:** \`$STATUS\`"
-            echo ""
-            echo "<details><summary>Jira ticket description</summary>"
-            echo ""
-            echo "$DESCRIPTION"
-            echo ""
-            echo "</details>"
-            echo "<!-- /jira-injected -->"
-            echo ""
-            echo "---"
-            echo ""
+            if [ "$HAVE_JIRA" = "1" ]; then
+              echo "<!-- jira-injected -->"
+              echo "### [$JIRA_KEY]($URL) — $SUMMARY"
+              echo ""
+              echo "**Type:** \`$ISSUE_TYPE\`  •  **Status:** \`$STATUS\`"
+              echo ""
+              echo "<details><summary>Jira ticket description</summary>"
+              echo ""
+              echo "$DESCRIPTION"
+              echo ""
+              echo "</details>"
+              echo "<!-- /jira-injected -->"
+              echo ""
+              echo "---"
+              echo ""
+            fi
             cat original_body.txt
+            echo ""
+            echo ""
+            echo "<!-- coderabbit-trigger -->"
+            echo "<!-- CodeRabbit auto-review is disabled in .coderabbit.yaml. -->"
+            echo "<!-- The marker below is how this repo triggers reviews on each -->"
+            echo "<!-- new push. Managed by .github/workflows/inject-jira-context.yml -->"
+            echo "<!-- — do not remove by hand. -->"
+            echo "@coderabbitai review"
+            echo "<!-- /coderabbit-trigger -->"
           } > final_body.txt
 
-          # Short-circuit if the rebuilt body is byte-identical to what's already
-          # on the PR. Other bots (Atlassian Smart Links, CodeRabbit walkthroughs)
-          # edit the PR body and fire their own `edited` events, which retrigger
-          # this workflow. Without this guard we'd re-edit the body (no visible
-          # change) and re-ping CodeRabbit on every bot touch. Exit cleanly so
-          # the run shows as success without generating noise.
+          # Short-circuit if the rebuilt body is byte-identical to what's on the
+          # PR. Other bots (Atlassian Smart Links, CodeRabbit walkthroughs) edit
+          # the PR body and fire their own `edited` events; without this guard
+          # we'd re-edit on every bot touch and loop forever.
           if cmp -s current_body.txt final_body.txt; then
-            echo "::notice::PR body already contains up-to-date Jira context; skipping edit."
+            echo "::notice::PR body already up to date; skipping edit."
             exit 0
           fi
 
           gh pr edit --repo "$GH_REPO" "$PR_NUMBER" --body-file final_body.txt
-
-      - name: Trigger CodeRabbit review
-        # CodeRabbit auto-review is disabled in .coderabbit.yaml, so this step
-        # is the sole trigger. We only ping on code-affecting events — `edited`
-        # events are title/body tweaks (including our own injection), not code
-        # changes, and shouldn't queue a new review. This runs regardless of
-        # whether the previous step skipped (no Jira key) or short-circuited
-        # (body already up to date), so PRs without an OM-XX key still get
-        # reviewed and every code push gets a fresh review.
-        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          if [ -n "${JIRA_KEY:-}" ]; then
-            BODY="@coderabbitai review, Jira context injected from $JIRA_KEY."
-          else
-            BODY="@coderabbitai review"
-          fi
-          gh pr comment --repo "$GH_REPO" "$PR_NUMBER" --body "$BODY"
