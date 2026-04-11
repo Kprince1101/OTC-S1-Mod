@@ -36,6 +36,9 @@ using PackagingDefinition = Il2CppScheduleOne.Product.Packaging.PackagingDefinit
 using NativeMoneyManager = Il2CppScheduleOne.Money.MoneyManager;
 using NativeStorableItemDef = Il2CppScheduleOne.ItemFramework.StorableItemDefinition;
 using ItemSlot = Il2CppScheduleOne.ItemFramework.ItemSlot;
+using ItemInstance = Il2CppScheduleOne.ItemFramework.ItemInstance;
+using QualityItemInstance = Il2CppScheduleOne.ItemFramework.QualityItemInstance;
+using EQuality = Il2CppScheduleOne.ItemFramework.EQuality;
 using Customer = Il2CppScheduleOne.Economy.Customer;
 #else
 using TMPro;
@@ -58,6 +61,9 @@ using PackagingDefinition = ScheduleOne.Product.Packaging.PackagingDefinition;
 using NativeMoneyManager = ScheduleOne.Money.MoneyManager;
 using NativeStorableItemDef = ScheduleOne.ItemFramework.StorableItemDefinition;
 using ItemSlot = ScheduleOne.ItemFramework.ItemSlot;
+using ItemInstance = ScheduleOne.ItemFramework.ItemInstance;
+using QualityItemInstance = ScheduleOne.ItemFramework.QualityItemInstance;
+using EQuality = ScheduleOne.ItemFramework.EQuality;
 using Customer = ScheduleOne.Economy.Customer;
 #endif
 
@@ -127,6 +133,17 @@ namespace OverTheCounter.Logic
             /// Each tuple: (slot, hotbarIdx, count) — decrement 'count' times from source.
             /// </summary>
             public List<(ItemSlot slot, int hotbarIdx, int count)> SourceRefs;
+
+            // --- Breakdown fragment tracking (brick/jar → baggie breakdown) ---
+            // When IsBreakdownFragment is true, this row represents a slice of a larger
+            // package that will be split on first consume. All fragments of the same
+            // source share a BreakdownGroupId; only the first click actually decrements
+            // the source slot and repackages the remainder via the placement fallback chain.
+            public bool IsBreakdownFragment;
+            public int BreakdownGroupId;
+            public ItemSlot BreakdownSourceSlot;
+            public int BreakdownSourceHotbarIdx;
+            public int BreakdownRemainderUnits; // non-zero only on the "owner" fragment of the group
         }
 
         // Constants
@@ -184,6 +201,11 @@ namespace OverTheCounter.Logic
 
         // Products available for placement (from storage/inventory search)
         private readonly List<AvailableProduct> _availableProducts = new();
+
+        // Breakdown tracking: which breakdown groups have already split their source.
+        // Persists across SearchAndShowAvailable rebuilds for the lifetime of this checkout.
+        private readonly HashSet<int> _breakdownGroupsConsumed = new();
+        private int _nextBreakdownGroupId;
 
         // Tracking which requested products are missing (not found anywhere), keyed by ProductId
         private readonly HashSet<string> _missingProductKeys = new();
@@ -960,7 +982,12 @@ namespace OverTheCounter.Logic
                             _skillCheckLocked = false;
                             _skillCheckTipBonus = 0f;
                             CreateSkillCheckBar();
-                            try { _customer.GameNpc?.SendAnimationTrigger("ThumbsUp"); } catch { }
+                            try { _customer.GameNpc?.SendAnimationTrigger("ThumbsUp"); }
+                            catch (Exception animEx)
+                            {
+                                OTCLog.Warning(OTCLog.Systems.Customer,
+                                    $"ThumbsUp animation trigger failed: {animEx.Message}");
+                            }
                         }
                         else
                         {
@@ -1019,13 +1046,23 @@ namespace OverTheCounter.Logic
             {
                 _skillCheckPlayedQuestion = true;
                 PlayCustomerVoice(EVOLineType.Question);
-                try { _customer.GameNpc?.SendAnimationTrigger("ConversationGesture1"); } catch { }
+                try { _customer.GameNpc?.SendAnimationTrigger("ConversationGesture1"); }
+                catch (Exception animEx)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"ConversationGesture1 animation trigger failed: {animEx.Message}");
+                }
             }
             if (!_skillCheckPlayedAcknowledge && elapsed >= VO_Acknowledge)
             {
                 _skillCheckPlayedAcknowledge = true;
                 PlayCustomerVoice(EVOLineType.Acknowledge);
-                try { _customer.GameNpc?.SendAnimationTrigger("Nod"); } catch { }
+                try { _customer.GameNpc?.SendAnimationTrigger("Nod"); }
+                catch (Exception animEx)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"Nod animation trigger failed: {animEx.Message}");
+                }
             }
 
             if (_skillCheckLocked)
@@ -1740,12 +1777,17 @@ namespace OverTheCounter.Logic
                     // Sort by packaging multiplier descending (brick=20 > jar=5 > baggie=1)
                     candidates.Sort((a, b) => b.mult.CompareTo(a.mult));
 
+                    // Track per-candidate consumption so the breakdown pass knows what stock
+                    // is still available after the greedy fill.
+                    var takenPerCandidate = new int[candidates.Count];
+
                     // Greedy fill: largest packaging first, floor division (never overshoot)
                     int startIdx = _availableProducts.Count;
                     int unitsFound = 0;
-                    foreach (var c in candidates)
+                    for (int cIdx = 0; cIdx < candidates.Count; cIdx++)
                     {
                         if (unitsFound >= unitsRemaining) break;
+                        var c = candidates[cIdx];
 
                         int pkgsNeeded = (unitsRemaining - unitsFound) / c.mult;
                         int pkgsToTake = Math.Min(pkgsNeeded, c.available);
@@ -1768,11 +1810,24 @@ namespace OverTheCounter.Logic
                             });
                             unitsFound += c.mult;
                         }
+                        takenPerCandidate[cIdx] = pkgsToTake;
                     }
 
                     // Auto-package: consolidate small packages into largest valid packaging
                     if (_availableProducts.Count - startIdx > 1)
                         ConsolidateAvailableEntries(startIdx, selection.Price);
+
+                    // Breakdown pass: if the greedy fill left a shortfall smaller than the
+                    // smallest remaining candidate, split a larger package and emit rows
+                    // in the largest-fit valid packagings (e.g. 2× 5g jars + 3× 1g baggies
+                    // for a 13g split). See EmitBreakdownFragments for details.
+                    if (unitsFound < unitsRemaining)
+                    {
+                        int added = EmitBreakdownFragments(
+                            selection, candidates, takenPerCandidate,
+                            unitsRemaining - unitsFound);
+                        unitsFound += added;
+                    }
 
                     if (unitsFound < unitsRemaining)
                         _missingProductKeys.Add(selection.ProductId);
@@ -1783,6 +1838,191 @@ namespace OverTheCounter.Logic
             {
                 OTCLog.Warning(OTCLog.Systems.Customer,$"SearchAndShowAvailable failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Splits larger packages to cover a shortfall left by the greedy fill. Each
+        /// split emits multiple <see cref="AvailableProduct"/> rows whose packaging is
+        /// the largest-fit partition of the taken units (e.g. a 13g split from a 20g
+        /// brick produces 2× 5g jars + 3× 1g baggies, not 13× 1g baggies). All rows
+        /// from the same split share a <see cref="AvailableProduct.BreakdownGroupId"/>
+        /// so <see cref="ConsumeFromSource(AvailableProduct)"/> only decrements the
+        /// source slot once and only repackages the remainder once, regardless of how
+        /// many rows the customer picks up.
+        ///
+        /// Split-source selection runs as a loop so multiple sources can be consumed in sequence:
+        ///   1. Prefer the smallest candidate whose mult covers the remaining shortfall
+        ///      in one shot (minimises waste — e.g. for a 3g shortfall, split a 5g jar
+        ///      instead of a 20g brick so the repackaged remainder is only 2g).
+        ///   2. Fall back to the largest candidate with stock when nothing covers the
+        ///      remainder alone; consume that package fully and loop with the reduced
+        ///      shortfall. Example: shortfall=8 with only 5g jars left (no brick
+        ///      stock) — Pass 1 skips every jar (5 &lt; 8), Pass 2 picks a 5g jar,
+        ///      the loop consumes it and continues with shortfall=3, which Pass 1
+        ///      then covers by splitting another 5g jar (remainder=2g). Same mechanism
+        ///      gracefully emits partial coverage when the ask is impossible.
+        ///   3. If neither pass finds a splittable candidate, stop — whatever units we
+        ///      couldn't satisfy flow back to SearchAndShowAvailable and become a
+        ///      "missing product" entry. The customer completes the sale early with
+        ///      an annoyed voice line, giving the player a chance to restock.
+        /// Returns the total number of units satisfied across all emitted groups.
+        /// </summary>
+        private int EmitBreakdownFragments(
+            CustomerInstance.SelectedProduct selection,
+            List<(ItemSlot slot, int hotbarIdx, string pkgId, int mult, int available,
+                  ProductDefinition prodDef, GameObject visual)> candidates,
+            int[] takenPerCandidate,
+            int shortfall)
+        {
+            if (shortfall <= 0 || candidates == null || candidates.Count == 0)
+                return 0;
+
+            // Gather all valid packagings sorted LARGEST→SMALLEST so split emission
+            // can walk them greedily. Also track the smallest for divisibility checks.
+            var prodDef0 = candidates[0].prodDef;
+            if (prodDef0?.ValidPackaging == null || prodDef0.ValidPackaging.Length == 0)
+                return 0;
+
+            var sortedPackagings = new List<PackagingDefinition>();
+            for (int p = 0; p < prodDef0.ValidPackaging.Length; p++)
+            {
+                var pk = prodDef0.ValidPackaging[p];
+                if (pk != null && pk.Quantity > 0) sortedPackagings.Add(pk);
+            }
+            if (sortedPackagings.Count == 0) return 0;
+            sortedPackagings.Sort((a, b) => b.Quantity.CompareTo(a.Quantity));
+
+            PackagingDefinition smallestPack = sortedPackagings[sortedPackagings.Count - 1];
+            int fragmentMult = smallestPack.Quantity;
+            if (fragmentMult <= 0) return 0;
+
+            // Cache per-packaging visuals so we don't hit StoredItem_Filled once per row.
+            var pkgVisuals = new Dictionary<string, GameObject>();
+            foreach (var pk in sortedPackagings)
+            {
+                try
+                {
+                    var si = pk.StoredItem_Filled;
+                    if (si != null) pkgVisuals[pk.ID] = si.gameObject;
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.General,
+                        $"EmitBreakdownFragments: failed to get visual for pkg '{pk.ID}': {ex.Message}");
+                }
+            }
+
+            int totalSatisfied = 0;
+
+            // Split packages until the shortfall is met or no splittable candidates remain.
+            while (shortfall > 0)
+            {
+                // Shortfall must be representable in whole fragments — otherwise we
+                // can't emit valid packaging (e.g. 3g shortfall on a product whose
+                // smallest packaging is 5g). Bail gracefully; caller marks missing.
+                if (shortfall % fragmentMult != 0) break;
+
+                // Pass 1: smallest candidate whose whole package covers the shortfall
+                // without waste (current best — most efficient use of packaging).
+                int bestIdx = -1;
+                int bestMult = int.MaxValue;
+                for (int i = 0; i < candidates.Count; i++)
+                {
+                    int remainingStock = candidates[i].available - takenPerCandidate[i];
+                    if (remainingStock <= 0) continue;
+                    if (candidates[i].mult <= fragmentMult) continue; // same size as fragment, nothing to split
+                    if (candidates[i].mult < shortfall) continue;     // can't cover in one shot
+                    if (candidates[i].mult < bestMult)
+                    {
+                        bestMult = candidates[i].mult;
+                        bestIdx = i;
+                    }
+                }
+
+                // Pass 2: nothing covers the full shortfall — pick the LARGEST
+                // remaining candidate, consume it fully, and loop with the
+                // reduced shortfall. This handles multi-source splitting.
+                if (bestIdx < 0)
+                {
+                    int largestMult = 0;
+                    for (int i = 0; i < candidates.Count; i++)
+                    {
+                        int remainingStock = candidates[i].available - takenPerCandidate[i];
+                        if (remainingStock <= 0) continue;
+                        if (candidates[i].mult <= fragmentMult) continue;
+                        if (candidates[i].mult > largestMult)
+                        {
+                            largestMult = candidates[i].mult;
+                            bestIdx = i;
+                        }
+                    }
+                }
+
+                if (bestIdx < 0) break; // no splittable candidates left
+
+                var c = candidates[bestIdx];
+                // Take only as much as we still need from this package; the rest
+                // becomes the repackaged remainder held by the first fragment.
+                int take = Math.Min(shortfall, c.mult);
+                if (take % fragmentMult != 0)
+                {
+                    // Partial take doesn't divide into whole fragments — skip this
+                    // candidate by marking it "taken" so we don't loop forever on it.
+                    takenPerCandidate[bestIdx]++;
+                    continue;
+                }
+
+                int remainderUnits = c.mult - take;
+                int groupId = ++_nextBreakdownGroupId;
+                bool firstRowEmitted = false;
+
+                // Split `take` into the largest valid packagings first so the customer
+                // sees e.g. 2× 5g jars + 3× 1g baggies for a 13g split, not 13 baggies.
+                int takeRemaining = take;
+                for (int pi = 0; pi < sortedPackagings.Count && takeRemaining > 0; pi++)
+                {
+                    var pkg = sortedPackagings[pi];
+                    int pkgCount = takeRemaining / pkg.Quantity;
+                    if (pkgCount <= 0) continue;
+                    takeRemaining -= pkgCount * pkg.Quantity;
+
+                    pkgVisuals.TryGetValue(pkg.ID, out GameObject pkgVisual);
+                    if (pkgVisual == null) pkgVisual = c.visual;
+
+                    for (int u = 0; u < pkgCount; u++)
+                    {
+                        _availableProducts.Add(new AvailableProduct
+                        {
+                            ProductId = selection.ProductId,
+                            PackagingId = pkg.ID,
+                            ProductName = selection.ProductName,
+                            Price = selection.Price * pkg.Quantity,
+                            QualityLevel = selection.QualityLevel,
+                            UnitCount = pkg.Quantity,
+                            VisualPrefab = pkgVisual,
+                            ProductDef = c.prodDef,
+                            SourceSlot = null,
+                            HotbarIndex = -1,
+                            IsBreakdownFragment = true,
+                            BreakdownGroupId = groupId,
+                            BreakdownSourceSlot = c.slot,
+                            BreakdownSourceHotbarIdx = c.hotbarIdx,
+                            // Only the FIRST emitted row of this group owns the
+                            // remainder — SplitBreakdownSource repackages once.
+                            BreakdownRemainderUnits = firstRowEmitted ? 0 : remainderUnits
+                        });
+                        firstRowEmitted = true;
+                    }
+                }
+
+                // Mark one package of this candidate as consumed — subsequent
+                // iterations see the reduced stock via remainingStock checks.
+                takenPerCandidate[bestIdx]++;
+                shortfall -= take;
+                totalSatisfied += take;
+            }
+
+            return totalSatisfied;
         }
 
         /// <summary>
@@ -1966,7 +2206,11 @@ namespace OverTheCounter.Logic
                     prodDef = productItem.Definition as ProductDefinition;
 #endif
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"CollectCandidatesFromStorage: Definition cast failed: {ex.Message}");
+                }
 
                 if (prodDef?.ID != productId) continue;
 
@@ -1976,7 +2220,11 @@ namespace OverTheCounter.Logic
                     var stored = productItem.StoredItem;
                     if (stored != null) visualPrefab = stored.gameObject;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"CollectCandidatesFromStorage: StoredItem read failed for '{productId}': {ex.Message}");
+                }
 
                 candidates.Add((slot, -1, productItem.AppliedPackaging.ID,
                     productItem.AppliedPackaging.Quantity, slot.Quantity, prodDef, visualPrefab));
@@ -2014,7 +2262,11 @@ namespace OverTheCounter.Logic
                         prodDef = productItem.Definition as ProductDefinition;
 #endif
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Customer,
+                            $"CollectCandidatesFromInventory: Definition cast failed: {ex.Message}");
+                    }
 
                     if (prodDef?.ID != productId) continue;
 
@@ -2024,7 +2276,11 @@ namespace OverTheCounter.Logic
                         var stored = productItem.StoredItem;
                         if (stored != null) visualPrefab = stored.gameObject;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Customer,
+                            $"CollectCandidatesFromInventory: StoredItem read failed for '{productId}': {ex.Message}");
+                    }
 
                     candidates.Add((slot, i, productItem.AppliedPackaging.ID,
                         productItem.AppliedPackaging.Quantity, slot.Quantity, prodDef, visualPrefab));
@@ -2079,8 +2335,21 @@ namespace OverTheCounter.Logic
         private static void ConsumeFromSource(CounterProduct product)
             => ConsumeFromSource(product.SourceSlot, product.HotbarIndex, product.ProductName);
 
-        private static void ConsumeFromSource(AvailableProduct product)
+        private void ConsumeFromSource(AvailableProduct product)
         {
+            // Breakdown fragments: only the first click per group splits the source
+            // slot and repackages the remainder. Subsequent fragment clicks in the
+            // same group are no-ops because the source is already gone.
+            if (product.IsBreakdownFragment)
+            {
+                if (_breakdownGroupsConsumed.Contains(product.BreakdownGroupId))
+                    return;
+
+                _breakdownGroupsConsumed.Add(product.BreakdownGroupId);
+                SplitBreakdownSource(product);
+                return;
+            }
+
             if (product.SourceRefs != null && product.SourceRefs.Count > 0)
             {
                 foreach (var (slot, hotbarIdx, count) in product.SourceRefs)
@@ -2090,6 +2359,185 @@ namespace OverTheCounter.Logic
             else
             {
                 ConsumeFromSource(product.SourceSlot, product.HotbarIndex, product.ProductName);
+            }
+        }
+
+        /// <summary>
+        /// Splits a larger package (brick/jar) represented by a breakdown fragment:
+        /// decrements the source slot by one package and repackages the leftover
+        /// units via the placement fallback chain. The fragments themselves become
+        /// ephemeral CounterProducts that already reflect the broken-down packaging,
+        /// so no extra consume is needed.
+        /// </summary>
+        private void SplitBreakdownSource(AvailableProduct owner)
+        {
+            try
+            {
+                // Capture the original source quality BEFORE decrementing the slot —
+                // otherwise a 1-quantity brick gets cleared and we lose the instance.
+                int originalQualityLevel = owner.QualityLevel;
+                ItemSlot srcSlot = null;
+                if (owner.BreakdownSourceSlot != null)
+                {
+                    srcSlot = owner.BreakdownSourceSlot;
+                }
+                else if (owner.BreakdownSourceHotbarIdx >= 0)
+                {
+                    var inv = PlayerSingleton<PlayerInventory>.Instance;
+                    if (inv?.hotbarSlots != null && owner.BreakdownSourceHotbarIdx < inv.hotbarSlots.Count)
+                        srcSlot = inv.hotbarSlots[owner.BreakdownSourceHotbarIdx];
+                }
+
+                if (srcSlot?.ItemInstance != null)
+                {
+#if IL2CPP
+                    var srcProductItem = srcSlot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                    var srcProductItem = srcSlot.ItemInstance as ProductItemInstance;
+#endif
+                    if (srcProductItem != null)
+                        originalQualityLevel = (int)srcProductItem.Quality;
+                }
+
+                // Decrement the source slot by 1 package (the brick/jar we're splitting).
+                ConsumeFromSource(
+                    owner.BreakdownSourceSlot,
+                    owner.BreakdownSourceHotbarIdx,
+                    owner.ProductName);
+
+                // Repackage the remainder into the largest-fit packaging and place
+                // each produced instance via the fallback chain.
+                int remainder = owner.BreakdownRemainderUnits;
+                if (remainder <= 0 || owner.ProductDef == null) return;
+
+                var validPack = owner.ProductDef.ValidPackaging;
+                if (validPack == null || validPack.Length == 0) return;
+
+                // Largest-first packaging (mirrors ConsolidateAvailableEntries layout).
+                for (int p = validPack.Length - 1; p >= 0 && remainder > 0; p--)
+                {
+                    var pkg = validPack[p];
+                    if (pkg == null || pkg.Quantity <= 0) continue;
+                    int count = remainder / pkg.Quantity;
+                    if (count <= 0) continue;
+                    remainder -= count * pkg.Quantity;
+
+                    for (int i = 0; i < count; i++)
+                    {
+                        var instance = owner.ProductDef.GetDefaultInstance(1);
+#if IL2CPP
+                        var prodInstance = instance?.TryCast<ProductItemInstance>();
+#else
+                        var prodInstance = instance as ProductItemInstance;
+#endif
+                        if (prodInstance == null) continue;
+                        prodInstance.SetPackaging(pkg);
+
+                        // Preserve quality from the split source package.
+#if IL2CPP
+                        var qInst = instance?.TryCast<QualityItemInstance>();
+#else
+                        var qInst = instance as QualityItemInstance;
+#endif
+                        if (qInst != null)
+                        {
+                            try { qInst.SetQuality((EQuality)originalQualityLevel); }
+                            catch (Exception ex)
+                            {
+                                OTCLog.Warning(OTCLog.Systems.Customer,
+                                    $"SplitBreakdownSource: SetQuality failed: {ex.Message}");
+                            }
+                        }
+
+                        if (!TryPlaceItemAnywhere(prodInstance, owner.BreakdownSourceSlot))
+                        {
+                            OTCLog.Warning(OTCLog.Systems.Customer,
+                                $"SplitBreakdownSource: no room for {owner.ProductName} {pkg.ID} remainder — destroying");
+                        }
+                    }
+                }
+
+                if (remainder > 0)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"SplitBreakdownSource: {remainder} units of {owner.ProductName} could not be repackaged (no valid small packaging)");
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"SplitBreakdownSource failed for '{owner.ProductName}': {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Places an ItemInstance via the fallback chain:
+        ///  1) preferredSlot (if it can still accept the item — e.g. the source slot
+        ///     of a split brick, which is now empty)
+        ///  2) player inventory (any open slot)
+        ///  3) checkout counter storage
+        ///  4) any other storage entity on the property grid
+        /// Returns false only if no container accepts the item (caller should warn/destroy).
+        /// </summary>
+        private static bool TryPlaceItemAnywhere(ItemInstance productInstance, ItemSlot preferredSlot)
+        {
+            if (productInstance == null) return false;
+            try
+            {
+                // 0. Prefer the source slot if it's now empty — keeps split remainder
+                //    "where it was found" per the design intent.
+                if (preferredSlot != null && preferredSlot.ItemInstance == null)
+                {
+                    preferredSlot.InsertItem(productInstance);
+                    return true;
+                }
+
+                // 1. Player inventory
+                var inventory = PlayerSingleton<PlayerInventory>.Instance;
+                if (inventory != null && inventory.CanItemFitInInventory(productInstance, 1))
+                {
+                    inventory.AddItemToInventory(productInstance);
+                    return true;
+                }
+
+                // 2. Checkout counter storage
+                var counterStorage = Instance?._counter?.CounterStorageEntity;
+                if (counterStorage != null && counterStorage.CanItemFit(productInstance, 1))
+                {
+                    counterStorage.InsertItem(productInstance, true);
+                    return true;
+                }
+
+                // 3. Any other storage entity on the property grid
+                var shackGrid = WestvilleShack.ShackGrid;
+                if (shackGrid != null && BuildingGridFactory.GridContainers.TryGetValue(shackGrid, out var buildingRoot))
+                {
+#if IL2CPP
+                    var storages = buildingRoot.GetComponentsInChildren<StorageEntity>(true);
+                    for (int i = 0; i < storages.Count; i++)
+                    {
+                        var s = storages[i];
+#else
+                    var storages = buildingRoot.GetComponentsInChildren<StorageEntity>(true);
+                    foreach (var s in storages)
+                    {
+#endif
+                        if (s == counterStorage) continue;
+                        if (s.CanItemFit(productInstance, 1))
+                        {
+                            s.InsertItem(productInstance, true);
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"TryPlaceItemAnywhere failed: {ex.Message}");
+                return false;
             }
         }
 
@@ -2465,7 +2913,10 @@ namespace OverTheCounter.Logic
                 _popAudioSource.pitch = 0.9f + _counterProducts.Count * 0.08f;
                 _popAudioSource.Play();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer, $"PlayPopSound failed: {ex.Message}");
+            }
         }
 
         private static void CacheScanClip()
@@ -2481,7 +2932,10 @@ namespace OverTheCounter.Logic
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer, $"CacheScanClip failed: {ex.Message}");
+            }
         }
 
         private static void PlayCashSound()
@@ -2494,7 +2948,10 @@ namespace OverTheCounter.Logic
                 ScheduleOne.DevUtilities.NetworkSingleton<NativeMoneyManager>.Instance?.PlayCashSound();
 #endif
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer, $"PlayCashSound failed: {ex.Message}");
+            }
         }
 
         private void PlayCustomerVoice(EVOLineType lineType)
@@ -2738,6 +3195,13 @@ namespace OverTheCounter.Logic
             }
             _counterVisuals.Clear();
             _counterProducts.Clear();
+
+            // Drop the per-transaction breakdown-group tracker so the HashSet
+            // doesn't grow across back-to-back customers. Group IDs are only
+            // meaningful within a single checkout — reset the counter too so
+            // fresh transactions start clean.
+            _breakdownGroupsConsumed.Clear();
+            _nextBreakdownGroupId = 0;
 
             if (_popAudioGo != null)
             {

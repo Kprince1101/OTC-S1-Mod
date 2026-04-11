@@ -16,8 +16,12 @@ using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Storage;
 using Il2CppScheduleOne.VoiceOver;
 using Customer = Il2CppScheduleOne.Economy.Customer;
+using ProductManager = Il2CppScheduleOne.Product.ProductManager;
 using ProductItemInstance = Il2CppScheduleOne.Product.ProductItemInstance;
 using ProductDefinition = Il2CppScheduleOne.Product.ProductDefinition;
+using ItemInstance = Il2CppScheduleOne.ItemFramework.ItemInstance;
+using QualityItemInstance = Il2CppScheduleOne.ItemFramework.QualityItemInstance;
+using EQuality = Il2CppScheduleOne.ItemFramework.EQuality;
 #else
 using ScheduleOne.DevUtilities;
 using ScheduleOne.Economy;
@@ -28,8 +32,12 @@ using ScheduleOne.PlayerScripts;
 using ScheduleOne.Storage;
 using ScheduleOne.VoiceOver;
 using Customer = ScheduleOne.Economy.Customer;
+using ProductManager = ScheduleOne.Product.ProductManager;
 using ProductItemInstance = ScheduleOne.Product.ProductItemInstance;
 using ProductDefinition = ScheduleOne.Product.ProductDefinition;
+using ItemInstance = ScheduleOne.ItemFramework.ItemInstance;
+using QualityItemInstance = ScheduleOne.ItemFramework.QualityItemInstance;
+using EQuality = ScheduleOne.ItemFramework.EQuality;
 #endif
 
 namespace OverTheCounter.Logic
@@ -327,7 +335,11 @@ namespace OverTheCounter.Logic
                     if (nob != null)
                         instance.NetworkObjectId = (int)nob.ObjectId;
                 }
-                catch { }
+                catch (Exception nobEx)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"{id}: failed to read NetworkObjectId: {nobEx.Message}");
+                }
 
                 Active[id] = instance;
                 return instance;
@@ -388,7 +400,11 @@ namespace OverTheCounter.Logic
                 // Extract relationship as familiarity (0-1 range)
                 float familiarity = 0.5f;
                 try { familiarity = Mathf.Clamp01(vanillaCustomer.NPC.RelationData.RelationDelta / 5f); }
-                catch { }
+                catch (Exception relEx)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"{id}: failed to read RelationDelta for familiarity: {relEx.Message}");
+                }
 
                 var instance = new CustomerInstance(id, seed, null, npc, target)
                 {
@@ -454,24 +470,38 @@ namespace OverTheCounter.Logic
                 while (effectIds.Count < 3)
                     effectIds.Add("calming");
 
-                // Vanilla spend scaling: Lerp(Min, Max, relationship) × rankMultiplier / ordersPerWeek
-                float normalizedRelation = 0.4f; // default (RelationDelta 2.0 / 5.0)
-                try { normalizedRelation = customer.NPC.RelationData.RelationDelta / 5f; }
-                catch { }
-
-                float weeklyBase = Mathf.Lerp(data.MinWeeklySpend, data.MaxWeeklySpend, normalizedRelation);
-
-                float rankMultiplier = 1f;
-                try
+                // Match vanilla Customer.TryGenerateContract (Customer.cs:776-777)
+                // exactly so deal-customer per-visit budget parity holds:
+                //   count = GetOrderDays(addiction, relation).Count
+                //   num   = GetAdjustedWeeklySpend(relation) / count
+                // NOT MaxOrdersPerWeek — that's always 5 and massively
+                // undershoots real per-visit budget for low-relation NPCs.
+                float totalBudget = TryGetVanillaDailyBudget(customer);
+                if (totalBudget <= 0f)
                 {
-                    if (S1API.Leveling.LevelManager.Exists)
-                        rankMultiplier = S1API.Leveling.LevelManager.GetOrderLimitMultiplier(
-                            S1API.Leveling.LevelManager.CurrentRank);
+                    // Fallback if daily budget couldn't be resolved
+                    float normalizedRelation = 0.4f;
+                    try { normalizedRelation = customer.NPC.RelationData.RelationDelta / 5f; }
+                    catch (Exception relEx)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Customer,
+                            $"ExtractVanillaPreferences fallback: RelationDelta read failed: {relEx.Message}");
+                    }
+                    float weeklyBase = Mathf.Lerp(data.MinWeeklySpend, data.MaxWeeklySpend, normalizedRelation);
+                    float rankMultiplier = 1f;
+                    try
+                    {
+                        if (S1API.Leveling.LevelManager.Exists)
+                            rankMultiplier = S1API.Leveling.LevelManager.GetOrderLimitMultiplier(
+                                S1API.Leveling.LevelManager.CurrentRank);
+                    }
+                    catch (Exception rankEx)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Customer,
+                            $"ExtractVanillaPreferences fallback: rank multiplier read failed: {rankEx.Message}");
+                    }
+                    totalBudget = weeklyBase * rankMultiplier / Mathf.Max(1, data.MaxOrdersPerWeek);
                 }
-                catch { }
-
-                float scaledWeekly = weeklyBase * rankMultiplier;
-                float totalBudget = scaledWeekly / Mathf.Max(1, data.MaxOrdersPerWeek);
                 float budget = totalBudget;
 
                 // Weed affinity from current affinity data
@@ -550,7 +580,11 @@ namespace OverTheCounter.Logic
                     rankMultiplier = S1API.Leveling.LevelManager.GetOrderLimitMultiplier(
                         S1API.Leveling.LevelManager.CurrentRank);
             }
-            catch { }
+            catch (Exception rankEx)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"GeneratePreferences: rank multiplier read failed: {rankEx.Message}");
+            }
             budget *= rankMultiplier;
 
             return new CustomerPreferences
@@ -816,7 +850,11 @@ namespace OverTheCounter.Logic
                 if (dist > 3f && !movement.IsMoving)
                     WalkTo(_currentWalkTarget.Value);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"{Id}: EnsureMoving failed: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -865,7 +903,11 @@ namespace OverTheCounter.Logic
                 if (agent != null)
                     agent.avoidancePriority = priority;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"{Id}: SetAvoidancePriority({priority}) failed: {ex.Message}");
+            }
         }
 
         private int _savedAvoidanceType = -1;
@@ -883,7 +925,11 @@ namespace OverTheCounter.Logic
                 _savedAvoidanceType = (int)agent.obstacleAvoidanceType;
                 agent.obstacleAvoidanceType = UnityEngine.AI.ObstacleAvoidanceType.NoObstacleAvoidance;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"{Id}: DisableObstacleAvoidance failed: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -898,7 +944,11 @@ namespace OverTheCounter.Logic
                 agent.obstacleAvoidanceType = (UnityEngine.AI.ObstacleAvoidanceType)_savedAvoidanceType;
                 _savedAvoidanceType = -1;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"{Id}: RestoreObstacleAvoidance failed: {ex.Message}");
+            }
         }
 
         // =====================================================================
@@ -975,7 +1025,12 @@ namespace OverTheCounter.Logic
             if (ArrivedAtDestination)
             {
                 // Stop the NPC so they stand still during the pause (prevents twitching)
-                try { GameNpc.Movement?.Stop(); } catch { }
+                try { GameNpc.Movement?.Stop(); }
+                catch (Exception stopEx)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"{Id}: Movement.Stop failed during browse pause: {stopEx.Message}");
+                }
 
                 // Convert local shelf center to world for FacePosition
                 if (_browseShelfPositions != null && _browseTargetIndex < _browseShelfPositions.Count)
@@ -994,7 +1049,11 @@ namespace OverTheCounter.Logic
                 {
                     _hasVocalized = true;
                     try { GameNpc?.VoiceOverEmitter?.Play(EVOLineType.Think); }
-                    catch { }
+                    catch (Exception voiceEx)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Customer,
+                            $"{Id}: Think vocalization failed: {voiceEx.Message}");
+                    }
                 }
 
                 return false;
@@ -1109,7 +1168,11 @@ namespace OverTheCounter.Logic
                         EffectIds = effectIds
                     });
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"ScanStorageEntity: slot scan failed: {ex.Message}");
+                }
             }
         }
 
@@ -1124,7 +1187,11 @@ namespace OverTheCounter.Logic
             foreach (var (storage, _) in storages)
             {
                 try { ScanStorageEntity(storage); }
-                catch { }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"{Id}: ObserveFromStorageList: ScanStorageEntity failed: {ex.Message}");
+                }
             }
         }
 
@@ -1270,7 +1337,7 @@ namespace OverTheCounter.Logic
             var scored = new List<(ObservedProduct product, float appeal)>();
             var rng = new System.Random(SpawnSeed + 7919); // deterministic but different from pref gen
             int overBudgetCount = 0;
-            int lowAppealCount = 0;
+            int rejectedByChanceCount = 0;
 
             foreach (var obs in unique.Values)
             {
@@ -1308,27 +1375,24 @@ namespace OverTheCounter.Logic
                 // Normalize: InverseLerp(-0.6, 1.0, rawScore) → 0–1
                 float enjoyment = Mathf.InverseLerp(-0.6f, 1.0f, rawEnjoyment);
 
-                // --- Vanilla price factor ---
-                // priceRatio = price / marketValue
-                // priceScalar = Lerp(1, -1, priceRatio / 2) → cheap=+1, expensive=-1
-                float marketVal = obs.MarketValue > 0 ? obs.MarketValue : obs.Price;
-                float priceRatio = obs.Price / marketVal;
-                float priceScalar = Mathf.Lerp(1f, -1f, priceRatio / 2f);
+                // --- Ranking only ---
+                // Accept/reject now happens per-qty in step 5 via vanilla
+                // GetOfferSuccessChance, which matches the phone/street-deal
+                // acceptance curve exactly. Enjoyment is used purely to rank
+                // which product the customer prefers among the visible menu.
+                float appeal = enjoyment;
 
-                float appeal = enjoyment + priceScalar;
-
-                // Budget hard cutoff
+                // Budget hard cutoff — MaxBudgetPerItem is the walk-in's upper
+                // tolerance for a single product slot. Vanilla's daily-budget
+                // ratio check (hard cap at 3x) still fires in step 5.
                 if (obs.Price > Preferences.MaxBudgetPerItem) { overBudgetCount++; continue; }
 
-                if (appeal > 0f)
-                    scored.Add((obs, appeal));
-                else
-                    lowAppealCount++;
+                scored.Add((obs, appeal));
             }
 
             if (scored.Count == 0)
             {
-                LastRejection = overBudgetCount >= lowAppealCount
+                LastRejection = overBudgetCount > 0
                     ? RejectionReason.TooExpensive
                     : RejectionReason.LowAppeal;
                 return;
@@ -1338,11 +1402,10 @@ namespace OverTheCounter.Logic
             scored.Sort((a, b) => b.appeal.CompareTo(a.appeal));
 
             // 4. Track observed packaging multipliers per product
-            //    pkgMults: all distinct multipliers seen (e.g. [1, 5] for baggies+jars)
-            //    Random customers coin-flip between these when choosing qty.
-            //    minMult: smallest observed (qty must be a multiple of this — only jars? must buy 5,10,15)
+            //    pkgMults: all distinct multipliers seen (e.g. [1, 5] for baggies+jars).
+            //    Used only by the step-based fallback heuristic when the vanilla
+            //    budget path is unreachable — see fallback in the walk-in branch.
             var pkgMults = new Dictionary<string, List<int>>();
-            var minMult = new Dictionary<string, int>();
             foreach (var obs in _seenProducts)
             {
                 if (!pkgMults.TryGetValue(obs.ProductId, out var list))
@@ -1352,15 +1415,20 @@ namespace OverTheCounter.Logic
                 }
                 if (!list.Contains(obs.PkgMultiplier))
                     list.Add(obs.PkgMultiplier);
-                if (!minMult.TryGetValue(obs.ProductId, out var mn) || obs.PkgMultiplier < mn)
-                    minMult[obs.ProductId] = obs.PkgMultiplier;
             }
 
             // 5. Selection — budget-driven purchasing.
             //    Quantities are in raw product UNITS (not packages).
             //    Customers don't care about packaging — checkout determines that.
+            //
+            // Deal customers have a vanilla-derived per-visit budget and
+            // shop against it like a normal contract. Walk-ins use per-product
+            // budget sizing via TryGetWalkInBudgetQty (which mirrors vanilla's
+            // daily budget × enjoy scaling at OTC's asking price), so we do
+            // NOT treat the $40-100 GeneratePreferences walk-in budget as a
+            // deal-style cap — it's only used as MaxBudgetPerItem.
             float remainingBudget = Preferences.TotalOrderBudget;
-            bool useBudget = remainingBudget > 0;
+            bool useBudget = IsDealCustomer && remainingBudget > 0;
             var remaining = new List<(ObservedProduct product, float appeal)>(scored);
 
             while (remaining.Count > 0)
@@ -1382,38 +1450,96 @@ namespace OverTheCounter.Logic
                 int qty;
                 if (useBudget)
                 {
-                    // Deal customers: buy as many units as budget allows
-                    int canAfford = Mathf.Max(1, Mathf.FloorToInt(remainingBudget / pick.product.Price));
+                    // Deal customers: match vanilla TryGenerateContract's
+                    // TOTAL DOLLAR spend (Customer.cs:799-812), not just its
+                    // scaled budget. Vanilla's full expression is
+                    //     payment ≈ qty * prodPrice * Lerp(0.66, 1.5, enjoy)
+                    //             ≈ dailyBudget * offMult²
+                    // because the enjoyment scalar appears BOTH in the budget
+                    // scaling (num *= offMult) AND in the per-unit mark-up
+                    // (num2 = prodPrice * offMult). OTC previously only
+                    // scaled by offMult once, leaving a structural −5% to
+                    // −28% deficit vs vanilla spend (worse the higher the
+                    // enjoyment). We square it here so OTC's total revenue
+                    // lands at vanilla's dollar target regardless of whether
+                    // the mark-up lives in the asking price (greentab) or
+                    // the enjoyment premium (vanilla).
+                    float enjoyScale = Mathf.Lerp(0.66f, 1.5f, Mathf.Clamp01(pick.appeal));
+                    float scaledForProduct = remainingBudget * enjoyScale * enjoyScale;
+                    int canAfford = Mathf.Max(1, Mathf.RoundToInt(scaledForProduct / pick.product.Price));
                     qty = Mathf.Min(canAfford, pick.product.AvailableQuantity);
                 }
                 else
                 {
-                    // Random customers: coin-flip between observed packaging sizes
-                    // Saw jars+baggies? 50/50 pick between 5 and 1 as the step.
-                    // High appeal → grab 2 of that packaging size.
-                    int step = (mults != null && mults.Count > 0)
-                        ? mults[rng.Next(mults.Count)]
-                        : 1;
-                    qty = step;
-                    if (pick.appeal > 0.7f && pick.product.AvailableQuantity >= step * 2)
-                        qty = step * 2;
+                    // Walk-in customers: quantity MUST scale with OTC's asking
+                    // price the same way vanilla TryGenerateContract scales its
+                    // own offer, otherwise raising prices just reduces total
+                    // per-visit spend instead of causing customers to buy less
+                    // of something more expensive. Vanilla formula (Customer.cs
+                    // line 800–801) is:
+                    //     num  = dailyBudget * Lerp(0.66, 1.5, enjoyment)
+                    //     a    = round(num / unitPrice)
+                    // so `a * unitPrice ≈ scaledBudget` regardless of price.
+                    //
+                    // We feed OTC's asking unit price into the same formula so
+                    // qty ↓ as price ↑, keeping the walk-in's total spend in
+                    // the same ballpark vanilla would.
+                    int budgetQty = TryGetWalkInBudgetQty(pick.product);
+                    if (budgetQty > 0)
+                    {
+                        qty = budgetQty;
+                    }
+                    else
+                    {
+                        // Fallback: no vanilla Customer component available
+                        // (rare edge case). Use the old step-based heuristic.
+                        int step = (mults != null && mults.Count > 0)
+                            ? mults[rng.Next(mults.Count)]
+                            : 1;
+                        qty = step;
+                        if (pick.appeal > 0.7f && pick.product.AvailableQuantity >= step * 2)
+                            qty = step * 2;
+                    }
                     qty = Math.Min(qty, pick.product.AvailableQuantity);
                 }
                 if (qty <= 0) continue;
 
-                // Vanilla ceiling: Clamp to [1, 1000] per product, then
-                // round large orders to multiples of 5 (same as Customer.DecidePurchases)
+                // Vanilla ceiling: clamp to [1, 1000] per product. The
+                // vanilla /5 rounding above 14 is intentionally omitted —
+                // it creates sharp boundary artifacts when OTC's asking
+                // price lands raw qty just under the threshold (e.g. 11.4
+                // → 11) while the BM baseline lands just above (13.5 →
+                // 14 → 15), giving vanilla a free +4 unit bump OTC can't
+                // match. Skipping /5 rounding on OTC's side keeps spend
+                // tracking the dollar target set by offMult² above.
                 qty = Mathf.Clamp(qty, 1, 1000);
-                if (qty >= 14)
-                    qty = Mathf.RoundToInt(qty / 5f) * 5;
 
-                // Round qty down to a multiple of the smallest observed packaging
-                // (only saw jars? can only order 5, 10, 15... not 1 or 3)
-                int minStep = minMult.TryGetValue(pick.product.ProductId, out var ms) ? ms : 1;
-                if (minStep > 1)
+                // NOTE: We intentionally do NOT round qty to a multiple of the
+                // smallest *observed* packaging. Pre-breakdown this was needed
+                // (seeing only jars → must buy 5/10/15) but the checkout now
+                // splits any package into a largest-fit packaging partition via
+                // EmitBreakdownFragments, so a customer asking for 13g against a
+                // brick-only stock gets 2× 5g jars + 3× 1g baggies and the 7g
+                // remainder is repackaged back to storage. If we rounded here,
+                // a $60 walk-in wanting qty=11 against brick-only stock would
+                // floor to 0 and silently skip every product, causing the
+                // "customers refuse to buy bricks" symptom.
+
+                // --- Vanilla acceptance gate ---
+                // Use the exact same curve as Customer.GetOfferSuccessChance
+                // (the one vanilla dealer/phone deals roll against) so walk-in
+                // and deal acceptance stay in parity at the same price ratio.
+                float totalPrice = pick.product.Price * qty;
+                var eval = EvaluateVanillaOffer(pick.product, qty, totalPrice);
+
+                if (eval.Evaluated)
                 {
-                    qty = (qty / minStep) * minStep;
-                    if (qty <= 0) continue;
+                    double roll = rng.NextDouble();
+                    if (roll > eval.AcceptChance)
+                    {
+                        rejectedByChanceCount++;
+                        continue;
+                    }
                 }
 
                 SelectedProducts.Add(new SelectedProduct
@@ -1429,6 +1555,222 @@ namespace OverTheCounter.Logic
 
                 remainingBudget -= pick.product.Price * qty;
             }
+
+            // If we picked nothing because every roll came up reject, surface
+            // that as a price rejection (customer saw things they liked, but
+            // the markup was too high on the day).
+            if (SelectedProducts.Count == 0 && rejectedByChanceCount > 0)
+                LastRejection = RejectionReason.TooExpensive;
+        }
+
+        // =====================================================================
+        //  Vanilla acceptance evaluation
+        // =====================================================================
+
+        /// <summary>
+        /// Result of the vanilla acceptance probe for a single product.
+        /// </summary>
+        private struct VanillaOfferEval
+        {
+            /// <summary>
+            /// False when the vanilla <see cref="Customer"/> component couldn't
+            /// be resolved (no NPC, missing product definition, packaging
+            /// issues). Callers fall back to unconditionally accepting.
+            /// </summary>
+            public bool Evaluated;
+
+            /// <summary>
+            /// 0–1 probability that vanilla would accept this offer at
+            /// <c>askingPrice</c>, as returned by
+            /// <see cref="Customer.GetOfferSuccessChance"/>.
+            /// </summary>
+            public float AcceptChance;
+        }
+
+        /// <summary>
+        /// Resolves the NPC's vanilla <see cref="Customer"/> component, builds
+        /// a minimal <see cref="ItemInstance"/> for the product at the right
+        /// packaging+quality, and calls
+        /// <see cref="Customer.GetOfferSuccessChance"/> so OTC's acceptance
+        /// gate matches the curve vanilla dealer/phone deals roll against.
+        /// Returns a default result (Evaluated=false) if any step fails.
+        /// </summary>
+        private VanillaOfferEval EvaluateVanillaOffer(ObservedProduct obs, int qty, float askingPrice)
+        {
+            var result = default(VanillaOfferEval);
+            try
+            {
+                Customer customer = VanillaCustomer;
+                if (customer == null && GameNpc != null)
+                    customer = GameNpc.GetComponent<Customer>();
+                if (customer == null) return result;
+
+                ProductDefinition prodDef = FindProductDefinition(obs.ProductId);
+                if (prodDef == null) return result;
+
+                var validPack = prodDef.ValidPackaging;
+                if (validPack == null || validPack.Length == 0) return result;
+
+                // Use the smallest packaging (baggie=1 in most cases) and a
+                // stack size that makes Quantity*Amount == qty so the vanilla
+                // curve sees the right total unit count.
+                var pkg = validPack[0];
+                if (pkg == null || pkg.Quantity <= 0) return result;
+                int stack = Mathf.Max(1, qty / pkg.Quantity);
+
+                var defaultInstance = prodDef.GetDefaultInstance(stack);
+#if IL2CPP
+                var prodInstance = defaultInstance?.TryCast<ProductItemInstance>();
+#else
+                var prodInstance = defaultInstance as ProductItemInstance;
+#endif
+                if (prodInstance == null) return result;
+
+                prodInstance.SetPackaging(pkg);
+
+#if IL2CPP
+                var qInst = defaultInstance?.TryCast<QualityItemInstance>();
+#else
+                var qInst = defaultInstance as QualityItemInstance;
+#endif
+                EQuality quality = (EQuality)obs.QualityLevel;
+                if (qInst != null)
+                {
+                    try { qInst.SetQuality(quality); }
+                    catch (Exception qEx)
+                    {
+                        // Quality is cosmetic for acceptance — log and continue.
+                        OTCLog.Warning(OTCLog.Systems.Customer,
+                            $"SetQuality failed for '{obs.ProductId}': {qEx.Message}");
+                    }
+                }
+
+#if IL2CPP
+                var items = new Il2CppSystem.Collections.Generic.List<ItemInstance>();
+#else
+                var items = new List<ItemInstance>();
+#endif
+                items.Add(prodInstance);
+
+                result.AcceptChance = customer.GetOfferSuccessChance(items, askingPrice);
+                result.Evaluated = true;
+                return result;
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"EvaluateVanillaOffer failed for '{obs.ProductId}': {ex.Message}");
+                return default;
+            }
+        }
+
+        /// <summary>
+        /// Walk-in quantity driven by the NPC's real daily budget — mirrors
+        /// vanilla <c>TryGenerateContract</c>'s qty calculation, but against
+        /// OTC's asking price instead of <c>ProductDefinition.Price</c>.
+        /// Ensures price ↑ ⇒ qty ↓ so walk-in total spend stays near the
+        /// customer's actual budget regardless of the dispensary multiplier.
+        /// Returns 0 when the vanilla component isn't reachable (caller falls
+        /// back to step-based heuristic).
+        /// </summary>
+        private int TryGetWalkInBudgetQty(ObservedProduct obs)
+        {
+            try
+            {
+                Customer customer = VanillaCustomer;
+                if (customer == null && GameNpc != null)
+                    customer = GameNpc.GetComponent<Customer>();
+                if (customer == null) return 0;
+
+                float dailyBudget = TryGetVanillaDailyBudget(customer);
+                if (dailyBudget <= 0f) return 0;
+
+                // Enjoyment scalar — same as vanilla. Prefer the real game
+                // calculation so drug affinity / effects / quality weights
+                // agree with phone deals.
+                float enjoyment = 0.5f;
+                ProductDefinition prodDef = FindProductDefinition(obs.ProductId);
+                if (prodDef != null)
+                {
+                    try { enjoyment = customer.GetProductEnjoyment(prodDef, (EQuality)obs.QualityLevel); }
+                    catch (Exception enjEx)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Customer,
+                            $"GetProductEnjoyment failed for '{obs.ProductId}': {enjEx.Message}");
+                    }
+                }
+
+                // Square the enjoyment scalar to match vanilla's total
+                // dollar spend (see deal branch comment above — vanilla
+                // applies offMult both to the scaled budget AND to the
+                // per-unit mark-up, so the effective spend is offMult²).
+                float enjoyScale = Mathf.Lerp(0.66f, 1.5f, enjoyment);
+                float scaledBudget = dailyBudget * enjoyScale * enjoyScale;
+                if (obs.Price <= 0f) return 0;
+
+                int qty = Mathf.RoundToInt(scaledBudget / obs.Price);
+                // Clamp to at least 1 so a high-budget customer doesn't get
+                // rounded to 0 on a hugely expensive item — the acceptance
+                // gate in step 5 will reject overpriced offers anyway.
+                return Mathf.Clamp(qty, 1, 1000);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"TryGetWalkInBudgetQty failed for '{obs.ProductId}': {ex.Message}");
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Mirrors the vanilla daily-budget calc from <c>Customer.TryGenerateContract</c>:
+        /// <c>GetAdjustedWeeklySpend(relationDelta/5) / orderDays.Count</c>.
+        /// Returns 0 if any part of the chain is unavailable (no customerData,
+        /// no NPC, empty order days, etc.).
+        /// </summary>
+        private static float TryGetVanillaDailyBudget(Customer customer)
+        {
+            try
+            {
+                if (customer == null) return 0f;
+                var data = customer.CustomerData;
+                if (data == null) return 0f;
+                float relationDelta = customer.NPC != null ? customer.NPC.RelationData.RelationDelta / 5f : 0f;
+                float weekly = data.GetAdjustedWeeklySpend(relationDelta);
+                var orderDays = data.GetOrderDays(customer.CurrentAddiction, relationDelta);
+                int days = orderDays != null ? orderDays.Count : 0;
+                if (days <= 0) return 0f;
+                return weekly / days;
+            }
+            catch (Exception ex)
+            {
+                // Caller treats 0f as "vanilla unreachable, use fallback path" — log so
+                // recurring reachability issues aren't silent.
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"TryGetVanillaDailyBudget failed for {customer?.NPC?.FirstName ?? "?"}: {ex.Message}");
+                return 0f;
+            }
+        }
+
+        /// <summary>Lookup helper for <see cref="ProductDefinition"/> by ID.</summary>
+        private static ProductDefinition FindProductDefinition(string productId)
+        {
+            try
+            {
+                var listed = ProductManager.ListedProducts;
+                if (listed == null) return null;
+                for (int i = 0; i < listed.Count; i++)
+                {
+                    var p = listed[i];
+                    if (p != null && p.ID == productId) return p;
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"FindProductDefinition failed for '{productId}': {ex.Message}");
+            }
+            return null;
         }
 
         // =====================================================================
@@ -1487,7 +1829,11 @@ namespace OverTheCounter.Logic
                 GameNpc.DialogueHandler?.WorldspaceRend?.ShowText(line, 3f);
                 GameNpc.VoiceOverEmitter?.Play(EVOLineType.Annoyed);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"{Id}: ShowDisappointed failed: {ex.Message}");
+            }
         }
 
         // =====================================================================
