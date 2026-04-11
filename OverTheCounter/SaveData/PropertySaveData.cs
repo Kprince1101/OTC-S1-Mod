@@ -985,9 +985,15 @@ namespace OverTheCounter.SaveData
                 record.IsOwned = true;
 
                 if (propertyId == ShackId)
+                {
                     WestvilleShack.UnlockDoor();
+                    CreateStorefrontQuest();
+                }
                 else if (propertyId == DispensaryId)
+                {
                     Dispensary.UnlockDoor();
+                    CreateExpansionQuest();
+                }
                 else if (propertyId == WarehouseId)
                     OTCWarehouse.UnlockDoor();
             }
