@@ -746,22 +746,32 @@ namespace OverTheCounter.SaveData
             if (items.Count == 0)
                 return;
 
-            // ── DEDUP: fix saves corrupted by the counter duplication bug ──
-            // Multiple otc_checkout_counter entries accumulate over sessions when both the
-            // vanilla BuildManager and OTC save/restore the same GridItem. Prune only entries
-            // at the same coordinate — two counters at different positions (e.g. a dispensary
-            // with two checkouts) are valid and must both be preserved.
-            var seenCounterCoords = new HashSet<(float, float)>();
+            // ── DEDUP: prevent duplicate buildables from loading ──
+            // If two save entries share the same (PrefabId, CoordX, CoordZ), they represent
+            // the same buildable object at the same grid cell — keep the first, drop the rest.
+            // This covers checkout counters AND every other OTC grid item (racks, display cases,
+            // decor, etc.). Warn loudly so affected users can report corrupted saves.
+            // Coordinates are int-cast to match RestoreSlotContentsDeferred's cell-matching
+            // (protects against sub-pixel float drift across save/load cycles).
+            var seenKeys = new HashSet<(string, int, int)>();
             var dupItems = new List<OtcPlacedItem>();
+            var dupCountsByPrefab = new Dictionary<string, int>();
             foreach (var it in items)
             {
-                if (it.PrefabId != "otc_checkout_counter") continue;
-                if (!seenCounterCoords.Add((it.CoordX, it.CoordZ))) dupItems.Add(it);
+                var key = (it.PrefabId, (int)it.CoordX, (int)it.CoordZ);
+                if (!seenKeys.Add(key))
+                {
+                    dupItems.Add(it);
+                    dupCountsByPrefab.TryGetValue(it.PrefabId, out var n);
+                    dupCountsByPrefab[it.PrefabId] = n + 1;
+                }
             }
             if (dupItems.Count > 0)
             {
+                var breakdown = string.Join(", ", dupCountsByPrefab.Select(kv => $"{kv.Key}×{kv.Value}"));
                 OTCLog.Warning(OTCLog.Systems.General,
-                    $"RestorePlacedItems: pruning {dupItems.Count} duplicate counter save(s) for '{buildingId}'");
+                    $"RestorePlacedItems: pruned {dupItems.Count} duplicate save entr(ies) for '{buildingId}' ({breakdown}). " +
+                    $"If you see this repeatedly, please report it to the OverTheCounter mod developer.");
                 foreach (var dup in dupItems) _placedItems.Remove(dup);
                 items = GetPlacedItems(buildingId);
             }
