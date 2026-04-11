@@ -111,6 +111,26 @@ namespace OverTheCounter.Logic
             public int HotbarIndex;         // player hotbar index (-1 if from storage)
             public GameObject VisualPrefab;
             public ProductDefinition ProductDef;
+
+            // --- Breakdown fragment tracking (deferred commit) ---
+            // Fragments are "virtual" units pledged against a larger source package
+            // (brick/jar) that has NOT been touched yet. The source is only decremented
+            // and repackaged at sale commit (CommitBreakdownGroups), so right-click
+            // returns during placement don't lose the virtual units — the source
+            // remains intact and SearchAndShowAvailable can re-pledge against it.
+            public bool IsBreakdownFragment;
+            public ItemSlot BreakdownSourceSlot;
+            public int BreakdownSourceHotbarIdx;
+
+            // --- Ownership (multiplayer dupe guard) ---
+            // Steam ID of the player who placed this product. Protects the
+            // back-out scenario where Player 1 places items, pauses, and
+            // Player 2 then locks the checkout: Player 2 must not be able to
+            // right-click-return Player 1's items into their own inventory.
+            // Empty string means "unknown owner" (e.g. single-player or a
+            // networking lookup failure); in that case the guard is bypassed
+            // so we never deadlock SP players out of their own products.
+            public string OwnerSteamId;
         }
 
         /// <summary>A product found in storage/inventory, ready to be placed via sprite click.</summary>
@@ -135,15 +155,16 @@ namespace OverTheCounter.Logic
             public List<(ItemSlot slot, int hotbarIdx, int count)> SourceRefs;
 
             // --- Breakdown fragment tracking (brick/jar → baggie breakdown) ---
-            // When IsBreakdownFragment is true, this row represents a slice of a larger
-            // package that will be split on first consume. All fragments of the same
-            // source share a BreakdownGroupId; only the first click actually decrements
-            // the source slot and repackages the remainder via the placement fallback chain.
+            // When IsBreakdownFragment is true, this row is a "virtual" pledge
+            // against a larger package (brick/jar) that is still intact in its
+            // source slot. The source stays untouched through placement — clicks
+            // don't decrement anything. At sale commit (CommitBreakdownGroups),
+            // fragments carried over to CounterProduct are grouped by source slot
+            // and the slot is decremented then, with any remainder repackaged
+            // via the fallback chain.
             public bool IsBreakdownFragment;
-            public int BreakdownGroupId;
             public ItemSlot BreakdownSourceSlot;
             public int BreakdownSourceHotbarIdx;
-            public int BreakdownRemainderUnits; // non-zero only on the "owner" fragment of the group
         }
 
         // Constants
@@ -201,11 +222,6 @@ namespace OverTheCounter.Logic
 
         // Products available for placement (from storage/inventory search)
         private readonly List<AvailableProduct> _availableProducts = new();
-
-        // Breakdown tracking: which breakdown groups have already split their source.
-        // Persists across SearchAndShowAvailable rebuilds for the lifetime of this checkout.
-        private readonly HashSet<int> _breakdownGroupsConsumed = new();
-        private int _nextBreakdownGroupId;
 
         // Tracking which requested products are missing (not found anywhere), keyed by ProductId
         private readonly HashSet<string> _missingProductKeys = new();
@@ -344,7 +360,14 @@ namespace OverTheCounter.Logic
                 int sep = rest.IndexOf(':');
                 string custId = sep > 0 ? rest.Substring(0, sep) : rest;
 
-                if (Instance != null)
+                // Deny if EITHER the host has a local checkout running OR
+                // another client already holds the lock. Relying only on
+                // `Instance != null` would miss the second case because when
+                // a client owns the checkout the host's local Instance stays
+                // null — the lock lives in CurrentLockHolder (pushed via
+                // PublishCheckoutState). Without this check, Player 2 could
+                // grab the lock mid-pause and reach Player 1's counter state.
+                if (Instance != null || !string.IsNullOrEmpty(CurrentLockHolder))
                 {
                     SaveData.NetworkP2PBridge.SendTo(senderId, P2P_LOCK_RES, "DENY:IN_USE");
                     return;
@@ -934,6 +957,18 @@ namespace OverTheCounter.Logic
                 int lastIdx = Instance._counterProducts.Count - 1;
                 var product = Instance._counterProducts[lastIdx];
 
+                // Multiplayer dupe guard: if this product was placed by a
+                // different player (Player 1 backed out, Player 2 locked the
+                // paused checkout), silently refuse the right-click so they
+                // can't return stolen items into their own inventory. Empty
+                // OwnerSteamId means single-player or unresolved network ID
+                // so we bypass the check to avoid locking SP out.
+                string localId = SaveData.ConfigSyncData.LocalPlayerId ?? "";
+                if (!string.IsNullOrEmpty(product.OwnerSteamId) &&
+                    !string.IsNullOrEmpty(localId) &&
+                    product.OwnerSteamId != localId)
+                    return;
+
                 if (!ReturnProduct(product))
                     return;
 
@@ -1399,7 +1434,16 @@ namespace OverTheCounter.Logic
                 SourceSlot = product.SourceSlot,
                 HotbarIndex = product.HotbarIndex,
                 VisualPrefab = product.VisualPrefab,
-                ProductDef = product.ProductDef
+                ProductDef = product.ProductDef,
+                // Propagate breakdown metadata so CommitBreakdownGroups can
+                // group by source slot at sale completion.
+                IsBreakdownFragment = product.IsBreakdownFragment,
+                BreakdownSourceSlot = product.BreakdownSourceSlot,
+                BreakdownSourceHotbarIdx = product.BreakdownSourceHotbarIdx,
+                // Stamp placement with the local player's Steam ID so a
+                // different player can't right-click-return this item during
+                // a paused/back-out scenario (multiplayer dupe guard).
+                OwnerSteamId = SaveData.ConfigSyncData.LocalPlayerId ?? ""
             });
             RebuildCounterVisuals();
         }
@@ -1553,8 +1597,25 @@ namespace OverTheCounter.Logic
         //  Pause / Resume
         // =================================================================
 
+        /// <summary>
+        /// Pauses an in-progress checkout so the player can walk away (R / Tab).
+        /// Called from both the pause hotkey path and the checkout-state machine
+        /// when focus is lost. On entry this method invokes
+        /// <see cref="CommitBreakdownGroups"/> to force-materialise any outstanding
+        /// breakdown fragments before the player backs out: fragments are
+        /// "virtual" pledges against a large source package (brick/jar) that has
+        /// not been touched yet, so without an early commit the player could
+        /// pause, physically relocate the source, and then complete the sale,
+        /// shipping phantom jars to the customer while the source still sat in
+        /// another property's storage. Committing here decrements the slot,
+        /// repackages the remainder through the placement fallback chain, and
+        /// promotes successful groups to real counter products inline so
+        /// resume / sale completion / right-click all see materialised items.
+        /// </summary>
         private void PauseCheckout()
         {
+            CommitBreakdownGroups();
+
             _state = State.Paused;
             BudtenderHUD.Hide();
             UnlockPlayerInput();
@@ -1588,6 +1649,12 @@ namespace OverTheCounter.Logic
 
         private void TransitionToCustomerPickup()
         {
+            // Commit any deferred breakdown fragments NOW — the sale is locked in,
+            // so it's safe to decrement the source brick/jar slots and repackage
+            // the remainder into storage. After this point, nothing else can return
+            // fragments to the counter.
+            CommitBreakdownGroups();
+
             // Customer plays GrabItem animation
             try
             {
@@ -1844,11 +1911,12 @@ namespace OverTheCounter.Logic
         /// Splits larger packages to cover a shortfall left by the greedy fill. Each
         /// split emits multiple <see cref="AvailableProduct"/> rows whose packaging is
         /// the largest-fit partition of the taken units (e.g. a 13g split from a 20g
-        /// brick produces 2× 5g jars + 3× 1g baggies, not 13× 1g baggies). All rows
-        /// from the same split share a <see cref="AvailableProduct.BreakdownGroupId"/>
-        /// so <see cref="ConsumeFromSource(AvailableProduct)"/> only decrements the
-        /// source slot once and only repackages the remainder once, regardless of how
-        /// many rows the customer picks up.
+        /// brick produces 2× 5g jars + 3× 1g baggies, not 13× 1g baggies). Emitted
+        /// rows do NOT decrement the source slot — they are "virtual" pledges that
+        /// carry over to <see cref="CounterProduct"/> on click. The source stays
+        /// intact through placement and is only split at sale commit by
+        /// <see cref="CommitBreakdownGroups"/>, which groups pledged fragments by
+        /// source slot and consumes ceil(totalPledged / sourceMult) packages.
         ///
         /// Split-source selection runs as a loop so multiple sources can be consumed in sequence:
         ///   1. Prefer the smallest candidate whose mult covers the remaining shortfall
@@ -1961,8 +2029,10 @@ namespace OverTheCounter.Logic
                 if (bestIdx < 0) break; // no splittable candidates left
 
                 var c = candidates[bestIdx];
-                // Take only as much as we still need from this package; the rest
-                // becomes the repackaged remainder held by the first fragment.
+                // Take only as much as we still need from this package. The remainder
+                // (c.mult - take) is not tracked per-row — CommitBreakdownGroups sums
+                // pledged units at commit time and computes the leftover from the
+                // live source slot's actual packaging size.
                 int take = Math.Min(shortfall, c.mult);
                 if (take % fragmentMult != 0)
                 {
@@ -1971,10 +2041,6 @@ namespace OverTheCounter.Logic
                     takenPerCandidate[bestIdx]++;
                     continue;
                 }
-
-                int remainderUnits = c.mult - take;
-                int groupId = ++_nextBreakdownGroupId;
-                bool firstRowEmitted = false;
 
                 // Split `take` into the largest valid packagings first so the customer
                 // sees e.g. 2× 5g jars + 3× 1g baggies for a 13g split, not 13 baggies.
@@ -2004,14 +2070,9 @@ namespace OverTheCounter.Logic
                             SourceSlot = null,
                             HotbarIndex = -1,
                             IsBreakdownFragment = true,
-                            BreakdownGroupId = groupId,
                             BreakdownSourceSlot = c.slot,
-                            BreakdownSourceHotbarIdx = c.hotbarIdx,
-                            // Only the FIRST emitted row of this group owns the
-                            // remainder — SplitBreakdownSource repackages once.
-                            BreakdownRemainderUnits = firstRowEmitted ? 0 : remainderUnits
+                            BreakdownSourceHotbarIdx = c.hotbarIdx
                         });
-                        firstRowEmitted = true;
                     }
                 }
 
@@ -2337,18 +2398,13 @@ namespace OverTheCounter.Logic
 
         private void ConsumeFromSource(AvailableProduct product)
         {
-            // Breakdown fragments: only the first click per group splits the source
-            // slot and repackages the remainder. Subsequent fragment clicks in the
-            // same group are no-ops because the source is already gone.
+            // Breakdown fragments: defer. We do NOT touch the source slot here —
+            // the fragments are "virtual" pledges against an intact brick/jar that
+            // only gets split at sale completion (CommitBreakdownGroups). This lets
+            // the player right-click fragments off the counter without losing the
+            // virtual units or mutating inventory mid-placement.
             if (product.IsBreakdownFragment)
-            {
-                if (_breakdownGroupsConsumed.Contains(product.BreakdownGroupId))
-                    return;
-
-                _breakdownGroupsConsumed.Add(product.BreakdownGroupId);
-                SplitBreakdownSource(product);
                 return;
-            }
 
             if (product.SourceRefs != null && product.SourceRefs.Count > 0)
             {
@@ -2363,68 +2419,223 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Splits a larger package (brick/jar) represented by a breakdown fragment:
-        /// decrements the source slot by one package and repackages the leftover
-        /// units via the placement fallback chain. The fragments themselves become
-        /// ephemeral CounterProducts that already reflect the broken-down packaging,
-        /// so no extra consume is needed.
+        /// Commits all deferred breakdown fragments currently on the counter. Called
+        /// once at sale completion (TransitionToCustomerPickup), before the customer
+        /// walks away with their goods.
+        ///
+        /// Fragments are grouped by their <i>source slot</i> so multiple search
+        /// rebuilds against the same brick collapse into a single
+        /// consume + single remainder repackaging. Without slot-grouping, right-clicks
+        /// that trigger a re-search would split a second brick even though the player
+        /// only took enough product to fit one — wasteful on packaging.
+        ///
+        /// For each unique source slot:
+        ///   1. Sum pledged units across its fragments.
+        ///   2. Consume ceil(total / sourceMult) packages from the slot.
+        ///   3. Repackage (packagesConsumed*sourceMult − total) leftover units into
+        ///      the largest-fit packaging and place via TryPlaceItemAnywhere.
         /// </summary>
-        private void SplitBreakdownSource(AvailableProduct owner)
+        private void CommitBreakdownGroups()
         {
+            if (_counterProducts.Count == 0) return;
+
+            // Group pending fragments by source slot. Each group stores the
+            // _counterProducts indices of its members so successful commits can
+            // flip the fragment flags in place (and failed groups are left alone,
+            // preserving the virtual pledge so a retry or abort can still act on
+            // them instead of silently promoting them to real items).
+            //
+            // Parallel lists are used instead of ValueTuple-in-dict so struct
+            // CounterProducts living on a MonoBehaviour stay IL2CPP-friendly.
+            var slotKeys = new List<ItemSlot>();
+            var hotbarKeys = new List<int>();
+            var fragmentIndexLists = new List<List<int>>();
+
+            for (int i = 0; i < _counterProducts.Count; i++)
+            {
+                var cp = _counterProducts[i];
+                if (!cp.IsBreakdownFragment) continue;
+
+                int keyIdx = -1;
+                for (int k = 0; k < slotKeys.Count; k++)
+                {
+                    // Match on slot reference first, then on hotbar index for player-inventory sources.
+                    bool slotMatch = cp.BreakdownSourceSlot != null
+                                     && ReferenceEquals(slotKeys[k], cp.BreakdownSourceSlot);
+                    bool hotbarMatch = cp.BreakdownSourceSlot == null
+                                       && slotKeys[k] == null
+                                       && hotbarKeys[k] == cp.BreakdownSourceHotbarIdx;
+                    if (slotMatch || hotbarMatch)
+                    {
+                        keyIdx = k;
+                        break;
+                    }
+                }
+
+                if (keyIdx < 0)
+                {
+                    slotKeys.Add(cp.BreakdownSourceSlot);
+                    hotbarKeys.Add(cp.BreakdownSourceHotbarIdx);
+                    fragmentIndexLists.Add(new List<int> { i });
+                }
+                else
+                {
+                    fragmentIndexLists[keyIdx].Add(i);
+                }
+            }
+
+            for (int g = 0; g < slotKeys.Count; g++)
+            {
+                if (SplitBreakdownSourceGroup(slotKeys[g], hotbarKeys[g], fragmentIndexLists[g]))
+                    PromoteFragmentsToRealProducts(fragmentIndexLists[g]);
+            }
+        }
+
+        /// <summary>
+        /// Flips a set of committed fragment rows (identified by their index in
+        /// <see cref="_counterProducts"/>) into regular counter products. Called
+        /// only after <see cref="SplitBreakdownSourceGroup"/> reports success, so
+        /// the source was actually decremented and the remainder placed — the
+        /// fragments are now real items and must no longer be touched by a
+        /// subsequent commit pass or the fragment short-circuit in
+        /// <see cref="ReturnProduct(CounterProduct)"/>.
+        /// </summary>
+        private void PromoteFragmentsToRealProducts(List<int> indices)
+        {
+            if (indices == null) return;
+            for (int i = 0; i < indices.Count; i++)
+            {
+                int idx = indices[i];
+                if (idx < 0 || idx >= _counterProducts.Count) continue;
+                var cp = _counterProducts[idx];
+                cp.IsBreakdownFragment = false;
+                cp.BreakdownSourceSlot = null;
+                cp.BreakdownSourceHotbarIdx = -1;
+                _counterProducts[idx] = cp;
+            }
+        }
+
+        /// <summary>
+        /// Performs the actual split for one (source slot, hotbar index) group of
+        /// fragments. Consumes ceil(totalPledged / sourceMult) packages from the
+        /// slot and repackages the remainder via the placement fallback chain.
+        /// Returns true on full success, false if the source couldn't be resolved
+        /// or any repackaged remainder failed to place — a false return leaves
+        /// the fragments untouched so the caller won't promote them to real items.
+        /// </summary>
+        private bool SplitBreakdownSourceGroup(
+            ItemSlot srcSlot,
+            int srcHotbarIdx,
+            List<int> fragmentIndices)
+        {
+            if (fragmentIndices == null || fragmentIndices.Count == 0) return false;
+
+            // Tracks whether we decremented the source slot. If we did, the
+            // fragments MUST be promoted even on a later exception — otherwise a
+            // retry pass would double-consume an already-empty slot.
+            bool sourceConsumed = false;
+
             try
             {
-                // Capture the original source quality BEFORE decrementing the slot —
-                // otherwise a 1-quantity brick gets cleared and we lose the instance.
-                int originalQualityLevel = owner.QualityLevel;
-                ItemSlot srcSlot = null;
-                if (owner.BreakdownSourceSlot != null)
+                // Sum pledged units and pick up shared metadata from the fragments.
+                // Fragments in a single group all came from the same source, so
+                // the first one's quality is canonical — no need to scan.
+                int totalPledged = 0;
+                string productName = "";
+                ProductDefinition prodDef = null;
+                int qualityLevel = 0;
+                bool metadataPicked = false;
+                for (int i = 0; i < fragmentIndices.Count; i++)
                 {
-                    srcSlot = owner.BreakdownSourceSlot;
+                    int idx = fragmentIndices[i];
+                    if (idx < 0 || idx >= _counterProducts.Count) continue;
+                    var f = _counterProducts[idx];
+                    totalPledged += f.UnitCount;
+                    if (!metadataPicked)
+                    {
+                        productName = f.ProductName;
+                        prodDef = f.ProductDef;
+                        qualityLevel = f.QualityLevel;
+                        metadataPicked = true;
+                    }
                 }
-                else if (owner.BreakdownSourceHotbarIdx >= 0)
+                if (totalPledged <= 0 || prodDef == null) return false;
+
+                // Resolve the live slot once up front. For player-inventory
+                // fragments the slot ref is null, so walk the hotbar index
+                // instead, then pass the resolved slot directly to the consume
+                // helper so it doesn't re-walk the hotbar.
+                ItemSlot resolvedSlot = srcSlot;
+                if (resolvedSlot == null && srcHotbarIdx >= 0)
                 {
                     var inv = PlayerSingleton<PlayerInventory>.Instance;
-                    if (inv?.hotbarSlots != null && owner.BreakdownSourceHotbarIdx < inv.hotbarSlots.Count)
-                        srcSlot = inv.hotbarSlots[owner.BreakdownSourceHotbarIdx];
+                    if (inv?.hotbarSlots != null && srcHotbarIdx < inv.hotbarSlots.Count)
+                        resolvedSlot = inv.hotbarSlots[srcHotbarIdx];
                 }
 
-                if (srcSlot?.ItemInstance != null)
+                if (resolvedSlot?.ItemInstance == null)
                 {
-#if IL2CPP
-                    var srcProductItem = srcSlot.ItemInstance.TryCast<ProductItemInstance>();
-#else
-                    var srcProductItem = srcSlot.ItemInstance as ProductItemInstance;
-#endif
-                    if (srcProductItem != null)
-                        originalQualityLevel = (int)srcProductItem.Quality;
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"CommitBreakdownGroups: source slot for '{productName}' is empty, leaving {totalPledged} pledged units as virtual fragments");
+                    return false;
                 }
 
-                // Decrement the source slot by 1 package (the brick/jar we're splitting).
-                ConsumeFromSource(
-                    owner.BreakdownSourceSlot,
-                    owner.BreakdownSourceHotbarIdx,
-                    owner.ProductName);
+                // Read the source packaging BEFORE any consume — the slot may end
+                // up cleared after the first decrement (e.g. a 1-quantity brick).
+                int sourceMult = 1;
+#if IL2CPP
+                var srcProductItem = resolvedSlot.ItemInstance.TryCast<ProductItemInstance>();
+#else
+                var srcProductItem = resolvedSlot.ItemInstance as ProductItemInstance;
+#endif
+                if (srcProductItem != null)
+                {
+                    if (srcProductItem.AppliedPackaging != null && srcProductItem.AppliedPackaging.Quantity > 0)
+                        sourceMult = srcProductItem.AppliedPackaging.Quantity;
+                    qualityLevel = (int)srcProductItem.Quality;
+                }
 
-                // Repackage the remainder into the largest-fit packaging and place
-                // each produced instance via the fallback chain.
-                int remainder = owner.BreakdownRemainderUnits;
-                if (remainder <= 0 || owner.ProductDef == null) return;
+                // Consume enough whole packages from the slot to cover the pledge.
+                // ceil((totalPledged) / sourceMult); this may be more than one
+                // package if a re-search pledged fragments beyond a single brick's
+                // capacity (rare but possible when multiple bricks live in one slot).
+                int packagesToConsume = (totalPledged + sourceMult - 1) / sourceMult;
+                int remainderUnits = packagesToConsume * sourceMult - totalPledged;
 
-                var validPack = owner.ProductDef.ValidPackaging;
-                if (validPack == null || validPack.Length == 0) return;
+                // Flip sourceConsumed inside the loop so that a throw mid-way
+                // through a multi-package consume still leaves the flag set
+                // for earlier iterations. Without this, a second commit pass
+                // would over-consume: the partial decrement from the first
+                // iteration is already physical, but fragments would stay
+                // "virtual" and a retry would try to decrement again.
+                for (int i = 0; i < packagesToConsume; i++)
+                {
+                    ConsumeFromSource(resolvedSlot, -1, productName);
+                    sourceConsumed = true;
+                }
 
-                // Largest-first packaging (mirrors ConsolidateAvailableEntries layout).
-                for (int p = validPack.Length - 1; p >= 0 && remainder > 0; p--)
+                if (remainderUnits <= 0) return true;
+
+                var validPack = prodDef.ValidPackaging;
+                if (validPack == null || validPack.Length == 0)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"CommitBreakdownGroups: no valid packaging defs for '{productName}', {remainderUnits} units lost");
+                    return false;
+                }
+
+                // Largest-first repackaging (mirrors ConsolidateAvailableEntries layout).
+                for (int p = validPack.Length - 1; p >= 0 && remainderUnits > 0; p--)
                 {
                     var pkg = validPack[p];
                     if (pkg == null || pkg.Quantity <= 0) continue;
-                    int count = remainder / pkg.Quantity;
+                    int count = remainderUnits / pkg.Quantity;
                     if (count <= 0) continue;
-                    remainder -= count * pkg.Quantity;
+                    remainderUnits -= count * pkg.Quantity;
 
                     for (int i = 0; i < count; i++)
                     {
-                        var instance = owner.ProductDef.GetDefaultInstance(1);
+                        var instance = prodDef.GetDefaultInstance(1);
 #if IL2CPP
                         var prodInstance = instance?.TryCast<ProductItemInstance>();
 #else
@@ -2441,32 +2652,43 @@ namespace OverTheCounter.Logic
 #endif
                         if (qInst != null)
                         {
-                            try { qInst.SetQuality((EQuality)originalQualityLevel); }
+                            try { qInst.SetQuality((EQuality)qualityLevel); }
                             catch (Exception ex)
                             {
                                 OTCLog.Warning(OTCLog.Systems.Customer,
-                                    $"SplitBreakdownSource: SetQuality failed: {ex.Message}");
+                                    $"CommitBreakdownGroups: SetQuality failed: {ex.Message}");
                             }
                         }
 
-                        if (!TryPlaceItemAnywhere(prodInstance, owner.BreakdownSourceSlot))
+                        if (!TryPlaceItemAnywhere(prodInstance, resolvedSlot))
                         {
                             OTCLog.Warning(OTCLog.Systems.Customer,
-                                $"SplitBreakdownSource: no room for {owner.ProductName} {pkg.ID} remainder — destroying");
+                                $"CommitBreakdownGroups: no room for {productName} {pkg.ID} remainder, destroying");
                         }
                     }
                 }
 
-                if (remainder > 0)
+                if (remainderUnits > 0)
                 {
                     OTCLog.Warning(OTCLog.Systems.Customer,
-                        $"SplitBreakdownSource: {remainder} units of {owner.ProductName} could not be repackaged (no valid small packaging)");
+                        $"CommitBreakdownGroups: {remainderUnits} units of {productName} could not be repackaged (no valid small packaging)");
                 }
+
+                // Partial remainder placement failures are treated as a
+                // logged warning but still a successful commit: the source
+                // has already been decremented (see sourceConsumed) and the
+                // pledged product now exists as real counter products. A
+                // false return here would trigger a second commit pass that
+                // tries to decrement the already-empty source slot again.
+                return true;
             }
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Customer,
-                    $"SplitBreakdownSource failed for '{owner.ProductName}': {ex.Message}");
+                    $"CommitBreakdownGroups failed: {ex.Message}");
+                // If the source was already decremented before the exception,
+                // the fragments MUST be promoted so a retry doesn't over-consume.
+                return sourceConsumed;
             }
         }
 
@@ -2578,6 +2800,13 @@ namespace OverTheCounter.Logic
         /// </summary>
         private static bool ReturnProduct(CounterProduct product)
         {
+            // Deferred breakdown fragments never touched the source slot — the
+            // brick/jar is still intact in its original slot. Removing the fragment
+            // from the counter is enough; creating a fresh baggie here would
+            // duplicate product. Caller drops the CounterProduct from the list.
+            if (product.IsBreakdownFragment)
+                return true;
+
             try
             {
                 // Create item instance to return
@@ -3195,13 +3424,6 @@ namespace OverTheCounter.Logic
             }
             _counterVisuals.Clear();
             _counterProducts.Clear();
-
-            // Drop the per-transaction breakdown-group tracker so the HashSet
-            // doesn't grow across back-to-back customers. Group IDs are only
-            // meaningful within a single checkout — reset the counter too so
-            // fresh transactions start clean.
-            _breakdownGroupsConsumed.Clear();
-            _nextBreakdownGroupId = 0;
 
             if (_popAudioGo != null)
             {

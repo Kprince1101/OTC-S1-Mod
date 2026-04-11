@@ -476,6 +476,14 @@ namespace OverTheCounter.SaveData
                 string payload = $"{++_checkoutSeq}|{lockHolder}|{customerId}|{registerBal.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
                 if (IsNetworkLibAvailable)
                     PublishCheckoutStateImpl(payload);
+
+                // Host-side SyncVar callback doesn't fire on the same peer
+                // that pushed the value, so mirror the state into
+                // CheckoutProcess manually. Without this, the host-side lock
+                // handler (OnP2PLockRequest) can't see that a client holds
+                // the lock and would grant a second concurrent lock to
+                // another client on an already-paused checkout.
+                Logic.CheckoutProcess.OnLockStateChanged(lockHolder, customerId);
             }
             catch (Exception ex)
             {
