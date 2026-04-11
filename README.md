@@ -143,6 +143,10 @@ If you prefer not to use a mod manager, you'll need to install each dependency y
 8.  **(Optional, recommended)** Install **[OTC Loader](https://www.nexusmods.com/schedule1/mods/1698)** separately. It automatically disables wrong-branch DLLs for all mods. See the dedicated section below.
 9.  Launch the game. If anything is missing, the dependency checker popup will tell you what and where.
 
+## Bug Reports & Roadmap
+* **Report a bug:** [tally.so/r/1AJral](https://tally.so/r/1AJral)
+* **Public tracker (roadmap, known issues, upcoming features):** [Trello board](https://trello.com/b/TRiu5Apv/overthecounter-tracker)
+
 ## Configuration
 Settings are stored in MelonLoader's config file and organized into the following categories:
 
