@@ -66,7 +66,7 @@ namespace OverTheCounter.UI
                     expectedFolder: "Plugins", folderPaths: folders),
                 Check("S1API", "S1API",
                     "Install S1API. The S1API mod file goes in your Mods folder.",
-                    excludePrefix: "S1APILoader", minVersion: "3.0.3",
+                    excludePrefix: "S1APILoader", minVersion: "3.0.0",
                     expectedFolder: "Mods", folderPaths: folders),
                 Check("S1MAPI", "S1MAPI",
                     "Install S1MAPI. Place the S1MAPI DLL in your UserLibs folder.",
@@ -77,6 +77,8 @@ namespace OverTheCounter.UI
                     minVersion: "1.0.8",
                     expectedFolder: "Plugins", folderPaths: folders),
             };
+
+            ApplyTempS1ApiVersionOverride(_results);
 
             HasMissingDeps = Array.Exists(_results, r => !r.Found || !r.VersionOk || r.WrongBranch);
 
@@ -339,6 +341,68 @@ namespace OverTheCounter.UI
             var ver = asm.GetName().Version;
             if (ver == null) return null;
             return ver.Revision > 0 ? ver.ToString() : $"{ver.Major}.{ver.Minor}.{ver.Build}";
+        }
+
+        // =====================================================================
+        // TEMPORARY: S1API Thunderstore version workaround
+        // ---------------------------------------------------------------------
+        // S1API 3.0.2 shipped with a bug that breaks OTC. The author re-released
+        // it as "3.0.2r2" (and later 3.0.3), but the "r2" suffix is not valid
+        // System.Version syntax — Version.TryParse fails, so GetBestVersion
+        // falls back to AssemblyVersion (usually 1.0.0.0) and the normal
+        // >= minVersion comparison incorrectly flags working installs as
+        // outdated. On top of that, Thunderstore normalizes "3.0.2r2" to
+        // "3.0.22" for its own semver sort, so many users end up stuck on the
+        // r2 build with no easy path to 3.0.3.
+        //
+        // Accepted: 3.0.0, 3.0.1, 3.0.2r2, 3.0.3 (and any future 3.0.3+ release).
+        // Rejected: anything < 3.0.0, and 3.0.2 exactly.
+        //
+        // TODO: Remove this override once Thunderstore hosts a clean S1API
+        // release (e.g. 3.0.4+) that System.Version can parse directly.
+        // When removing: delete this method, delete the call site in
+        // RunChecks, and raise S1API minVersion back up to the new floor.
+        // =====================================================================
+        private static void ApplyTempS1ApiVersionOverride(DepResult[] results)
+        {
+            int idx = Array.FindIndex(results, r => r.Name == "S1API");
+            if (idx < 0) return;
+            var r = results[idx];
+            if (!r.Found) return;
+
+            string raw = null;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try
+                {
+                    if (asm.GetName().Name != "S1API") continue;
+                    foreach (var data in CustomAttributeData.GetCustomAttributes(asm))
+                    {
+                        if (data.AttributeType.Name != "MelonInfoAttribute") continue;
+                        if (data.ConstructorArguments.Count >= 3)
+                            raw = data.ConstructorArguments[2].Value as string;
+                        break;
+                    }
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.General,
+                        $"S1API raw version read failed: {ex.Message}");
+                }
+            }
+            if (string.IsNullOrEmpty(raw)) return;
+
+            bool accepted;
+            if (raw == "3.0.2r2") accepted = true;
+            else if (raw == "3.0.2") accepted = false;
+            else if (Version.TryParse(raw, out var parsed)) accepted = parsed >= new Version(3, 0, 0);
+            else accepted = false;
+
+            r.Version = raw;
+            r.VersionOk = accepted;
+            r.MinVersion = "3.0.0, 3.0.1, 3.0.2r2, or 3.0.3 (not 3.0.2)";
+            results[idx] = r;
         }
 
         /// <summary>
