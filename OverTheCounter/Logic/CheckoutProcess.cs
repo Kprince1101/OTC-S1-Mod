@@ -2730,9 +2730,9 @@ namespace OverTheCounter.Logic
                     return true;
                 }
 
-                // 3. Any other storage entity on the property grid
-                var shackGrid = WestvilleShack.ShackGrid;
-                if (shackGrid != null && BuildingGridFactory.GridContainers.TryGetValue(shackGrid, out var buildingRoot))
+                // 3. Any other storage entity on the active counter's property.
+                var propertyGrid = Instance?._counter?.ParentGrid;
+                if (propertyGrid != null && BuildingGridFactory.GridContainers.TryGetValue(propertyGrid, out var buildingRoot))
                 {
 #if IL2CPP
                     var storages = buildingRoot.GetComponentsInChildren<StorageEntity>(true);
@@ -2858,9 +2858,9 @@ namespace OverTheCounter.Logic
                     return true;
                 }
 
-                // 3. Try any other storage entity on the property grid
-                var shackGrid = WestvilleShack.ShackGrid;
-                if (shackGrid != null && BuildingGridFactory.GridContainers.TryGetValue(shackGrid, out var buildingRoot))
+                // 3. Try any other storage entity on the active counter's property
+                var propertyGrid = Instance?._counter?.ParentGrid;
+                if (propertyGrid != null && BuildingGridFactory.GridContainers.TryGetValue(propertyGrid, out var buildingRoot))
                 {
 #if IL2CPP
                     var storages = buildingRoot.GetComponentsInChildren<StorageEntity>(true);
