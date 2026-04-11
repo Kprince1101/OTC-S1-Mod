@@ -38,6 +38,10 @@ namespace OverTheCounter.UI
             public string Instruction;
             public string Version;
             public string MinVersion;
+            /// <summary>Optional human-readable requirement text shown in logs/popup
+            /// instead of <c>v{MinVersion}</c>. Populated by version overrides that
+            /// need to describe an allowlist (e.g. the S1API 3.0.2r2 workaround).</summary>
+            public string MinVersionText;
             public bool VersionOk;
             public bool WrongBranch;
             public string MisplacedPath;
@@ -111,8 +115,9 @@ namespace OverTheCounter.UI
                 }
                 else if (!r.VersionOk)
                 {
+                    var req = r.MinVersionText ?? $"v{r.MinVersion}";
                     OTCLog.Warning(OTCLog.Systems.General,
-                        $"  OUTDATED: {r.Name} (v{r.Version}, requires v{r.MinVersion})");
+                        $"  OUTDATED: {r.Name} (v{r.Version}, requires {req})");
                 }
             }
             OTCLog.Warning(OTCLog.Systems.General,
@@ -159,8 +164,9 @@ namespace OverTheCounter.UI
                 }
                 else if (!r.VersionOk)
                 {
+                    var req = r.MinVersionText ?? $"v{r.MinVersion}";
                     OTCLog.Warning(OTCLog.Systems.Network,
-                        $"  OUTDATED: {r.Name} (v{r.Version}, requires v{r.MinVersion})");
+                        $"  OUTDATED: {r.Name} (v{r.Version}, requires {req})");
                 }
             }
             OTCLog.Warning(OTCLog.Systems.Network,
@@ -391,7 +397,21 @@ namespace OverTheCounter.UI
                         $"S1API raw version read failed: {ex.Message}");
                 }
             }
-            if (string.IsNullOrEmpty(raw)) return;
+            // Guard: if the raw lookup failed (exception, missing attribute, etc.)
+            // but Check() already captured a version string via GetBestVersion, make
+            // sure we don't accidentally let broken 3.0.2 through just because the
+            // second MelonInfo read couldn't get the raw value. Re-check r.Version
+            // against the same accept/reject rules.
+            if (string.IsNullOrEmpty(raw))
+            {
+                if (r.Version == "3.0.2")
+                {
+                    r.VersionOk = false;
+                    r.MinVersionText = "3.0.0, 3.0.1, 3.0.2r2, or 3.0.3 (not 3.0.2)";
+                    results[idx] = r;
+                }
+                return;
+            }
 
             bool accepted;
             if (raw == "3.0.2r2") accepted = true;
@@ -401,7 +421,7 @@ namespace OverTheCounter.UI
 
             r.Version = raw;
             r.VersionOk = accepted;
-            r.MinVersion = "3.0.0, 3.0.1, 3.0.2r2, or 3.0.3 (not 3.0.2)";
+            r.MinVersionText = "3.0.0, 3.0.1, 3.0.2r2, or 3.0.3 (not 3.0.2)";
             results[idx] = r;
         }
 
@@ -591,12 +611,14 @@ namespace OverTheCounter.UI
                 }
                 else if (dep.Found && !dep.VersionOk)
                 {
+                    var reqSummary = dep.MinVersionText ?? $"v{dep.MinVersion}";
+                    var reqInstruction = dep.MinVersionText ?? $"v{dep.MinVersion} or newer";
                     AddText(panelGO.transform, dep.Name,
-                        $"{dep.Name}  -  Outdated (v{dep.Version}, requires v{dep.MinVersion})",
+                        $"{dep.Name}  -  Outdated (v{dep.Version}, requires {reqSummary})",
                         18, FontStyles.Bold, new Color(1f, 0.7f, 0.2f), 30);
 
                     AddText(panelGO.transform, dep.Name + "_Inst",
-                        $"     Update {dep.Name} to v{dep.MinVersion} or newer.",
+                        $"     Update {dep.Name} to {reqInstruction}.",
                         15, FontStyles.Normal, new Color(0.6f, 0.6f, 0.6f), 24, wrap: true);
                 }
                 else if (dep.MisplacedPath != null)
