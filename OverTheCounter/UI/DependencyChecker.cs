@@ -21,6 +21,10 @@ namespace OverTheCounter.UI
     /// popup on the main menu when any are absent, outdated, or misplaced.
     /// CRITICAL: This class must have ZERO references to S1API, S1MAPI, or MeshVault
     /// types so it can be JIT-compiled even when those assemblies are missing.
+    ///
+    /// !!! IL2CPP: when changing a minVersion below, rebuild the shipped DLL
+    /// against that EXACT version. IL2CPP bakes the resolved version into the
+    /// AssemblyRef and refuses to bind a lower installed version. (OM-26)
     /// </summary>
     public static class DependencyChecker
     {
