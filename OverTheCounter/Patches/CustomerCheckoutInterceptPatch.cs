@@ -62,19 +62,34 @@ namespace OverTheCounter.Patches
         /// <summary>
         /// Finds the OTC customer matching this NPC that is ready for player checkout.
         /// Returns null if the NPC is not an OTC customer or isn't checkout-ready.
+        /// Host runs full validation. Client skips queue/arrival gating because
+        /// <c>counter.Queue</c>, <c>ArrivedAtDestination</c>, and
+        /// <c>CheckoutArrivalTime</c> are all host-only state that never syncs
+        /// down. The host re-validates authoritatively when the P2P lock
+        /// request lands, so "false positive" client hovers are harmless —
+        /// they just result in a DENY response.
         /// </summary>
         private static CustomerInstance FindCheckoutReadyCustomer(NPC npc)
         {
+            bool isHost = NetworkHelper.IsHost;
+
             foreach (var c in CustomerInstance.Active.Values)
             {
                 if (c.GameNpc != npc) continue;
 
-                // Found the OTC customer for this NPC — check readiness
+                // Base checks (both host and client): customer is in the
+                // checkout phase and bound to an unstaffed counter.
                 if (c.State != CustomerState.CheckingOut) return null;
                 if (c.AssignedCounter == null) return null;
                 if (c.AssignedCounter.IsStaffed) return null;
-                if (c.AssignedCounter.Queue.Count == 0 || c.AssignedCounter.Queue[0] != c.Id) return null;
-                if (!c.ArrivedAtDestination || c.CheckoutArrivalTime <= 0f) return null;
+
+                if (isHost)
+                {
+                    // Host has authoritative queue + arrival state.
+                    if (c.AssignedCounter.Queue.Count == 0 || c.AssignedCounter.Queue[0] != c.Id) return null;
+                    if (!c.ArrivedAtDestination || c.CheckoutArrivalTime <= 0f) return null;
+                }
+
                 return c;
             }
             return null;

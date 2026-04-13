@@ -144,7 +144,7 @@ namespace OverTheCounter.UI
             {
                 Check("SteamNetworkLib", "SteamNetworkLib",
                     "Install SteamNetworkLib. Place the DLL in your UserLibs folder.",
-                    minVersion: "1.2.3",
+                    minVersion: "1.2.4",
                     expectedFolder: "UserLibs", folderPaths: folders),
             };
 
