@@ -329,6 +329,19 @@ namespace OverTheCounter.Logic
             SaveData.NetworkP2PBridge.SendToHost(P2P_LOCK_REQ, $"CHECKOUT:{custId}:{myId}");
         }
 
+        /// <summary>
+        /// Counter-indexed variant used by the R-key flow on clients. The client
+        /// only knows which counter it is looking at — it does not have a
+        /// reliable <c>counter.Queue</c> so it cannot pick the front customer
+        /// itself. Host resolves the front customer and replies with the normal
+        /// <c>GRANT:CHECKOUT:{custId}</c> or <c>DENY:{reason}</c>.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void SendP2PLockRequestForCounter(int counterIdx, string myId)
+        {
+            SaveData.NetworkP2PBridge.SendToHost(P2P_LOCK_REQ, $"CHECKOUT_COUNTER:{counterIdx}:{myId}");
+        }
+
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static void CleanupP2PImpl()
         {
@@ -343,7 +356,9 @@ namespace OverTheCounter.Logic
 
         /// <summary>
         /// Host: receives lock request from client via P2P.
-        /// Format: "CHECKOUT:custId:steamId"
+        /// Formats:
+        ///   "CHECKOUT:custId:steamId"            — E-key on a specific customer
+        ///   "CHECKOUT_COUNTER:counterIdx:steamId" — R-key on a counter (host picks front customer)
         /// Responds immediately with GRANT or DENY.
         /// </summary>
         private static void OnP2PLockRequest(ulong senderSteamId, string value)
@@ -353,6 +368,60 @@ namespace OverTheCounter.Logic
 
             var senderId = new CSteamID(senderSteamId);
             string clientSteamStr = senderSteamId.ToString();
+
+            if (value.StartsWith("CHECKOUT_COUNTER:"))
+            {
+                string rest = value.Substring("CHECKOUT_COUNTER:".Length);
+                int sep = rest.IndexOf(':');
+                string idxStr = sep > 0 ? rest.Substring(0, sep) : rest;
+                if (!int.TryParse(idxStr, out int counterIdx))
+                {
+                    SaveData.NetworkP2PBridge.SendTo(senderId, P2P_LOCK_RES, "DENY:BAD_INDEX");
+                    return;
+                }
+
+                // Same lock-holder guard as the CHECKOUT: branch below.
+                if (Instance != null || !string.IsNullOrEmpty(CurrentLockHolder))
+                {
+                    SaveData.NetworkP2PBridge.SendTo(senderId, P2P_LOCK_RES, "DENY:IN_USE");
+                    return;
+                }
+
+                var counter = CheckoutCounter.GetCounterByIndex(counterIdx);
+                if (counter == null)
+                {
+                    SaveData.NetworkP2PBridge.SendTo(senderId, P2P_LOCK_RES, "DENY:NO_COUNTER");
+                    return;
+                }
+                if (counter.IsStaffed)
+                {
+                    SaveData.NetworkP2PBridge.SendTo(senderId, P2P_LOCK_RES, "DENY:STAFFED");
+                    return;
+                }
+                if (counter.Queue.Count == 0)
+                {
+                    SaveData.NetworkP2PBridge.SendTo(senderId, P2P_LOCK_RES, "DENY:NO_CUSTOMER");
+                    return;
+                }
+
+                string frontId = counter.Queue[0];
+                if (!CustomerInstance.Active.TryGetValue(frontId, out var front) ||
+                    front.State != CustomerState.CheckingOut ||
+                    !front.ArrivedAtDestination ||
+                    front.CheckoutArrivalTime <= 0f)
+                {
+                    SaveData.NetworkP2PBridge.SendTo(senderId, P2P_LOCK_RES, "DENY:NOT_READY");
+                    return;
+                }
+
+                SaveData.ConfigSyncData.Instance?.PublishCheckoutState(clientSteamStr, frontId);
+                SaveData.NetworkP2PBridge.SendTo(senderId, P2P_LOCK_RES, $"GRANT:CHECKOUT:{frontId}");
+
+                if (Config.VerboseLogging.Value)
+                    OTCLog.Msg(OTCLog.Systems.Customer,
+                        $"P2P lock GRANTED (counter {counterIdx}) to {clientSteamStr} for {frontId}");
+                return;
+            }
 
             if (value.StartsWith("CHECKOUT:"))
             {
@@ -588,41 +657,56 @@ namespace OverTheCounter.Logic
             // Check if another player is already using this counter
             if (!string.IsNullOrEmpty(counter.LockHolder)) return;
 
-            // Find the front customer waiting at THIS counter
-            CustomerInstance waitingCustomer = null;
-            if (counter.Queue.Count > 0 &&
-                CustomerInstance.Active.TryGetValue(counter.Queue[0], out var front) &&
-                front.State == CustomerState.CheckingOut &&
-                front.ArrivedAtDestination &&
-                front.CheckoutArrivalTime > 0f)
-            {
-                waitingCustomer = front;
-            }
-
-            if (waitingCustomer == null) return;
-
             if (NetworkHelper.IsHost)
             {
+                // Host has authoritative queue + arrival state and can pick
+                // the front customer locally.
+                CustomerInstance waitingCustomer = null;
+                if (counter.Queue.Count > 0 &&
+                    CustomerInstance.Active.TryGetValue(counter.Queue[0], out var front) &&
+                    front.State == CustomerState.CheckingOut &&
+                    front.ArrivedAtDestination &&
+                    front.CheckoutArrivalTime > 0f)
+                {
+                    waitingCustomer = front;
+                }
+
+                if (waitingCustomer == null) return;
+
                 StartCheckoutDirect(waitingCustomer, counter);
             }
             else
             {
-                if (!string.IsNullOrEmpty(CurrentLockHolder))
-                    return;
+                // Client can't evaluate readiness — counter.Queue,
+                // ArrivedAtDestination and CheckoutArrivalTime are all host-only
+                // state. Fire a counter-indexed P2P request immediately and let
+                // host authoritatively resolve the front customer. If the host
+                // rejects (NO_CUSTOMER / NOT_READY), it's a cheap round-trip
+                // and the next keypress will try again — self-healing by design.
+                if (!string.IsNullOrEmpty(CurrentLockHolder)) return;
+
+                int counterIdx = CheckoutCounter.GetCounterIndex(counter);
+                if (counterIdx < 0) return;
+
                 _pendingLockType = PendingLockType.Checkout;
-                _pendingCustomerId = waitingCustomer.Id;
+                _pendingCustomerId = null; // Host fills this in via the GRANT response
                 _pendingCounter = counter;
                 _lockRequestTime = Time.time;
                 string myId = SaveData.ConfigSyncData.LocalPlayerId;
 
                 if (_p2pSubscribed)
                 {
-                    SendP2PLockRequest(waitingCustomer.Id, myId);
+                    SendP2PLockRequestForCounter(counterIdx, myId);
                 }
                 else
                 {
-                    SaveData.ConfigSyncData.SendQuestAction(
-                        $"CHECKOUT_REQUEST:{waitingCustomer.Id}:{myId}");
+                    // SyncVar fallback can't drive counter-indexed requests
+                    // because the handler only knows how to look up a customer
+                    // by id. Without P2P the R-key flow isn't available to
+                    // clients — they can still use the E-key (AssignedCounter)
+                    // path below.
+                    _pendingLockType = PendingLockType.None;
+                    _pendingCounter = null;
                 }
             }
         }
