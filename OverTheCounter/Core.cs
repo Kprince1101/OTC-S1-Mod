@@ -236,6 +236,7 @@ namespace OverTheCounter
             CustomerSpawnPoints.Cleanup();
             BuildingGridFactory.Cleanup();
             _loadHooked = false;
+            _gameLoadedRan = false;
         }
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)
@@ -310,6 +311,13 @@ namespace OverTheCounter
         private static bool _loadHooked;
         private static bool _budtendersRestored;
 
+        // Cached delegate for onLoadComplete so RemoveListener can match the same
+        // Il2Cpp wrapper object that AddListener used. Without caching, each
+        // (UnityAction)OnGameLoaded cast on IL2CPP creates a new wrapper, making
+        // RemoveListener a no-op and accumulating duplicate listeners across
+        // in-process reloads (death → load save).
+        private static UnityEngine.Events.UnityAction _onGameLoadedAction;
+
         /// <summary>
         /// Subscribes to LoadManager.onLoadComplete so we can spawn grid items
         /// after FishNet networking is initialized. Safe to call multiple times.
@@ -319,12 +327,19 @@ namespace OverTheCounter
             if (_loadHooked) return;
             try
             {
+                if (_onGameLoadedAction == null)
+#if IL2CPP
+                    _onGameLoadedAction = (UnityEngine.Events.UnityAction)OnGameLoaded;
+#else
+                    _onGameLoadedAction = OnGameLoaded;
+#endif
+
 #if IL2CPP
                 var lm = Il2CppScheduleOne.DevUtilities.Singleton<Il2CppScheduleOne.Persistence.LoadManager>.Instance;
                 if (lm != null)
                 {
-                    lm.onLoadComplete.RemoveListener((UnityEngine.Events.UnityAction)OnGameLoaded);
-                    lm.onLoadComplete.AddListener((UnityEngine.Events.UnityAction)OnGameLoaded);
+                    lm.onLoadComplete.RemoveListener(_onGameLoadedAction);
+                    lm.onLoadComplete.AddListener(_onGameLoadedAction);
                     _loadHooked = true;
                     OTCLog.Msg(OTCLog.Systems.Patch, "Hooked LoadManager.onLoadComplete");
                 }
@@ -334,8 +349,8 @@ namespace OverTheCounter
                 var lm = ScheduleOne.Persistence.LoadManager.Instance;
                 if (lm != null)
                 {
-                    lm.onLoadComplete.RemoveListener(OnGameLoaded);
-                    lm.onLoadComplete.AddListener(OnGameLoaded);
+                    lm.onLoadComplete.RemoveListener(_onGameLoadedAction);
+                    lm.onLoadComplete.AddListener(_onGameLoadedAction);
                     _loadHooked = true;
                     OTCLog.Msg(OTCLog.Systems.Patch, "Hooked LoadManager.onLoadComplete");
                 }
@@ -349,12 +364,22 @@ namespace OverTheCounter
             }
         }
 
+        private static bool _gameLoadedRan;
+
         /// <summary>
         /// Called when the game save finishes loading. Restores placed grid items
         /// (checkout counter, storage, etc.) now that FishNet networking is ready.
         /// </summary>
         private static void OnGameLoaded()
         {
+            if (_gameLoadedRan)
+            {
+                OTCLog.Warning(OTCLog.Systems.Patch,
+                    "OnGameLoaded fired more than once this session (stale listener?) — ignoring duplicate.");
+                return;
+            }
+            _gameLoadedRan = true;
+
             try
             {
                 Logic.Placement.WestvilleShack.ClearTerrain();
