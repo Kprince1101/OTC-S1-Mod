@@ -1461,7 +1461,7 @@ namespace OverTheCounter.Logic
             {
                 remainingBudget = TryGetFirstDealBudget();
                 if (remainingBudget <= 0f)
-                    remainingBudget = Preferences.TotalOrderBudget;
+                    remainingBudget = Preferences.TotalOrderBudget / WalkInBudgetDivisor;
             }
             bool useBudget = remainingBudget > 0;
             EnjoyPremium = 0f;
