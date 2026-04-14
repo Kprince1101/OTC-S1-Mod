@@ -47,6 +47,19 @@ namespace OverTheCounter.Logic
     /// </summary>
     public class CustomerInstance
     {
+
+
+        /// <summary>
+        /// Vanilla <c>CustomerData.MinWeeklySpend</c> class-level default.
+        /// Used as the walk-in fallback budget when the NPC's vanilla Customer
+        /// component is unavailable. Actual per-NPC values come from their
+        /// CustomerData ScriptableObject and are read at runtime when possible.
+        /// </summary>
+        private const float VanillaMinWeeklySpend = 200f;
+
+        /// <summary>Walk-in daily budget divisor (casual buyer, a few visits/week).</summary>
+        private const float WalkInBudgetDivisor = 3f;
+
         /// <summary>All active customer instances keyed by ID.</summary>
         public static readonly Dictionary<string, CustomerInstance> Active = new();
 
@@ -244,6 +257,14 @@ namespace OverTheCounter.Logic
 
         /// <summary>Products the customer decided to buy after browsing all shelves.</summary>
         public List<SelectedProduct> SelectedProducts { get; } = new();
+
+        /// <summary>
+        /// Enjoy premium accumulated during product selection. Vanilla embeds a
+        /// second enjoyScale factor in the per-unit price markup; dispensaries
+        /// charge flat price, so that factor becomes the tip base instead.
+        /// Modulated by the checkout skill check zone multiplier.
+        /// </summary>
+        public float EnjoyPremium { get; private set; }
 
         /// <summary>A product observed on a display shelf during browsing.</summary>
         private struct ObservedProduct
@@ -571,8 +592,13 @@ namespace OverTheCounter.Logic
                 pool[j] = tmp;
             }
 
-            // Budget: $40-$100 base, scaled by player rank
-            float budget = 40f + (float)(rng.NextDouble() * 60.0);
+            // Walk-in budget: vanilla first-deal daily budget at zero relation.
+            // At zero relation GetAdjustedWeeklySpend returns MinWeeklySpend,
+            // and with MinOrdersPerWeek=1 the order day count is 1, so
+            // dailyBudget = MinWeeklySpend * rankMultiplier.
+            // This is a fallback — DecidePurchases reads the NPC's real
+            // CustomerData when available and overrides this value.
+            float budget = VanillaMinWeeklySpend;
             float rankMultiplier = 1f;
             try
             {
@@ -1421,15 +1447,62 @@ namespace OverTheCounter.Logic
             //    Quantities are in raw product UNITS (not packages).
             //    Customers don't care about packaging — checkout determines that.
             //
-            // Deal customers have a vanilla-derived per-visit budget and
-            // shop against it like a normal contract. Walk-ins use per-product
-            // budget sizing via TryGetWalkInBudgetQty (which mirrors vanilla's
-            // daily budget × enjoy scaling at OTC's asking price), so we do
-            // NOT treat the $40-100 GeneratePreferences walk-in budget as a
-            // deal-style cap — it's only used as MaxBudgetPerItem.
-            float remainingBudget = Preferences.TotalOrderBudget;
-            bool useBudget = IsDealCustomer && remainingBudget > 0;
+            // Both deal and walk-in customers have a per-visit spend cap.
+            // Deal customers use their vanilla-derived TotalOrderBudget.
+            // Walk-ins get a casual daily slice: the weekly budget at zero
+            // relationship / zero addiction, divided by 3 (a few visits per
+            // week rather than blowing the entire weekly spend in one go).
+            float remainingBudget;
+            if (IsDealCustomer)
+            {
+                remainingBudget = Preferences.TotalOrderBudget;
+            }
+            else
+            {
+                remainingBudget = TryGetFirstDealBudget();
+                if (remainingBudget <= 0f)
+                    remainingBudget = Preferences.TotalOrderBudget / WalkInBudgetDivisor;
+            }
+            bool useBudget = remainingBudget > 0;
+            EnjoyPremium = 0f;
             var remaining = new List<(ObservedProduct product, float appeal)>(scored);
+
+#if DEBUG
+            // --- Audit: header ---
+            float auditVanillaDailyBudget = 0f;
+            float auditRankMult = 1f;
+            string auditRankName = "?";
+            float auditOtcTotalSpend = 0f;
+            int auditOtcTotalQty = 0;
+            try
+            {
+                Customer vc = VanillaCustomer;
+                if (vc == null && GameNpc != null)
+                    vc = GameNpc.GetComponent<Customer>();
+                if (vc != null)
+                    auditVanillaDailyBudget = TryGetVanillaDailyBudget(vc);
+
+                if (S1API.Leveling.LevelManager.Exists)
+                {
+                    var rank = S1API.Leveling.LevelManager.CurrentRank;
+                    auditRankMult = S1API.Leveling.LevelManager.GetOrderLimitMultiplier(rank);
+                    auditRankName = rank.ToString();
+                }
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Msg(OTCLog.Systems.Customer, $"[AUDIT] header error: {ex.Message}");
+            }
+
+            string custName = GameNpc != null ? $"{GameNpc.FirstName} {GameNpc.LastName}" : Id;
+            string custType = IsDealCustomer ? "Deal" : "Walk-in";
+            OTCLog.Warning(OTCLog.Systems.Customer,
+                $"[AUDIT] ═══════════════════════════════════════");
+            OTCLog.Warning(OTCLog.Systems.Customer,
+                $"[AUDIT] {custName} | {custType} | Rank: {auditRankName} (x{auditRankMult:F2})");
+            OTCLog.Warning(OTCLog.Systems.Customer,
+                $"[AUDIT] Budget: ${remainingBudget:F0} ({(IsDealCustomer ? "deal TotalOrderBudget" : $"walkin daily (weekly/orderDays/{WalkInBudgetDivisor})")}) | VanillaDailyBudget(actual rel): ${auditVanillaDailyBudget:F0} | GeneratePrefs: ${Preferences.TotalOrderBudget:F0}");
+#endif
 
             while (remaining.Count > 0)
             {
@@ -1447,61 +1520,15 @@ namespace OverTheCounter.Logic
                 // Get observed packaging sizes for this product (e.g. [1, 5] for baggies+jars)
                 var mults = pkgMults.TryGetValue(pick.product.ProductId, out var ml) ? ml : null;
 
-                int qty;
-                if (useBudget)
-                {
-                    // Deal customers: match vanilla TryGenerateContract's
-                    // TOTAL DOLLAR spend (Customer.cs:799-812), not just its
-                    // scaled budget. Vanilla's full expression is
-                    //     payment ≈ qty * prodPrice * Lerp(0.66, 1.5, enjoy)
-                    //             ≈ dailyBudget * offMult²
-                    // because the enjoyment scalar appears BOTH in the budget
-                    // scaling (num *= offMult) AND in the per-unit mark-up
-                    // (num2 = prodPrice * offMult). OTC previously only
-                    // scaled by offMult once, leaving a structural −5% to
-                    // −28% deficit vs vanilla spend (worse the higher the
-                    // enjoyment). We square it here so OTC's total revenue
-                    // lands at vanilla's dollar target regardless of whether
-                    // the mark-up lives in the asking price (greentab) or
-                    // the enjoyment premium (vanilla).
-                    float enjoyScale = Mathf.Lerp(0.66f, 1.5f, Mathf.Clamp01(pick.appeal));
-                    float scaledForProduct = remainingBudget * enjoyScale * enjoyScale;
-                    int canAfford = Mathf.Max(1, Mathf.RoundToInt(scaledForProduct / pick.product.Price));
-                    qty = Mathf.Min(canAfford, pick.product.AvailableQuantity);
-                }
-                else
-                {
-                    // Walk-in customers: quantity MUST scale with OTC's asking
-                    // price the same way vanilla TryGenerateContract scales its
-                    // own offer, otherwise raising prices just reduces total
-                    // per-visit spend instead of causing customers to buy less
-                    // of something more expensive. Vanilla formula (Customer.cs
-                    // line 800–801) is:
-                    //     num  = dailyBudget * Lerp(0.66, 1.5, enjoyment)
-                    //     a    = round(num / unitPrice)
-                    // so `a * unitPrice ≈ scaledBudget` regardless of price.
-                    //
-                    // We feed OTC's asking unit price into the same formula so
-                    // qty ↓ as price ↑, keeping the walk-in's total spend in
-                    // the same ballpark vanilla would.
-                    int budgetQty = TryGetWalkInBudgetQty(pick.product);
-                    if (budgetQty > 0)
-                    {
-                        qty = budgetQty;
-                    }
-                    else
-                    {
-                        // Fallback: no vanilla Customer component available
-                        // (rare edge case). Use the old step-based heuristic.
-                        int step = (mults != null && mults.Count > 0)
-                            ? mults[rng.Next(mults.Count)]
-                            : 1;
-                        qty = step;
-                        if (pick.appeal > 0.7f && pick.product.AvailableQuantity >= step * 2)
-                            qty = step * 2;
-                    }
-                    qty = Math.Min(qty, pick.product.AvailableQuantity);
-                }
+                // Vanilla qty formula (Customer.cs L800-801):
+                //   qty = round(dailyBudget * enjoyScale / unitPrice)
+                // Vanilla's second enjoy factor scales per-unit price (markup).
+                // Dispensaries charge flat price, so that factor becomes the
+                // enjoy premium tip — accumulated in EnjoyPremium below.
+                float enjoyScale = Mathf.Lerp(0.66f, 1.5f, Mathf.Clamp01(pick.appeal));
+                float scaledBudget = remainingBudget * enjoyScale;
+                int qty = Mathf.Max(1, Mathf.RoundToInt(scaledBudget / pick.product.Price));
+                qty = Mathf.Min(qty, pick.product.AvailableQuantity);
                 if (qty <= 0) continue;
 
                 // Vanilla ceiling: clamp to [1, 1000] per product. The
@@ -1524,6 +1551,36 @@ namespace OverTheCounter.Logic
                 // a $60 walk-in wanting qty=11 against brick-only stock would
                 // floor to 0 and silently skip every product, causing the
                 // "customers refuse to buy bricks" symptom.
+
+#if DEBUG
+                // --- Audit: per-product ---
+                try
+                {
+                    float otcTotal = pick.product.Price * qty;
+                    auditOtcTotalSpend += otcTotal;
+                    auditOtcTotalQty += qty;
+
+                    // What qty would the OTC GeneratePrefs budget produce?
+                    float otcBudget = Preferences.TotalOrderBudget;
+                    int otcBudgetQty = pick.product.Price > 0
+                        ? Mathf.Clamp(Mathf.RoundToInt(otcBudget * enjoyScale / pick.product.Price), 1, 1000)
+                        : 0;
+
+                    string qualName = ((EQuality)pick.product.QualityLevel).ToString();
+                    string budgetSrc = IsDealCustomer ? "deal-budget" : "walkin-firstdeal";
+
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"[AUDIT]   {pick.product.ProductName} ({qualName}) | {budgetSrc} | enjoy={pick.appeal:F2} scale={enjoyScale:F2}");
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"[AUDIT]     OTC price=${pick.product.Price:F2} mkt=${pick.product.MarketValue:F2} | qty={qty} → ${otcTotal:F0}");
+                    OTCLog.Warning(OTCLog.Systems.Customer,
+                        $"[AUDIT]     If OTC budget (${otcBudget:F0}) were used: qty≈{otcBudgetQty} → ${otcBudgetQty * pick.product.Price:F0}");
+                }
+                catch (Exception ex)
+                {
+                    OTCLog.Msg(OTCLog.Systems.Customer, $"[AUDIT] per-product error: {ex.Message}");
+                }
+#endif
 
                 // --- Vanilla acceptance gate ---
                 // Use the exact same curve as Customer.GetOfferSuccessChance
@@ -1554,7 +1611,30 @@ namespace OverTheCounter.Logic
                 });
 
                 remainingBudget -= pick.product.Price * qty;
+
+                // Accumulate the enjoy premium (vanilla's second enjoy factor
+                // on per-unit markup). Only positive: low-enjoyment products
+                // reduce qty via the scaled budget, not the tip.
+                float enjoyDelta = enjoyScale - 1f;
+                if (enjoyDelta > 0f)
+                    EnjoyPremium += pick.product.Price * qty * enjoyDelta;
             }
+
+#if DEBUG
+            // --- Audit: summary ---
+            if (SelectedProducts.Count > 0)
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"[AUDIT] RESULT → {SelectedProducts.Count} products, {auditOtcTotalQty}g total, ${auditOtcTotalSpend:F0} spent");
+            }
+            else
+            {
+                OTCLog.Warning(OTCLog.Systems.Customer,
+                    $"[AUDIT] RESULT → Nothing selected (overBudget={overBudgetCount}, rejected={rejectedByChanceCount})");
+            }
+            OTCLog.Warning(OTCLog.Systems.Customer,
+                $"[AUDIT] ═══════════════════════════════════════");
+#endif
 
             // If we picked nothing because every roll came up reject, surface
             // that as a price rejection (customer saw things they liked, but
@@ -1665,60 +1745,42 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Walk-in quantity driven by the NPC's real daily budget — mirrors
-        /// vanilla <c>TryGenerateContract</c>'s qty calculation, but against
-        /// OTC's asking price instead of <c>ProductDefinition.Price</c>.
-        /// Ensures price ↑ ⇒ qty ↓ so walk-in total spend stays near the
-        /// customer's actual budget regardless of the dispensary multiplier.
-        /// Returns 0 when the vanilla component isn't reachable (caller falls
-        /// back to step-based heuristic).
+        /// Returns the vanilla daily budget for a first-time deal: zero
+        /// relationship, zero addiction. This gives walk-in customers a
+        /// spending cap that matches what a brand-new vanilla customer
+        /// would spend on their very first contract.
+        /// Returns 0 when the vanilla Customer component is unavailable.
         /// </summary>
-        private int TryGetWalkInBudgetQty(ObservedProduct obs)
+        private float TryGetFirstDealBudget()
         {
             try
             {
                 Customer customer = VanillaCustomer;
                 if (customer == null && GameNpc != null)
                     customer = GameNpc.GetComponent<Customer>();
-                if (customer == null) return 0;
+                if (customer == null) return 0f;
 
-                float dailyBudget = TryGetVanillaDailyBudget(customer);
-                if (dailyBudget <= 0f) return 0;
+                var data = customer.CustomerData;
+                if (data == null) return 0f;
 
-                // Enjoyment scalar — same as vanilla. Prefer the real game
-                // calculation so drug affinity / effects / quality weights
-                // agree with phone deals.
-                float enjoyment = 0.5f;
-                ProductDefinition prodDef = FindProductDefinition(obs.ProductId);
-                if (prodDef != null)
-                {
-                    try { enjoyment = customer.GetProductEnjoyment(prodDef, (EQuality)obs.QualityLevel); }
-                    catch (Exception enjEx)
-                    {
-                        OTCLog.Warning(OTCLog.Systems.Customer,
-                            $"GetProductEnjoyment failed for '{obs.ProductId}': {enjEx.Message}");
-                    }
-                }
+                // Zero relationship → GetAdjustedWeeklySpend returns
+                // MinWeeklySpend * rankMultiplier (Lerp at t=0).
+                float weekly = data.GetAdjustedWeeklySpend(0f);
 
-                // Square the enjoyment scalar to match vanilla's total
-                // dollar spend (see deal branch comment above — vanilla
-                // applies offMult both to the scaled budget AND to the
-                // per-unit mark-up, so the effective spend is offMult²).
-                float enjoyScale = Mathf.Lerp(0.66f, 1.5f, enjoyment);
-                float scaledBudget = dailyBudget * enjoyScale * enjoyScale;
-                if (obs.Price <= 0f) return 0;
+                // Zero addiction + zero relation → GetOrderDays uses
+                // t = max(0,0) = 0, so numOrders = MinOrdersPerWeek.
+                var orderDays = data.GetOrderDays(0f, 0f);
+                int days = orderDays != null ? orderDays.Count : 1;
+                if (days <= 0) days = 1;
 
-                int qty = Mathf.RoundToInt(scaledBudget / obs.Price);
-                // Clamp to at least 1 so a high-budget customer doesn't get
-                // rounded to 0 on a hugely expensive item — the acceptance
-                // gate in step 5 will reject overpriced offers anyway.
-                return Mathf.Clamp(qty, 1, 1000);
+                // Casual daily slice: weekly / orderDays / 3.
+                return weekly / days / WalkInBudgetDivisor;
             }
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Customer,
-                    $"TryGetWalkInBudgetQty failed for '{obs.ProductId}': {ex.Message}");
-                return 0;
+                    $"TryGetFirstDealBudget failed: {ex.Message}");
+                return 0f;
             }
         }
 

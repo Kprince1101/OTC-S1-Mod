@@ -189,8 +189,11 @@ namespace OverTheCounter.Logic
         private const float GreenEnd = 0.90f;
         private const float GoldStart = 0.79f;
         private const float GoldEnd = 0.85f;
-        private const float GreenTipPercent = 0.15f;
-        private const float GoldTipPercent = 0.30f;
+        // Skill check zone multipliers on the enjoy premium tip.
+        // Miss/timeout = 50%, green = 110%, gold = 140%.
+        private const float MissTipMult = 0.50f;
+        private const float GreenTipMult = 1.10f;
+        private const float GoldTipMult = 1.40f;
         private const float SkillCheckFreezeDelay = 0.5f;
 
         // Overhead camera offsets (finalized via runtime editor)
@@ -868,7 +871,7 @@ namespace OverTheCounter.Logic
                 if (customer != null)
                 {
                     float dealTip = DispensaryDealManager.GetTipAmount(customer, totalPrice);
-                    totalTip = dealTip + totalPrice * skillBonus;
+                    totalTip = dealTip + customer.EnjoyPremium * skillBonus;
                 }
 
                 // Record sales if product data provided
@@ -1214,34 +1217,34 @@ namespace OverTheCounter.Logic
                 _skillCheckLocked = true;
                 _skillCheckLockTime = Time.time;
 
-                // Determine zone hit
+                // Determine zone hit — sets the multiplier on the enjoy premium tip
                 if (t >= GoldStart && t <= GoldEnd)
                 {
-                    _skillCheckTipBonus = GoldTipPercent;
+                    _skillCheckTipBonus = GoldTipMult;
                     if (_skillCheckLabel != null) _skillCheckLabel.text = "Perfect!";
                     if (_skillCheckCursor != null) _skillCheckCursor.GetComponent<Image>().color = new Color(1f, 0.84f, 0f, 1f);
                     if (_goldZoneImg != null) _goldZoneImg.color = new Color(1f, 0.84f, 0f, 0.8f);
                 }
                 else if (t >= GreenStart && t <= GreenEnd)
                 {
-                    _skillCheckTipBonus = GreenTipPercent;
+                    _skillCheckTipBonus = GreenTipMult;
                     if (_skillCheckLabel != null) _skillCheckLabel.text = "Nice!";
                     if (_skillCheckCursor != null) _skillCheckCursor.GetComponent<Image>().color = new Color(0.30f, 0.85f, 0.31f, 1f);
                     if (_greenZoneImg != null) _greenZoneImg.color = new Color(0.30f, 0.68f, 0.31f, 0.8f);
                 }
                 else
                 {
-                    _skillCheckTipBonus = 0f;
+                    _skillCheckTipBonus = MissTipMult;
                     if (_skillCheckLabel != null) _skillCheckLabel.text = "";
                     if (_skillCheckCursor != null) _skillCheckCursor.GetComponent<Image>().color = new Color(0.6f, 0.2f, 0.2f, 1f);
                 }
                 return;
             }
 
-            // Time expired without pressing — miss
+            // Time expired without pressing — miss (still gets partial tip)
             if (elapsed >= SkillCheckDuration)
             {
-                _skillCheckTipBonus = 0f;
+                _skillCheckTipBonus = MissTipMult;
                 FinishSkillCheck();
             }
         }
@@ -3313,7 +3316,7 @@ namespace OverTheCounter.Logic
                         string custName = _customer?.GameNpc?.fullName ?? "Unknown";
                         string txId = saveData.NextTransactionId();
                         float tip = DispensaryDealManager.GetTipAmount(_customer, _totalPlacedPrice);
-                        tip += _totalPlacedPrice * _skillCheckTipBonus;
+                        tip += _customer.EnjoyPremium * _skillCheckTipBonus;
                         string buildingId = _counter?.BuildingId;
                         bool tipRecorded = false;
                         foreach (var product in _counterProducts)
@@ -3341,7 +3344,7 @@ namespace OverTheCounter.Logic
 
                 // Deposit tip to register (sale total was deposited during CashFly)
                 float dealTip = DispensaryDealManager.GetTipAmount(_customer, _totalPlacedPrice);
-                float skillTip = _totalPlacedPrice * _skillCheckTipBonus;
+                float skillTip = _customer.EnjoyPremium * _skillCheckTipBonus;
                 float totalTip = dealTip + skillTip;
                 if (totalTip > 0f)
                     _counter?.DepositToRegister(totalTip);
