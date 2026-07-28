@@ -12,6 +12,17 @@
 		<IsPackable>false</IsPackable>
 	</PropertyGroup>
 
+	<!-- The Loader ships as its own package (hdlmrell-OTCLoader) in the r2modman profile,
+	     separate from the main mod's package (hdlmrell-OverTheCounter) -- it needs its own
+	     output folder, not the main mod's $(ModOutputPath)/$(MonoModOutputPath). Prefer an
+	     explicit OTCLoaderOutputPath/MonoOTCLoaderOutputPath if LocalPaths.targets defines
+	     one; otherwise derive it automatically by swapping the package folder name, so this
+	     works out of the box even for devs who haven't added the new property yet. -->
+	<PropertyGroup>
+		<OTCLoaderOutputPath Condition="'$(OTCLoaderOutputPath)' == '' And '$(ModOutputPath)' != ''">$(ModOutputPath.Replace('hdlmrell-OverTheCounter', 'hdlmrell-OTCLoader'))</OTCLoaderOutputPath>
+		<MonoOTCLoaderOutputPath Condition="'$(MonoOTCLoaderOutputPath)' == '' And '$(MonoModOutputPath)' != ''">$(MonoModOutputPath.Replace('hdlmrell-OverTheCounter', 'hdlmrell-OTCLoader'))</MonoOTCLoaderOutputPath>
+	</PropertyGroup>
+
 	<ItemGroup>
 		<!-- MelonLoader — available in the game's MelonLoader/net6 directory at runtime -->
 		<Reference Include="MelonLoader">
@@ -31,16 +42,16 @@
 	</ItemGroup>
 
 	<!-- Copy loader to IL2CPP dev profile Plugins folder -->
-	<Target Name="CopyToProfile" AfterTargets="Build" Condition="'$(ModOutputPath)' != ''">
-		<MakeDir Directories="$(ModOutputPath)\Plugins" />
+	<Target Name="CopyToProfile" AfterTargets="Build" Condition="'$(OTCLoaderOutputPath)' != ''">
+		<MakeDir Directories="$(OTCLoaderOutputPath)\Plugins" />
 		<Copy SourceFiles="$(OutputPath)$(AssemblyName).dll"
-		      DestinationFolder="$(ModOutputPath)\Plugins" />
+		      DestinationFolder="$(OTCLoaderOutputPath)\Plugins" />
 	</Target>
 
 	<!-- Also copy loader to Mono dev profile Plugins folder (same DLL works for both CLRs) -->
-	<Target Name="CopyToMonoProfile" AfterTargets="Build" Condition="'$(MonoModOutputPath)' != ''">
-		<MakeDir Directories="$(MonoModOutputPath)\Plugins" />
+	<Target Name="CopyToMonoProfile" AfterTargets="Build" Condition="'$(MonoOTCLoaderOutputPath)' != ''">
+		<MakeDir Directories="$(MonoOTCLoaderOutputPath)\Plugins" />
 		<Copy SourceFiles="$(OutputPath)$(AssemblyName).dll"
-		      DestinationFolder="$(MonoModOutputPath)\Plugins" />
+		      DestinationFolder="$(MonoOTCLoaderOutputPath)\Plugins" />
 	</Target>
 </Project>
