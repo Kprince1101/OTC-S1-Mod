@@ -245,22 +245,34 @@ namespace OverTheCounter
 #endif
         }
 
-        // --- HandoverScreen.CustomerSlots (private ItemSlot[]) ---
+        // --- HandoverScreen.CustomerSlots -> now the public field/property _customerSlots ---
+        // (renamed and re-exposed as public in the current game version; the underlying
+        // storage is an Il2Cpp native array, so we copy it into a managed array rather than
+        // relying on an implicit conversion operator that may not exist)
         public static ItemSlot[] GetCustomerSlots(this HandoverScreen hs)
         {
 #if IL2CPP
-            return hs.CustomerSlots;
+            var native = hs._customerSlots;
+            if (native == null) return null;
+            var result = new ItemSlot[native.Length];
+            for (int i = 0; i < native.Length; i++) result[i] = native[i];
+            return result;
 #else
             return (ItemSlot[])_hsCustomerSlots?.GetValue(hs);
 #endif
         }
 
-        // --- HandoverScreen.OriginalItemLocations: register an item as coming from the player ---
-        // EItemSource is a private nested enum; IL2CPP can reference it directly, Mono uses reflection.
+        // --- HandoverScreen.OriginalItemLocations / EItemSource: fully removed from the current
+        // HandoverScreen (confirmed via unfiltered Cecil dump -- no matching property, field, or
+        // nested type). There is no longer any public/private hook for tagging an item's source,
+        // so this is now a no-op. NOTE: this means smart-filled items are no longer explicitly
+        // marked as player-owned; if HandoverScreen's own (now-internal) origin tracking doesn't
+        // return them to the player automatically on a cancelled handover, they could end up
+        // attributed to the customer instead. Flagging as a possible regression, not confirmed.
         public static void TrackItemAsPlayer(this HandoverScreen hs, ItemInstance item)
         {
 #if IL2CPP
-            hs.OriginalItemLocations[item] = HandoverScreen.EItemSource.Player;
+            // No-op: no replacement API found for OriginalItemLocations/EItemSource.
 #else
             var dict = _hsOriginalItemLocations?.GetValue(hs);
             if (dict != null && _hsEItemSourcePlayer != null)

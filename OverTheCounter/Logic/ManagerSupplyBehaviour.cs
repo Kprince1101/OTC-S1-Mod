@@ -763,28 +763,11 @@ namespace OverTheCounter.Logic
                         }
                         catch { }
 
-                        // Fall back to online shop items (phone delivery)
-                        if (!found)
-                        {
-                            try
-                            {
-                                if (supplier.OnlineShopItems != null)
-                                {
-                                    foreach (var listing in supplier.OnlineShopItems)
-                                    {
-                                        if (listing?.Item == null) continue;
-                                        if (string.Equals(listing.Item.ID, itemId, StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            found = true;
-                                            price = listing.Price;
-                                            supplierListing = listing;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            catch { }
-                        }
+                        // Fall back to online shop items (phone delivery) -- DISABLED.
+                        // Supplier.OnlineShopItems no longer exists on the current game API
+                        // (confirmed via a full assembly-wide search; no renamed equivalent
+                        // found, appears to be a removed feature rather than a rename).
+                        // Physical shop lookup above still runs; this secondary path is a no-op.
 
                         if (found && !options.Any(o => o.StoreType == StoreType.NightMarket))
                         {
@@ -2591,20 +2574,8 @@ namespace OverTheCounter.Logic
                             }
                         }
                         catch { }
-                        try
-                        {
-                            if (supplier.OnlineShopItems != null)
-                            {
-                                foreach (var listing in supplier.OnlineShopItems)
-                                {
-                                    if (listing?.Item == null) continue;
-                                    if (string.Equals(listing.Item.ID, itemId, StringComparison.OrdinalIgnoreCase)
-                                        && listing.Price < cheapest)
-                                        cheapest = listing.Price;
-                                }
-                            }
-                        }
-                        catch { }
+                        // OnlineShopItems fallback DISABLED -- see note above; property no
+                        // longer exists on Supplier, no renamed equivalent found.
                     }
                 }
             }
