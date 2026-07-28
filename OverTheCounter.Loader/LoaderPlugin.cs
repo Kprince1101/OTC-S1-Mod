@@ -410,7 +410,13 @@ namespace OverTheCounter.Loader
             foreach (string path in Directory.GetFiles(modsPath, "S1API*.dll", SearchOption.AllDirectories))
             {
                 string name = Path.GetFileName(path);
-                if (name.IndexOf("Loader", StringComparison.OrdinalIgnoreCase) >= 0) continue; // skip S1APILoader.MelonLoader.dll
+                // Skip the S1API bootstrap loader (S1APILoader.MelonLoader.dll) specifically --
+                // NOT any filename containing "Loader", since the real S1API mod DLL we need is
+                // itself named "S1API.Il2Cpp.MelonLoader.dll" / "S1API.Mono.MelonLoader.dll" and
+                // would otherwise be excluded by its own "MelonLoader" suffix. This previously
+                // caused FindS1APIDll to return null unconditionally, silently skipping the
+                // hasLastName patch every run ("S1API DLL not found — skipping hasLastName patch.").
+                if (name.StartsWith("S1APILoader", StringComparison.OrdinalIgnoreCase)) continue;
                 if (name.ToLowerInvariant().Contains(keyword))
                     return path;
             }
