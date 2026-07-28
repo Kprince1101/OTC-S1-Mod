@@ -1,6 +1,3 @@
 <Solution>
-  <Project Path="OverTheCounter/OverTheCounter.csproj">
-    <BuildType Solution="Debug|*" Project="MonoDebug" />
-    <BuildType Solution="Release|*" Project="Debug" />
-  </Project>
+  <Project Path="OverTheCounter/OverTheCounter.csproj" />
 </Solution>
