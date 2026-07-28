@@ -152,7 +152,10 @@ namespace OverTheCounter.SaveData
             // Safety net: reconcile quest state after everything is loaded.
             // If ReconcileQuest creates a quest, it returns true and we re-run
             // next frame so Unity's Start() has initialized entry components.
-            if (!_questReconciled && _stage > 0)
+            // Gated on IsGameLoaded — creating quests before the game finishes
+            // loading races its own quest/journal setup (LoadingScreen hang).
+            if (!_questReconciled && _stage > 0
+                && (ScheduleOne.Persistence.LoadManager.Instance?.IsGameLoaded ?? false))
             {
                 if (!ReconcileQuest())
                     _questReconciled = true;
