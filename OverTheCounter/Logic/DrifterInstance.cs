@@ -163,9 +163,13 @@ namespace OverTheCounter.Logic
 
             // Set NPC identity fields (FishNet doesn't sync these)
             var (firstName, lastName) = GetDrifterName(seed);
-            existingNpc.ID = id;
-            existingNpc.FirstName = firstName;
-            existingNpc.LastName = lastName;
+            var basicInfo = existingNpc.GetBasicInfoConfig();
+            if (basicInfo != null)
+            {
+                basicInfo.ID = id;
+                basicInfo.FirstName = firstName;
+                basicInfo.LastName = lastName;
+            }
 
             var instance = new DrifterInstance(id, type, hotspot, seed)
             {
@@ -235,7 +239,8 @@ namespace OverTheCounter.Logic
             MugshotUtility.Generate(gameNpc, $"Drifter:{id}", sprite =>
             {
                 if (sprite == null || gameNpc == null) return;
-                gameNpc.MugshotSprite = sprite;
+                var appearance = gameNpc.GetAppearanceConfig();
+                if (appearance != null) appearance.Mugshot = sprite;
 
                 // Update the Messages app list entry icon — it was cached with the
                 // generic drifter icon when CreateConversationUI ran before the

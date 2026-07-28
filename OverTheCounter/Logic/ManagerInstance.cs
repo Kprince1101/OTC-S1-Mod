@@ -563,14 +563,19 @@ namespace OverTheCounter.Logic
             }
 
             var (firstName, lastName) = ManagerSpawner.GetManagerName(seed);
-            existingNpc.ID = id;
-            existingNpc.FirstName = firstName;
-            existingNpc.LastName = lastName;
+            var basicInfo = existingNpc.GetBasicInfoConfig();
+            if (basicInfo != null)
+            {
+                basicInfo.ID = id;
+                basicInfo.FirstName = firstName;
+                basicInfo.LastName = lastName;
+            }
 
             // Clear stale mugshot from the source prefab so MugshotUtility
             // polling detects our freshly generated sprite, not the clone's.
             existingNpc.SetMSGConversation(null);
-            existingNpc.MugshotSprite = null;
+            var clearAppearance = existingNpc.GetAppearanceConfig();
+            if (clearAppearance != null) clearAppearance.Mugshot = null;
 
             var avatarSettings = ManagerSpawner.ApplyAppearance(existingNpc, seed);
             ManagerSpawner.InitializeMessaging(existingNpc);
@@ -766,7 +771,8 @@ namespace OverTheCounter.Logic
             {
                 if (sprite == null) return;
 
-                GameNpc.MugshotSprite = sprite;
+                var appearance = GameNpc.GetAppearanceConfig();
+                if (appearance != null) appearance.Mugshot = sprite;
 
                 // Locker — S1API creates sprites with Vector2.zero pivot (bottom-left),
                 // but the 3D SpriteRenderer on the clipboard needs centered pivot.

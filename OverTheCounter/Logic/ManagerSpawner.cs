@@ -241,12 +241,18 @@ namespace OverTheCounter.Logic
                 // InitializeMessaging creates a fresh conversation and the
                 // mugshot callback writes to the correct NPC.
                 npc.SetMSGConversation(null);
-                npc.MugshotSprite = null;
+                var clearAppearance = npc.GetAppearanceConfig();
+                if (clearAppearance != null) clearAppearance.Mugshot = null;
 
-                // Configure identity
-                npc.ID = id;
-                npc.FirstName = firstName;
-                npc.LastName = lastName;
+                // Configure identity -- ID/FirstName/LastName/MugshotSprite moved onto the
+                // runtime BasicInfo/Appearance config objects (get=pub set=- directly on NPC).
+                var basicInfo = npc.GetBasicInfoConfig();
+                if (basicInfo != null)
+                {
+                    basicInfo.ID = id;
+                    basicInfo.FirstName = firstName;
+                    basicInfo.LastName = lastName;
+                }
 
                 // Remove from registry if auto-added
                 try

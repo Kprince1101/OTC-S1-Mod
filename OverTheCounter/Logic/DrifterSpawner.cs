@@ -170,8 +170,11 @@ namespace OverTheCounter.Logic
         {
             if (npc == null) return;
             var icon = GetDrifterIcon();
-            if (icon != null)
-                npc.MugshotSprite = icon;
+            if (icon == null) return;
+
+            // MugshotSprite moved onto the runtime Appearance config object (renamed Mugshot).
+            var appearance = npc.GetAppearanceConfig();
+            if (appearance != null) appearance.Mugshot = icon;
         }
 
         private static Sprite GetDrifterIcon()

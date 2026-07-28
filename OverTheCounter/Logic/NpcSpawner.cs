@@ -155,10 +155,15 @@ namespace OverTheCounter.Logic
                     return null;
                 }
 
-                // Configure identity
-                npc.ID = id;
-                npc.FirstName = firstName;
-                npc.LastName = lastName;
+                // Configure identity -- ID/FirstName/LastName moved onto the runtime
+                // BasicInfo config object (get=pub set=- directly on NPC now).
+                var basicInfo = npc.GetBasicInfoConfig();
+                if (basicInfo != null)
+                {
+                    basicInfo.ID = id;
+                    basicInfo.FirstName = firstName;
+                    basicInfo.LastName = lastName;
+                }
 
                 // Remove from registry if auto-added (we'll add manually)
                 try

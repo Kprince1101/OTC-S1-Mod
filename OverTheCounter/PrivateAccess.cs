@@ -304,6 +304,21 @@ namespace OverTheCounter
             try { return npc?._npcData?.GetRuntimeData()?.Interaction; }
             catch { return null; }
         }
+
+        // NPC.ID/FirstName/LastName/MugshotSprite are all get=pub set=- now -- identity
+        // moved onto the runtime config's BasicInfo (ID/FirstName/LastName) and Appearance
+        // (Mugshot, renamed from MugshotSprite) sub-objects. Same mutate-in-place pattern.
+        public static Il2CppScheduleOne.NPCs.Framework.BasicInfo GetBasicInfoConfig(this NPC npc)
+        {
+            try { return npc?._npcData?.GetRuntimeData()?.BasicInfo; }
+            catch { return null; }
+        }
+
+        public static Il2CppScheduleOne.NPCs.Framework.Appearance GetAppearanceConfig(this NPC npc)
+        {
+            try { return npc?._npcData?.GetRuntimeData()?.Appearance; }
+            catch { return null; }
+        }
 #endif
     }
 }

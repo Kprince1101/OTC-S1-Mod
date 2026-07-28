@@ -495,10 +495,14 @@ namespace OverTheCounter.Logic.Placement
             try
             {
 #if IL2CPP
-                var greeting = supplier.meetingGreeting;
-                var choice = supplier.meetingChoice;
-                if (greeting != null) greeting.ShouldShow = true;
-                if (choice != null) choice.Enabled = true;
+                // supplier.meetingGreeting / .meetingChoice no longer exist on Supplier.
+                // The closest replacement found is Supplier._meetingAction
+                // (NPCEvent_LocationDialogue), which exposes GreetingOverrideToEnable /
+                // ChoiceToEnable as Int32 indices rather than the old live boolean toggles
+                // (GreetingOverride.ShouldShow / DialogueChoice.Enabled) -- a genuine
+                // restructure (scheduled-dialogue-action config, not a per-instance live
+                // flag), not just a rename. No-op until that's mapped properly; worst case
+                // the warehouse meeting dialogue option doesn't toggle, not a crash.
 #else
                 var greeting = _meetingGreetingField?.GetValue(supplier)
                     as DialogueController.GreetingOverride;
@@ -522,10 +526,7 @@ namespace OverTheCounter.Logic.Placement
             try
             {
 #if IL2CPP
-                var greeting = supplier.meetingGreeting;
-                var choice = supplier.meetingChoice;
-                if (greeting != null) greeting.ShouldShow = false;
-                if (choice != null) choice.Enabled = false;
+                // See note in EnableWarehouseDialogue -- no-op, no confirmed replacement.
 #else
                 var greeting = _meetingGreetingField?.GetValue(supplier)
                     as DialogueController.GreetingOverride;
