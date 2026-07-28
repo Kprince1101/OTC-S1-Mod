@@ -1,4 +1,4 @@
-using OverTheCounter.Logic.Placement;
+﻿using OverTheCounter.Logic.Placement;
 using OverTheCounter.SaveData;
 using OverTheCounter.Utilities;
 using System;
@@ -1769,8 +1769,9 @@ namespace OverTheCounter.Logic
 
                 // Zero addiction + zero relation → GetOrderDays uses
                 // t = max(0,0) = 0, so numOrders = MinOrdersPerWeek.
-                var orderDays = data.GetOrderDays(0f, 0f);
-                int days = orderDays != null ? orderDays.Count : 1;
+                var orderDays = new Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.GameTime.EDay>();
+                data.GetOrderDays(0f, 0f, orderDays);
+                int days = orderDays.Count;
                 if (days <= 0) days = 1;
 
                 // Casual daily slice: weekly / orderDays / 3.
@@ -1799,8 +1800,9 @@ namespace OverTheCounter.Logic
                 if (data == null) return 0f;
                 float relationDelta = customer.NPC != null ? customer.NPC.RelationData.RelationDelta / 5f : 0f;
                 float weekly = data.GetAdjustedWeeklySpend(relationDelta);
-                var orderDays = data.GetOrderDays(customer.CurrentAddiction, relationDelta);
-                int days = orderDays != null ? orderDays.Count : 0;
+                var orderDays = new Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.GameTime.EDay>();
+                data.GetOrderDays(customer.CurrentAddiction, relationDelta, orderDays);
+                int days = orderDays.Count;
                 if (days <= 0) return 0f;
                 return weekly / days;
             }
