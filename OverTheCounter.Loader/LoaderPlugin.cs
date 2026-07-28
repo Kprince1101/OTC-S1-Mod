@@ -325,7 +325,31 @@ namespace OverTheCounter.Loader
                 // conflict. Reading into memory releases the file handle immediately.
                 byte[] originalBytes = File.ReadAllBytes(dllPath);
                 using var readStream = new MemoryStream(originalBytes);
-                using var module = ModuleDefinition.ReadModule(readStream);
+
+                // Reading from an in-memory buffer (see the file-lock note above) gives Cecil no
+                // directory to search from, so ANY assembly resolution it needs -- e.g. certain
+                // TypeReference property accesses, or its own internal work during Write() --
+                // fails outright ("Failed to resolve assembly: 'UnityEngine.CoreModule, ...'").
+                // Point it at the actual runtime locations these assemblies live: S1API's own
+                // folder, the profile's MelonLoader\Il2CppAssemblies (interop stub assemblies,
+                // e.g. UnityEngine.CoreModule.dll -- same folder LocalPaths.targets' ManagedDllPath
+                // points build-time references at), and MelonLoader's own directory.
+                var resolver = new DefaultAssemblyResolver();
+                string dllDir = Path.GetDirectoryName(dllPath);
+                if (!string.IsNullOrEmpty(dllDir)) resolver.AddSearchDirectory(dllDir);
+
+                string profileRoot = Directory.GetParent(modsPath)?.FullName;
+                if (!string.IsNullOrEmpty(profileRoot))
+                {
+                    string il2cppAssembliesDir = Path.Combine(profileRoot, "MelonLoader", "Il2CppAssemblies");
+                    if (Directory.Exists(il2cppAssembliesDir)) resolver.AddSearchDirectory(il2cppAssembliesDir);
+                }
+
+                string melonLoaderDir = Path.GetDirectoryName(typeof(MelonPlugin).Assembly.Location);
+                if (!string.IsNullOrEmpty(melonLoaderDir)) resolver.AddSearchDirectory(melonLoaderDir);
+
+                var readerParams = new ReaderParameters { AssemblyResolver = resolver };
+                using var module = ModuleDefinition.ReadModule(readStream, readerParams);
 
                 int hasLastNamePatched = PatchHasLastName(module);
                 int exitActionPatched = PatchExitAction(module);
