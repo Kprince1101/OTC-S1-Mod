@@ -236,7 +236,7 @@ namespace OverTheCounter.Patches
                 // When Manager is selected, manually navigate to SELECT_LOCATION
                 if (choiceLabel == "Manager")
                 {
-                    var dialogue = DialogueHandler.activeDialogue;
+                    var dialogue = DialogueHandler.ActiveDialogue;
                     var node = dialogue?.GetDialogueNodeByLabel("SELECT_LOCATION");
                     if (node != null)
                     {

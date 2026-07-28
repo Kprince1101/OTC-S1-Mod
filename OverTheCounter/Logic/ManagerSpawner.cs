@@ -1067,20 +1067,20 @@ namespace OverTheCounter.Logic
 
                 string title = mgr.GameNpc.FullName + "'s Inventory";
                 var storageMenu = Singleton<StorageMenu>.Instance;
-                UnityAction closeAction = null;
-                closeAction = (UnityAction)(() =>
+                // StorageMenu.Open() now takes the close callback directly as a parameter
+                // instead of exposing a subscribable onClosed event.
+                System.Action closeAction = () =>
                 {
                     mgr.IsPlayerInteracting = false;
                     // Release the server-side dialogue lock so the host resumes the manager
                     try { mgr.GameNpc?.Behaviour?.GenericDialogueBehaviour?.Disable_Server(); }
                     catch { }
-                    storageMenu.onClosed.RemoveListener(closeAction);
-                });
-                storageMenu.onClosed.AddListener(closeAction);
+                };
                 storageMenu.Open(
                     inventory.Cast<ScheduleOne.ItemFramework.IItemSlotOwner>(),
                     title,
-                    "");
+                    "",
+                    closeAction);
             }
             catch (Exception ex)
             {
@@ -1095,6 +1095,23 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// NPCInventory.SlotCount is no longer settable — ItemSlots (List) is the only way
+        /// to size the inventory now. Builds `count` fresh ItemSlot objects owned by
+        /// `inventory` and assigns them.
+        /// </summary>
+        private static void SetSlotCount(ScheduleOne.NPCs.NPCInventory inventory, int count)
+        {
+            var slots = new Il2CppSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemSlot>();
+            for (int i = 0; i < count; i++)
+            {
+                var slot = new ScheduleOne.ItemFramework.ItemSlot();
+                slot.SetSlotOwner(inventory.Cast<ScheduleOne.ItemFramework.IItemSlotOwner>());
+                slots.Add(slot);
+            }
+            inventory.ItemSlots = slots;
+        }
+
+        /// <summary>
         /// Adds a persistent NPCInventory component to the manager NPC.
         /// Disables nightly clearing and pickpocketing. Called during spawn (inactive GO)
         /// and adopt (temporarily deactivates GO to avoid Awake crash).
@@ -1103,17 +1120,20 @@ namespace OverTheCounter.Logic
         {
             try
             {
+                // ClearInventoryEachNight / CanBePickpocketed / PickpocketIntObj no longer exist on
+                // NPCInventory and have no confirmed 1:1 replacement — the game removed these
+                // as per-instance toggles. Until a Harmony-based workaround is written, managers
+                // are no longer guaranteed nightly-clear-immune or pickpocket-immune. RandomCash
+                // and RandomItems are now opt-in method calls (AddRandomCashInstance() /
+                // AddRandomItemsToInventory()) rather than flags — "false" now just means not
+                // calling them, so those two lines are dropped rather than replaced.
                 var existing = npc.GetComponent<ScheduleOne.NPCs.NPCInventory>();
                 if (existing != null)
                 {
-                    existing.ClearInventoryEachNight = false;
-                    existing.RandomCash = false;
-                    existing.RandomItems = false;
-                    existing.CanBePickpocketed = false;
-                    existing.SlotCount = 5;
+                    SetSlotCount(existing, 5);
 
                     if (Config.ManagerVerboseLogging.Value)
-                        OTCLog.Msg(OTCLog.Systems.Manager, $"Inventory already exists on {npc.ID}, configured (slots={existing.ItemSlots?.Count ?? existing.SlotCount})");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"Inventory already exists on {npc.ID}, configured (slots={existing.ItemSlots?.Count ?? 0})");
                     return;
                 }
 
@@ -1121,20 +1141,12 @@ namespace OverTheCounter.Logic
                 if (wasActive) npc.gameObject.SetActive(false);
 
                 var inventory = npc.gameObject.AddComponent<ScheduleOne.NPCs.NPCInventory>();
-                inventory.SlotCount = 5;
-                inventory.ClearInventoryEachNight = false;
-                inventory.RandomCash = false;
-                inventory.RandomItems = false;
-                inventory.CanBePickpocketed = false;
-
-                var intObj = npc.GetComponentInChildren<InteractableObject>(true);
-                if (intObj != null)
-                    inventory.PickpocketIntObj = intObj;
+                SetSlotCount(inventory, 5);
 
                 if (wasActive) npc.gameObject.SetActive(true);
 
                 if (Config.ManagerVerboseLogging.Value)
-                    OTCLog.Msg(OTCLog.Systems.Manager, $"Added inventory to {npc.ID} (slots={inventory.SlotCount})");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"Added inventory to {npc.ID} (slots={inventory.ItemSlots?.Count ?? 0})");
             }
             catch (Exception ex)
             {

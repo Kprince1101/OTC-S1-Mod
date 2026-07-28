@@ -1922,7 +1922,7 @@ namespace OverTheCounter.Logic
                 float basePitch = isMale ? 0.8f : 1.3f;
                 float variation = 0.2f;
                 float offset = -variation / 2f + Mathf.Clamp01((seed % 10) / 10f) * variation;
-                emitter.PitchMultiplier = basePitch + offset;
+                emitter.SetRuntimePitchMultiplier(basePitch + offset);
             }
             catch (Exception ex)
             {

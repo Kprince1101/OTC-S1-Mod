@@ -278,7 +278,8 @@ namespace OverTheCounter.Logic
                 if (inventory == null) return;
 
                 int target = ManagerUpgrades.GetTotalSlots(Configuration.ExtraInventorySlots);
-                int current = inventory.ItemSlots?.Count ?? 0;
+                var slots = inventory.ItemSlots ?? new Il2CppSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemSlot>();
+                int current = slots.Count;
 
                 if (current >= target) return;
 
@@ -286,9 +287,10 @@ namespace OverTheCounter.Logic
                 {
                     var slot = new ScheduleOne.ItemFramework.ItemSlot();
                     slot.SetSlotOwner(inventory.Cast<ScheduleOne.ItemFramework.IItemSlotOwner>());
+                    slots.Add(slot);
                 }
 
-                inventory.SlotCount = target;
+                inventory.ItemSlots = slots;
 
                 if (Config.ManagerVerboseLogging.Value)
                     Log($"ApplyInventoryCapacity: {current}→{target} slots");

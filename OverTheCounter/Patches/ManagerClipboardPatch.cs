@@ -1,4 +1,4 @@
-using HarmonyLib;
+﻿using HarmonyLib;
 using MelonLoader;
 using OverTheCounter.Logic;
 using OverTheCounter.Utilities;
@@ -144,7 +144,10 @@ namespace OverTheCounter.Patches
                     {
                         if (mi.ObjectSelector?.IsOpen == true) return true;
                         if (mi.TransitEntitySelector?.IsOpen == true) return true;
-                        if (mi.NPCSelector?.IsOpen == true) return true;
+                        // NPCSelector was removed from ManagementInterface by the game
+                        // update with no confirmed replacement found yet. Dropped this
+                        // guard rather than guess; worst case is a rare UI overlap, not
+                        // a crash. Revisit once the replacement selector is identified.
                     }
                 }
                 catch { /* MI not ready — safe to proceed */ }

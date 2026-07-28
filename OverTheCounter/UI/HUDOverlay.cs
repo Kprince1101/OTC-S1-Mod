@@ -1,4 +1,4 @@
-using MelonLoader;
+﻿using MelonLoader;
 using OverTheCounter.Utilities;
 using S1API.Leveling;
 using System;
@@ -349,7 +349,7 @@ namespace OverTheCounter.UI
                 if (health == null) return;
 
                 float current = health.CurrentHealth;
-                float max = PlayerHealth.MAX_HEALTH;
+                float max = health.MaxHealth;
                 float ratio = max > 0 ? Mathf.Clamp01(current / max) : 1f;
 
                 _healthFill.rectTransform.anchorMax = new Vector2(ratio, 1f);

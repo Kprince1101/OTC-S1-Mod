@@ -1,4 +1,4 @@
-using OverTheCounter.Utilities;
+﻿using OverTheCounter.Utilities;
 using System;
 using UnityEngine;
 
@@ -69,8 +69,7 @@ namespace OverTheCounter.UI
                 // Show instruction at top of screen
                 Singleton<HUD>.Instance?.ShowTopScreenText(instruction);
 
-                // Show input prompt
-                Singleton<InputPromptsCanvas>.Instance?.LoadModule("objectselector");
+                // NOTE: input-hint overlay removed — InputPromptsCanvas no longer exists.
             }
             catch (Exception ex)
             {
@@ -121,8 +120,8 @@ namespace OverTheCounter.UI
                 }
 
                 // Check for cancel (Escape or right-click)
-                if (GameInput.GetButtonDown(GameInput.ButtonCode.Escape) ||
-                    GameInput.GetButtonDown(GameInput.ButtonCode.Back))
+                if (GameInput.GetButtonDown(GameInput.ButtonCode.SecondaryClick) ||
+                    Input.GetKeyDown(KeyCode.Escape))
                 {
                     Close(false);
                 }
@@ -197,8 +196,7 @@ namespace OverTheCounter.UI
                 Singleton<HUD>.Instance?.HideTopScreenText();
                 Singleton<HUD>.Instance?.CrosshairText?.Hide();
 
-                if (Singleton<InputPromptsCanvas>.Instance?.currentModuleLabel == "objectselector")
-                    Singleton<InputPromptsCanvas>.Instance?.UnloadModule();
+                // NOTE: matching UnloadModule() call removed along with the LoadModule() above.
             }
             catch { }
 

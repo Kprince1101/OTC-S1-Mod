@@ -182,7 +182,11 @@ namespace OverTheCounter.Logic
             try
             {
                 if (avatar != null && avatar.CurrentSettings != null)
-                    avatar.InitialAvatarSettings = avatar.CurrentSettings;
+                    // NOTE: Avatar no longer exposes InitialAvatarSettings as a separate
+                    // slot to persist across re-init; CurrentSettings is the only
+                    // settings store now, so there is nothing to re-assign here.
+                    // If Avatar re-initializes and drops settings, this will need
+                    // a LoadAvatarSettings(avatar.CurrentSettings) call instead.
             }
             catch { }
 
@@ -528,7 +532,7 @@ namespace OverTheCounter.Logic
             try
             {
                 if (GameNpc?.Movement == null) return;
-                GameNpc.Movement.MovementSpeedScale = 0.9f;
+                GameNpc.Movement.MoveSpeedMultiplier = 0.9f;
             }
             catch (Exception ex)
             {
@@ -749,7 +753,7 @@ namespace OverTheCounter.Logic
 
                 if (string.IsNullOrEmpty(weaponPath))
                 {
-                    combatBehaviour.DefaultWeapon = null;
+                    combatBehaviour.SetDefaultWeapon(null);
                     return;
                 }
 
@@ -781,7 +785,7 @@ namespace OverTheCounter.Logic
                     OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: fixed empty AssetPath → '{weaponPath}'");
                 }
 
-                combatBehaviour.DefaultWeapon = avatarWeapon;
+                combatBehaviour.SetDefaultWeapon(avatarWeapon);
             }
             catch (Exception ex)
             {

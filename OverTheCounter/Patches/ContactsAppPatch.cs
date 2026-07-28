@@ -1,4 +1,4 @@
-using HarmonyLib;
+﻿using HarmonyLib;
 using MelonLoader;
 using OverTheCounter.Utilities;
 using System;
@@ -327,8 +327,8 @@ namespace OverTheCounter.Patches
                 foreach (var c in circles)
                 {
                     if (c == null) continue;
-                    if (!string.IsNullOrEmpty(c.AssignedNPC_ID))
-                        idToCircle[c.AssignedNPC_ID] = c;
+                    if (!string.IsNullOrEmpty(c.NPCId))
+                        idToCircle[c.NPCId] = c;
                     circleToContainer[c] = GetConnectionsContainerForCircle(instance, c);
                 }
 
@@ -359,7 +359,7 @@ namespace OverTheCounter.Patches
                     }
                     else
                     {
-                        _connectionCache.TryGetValue(circle.AssignedNPC_ID, out connectionIds);
+                        _connectionCache.TryGetValue(circle.NPCId, out connectionIds);
                     }
 
                     if (connectionIds == null || connectionIds.Count == 0) continue;
@@ -373,8 +373,8 @@ namespace OverTheCounter.Patches
                             continue;
 
                         // Deduplicate: skip if line already exists (matches vanilla naming at Start() line 108)
-                        string fwdName = circle.AssignedNPC_ID + " -> " + otherId;
-                        string revName = otherId + " -> " + circle.AssignedNPC_ID;
+                        string fwdName = circle.NPCId + " -> " + otherId;
+                        string revName = otherId + " -> " + circle.NPCId;
                         if (connectionsContainer.Find(fwdName) != null || connectionsContainer.Find(revName) != null)
                             continue;
 
