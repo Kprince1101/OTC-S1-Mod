@@ -60,34 +60,20 @@ namespace OverTheCounter
             foreach (var type in typeof(Core).Assembly.GetValidTypes())
                 try { HarmonyInstance.CreateClassProcessor(type).Patch(); }
                 catch (Exception ex) { OTCLog.Error(OTCLog.Systems.Patch, $"Failed to patch {type.FullName}: {ex.Message}"); }
-            NpcTypeDiscoveryPatch.Apply(HarmonyInstance);
-            StackSizePatch.Apply(HarmonyInstance);
-            ManagerClipboardPatch.Apply(HarmonyInstance);
-            try
-            {
-                BuildingPlacementPatch.Apply(HarmonyInstance);
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Patch, $"BuildingPlacementPatch.Apply failed: {ex}");
-            }
-            try
-            {
-                ConfigReplicatorPatch.Apply(HarmonyInstance);
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Patch, $"ConfigReplicatorPatch.Apply failed: {ex}");
-            }
-            ContactsAppFix.Apply(HarmonyInstance);
-            GraffitiPatch.Apply(HarmonyInstance);
-            RecipePinPatch.Apply(HarmonyInstance);
-            SupplierWarehousePatch.Apply(HarmonyInstance);
-            SupplierFleePatch.Apply(HarmonyInstance);
-            SaveManagerPatch.Apply(HarmonyInstance);
-            GameProfilerPatches.Apply(HarmonyInstance);
-            WeatherPatches.Apply(HarmonyInstance);
-            CustomerCheckoutInterceptPatch.Apply(HarmonyInstance);
+            SafeApplyPatch(NpcTypeDiscoveryPatch.Apply, nameof(NpcTypeDiscoveryPatch));
+            SafeApplyPatch(StackSizePatch.Apply, nameof(StackSizePatch));
+            SafeApplyPatch(ManagerClipboardPatch.Apply, nameof(ManagerClipboardPatch));
+            SafeApplyPatch(BuildingPlacementPatch.Apply, nameof(BuildingPlacementPatch));
+            SafeApplyPatch(ConfigReplicatorPatch.Apply, nameof(ConfigReplicatorPatch));
+            SafeApplyPatch(ContactsAppFix.Apply, nameof(ContactsAppFix));
+            SafeApplyPatch(GraffitiPatch.Apply, nameof(GraffitiPatch));
+            SafeApplyPatch(RecipePinPatch.Apply, nameof(RecipePinPatch));
+            SafeApplyPatch(SupplierWarehousePatch.Apply, nameof(SupplierWarehousePatch));
+            SafeApplyPatch(SupplierFleePatch.Apply, nameof(SupplierFleePatch));
+            SafeApplyPatch(SaveManagerPatch.Apply, nameof(SaveManagerPatch));
+            SafeApplyPatch(GameProfilerPatches.Apply, nameof(GameProfilerPatches));
+            SafeApplyPatch(WeatherPatches.Apply, nameof(WeatherPatches));
+            SafeApplyPatch(CustomerCheckoutInterceptPatch.Apply, nameof(CustomerCheckoutInterceptPatch));
 
             TimeManager.OnSleepEnd += OnSleepEnd;
             TimeManager.OnDayPass += OnDayPass;
@@ -113,6 +99,14 @@ namespace OverTheCounter
             _drifterManager = new DrifterManager();
             _managerManager = new ManagerController();
             _customerManager = new CustomerManager();
+        }
+
+        // A single failing patch (e.g. a Harmony/MelonLoader version mismatch) must not
+        // abort the rest of init — that previously took down the whole mod. (OM-6, OM-22)
+        private void SafeApplyPatch(Action<HarmonyLib.Harmony> apply, string name)
+        {
+            try { apply(HarmonyInstance); }
+            catch (Exception ex) { OTCLog.Error(OTCLog.Systems.Patch, $"{name}.Apply failed: {ex}"); }
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
