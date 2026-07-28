@@ -396,6 +396,7 @@
 		<Compile Include="Patches\S1APINPCInventoryFixPatch.cs" />
 		<Compile Include="Patches\S1APINPCRelationFixPatch.cs" />
 		<Compile Include="Patches\S1APIBrokenPatchSweeper.cs" />
+		<Compile Include="Patches\S1APIPhoneAppDiagnostic.cs" />
 		<Compile Include="Patches\ManagerOvernightDepositPatch.cs" />
 		<Compile Include="Patches\ManagerPickpocketPatch.cs" />
 		<Compile Include="Patches\SupplierWarehousePatch.cs" />

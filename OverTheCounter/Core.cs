@@ -41,6 +41,7 @@ namespace OverTheCounter
 
         public override void OnInitializeMelon()
         {
+            S1APIPhoneAppDiagnostic.Subscribe();
             DependencyChecker.RunChecks();
             if (DependencyChecker.HasMissingDeps)
             {
