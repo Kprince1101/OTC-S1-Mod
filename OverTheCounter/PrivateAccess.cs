@@ -72,7 +72,7 @@ namespace OverTheCounter
         public static VODatabase GetDatabase(this VOEmitter emitter)
         {
 #if IL2CPP
-            return emitter.Database;
+            return emitter._currentDatabase;
 #else
             return (VODatabase)_voeDatabase?.GetValue(emitter);
 #endif

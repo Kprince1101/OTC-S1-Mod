@@ -64,7 +64,7 @@ namespace OverTheCounter.UI
             try
             {
                 // Close the clipboard while selecting (same as ObjectSelector does)
-                Singleton<ManagementClipboard>.Instance?.Close(true);
+                Singleton<ManagementClipboard>.Instance?.Close();
 
                 // Show instruction at top of screen
                 Singleton<HUD>.Instance?.ShowTopScreenText(instruction);
