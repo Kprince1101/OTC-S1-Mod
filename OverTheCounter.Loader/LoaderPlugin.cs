@@ -368,7 +368,7 @@ namespace OverTheCounter.Loader
                 }
 
                 Logger.Msg("Patched S1API (" + Path.GetFileName(dllPath) + "): " +
-                    hasLastNamePatched + " broken set_hasLastName call(s) removed (custom NPCs — Vic/Static/Bella — can now construct), " +
+                    hasLastNamePatched + " broken NPC constructor setter call(s) removed (custom NPCs — Vic/Static/Bella — can now construct further), " +
                     exitActionPatched + " broken ExitAction/ExitDelegate statement(s) removed (custom phone apps can now register their icons).");
             }
             catch (Exception ex)
@@ -379,12 +379,24 @@ namespace OverTheCounter.Loader
 
         /// <summary>
         /// See the class-level notes above: S1API's <c>NPC()</c> base constructor unconditionally
-        /// calls <c>set_hasLastName(bool)</c>, a setter the current game version no longer has.
-        /// Every call is a simple instance-setter invocation of the form
-        /// <c>[push instance][push bool][call set_hasLastName]</c> with the result discarded, so
-        /// replacing the call with two pops (dropping exactly what it would have consumed) is
-        /// stack-neutral and requires no further IL adjustment.
+        /// calls a handful of setters on the game's own NPC type that this game version no longer
+        /// has -- confirmed so far: <c>set_hasLastName(bool)</c> and <c>set_MugshotSprite(Sprite)</c>.
+        /// Both showed up the same way: fix one, rebuild, the constructor's JIT gets past that call
+        /// and immediately hits the next broken one further down the same method body (expected --
+        /// the whole method is resolved eagerly, so every broken call in it is "real", not
+        /// conditional; we only find out about each one once the prior one stops masking it).
+        /// Every call found so far is a simple instance-setter invocation of the form
+        /// <c>[push instance][push value][call set_X]</c> with the result discarded, so replacing
+        /// the call with two pops (dropping exactly what it would have consumed) is stack-neutral
+        /// and requires no further IL adjustment. Add new names to <see cref="BrokenNpcSetterNames"/>
+        /// as they surface -- same fix, same risk profile, no other code changes needed.
         /// </summary>
+        private static readonly string[] BrokenNpcSetterNames =
+        {
+            "set_hasLastName",
+            "set_MugshotSprite",
+        };
+
         private static int PatchHasLastName(ModuleDefinition module)
         {
             var npcType = module.GetType("S1API.Entities.NPC");
@@ -401,8 +413,14 @@ namespace OverTheCounter.Loader
                 {
                     var instr = method.Body.Instructions[i];
                     bool isCall = instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt;
-                    if (!isCall || !(instr.Operand is MethodReference mref) || mref.Name != "set_hasLastName")
-                        continue;
+                    if (!isCall || !(instr.Operand is MethodReference mref)) continue;
+
+                    bool isKnownBroken = false;
+                    for (int n = 0; n < BrokenNpcSetterNames.Length; n++)
+                    {
+                        if (mref.Name == BrokenNpcSetterNames[n]) { isKnownBroken = true; break; }
+                    }
+                    if (!isKnownBroken) continue;
 
                     var pop1 = il.Create(OpCodes.Pop);
                     var pop2 = il.Create(OpCodes.Pop);
