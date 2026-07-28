@@ -198,8 +198,8 @@ namespace OverTheCounter.Apps
                     var names = new System.Collections.Generic.List<string>();
                     foreach (var npc in connections)
                     {
-                        if (npc != null && !string.IsNullOrEmpty(npc.fullName))
-                            names.Add(npc.fullName);
+                        if (npc != null && !string.IsNullOrEmpty(npc.FullName))
+                            names.Add(npc.FullName);
                     }
                     if (names.Count > 0)
                         connectionsStr = string.Join(", ", names);

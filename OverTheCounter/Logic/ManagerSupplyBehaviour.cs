@@ -794,7 +794,7 @@ namespace OverTheCounter.Logic
                             try
                             {
                                 supplierPos = supplier.transform.position;
-                                supplierName = supplier.fullName ?? "Supplier";
+                                supplierName = supplier.FullName ?? "Supplier";
                             }
                             catch { }
 
@@ -1222,7 +1222,7 @@ namespace OverTheCounter.Logic
                                 purchase.ItemName,
                                 -purchase.UnitPrice,
                                 buyQty,
-                                $"Supply purchase by {_manager.GameNpc?.fullName ?? "Manager"}"
+                                $"Supply purchase by {_manager.GameNpc?.FullName ?? "Manager"}"
                             );
                             success = true;
                         }
@@ -1242,7 +1242,7 @@ namespace OverTheCounter.Logic
                             purchase.ItemName,
                             -purchase.UnitPrice,
                             buyQty,
-                            $"Supply purchase by {_manager.GameNpc?.fullName ?? "Manager"}"
+                            $"Supply purchase by {_manager.GameNpc?.FullName ?? "Manager"}"
                         );
                         success = true;
                     }

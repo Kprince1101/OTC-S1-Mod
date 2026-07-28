@@ -308,7 +308,7 @@ namespace OverTheCounter.Logic.Placement
             ClearMeetupTimer(supplier);
 
             OTCLog.Msg(OTCLog.Systems.Patch,
-                $"Supplier {supplier.fullName} stationed at warehouse slot {slot}");
+                $"Supplier {supplier.FullName} stationed at warehouse slot {slot}");
         }
 
         /// <summary>
@@ -331,7 +331,7 @@ namespace OverTheCounter.Logic.Placement
                     _locations[i].SetActiveSupplier(null);
                     DisableWarehouseDialogue(supplier);
                     OTCLog.Msg(OTCLog.Systems.Patch,
-                        $"Supplier {supplier.fullName} left warehouse for meetup");
+                        $"Supplier {supplier.FullName} left warehouse for meetup");
                     break;
                 }
             }
@@ -347,7 +347,7 @@ namespace OverTheCounter.Logic.Placement
 
             _meetupExpireBySupplier.Remove(key);
             OTCLog.Warning(OTCLog.Systems.Patch,
-                $"Supplier meetup overdue: forcing end + warehouse return for {supplier.fullName}");
+                $"Supplier meetup overdue: forcing end + warehouse return for {supplier.FullName}");
             bool ended = true;
             try { supplier.EndMeeting(); } catch { ended = false; }
             if (!ended)
@@ -381,7 +381,7 @@ namespace OverTheCounter.Logic.Placement
                 {
                     wasTracked = true;
                     OTCLog.Msg(OTCLog.Systems.Patch,
-                        $"Supplier meetup handoff: {supplier.fullName} inside S1MAPI interior, issuing RecallNPC");
+                        $"Supplier meetup handoff: {supplier.FullName} inside S1MAPI interior, issuing RecallNPC");
                     nav.RecallNPC(supplier.Movement);
                 }
             }
@@ -418,13 +418,13 @@ namespace OverTheCounter.Logic.Placement
                 if (!released)
                 {
                     OTCLog.Warning(OTCLog.Systems.Patch,
-                        $"Supplier meetup handoff: {supplier.fullName} S1MAPI release timed out after 15s — " +
+                        $"Supplier meetup handoff: {supplier.FullName} S1MAPI release timed out after 15s — " +
                         $"supplier may walk to meetup via NavMesh (PendingExteriorDestination)");
                     yield break;
                 }
 
                 OTCLog.Msg(OTCLog.Systems.Patch,
-                    $"Supplier meetup handoff: {supplier.fullName} released from S1MAPI, warping to meetup");
+                    $"Supplier meetup handoff: {supplier.FullName} released from S1MAPI, warping to meetup");
             }
 
             // S1MAPI no longer tracking — warp is safe.
@@ -444,7 +444,7 @@ namespace OverTheCounter.Logic.Placement
                     MelonCoroutines.Start(ApplyFacingAfterDelay(supplier, meetupForward, 0.35f));
                 }
                 OTCLog.Msg(OTCLog.Systems.Patch,
-                    $"Supplier meetup handoff: {supplier.fullName} warped to meetup at {meetupWorldPos}");
+                    $"Supplier meetup handoff: {supplier.FullName} warped to meetup at {meetupWorldPos}");
             }
             catch (Exception ex)
             {
@@ -481,7 +481,7 @@ namespace OverTheCounter.Logic.Placement
                     _locations[i].SetActiveSupplier(null);
                     DisableWarehouseDialogue(supplier);
                     OTCLog.Msg(OTCLog.Systems.Patch,
-                        $"Supplier {supplier.fullName} unassigned from warehouse stand (off-site)");
+                        $"Supplier {supplier.FullName} unassigned from warehouse stand (off-site)");
                     break;
                 }
             }
@@ -840,7 +840,7 @@ namespace OverTheCounter.Logic.Placement
                                 {
                                     supplier.Movement.Warp(stand.position);
                                     OTCLog.Msg(OTCLog.Systems.Patch,
-                                        $"Synced {supplier.fullName} stand position to clients");
+                                        $"Synced {supplier.FullName} stand position to clients");
                                 }
                             }
                         }

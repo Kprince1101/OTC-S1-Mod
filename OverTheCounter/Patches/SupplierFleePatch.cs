@@ -47,7 +47,7 @@ namespace OverTheCounter.Patches
                 if (OTCWarehouse.IsDoorOpen) return true;
 
                 OTCLog.Msg(OTCLog.Systems.Patch,
-                    $"Suppressed flee for warehouse supplier {supplier.fullName} (door closed)");
+                    $"Suppressed flee for warehouse supplier {supplier.FullName} (door closed)");
                 return false;
             }
             catch (Exception ex)

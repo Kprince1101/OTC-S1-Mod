@@ -368,7 +368,7 @@ namespace OverTheCounter.Apps
 
             if (!string.IsNullOrEmpty(_customerSearchText))
                 filtered = filtered.Where(d =>
-                    d.Customer.NPC.fullName.IndexOf(_customerSearchText, StringComparison.OrdinalIgnoreCase) >= 0);
+                    d.Customer.NPC.FullName.IndexOf(_customerSearchText, StringComparison.OrdinalIgnoreCase) >= 0);
 
             var grouped = filtered
                 .GroupBy(d => d.Customer.NPC.Region)
@@ -446,7 +446,7 @@ namespace OverTheCounter.Apps
             bool isDesperate = !isLocked && DesperationManager.IsDesperate(customer.NPC.ID);
 
             Color cellColor = isDesperate ? new Color(0.4f, 0.15f, 0.15f) : new Color(0.2f, 0.2f, 0.2f);
-            var cellObj = UIFactory.Panel($"Cell_{customer.NPC.fullName}", gridParent, cellColor);
+            var cellObj = UIFactory.Panel($"Cell_{customer.NPC.FullName}", gridParent, cellColor);
 
             if (isDesperate)
             {
@@ -538,7 +538,7 @@ namespace OverTheCounter.Apps
             }
             else
             {
-                OTCLog.Warning(OTCLog.Systems.NPC, $"MugshotSprite is null for NPC: {customer.fullName}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"MugshotSprite is null for NPC: {customer.FullName}");
             }
         }
 

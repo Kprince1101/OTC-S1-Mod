@@ -156,7 +156,7 @@ namespace OverTheCounter.Patches
                 if (locationIndex < 0 || locationIndex >= SupplierLocation.AllLocations.Count)
                 {
                     OTCLog.Warning(OTCLog.Systems.Patch,
-                        $"MeetAtLocation public prefix: invalid locationIndex={locationIndex} for {__instance?.fullName}");
+                        $"MeetAtLocation public prefix: invalid locationIndex={locationIndex} for {__instance?.FullName}");
                     return;
                 }
 
@@ -164,7 +164,7 @@ namespace OverTheCounter.Patches
                 if (loc == null)
                 {
                     OTCLog.Warning(OTCLog.Systems.Patch,
-                        $"MeetAtLocation public prefix: null location at index={locationIndex} for {__instance?.fullName}");
+                        $"MeetAtLocation public prefix: null location at index={locationIndex} for {__instance?.FullName}");
                     return;
                 }
 
@@ -176,7 +176,7 @@ namespace OverTheCounter.Patches
                     : loc.transform.forward;
 
                 OTCLog.Msg(OTCLog.Systems.Patch,
-                    $"MeetAtLocation public prefix: resolved meetup target for {__instance?.fullName} -> {meetupPos} (index {locationIndex})");
+                    $"MeetAtLocation public prefix: resolved meetup target for {__instance?.FullName} -> {meetupPos} (index {locationIndex})");
                 OTCSupplierArea.MarkMeetupStart(__instance, expireIn);
                 OTCSupplierArea.ReleaseAndWarpSupplierToMeetup(__instance, meetupPos, meetupForward);
             }

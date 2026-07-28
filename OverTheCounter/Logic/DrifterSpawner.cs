@@ -118,7 +118,7 @@ namespace OverTheCounter.Logic
                     return;
                 }
 
-                var conversation = new MSGConversation(npc, npc.fullName);
+                var conversation = new MSGConversation(npc, npc.FullName);
                 npc.SetMSGConversation(conversation);
                 conversation.SetIsKnown(true);
                 DrifterConversations[npc.ID] = conversation;

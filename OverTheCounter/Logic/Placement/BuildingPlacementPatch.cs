@@ -877,7 +877,7 @@ namespace OverTheCounter.Logic.Placement
                     catch (Exception ex)
                     {
                         OTCLog.Warning(OTCLog.Systems.Patch,
-                            $"SafeRebuild: failed to restore supplier {supplier.fullName}: {ex.Message}");
+                            $"SafeRebuild: failed to restore supplier {supplier.FullName}: {ex.Message}");
                     }
                 }
 

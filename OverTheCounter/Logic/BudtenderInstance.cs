@@ -819,7 +819,7 @@ namespace OverTheCounter.Logic
                 {
                     int gameDay = S1API.GameTime.TimeManager.ElapsedDays;
                     int gameHour = S1API.GameTime.TimeManager.CurrentTime;
-                    string custName = CurrentCustomer.GameNpc?.fullName ?? "Unknown";
+                    string custName = CurrentCustomer.GameNpc?.FullName ?? "Unknown";
                     string txId = saveData.NextTransactionId();
                     float tip = DispensaryDealManager.GetTipAmount(CurrentCustomer, SaleTotal);
                     string buildingId = AssignedCounter.BuildingId;
@@ -896,7 +896,7 @@ namespace OverTheCounter.Logic
                     vc.ChangeAddiction(highestAddiction / 5f);
 
                 OTCLog.Msg(OTCLog.Systems.Customer,
-                    $"Budtender {Id}: budtending rewards for {vc.NPC.fullName}: rel={rel:+0.000;-0.000} addiction={highestAddiction / 5f:F3} satisfaction={sat:P0}");
+                    $"Budtender {Id}: budtending rewards for {vc.NPC.FullName}: rel={rel:+0.000;-0.000} addiction={highestAddiction / 5f:F3} satisfaction={sat:P0}");
             }
 
             CustomerManager.Instance?.OnCheckoutComplete(CurrentCustomer.Id);

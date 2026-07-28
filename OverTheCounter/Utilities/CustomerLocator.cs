@@ -58,7 +58,7 @@ namespace OverTheCounter.Utilities
             // Configure and enable the POI (re-enables if previously disabled)
             if (customer.GetPotentialCustomerPoI() != null)
             {
-                customer.GetPotentialCustomerPoI().SetMainText(customer.NPC.fullName);
+                customer.GetPotentialCustomerPoI().SetMainText(customer.NPC.FullName);
                 customer.GetPotentialCustomerPoI().SetNPC(customer.NPC);
                 customer.GetPotentialCustomerPoI().enabled = true;
             }

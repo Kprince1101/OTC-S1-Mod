@@ -207,7 +207,7 @@ namespace OverTheCounter.Patches
                 catch (System.Exception ex)
                 {
                     OTCLog.Warning(OTCLog.Systems.Customer,
-                        $"DealIntercept: failed to void dealer contract for {dealer.fullName}: {ex.Message}");
+                        $"DealIntercept: failed to void dealer contract for {dealer.FullName}: {ex.Message}");
                 }
             }
         }

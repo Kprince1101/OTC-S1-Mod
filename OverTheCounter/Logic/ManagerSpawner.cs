@@ -481,7 +481,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                var conversation = new MSGConversation(npc, npc.fullName);
+                var conversation = new MSGConversation(npc, npc.FullName);
                 npc.SetMSGConversation(conversation);
                 conversation.SetIsKnown(true);
                 if (Config.ManagerVerboseLogging.Value)
@@ -1065,7 +1065,7 @@ namespace OverTheCounter.Logic
                     yield break;
                 }
 
-                string title = mgr.GameNpc.fullName + "'s Inventory";
+                string title = mgr.GameNpc.FullName + "'s Inventory";
                 var storageMenu = Singleton<StorageMenu>.Instance;
                 UnityAction closeAction = null;
                 closeAction = (UnityAction)(() =>

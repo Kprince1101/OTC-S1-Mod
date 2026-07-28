@@ -882,7 +882,7 @@ namespace OverTheCounter.Logic
                     {
                         int gameDay = S1API.GameTime.TimeManager.ElapsedDays;
                         int gameHour = S1API.GameTime.TimeManager.CurrentTime;
-                        string custName = customer?.GameNpc?.fullName ?? custId;
+                        string custName = customer?.GameNpc?.FullName ?? custId;
                         string txId = saveData.NextTransactionId();
                         string buildingId = customer?.AssignedCounter?.BuildingId;
                         var items = parts[2].Split('~');
@@ -3313,7 +3313,7 @@ namespace OverTheCounter.Logic
                     {
                         int gameDay = S1API.GameTime.TimeManager.ElapsedDays;
                         int gameHour = S1API.GameTime.TimeManager.CurrentTime;
-                        string custName = _customer?.GameNpc?.fullName ?? "Unknown";
+                        string custName = _customer?.GameNpc?.FullName ?? "Unknown";
                         string txId = saveData.NextTransactionId();
                         float tip = DispensaryDealManager.GetTipAmount(_customer, _totalPlacedPrice);
                         tip += _customer.EnjoyPremium * _skillCheckTipBonus;
@@ -3432,7 +3432,7 @@ namespace OverTheCounter.Logic
                     ShowBudtendingPopup(vc, satisfaction, originalDelta);
 
                 OTCLog.Msg(OTCLog.Systems.Customer,
-                    $"Budtending rewards for {vc.NPC.fullName}: rel={relChange:+0.000;-0.000} satisfaction={satisfaction:P0}");
+                    $"Budtending rewards for {vc.NPC.FullName}: rel={relChange:+0.000;-0.000} satisfaction={satisfaction:P0}");
             }
             catch (Exception ex)
             {

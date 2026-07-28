@@ -973,7 +973,7 @@ namespace OverTheCounter.Logic
             if (locker.AssignedEmployee != null)
             {
                 if (Config.ManagerVerboseLogging.Value)
-                    Log($"clearing existing employee '{locker.AssignedEmployee.fullName}' from locker");
+                    Log($"clearing existing employee '{locker.AssignedEmployee.FullName}' from locker");
                 locker.SetAssignedEmployee(null);
             }
 

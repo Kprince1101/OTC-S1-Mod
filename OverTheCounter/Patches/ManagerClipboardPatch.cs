@@ -306,7 +306,7 @@ namespace OverTheCounter.Patches
                 {
                     if (mgr.AssignedLocker == __instance)
                     {
-                        OTCLog.Msg(OTCLog.Systems.Manager, $"Locker claimed by employee '{employee.fullName}', clearing {mgr.Id}");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"Locker claimed by employee '{employee.FullName}', clearing {mgr.Id}");
                         mgr.ClearLocker();
                         mgr.Configuration.Locker = null;
                         break;
