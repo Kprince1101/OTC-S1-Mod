@@ -307,13 +307,18 @@ namespace OverTheCounter.NPCs
                 }
 
                 // Only summonable while quest is active (stages 1-4)
+                // CanBeSummoned moved off NPC directly and onto the NPC's Framework.Interaction
+                // config object (NPC._npcData.GetRuntimeData().Interaction) in the current game
+                // version — mutate that object in place rather than assigning NPC.CanBeSummoned.
                 int stage = BellaSaveData.Instance?.Stage ?? 0;
-                _gameNpc.CanBeSummoned = stage >= 1 && stage < 5;
+                bool canSummon = stage >= 1 && stage < 5;
+                var interactionCfg = _gameNpc.GetInteractionConfig();
+                if (interactionCfg != null) interactionCfg.CanBeSummoned = canSummon;
 
                 // Verify injection
                 int occupantCount = nearest.OccupantCount;
                 OTCLog.Msg(OTCLog.Systems.NPC, $"Bella injected into building '{nearest.BuildingName}' (distance: {nearestDist:F1}m, " +
-                               $"occupants={occupantCount}, CanBeSummoned={_gameNpc.CanBeSummoned}, " +
+                               $"occupants={occupantCount}, CanBeSummoned={interactionCfg?.CanBeSummoned}, " +
                                $"CurrentBuilding={((_gameNpc.CurrentBuilding != null) ? "set" : "null")}, " +
                                $"isVisible={_gameNpc.isVisible})");
             }
@@ -328,8 +333,8 @@ namespace OverTheCounter.NPCs
         /// </summary>
         public void EnableSummoning()
         {
-            if (_gameNpc != null)
-                _gameNpc.CanBeSummoned = true;
+            var interactionCfg = _gameNpc?.GetInteractionConfig();
+            if (interactionCfg != null) interactionCfg.CanBeSummoned = true;
         }
 
         /// <summary>

@@ -46,6 +46,28 @@ namespace OverTheCounter.Logic
         /// </summary>
         internal static HashSet<string> SyncedManagerBusinesses { get; } = new HashSet<string>();
 
+        /// <summary>
+        /// Finds the ManagerInstance wrapping a given game NPC, if any. Used by Harmony
+        /// patches that only have the NPC/NPCInventory to work from (e.g. nightly clear,
+        /// pickpocket checks) and need to know whether it's a manager-controlled NPC.
+        /// Compares by NPC.ID rather than reference equality since Il2Cpp wrapper
+        /// instances for the same underlying object aren't guaranteed reference-equal.
+        /// </summary>
+        public static ManagerInstance GetByNpc(NPC npc)
+        {
+            if (npc == null) return null;
+            string id;
+            try { id = npc.ID; } catch { return null; }
+            if (string.IsNullOrEmpty(id)) return null;
+
+            foreach (var m in Active.Values)
+            {
+                if (m.GameNpc != null && m.GameNpc.ID == id)
+                    return m;
+            }
+            return null;
+        }
+
         // Per-manager SyncVar slot tracking
         private static readonly Dictionary<string, int> _managerSlot = new();  // managerId → slot index
         private static readonly string[] _slotManagerId = new string[NetworkSyncBridge.ManagerSlotCount]; // slot → managerId

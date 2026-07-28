@@ -283,5 +283,27 @@ namespace OverTheCounter
             }
 #endif
         }
+
+        // --- NPC "Framework" config data (new in the current game version) ---
+        // NPC._npcData (BaseNPCDataObject) -> GetRuntimeData() returns the live,
+        // per-instance Il2CppScheduleOne.NPCs.Framework.NPCData. Its Interaction/Inventory
+        // accessors are read-only (get=pub set=-), but the Interaction/Inventory objects
+        // they return are themselves fully mutable (CanBeSummoned / CanBePickpocketed are
+        // get=pub set=pub) -- so callers should mutate the returned object in place rather
+        // than trying to assign a new one. IL2CPP-only: no Mono equivalent has been
+        // investigated for this new (post-update) config layer.
+#if IL2CPP
+        public static Il2CppScheduleOne.NPCs.Framework.Inventory GetInventoryConfig(this NPC npc)
+        {
+            try { return npc?._npcData?.GetRuntimeData()?.Inventory; }
+            catch { return null; }
+        }
+
+        public static Il2CppScheduleOne.NPCs.Framework.Interaction GetInteractionConfig(this NPC npc)
+        {
+            try { return npc?._npcData?.GetRuntimeData()?.Interaction; }
+            catch { return null; }
+        }
+#endif
     }
 }

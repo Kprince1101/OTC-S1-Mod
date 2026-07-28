@@ -1120,13 +1120,23 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                // ClearInventoryEachNight / CanBePickpocketed / PickpocketIntObj no longer exist on
-                // NPCInventory and have no confirmed 1:1 replacement — the game removed these
-                // as per-instance toggles. Until a Harmony-based workaround is written, managers
-                // are no longer guaranteed nightly-clear-immune or pickpocket-immune. RandomCash
-                // and RandomItems are now opt-in method calls (AddRandomCashInstance() /
+                // ClearInventoryEachNight no longer exists on NPCInventory with no confirmed
+                // 1:1 replacement — managers are no longer nightly-clear-immune. Instead,
+                // ManagerOvernightDepositPatch sweeps cash/product into the manager's locker
+                // right before the nightly clear runs, so nothing is actually lost.
+                //
+                // CanBePickpocketed / PickpocketIntObj: CanBePickpocketed moved off NPCInventory
+                // onto the NPC's runtime Framework.Inventory config object. Set it false here as
+                // a best-effort measure; ManagerPickpocketPatch is the actual guarantee (it
+                // patches NPCInventory.CanPickpocket() directly regardless of whether this flag
+                // is what that method reads internally). No replacement found for PickpocketIntObj.
+                //
+                // RandomCash and RandomItems are now opt-in method calls (AddRandomCashInstance() /
                 // AddRandomItemsToInventory()) rather than flags — "false" now just means not
                 // calling them, so those two lines are dropped rather than replaced.
+                var inventoryCfg = npc.GetInventoryConfig();
+                if (inventoryCfg != null) inventoryCfg.CanBePickpocketed = false;
+
                 var existing = npc.GetComponent<ScheduleOne.NPCs.NPCInventory>();
                 if (existing != null)
                 {
