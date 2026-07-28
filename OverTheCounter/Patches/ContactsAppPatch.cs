@@ -15,7 +15,7 @@ using NPCManagerType = Il2CppScheduleOne.NPCs.NPCManager;
 using NPCType = Il2CppScheduleOne.NPCs.NPC;
 using GameManagerSingleton = Il2CppScheduleOne.DevUtilities.NetworkSingleton<Il2CppScheduleOne.DevUtilities.GameManager>;
 using GameInputType = Il2CppScheduleOne.GameInput;
-using ExitActionType = Il2CppScheduleOne.DevUtilities.ExitAction;
+using ExitActionType = Il2CppScheduleOne.ExitAction;
 #else
 using ContactsAppType = ScheduleOne.UI.Phone.ContactsApp.ContactsApp;
 using RelationCircleType = ScheduleOne.UI.Relations.RelationCircle;
@@ -23,7 +23,7 @@ using NPCManagerType = ScheduleOne.NPCs.NPCManager;
 using NPCType = ScheduleOne.NPCs.NPC;
 using GameManagerSingleton = ScheduleOne.DevUtilities.NetworkSingleton<ScheduleOne.DevUtilities.GameManager>;
 using GameInputType = ScheduleOne.GameInput;
-using ExitActionType = ScheduleOne.DevUtilities.ExitAction;
+using ExitActionType = ScheduleOne.ExitAction;
 #endif
 
 namespace OverTheCounter.Patches
