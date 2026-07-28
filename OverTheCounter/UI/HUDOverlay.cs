@@ -39,6 +39,7 @@ namespace OverTheCounter.UI
         // Own canvas
         private GameObject _canvasObj;
         private RectTransform _canvasRect;
+        private RectTransform _containerRect;
 
         // Health bar (left)
         private GameObject _healthBarObj;
@@ -109,6 +110,8 @@ namespace OverTheCounter.UI
                     TryBuild();
 
                 if (!_built) return;
+
+                RefreshBarLayout();
 
                 // Hide when game HUD is hidden (pause, checkout, watering, dying, arrest, etc.)
                 bool gameHudHidden = Singleton<HUD>.InstanceExists && !Singleton<HUD>.Instance.canvas.enabled;
@@ -183,29 +186,29 @@ namespace OverTheCounter.UI
             // Container: bottom-center of canvas, positioned just above hotbar
             var container = new GameObject("OTC_HUDBars");
             container.transform.SetParent(_canvasRect, false);
-            var containerRect = container.AddComponent<RectTransform>();
-            containerRect.anchorMin = new Vector2(0.5f, 0f);
-            containerRect.anchorMax = new Vector2(0.5f, 0f);
-            containerRect.pivot = new Vector2(0.5f, 0f);
-            containerRect.sizeDelta = new Vector2(barWidth, barHeight);
-            containerRect.anchoredPosition = new Vector2(0f, 105f);
+            _containerRect = container.AddComponent<RectTransform>();
+            _containerRect.anchorMin = new Vector2(0.5f, 0f);
+            _containerRect.anchorMax = new Vector2(0.5f, 0f);
+            _containerRect.pivot = new Vector2(0.5f, 0f);
+            _containerRect.sizeDelta = new Vector2(barWidth, barHeight);
+            _containerRect.anchoredPosition = new Vector2(0f, 105f);
 
             // Three bars: 31% each with 3.5% gaps between
             float barFrac = 0.31f;
             float gap = 0.035f;
 
             // Health bar (left) - muted red
-            _healthBarObj = CreateBar(containerRect, "HealthBar", 0f, barFrac, barHeight,
+            _healthBarObj = CreateBar(_containerRect, "HealthBar", 0f, barFrac, barHeight,
                 new Color(0.6f, 0.2f, 0.2f), out _healthFill, out _healthLabel);
 
             // XP bar (middle) - muted green
             float midLeft = barFrac + gap;
-            _xpBarObj = CreateBar(containerRect, "XPBar", midLeft, midLeft + barFrac, barHeight,
+            _xpBarObj = CreateBar(_containerRect, "XPBar", midLeft, midLeft + barFrac, barHeight,
                 new Color(0.2f, 0.55f, 0.25f), out _xpFill, out _xpLabel);
 
             // Stamina bar (right) - muted amber
             float rightLeft = midLeft + barFrac + gap;
-            _staminaBarObj = CreateBar(containerRect, "StaminaBar", rightLeft, rightLeft + barFrac, barHeight,
+            _staminaBarObj = CreateBar(_containerRect, "StaminaBar", rightLeft, rightLeft + barFrac, barHeight,
                 new Color(0.7f, 0.55f, 0.15f), out _staminaFill, out _staminaLabel);
 
             // Capture item label reference for repositioning
@@ -222,6 +225,19 @@ namespace OverTheCounter.UI
                 _gameStaminaBarObj = gameStaminaBar.gameObject;
 
             _built = true;
+        }
+
+        // Fixes OM-40: recompute every frame instead of freezing the TryBuild()-time
+        // width, which can be stale on ultrawide (GameCanvasScaler rewrites
+        // referenceResolution at runtime; see MinimapOverlay for the same fix).
+        private void RefreshBarLayout()
+        {
+            if (_containerRect == null || _canvasRect == null) return;
+
+            float barWidth = _canvasRect.rect.width * 0.48f;
+            var size = _containerRect.sizeDelta;
+            if (!Mathf.Approximately(size.x, barWidth))
+                _containerRect.sizeDelta = new Vector2(barWidth, size.y);
         }
 
         private void UpdateItemLabelPosition(bool barsVisible)
@@ -597,6 +613,7 @@ namespace OverTheCounter.UI
                 Destroy(_canvasObj);
 
             _built = false;
+            _containerRect = null;
             _lastHealth = -1f;
             _lastStamina = -1f;
             _lastKnownXP = -1;
