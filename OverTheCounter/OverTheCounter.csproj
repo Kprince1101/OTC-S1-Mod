@@ -394,6 +394,7 @@
 		<Compile Include="Patches\NpcTypeDiscoveryPatch.cs" />
 		<Compile Include="Patches\SafeTypeLoadPatch.cs" />
 		<Compile Include="Patches\S1APINPCInventoryFixPatch.cs" />
+		<Compile Include="Patches\S1APINPCRelationFixPatch.cs" />
 		<Compile Include="Patches\ManagerOvernightDepositPatch.cs" />
 		<Compile Include="Patches\ManagerPickpocketPatch.cs" />
 		<Compile Include="Patches\SupplierWarehousePatch.cs" />
