@@ -349,7 +349,7 @@ namespace OverTheCounter.UI
                 if (health == null) return;
 
                 float current = health.CurrentHealth;
-                float max = health.MaxHealth;
+                float max = PlayerHealth.MaxHealth;
                 float ratio = max > 0 ? Mathf.Clamp01(current / max) : 1f;
 
                 _healthFill.rectTransform.anchorMax = new Vector2(ratio, 1f);
