@@ -26,20 +26,25 @@ namespace OverTheCounter.Patches
     /// we're trying to attach to it. Any Harmony operation that targets that specific
     /// method (patch OR unpatch) hits the same wall.
     ///
-    /// Fix: patch NPCInventory.Awake() itself instead (a normal, valid IL2CPP interop
-    /// stub with no bad references -- this JIT-prepares fine). Our prefix runs at
-    /// HarmonyPriority.First and unconditionally returns false, which skips every
-    /// lower-priority prefix on Awake() -- including S1API's broken one -- and also
-    /// skips Awake()'s own original body. That sounds worse than it is: in the current
-    /// broken state, S1API's prefix throws BEFORE the original Awake() body ever runs
-    /// anyway, so vanilla Awake() logic is already not executing for any NPC. This patch
-    /// just makes that a clean, silent no-op instead of a thrown-and-logged exception on
-    /// every single NPC, rather than changing what actually happens functionally.
+    /// Second attempt: patch NPCInventory.Awake() with a HarmonyPriority.First prefix
+    /// that returns false, assuming that would skip lower-priority prefixes (S1API's).
+    /// That installed cleanly but did NOT stop the crash -- Harmony always runs every
+    /// prefix on a patched method regardless of what an earlier one returns; the bool
+    /// return only controls whether the ORIGINAL method body runs, not other prefixes.
+    /// So S1API's broken prefix kept firing right alongside ours.
+    ///
+    /// Actual fix: surgically remove S1API's specific prefix from NPCInventory.Awake()'s
+    /// patch chain via Harmony.Unpatch(original, patchMethodInfo). This only needs to
+    /// JIT-prepare Awake() itself (valid, no bad references) to rebuild the chain minus
+    /// that one patch -- it never touches EnsureNPCInventorySafeInit's own broken IL.
+    /// Confirmed via log timing that S1API's PatchAll() runs during its own
+    /// OnInitializeMelon, well before OTC's Core.cs calls this Apply(), so the patch is
+    /// already installed by the time we try to remove it.
     ///
     /// Only applied if BOTH S1API's broken method is present AND NPCInventory.TestItems
     /// is confirmed missing -- if S1API ships a real fix (removing the TestItems
     /// reference) or the game restores the property, this condition stops matching and
-    /// Apply() becomes a harmless no-op, leaving Awake() alone.
+    /// Apply() becomes a harmless no-op, leaving S1API's patch alone.
     /// </summary>
     public static class S1APINPCInventoryFixPatch
     {
@@ -77,26 +82,14 @@ namespace OverTheCounter.Patches
                     return;
                 }
 
-                harmony.Patch(awake,
-                    prefix: new HarmonyMethod(typeof(S1APINPCInventoryFixPatch), nameof(Prefix)) { priority = Priority.First });
+                harmony.Unpatch(awake, patchMethod);
                 OTCLog.Msg(OTCLog.Systems.Patch,
-                    "S1APINPCInventoryFixPatch: NPCInventory.Awake() short-circuited (highest priority) to prevent S1API's broken TestItems patch from throwing on every NPC.");
+                    "S1APINPCInventoryFixPatch: removed S1API's broken TestItems prefix from NPCInventory.Awake() via Harmony.Unpatch -- vanilla Awake() logic restored.");
             }
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Patch, $"S1APINPCInventoryFixPatch.Apply failed: {ex.Message}");
             }
-        }
-
-        /// <summary>
-        /// Runs before every other patch on NPCInventory.Awake() (including S1API's
-        /// broken one) and skips the rest of the chain + the original body entirely.
-        /// Matches current (broken) behavior functionally -- Awake()'s vanilla logic
-        /// already isn't running, since S1API's prefix throws before reaching it.
-        /// </summary>
-        public static bool Prefix()
-        {
-            return false;
         }
     }
 }
