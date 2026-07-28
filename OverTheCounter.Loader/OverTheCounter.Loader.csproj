@@ -3,6 +3,7 @@
 
 	<PropertyGroup>
 		<TargetFramework>netstandard2.1</TargetFramework>
+		<LangVersion>latest</LangVersion>
 		<AssemblyName>OverTheCounter-Loader</AssemblyName>
 		<RootNamespace>OverTheCounter.Loader</RootNamespace>
 		<Nullable>disable</Nullable>

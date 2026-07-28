@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using MelonLoader;
 using MelonLoader.Utils;
 using Mono.Cecil;
+using Mono.Cecil.Cil;
 using Newtonsoft.Json;
 
 [assembly: MelonInfo(typeof(OverTheCounter.Loader.LoaderPlugin), "OTC Loader", "1.0.0", "hdlmrell", null)]
@@ -79,6 +80,10 @@ namespace OverTheCounter.Loader
             Branch gameBranch = MelonUtils.IsGameIl2Cpp() ? Branch.Il2Cpp : Branch.Mono;
             string branchName = gameBranch == Branch.Il2Cpp ? "IL2CPP" : "Mono";
             string wrongBranchName = gameBranch == Branch.Il2Cpp ? "Mono" : "IL2CPP";
+
+            // Must run before MelonLoader loads S1API's Mods DLL into the CLR — once that
+            // assembly is loaded, its broken IL is permanently baked in for this process.
+            PatchS1APIHasLastNameBug(modsPath, gameBranch == Branch.Il2Cpp);
 
             // ── Pass 1: Restore all previously-disabled DLLs ─────────────────────
             // Runs first so branch switches are handled automatically.
@@ -282,6 +287,134 @@ namespace OverTheCounter.Loader
             // before our plugin ran. A restart ensures the renamed files are invisible.
             if (firstTimeCount > 0)
                 PromptRestart(firstTimeDisabled, firstTimeCount);
+        }
+
+        // ── S1API hasLastName IL patch ──────────────────────────────────────────
+
+        /// <summary>
+        /// Binary-patches S1API's compiled NPC.cs constructor(s) to remove calls to
+        /// Il2CppScheduleOne.NPCs.NPC.set_hasLastName(bool) -- a setter the current
+        /// game version no longer has. S1API (ifBars fork, confirmed still broken as
+        /// of v3.0.6/stable) calls this unconditionally from S1API.Entities.NPC's bare
+        /// parameterless constructor whenever an NPC has no last name at construction
+        /// time (which is every custom NPC built via NPCPrefabBuilder, since identity
+        /// isn't applied until after the base constructor runs) -- and, separately,
+        /// from an obsolete 4-arg constructor. Both funnel through the same broken IL.
+        ///
+        /// Why this can't be fixed with a normal Harmony patch (like everything else
+        /// OTC neutralizes from S1API): Harmony must fully JIT-prepare whatever method
+        /// it targets (patch OR unpatch) to build a redirect, and .NET JITs an entire
+        /// method body up front, resolving every call token in it -- including tokens
+        /// on branches that would never execute. Since set_hasLastName's token lives
+        /// directly in the constructor's own IL, JIT-preparing that constructor for
+        /// ANY reason throws immediately, so Harmony can never attach anything to it.
+        /// This crash is 100% unconditional: every custom NPC in OTC (Vic, Static,
+        /// Bella) fails to even construct, regardless of identity, schedule, or time
+        /// of day -- confirmed via S1APIPhoneAppDiagnostic capturing the exact trace:
+        /// "MissingMethodException: ... NPC.set_hasLastName(Boolean)" at
+        /// "S1API.Entities.NPC..ctor()" / "OverTheCounter.NPCs.VicNPC..ctor()".
+        ///
+        /// The only place this IS fixable is before the CLR ever loads S1API's
+        /// assembly -- i.e. rewriting the IL on disk. Since this plugin already runs
+        /// via MelonPlugin.OnPreInitialization() (before MelonLoader loads any Mods,
+        /// S1API included) and already depends on Mono.Cecil, we can open S1API's DLL,
+        /// find every call to set_hasLastName inside S1API.Entities.NPC's
+        /// constructor(s), and replace each call instruction with two pops (dropping
+        /// the instance reference and the bool argument the call would have consumed)
+        /// -- a stack-neutral no-op. hasLastName is just an internal display flag;
+        /// simply never writing to it is harmless since the flag doesn't exist on the
+        /// current game version anyway, and FirstName/LastName (which DO still work)
+        /// are unaffected.
+        ///
+        /// Idempotent and fail-open: re-running finds nothing to patch and no-ops; any
+        /// failure (DLL missing, Cecil error, file locked) is caught and logged as a
+        /// warning without blocking the rest of loading. If a future S1API release
+        /// fixes this upstream, this patch simply stops finding anything to do.
+        /// </summary>
+        private static void PatchS1APIHasLastNameBug(string modsPath, bool isIl2Cpp)
+        {
+            try
+            {
+                string dllPath = FindS1APIDll(modsPath, isIl2Cpp);
+                if (dllPath == null)
+                {
+                    Logger.Msg("S1API DLL not found — skipping hasLastName patch.");
+                    return;
+                }
+
+                // Read the whole file into memory first and work entirely off that buffer —
+                // writing back to the same path while Cecil still holds a stream open on it
+                // (e.g. ReadModule(path, ReadWrite=true) -> Write(path)) risks a file-lock
+                // conflict. Reading into memory releases the file handle immediately.
+                byte[] originalBytes = File.ReadAllBytes(dllPath);
+                using var readStream = new MemoryStream(originalBytes);
+                using var module = ModuleDefinition.ReadModule(readStream);
+
+                var npcType = module.GetType("S1API.Entities.NPC");
+                if (npcType == null)
+                {
+                    Logger.Msg("S1API.Entities.NPC type not found in " + Path.GetFileName(dllPath) + " — skipping hasLastName patch.");
+                    return;
+                }
+
+                int patchedCount = 0;
+                foreach (var method in npcType.Methods)
+                {
+                    if (!method.IsConstructor || !method.HasBody) continue;
+
+                    var il = method.Body.GetILProcessor();
+                    // Iterate backwards since we're replacing instructions in place by index.
+                    for (int i = method.Body.Instructions.Count - 1; i >= 0; i--)
+                    {
+                        var instr = method.Body.Instructions[i];
+                        bool isCall = instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt;
+                        if (!isCall || !(instr.Operand is MethodReference mref) || mref.Name != "set_hasLastName")
+                            continue;
+
+                        // set_hasLastName(bool) is an instance setter: by the time we reach the
+                        // call, the stack holds [instance, boolValue]. Two pops discard exactly
+                        // what the call would have consumed, leaving the stack balanced.
+                        var pop1 = il.Create(OpCodes.Pop);
+                        var pop2 = il.Create(OpCodes.Pop);
+                        il.Replace(instr, pop1);
+                        il.InsertAfter(pop1, pop2);
+                        patchedCount++;
+                    }
+                }
+
+                if (patchedCount == 0)
+                {
+                    Logger.Msg("No hasLastName calls found in S1API.Entities.NPC — already patched, or this S1API version doesn't need it.");
+                    return;
+                }
+
+                using (var writeStream = new MemoryStream())
+                {
+                    module.Write(writeStream);
+                    File.WriteAllBytes(dllPath, writeStream.ToArray());
+                }
+
+                Logger.Msg("Patched " + patchedCount + " broken set_hasLastName call(s) in S1API (" +
+                    Path.GetFileName(dllPath) + ") — custom NPCs (Vic/Static/Bella) can now construct.");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning("PatchS1APIHasLastNameBug failed (non-fatal, custom NPCs will keep failing to spawn): " + ex.Message);
+            }
+        }
+
+        /// <summary>Finds S1API's main Mods-folder DLL for the currently running branch (IL2CPP vs Mono).</summary>
+        private static string FindS1APIDll(string modsPath, bool isIl2Cpp)
+        {
+            string keyword = isIl2Cpp ? "il2cpp" : "mono";
+            foreach (string path in Directory.GetFiles(modsPath, "S1API*.dll", SearchOption.AllDirectories))
+            {
+                string name = Path.GetFileName(path);
+                if (name.IndexOf("Loader", StringComparison.OrdinalIgnoreCase) >= 0) continue; // skip S1APILoader.MelonLoader.dll
+                if (name.ToLowerInvariant().Contains(keyword))
+                    return path;
+            }
+            return null;
         }
 
         /// <summary>

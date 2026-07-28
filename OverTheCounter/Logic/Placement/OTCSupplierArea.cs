@@ -66,7 +66,10 @@ namespace OverTheCounter.Logic.Placement
         private static Transform _warehouseTransform;
         private static bool _initialized;
         private static bool _routineActive;
-        private static WorldStorageEntity _deliveryBay;
+
+        /// <summary>One dedicated delivery bay per warehouse stand (see SetupDeliveryBay) --
+        /// no longer a single bay shared across every hosted supplier.</summary>
+        private static readonly List<WorldStorageEntity> _deliveryBays = new List<WorldStorageEntity>();
 
         // Fixed GUID so warehouse inventory persists across sessions
         private const string DeliveryBayGuid = "0a1c0000-dead-ba00-0000-000000000001";
@@ -99,10 +102,13 @@ namespace OverTheCounter.Logic.Placement
             return _locations[index]?.gameObject;
         }
 
-        /// <summary>Returns the delivery bay GameObject, or null if not yet created.</summary>
-        public static GameObject GetDeliveryBayObject()
+        /// <summary>Returns a delivery bay GameObject by stand index (defaults to the first
+        /// one), or null if none have been created yet. Debug-tool use only.</summary>
+        public static GameObject GetDeliveryBayObject(int index = 0)
         {
-            return _deliveryBay?.gameObject;
+            if (_deliveryBays.Count == 0) return null;
+            if (index < 0 || index >= _deliveryBays.Count) index = 0;
+            return _deliveryBays[index]?.gameObject;
         }
 
         /// <summary>Returns true if the given supplier is currently assigned to a warehouse stand.</summary>
@@ -155,7 +161,7 @@ namespace OverTheCounter.Logic.Placement
             _stationedAtWarehouseEver.Clear();
             _meetupExpireBySupplier.Clear();
             _syncedToStand.Clear();
-            _deliveryBay = null;
+            _deliveryBays.Clear();
             _warehouseTransform = null;
             _initialized = false;
         }
@@ -633,12 +639,26 @@ namespace OverTheCounter.Logic.Placement
         }
 
         /// <summary>
-        /// Clones a WorldStorageEntity from a vanilla SupplierLocation to serve as
-        /// a shared delivery bay for all warehouse supplier stands.
+        /// Clones a WorldStorageEntity from a vanilla SupplierLocation to serve as a
+        /// DEDICATED delivery bay for EACH warehouse supplier stand (one clone per
+        /// stand, not one shared between all of them).
+        ///
+        /// Previously all warehouse-hosted suppliers' Shop.DeliveryBays pointed at one
+        /// single shared clone. That's almost certainly why the vanilla phone's Active
+        /// Deliveries / Past Deliveries screens showed nothing for warehouse-hosted
+        /// suppliers (while the top-level per-supplier card list still worked fine,
+        /// since that's just a static supplier listing): those screens most likely key
+        /// off each supplier's own distinct delivery-bay entity for van arrival/history
+        /// events, and multiple suppliers silently sharing one fabricated bay meant
+        /// none of them ever produced a legitimate, individually-tracked event.
+        ///
+        /// Slot 0 keeps the original fixed GUID so existing saves with items already
+        /// stored in that bay don't get orphaned; slots 1+ get their own fixed
+        /// (session-stable) GUIDs derived from the same prefix.
         /// </summary>
         private static void SetupDeliveryBay()
         {
-            if (_deliveryBay != null || _warehouseTransform == null) return;
+            if (_deliveryBays.Count > 0 || _warehouseTransform == null) return;
 
             try
             {
@@ -662,66 +682,74 @@ namespace OverTheCounter.Logic.Placement
                     return;
                 }
 
-                // Clone under a disabled parent so Awake doesn't fire yet
-                var tempParent = new GameObject("OTC_TempParent");
-                tempParent.SetActive(false);
+                for (int slot = 0; slot < _locations.Count; slot++)
+                {
+                    var location = _locations[slot];
+                    if (location == null) continue;
 
-                var cloneGO = UnityEngine.Object.Instantiate(sourceBay.gameObject, tempParent.transform);
-                cloneGO.name = "OTC_DeliveryBay";
-                cloneGO.SetActive(false); // ensure it stays inactive during reparent
+                    // Clone under a disabled parent so Awake doesn't fire yet
+                    var tempParent = new GameObject("OTC_TempParent");
+                    tempParent.SetActive(false);
 
-                var entity = cloneGO.GetComponent<WorldStorageEntity>();
+                    var cloneGO = UnityEngine.Object.Instantiate(sourceBay.gameObject, tempParent.transform);
+                    cloneGO.name = $"OTC_DeliveryBay_{slot}";
+                    cloneGO.SetActive(false); // ensure it stays inactive during reparent
 
-                // Set unique GUID before Awake (IL2CPP exposes public setter, Mono needs reflection)
+                    var entity = cloneGO.GetComponent<WorldStorageEntity>();
+
+                    // slot 0 = original fixed GUID (preserves existing saves' stored items);
+                    // other slots each get their own fixed, session-stable GUID.
+                    string guid = slot == 0 ? DeliveryBayGuid : $"0a1c0000-dead-ba00-0000-00000000000{slot + 1}";
+
+                    // Set unique GUID before Awake (IL2CPP exposes public setter, Mono needs reflection)
 #if IL2CPP
-                entity.BakedGUID = DeliveryBayGuid;
+                    entity.BakedGUID = guid;
 #else
-                typeof(WorldStorageEntity)
-                    .GetField("BakedGUID", BindingFlags.NonPublic | BindingFlags.Instance)
-                    ?.SetValue(entity, DeliveryBayGuid);
+                    typeof(WorldStorageEntity)
+                        .GetField("BakedGUID", BindingFlags.NonPublic | BindingFlags.Instance)
+                        ?.SetValue(entity, guid);
 #endif
-                entity.StorageEntityName = "Warehouse Storage";
-                entity.EmptyOnSleep = false;
+                    entity.StorageEntityName = $"Warehouse Storage {slot + 1}";
+                    entity.EmptyOnSleep = false;
 
-                // Clear cloned item slots — Awake will create fresh ones from SlotCount
-                try { entity.ItemSlots.Clear(); } catch { }
+                    // Clear cloned item slots — Awake will create fresh ones from SlotCount
+                    try { entity.ItemSlots.Clear(); } catch { }
 
-                // Reparent into warehouse (still inactive)
-                cloneGO.transform.SetParent(_warehouseTransform);
-                cloneGO.transform.localPosition = new Vector3(2.1f, 0f, 3.3f);
-                cloneGO.transform.localRotation = Quaternion.identity;
+                    // Reparent into warehouse (still inactive). Offset each bay slightly
+                    // so distinct entities don't perfectly overlap in space.
+                    cloneGO.transform.SetParent(_warehouseTransform);
+                    cloneGO.transform.localPosition = new Vector3(2.1f + slot * 0.6f, 0f, 3.3f);
+                    cloneGO.transform.localRotation = Quaternion.identity;
 
-                // Activate — Awake fires with our GUID, creates 20 fresh ItemSlots
-                cloneGO.SetActive(true);
-                UnityEngine.Object.Destroy(tempParent);
+                    // Activate — Awake fires with our GUID, creates fresh ItemSlots
+                    cloneGO.SetActive(true);
+                    UnityEngine.Object.Destroy(tempParent);
 
-                // Network-spawn so FishNet RPCs work in multiplayer
-                try
-                {
-                    var netObj = cloneGO.GetComponent<NetworkObject>();
-                    if (netObj != null && InstanceFinder.ServerManager != null)
-                        InstanceFinder.ServerManager.Spawn(netObj);
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Patch, $"DeliveryBay network spawn: {ex.Message}");
-                }
+                    // Network-spawn so FishNet RPCs work in multiplayer
+                    try
+                    {
+                        var netObj = cloneGO.GetComponent<NetworkObject>();
+                        if (netObj != null && InstanceFinder.ServerManager != null)
+                            InstanceFinder.ServerManager.Spawn(netObj);
+                    }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Patch, $"DeliveryBay network spawn (slot {slot}): {ex.Message}");
+                    }
 
-                _deliveryBay = entity;
+                    _deliveryBays.Add(entity);
 
-                // Point all warehouse SupplierLocations at the shared bay
-                for (int i = 0; i < _locations.Count; i++)
-                {
+                    // Point THIS stand's SupplierLocation at ITS OWN dedicated bay only.
 #if IL2CPP
-                    _locations[i].DeliveryBays = new Il2CppReferenceArray<WorldStorageEntity>(
+                    location.DeliveryBays = new Il2CppReferenceArray<WorldStorageEntity>(
                         new WorldStorageEntity[] { entity });
 #else
-                    _locations[i].DeliveryBays = new WorldStorageEntity[] { entity };
+                    location.DeliveryBays = new WorldStorageEntity[] { entity };
 #endif
                 }
 
                 OTCLog.Msg(OTCLog.Systems.Patch,
-                    $"OTC delivery bay created ({entity.SlotCount} slots)");
+                    $"OTC delivery bays created: {_deliveryBays.Count} dedicated bay(s), one per warehouse stand.");
             }
             catch (Exception ex)
             {
