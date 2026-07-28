@@ -173,22 +173,14 @@ namespace OverTheCounter.Logic
                 IsAdopted = true
             };
 
-            var avatar = existingNpc.Avatar;
-
             // Apply appearance (FishNet doesn't sync avatar settings)
             DrifterSpawner.GenerateRandomAppearance(existingNpc, seed);
 
-            // Set InitialAvatarSettings so Avatar re-loads our settings if it re-initializes
-            try
-            {
-                if (avatar != null && avatar.CurrentSettings != null)
-                    // NOTE: Avatar no longer exposes InitialAvatarSettings as a separate
-                    // slot to persist across re-init; CurrentSettings is the only
-                    // settings store now, so there is nothing to re-assign here.
-                    // If Avatar re-initializes and drops settings, this will need
-                    // a LoadAvatarSettings(avatar.CurrentSettings) call instead.
-            }
-            catch { }
+            // NOTE: Avatar no longer exposes InitialAvatarSettings as a separate slot to
+            // persist across re-init; CurrentSettings is the only settings store now, so
+            // there is nothing to re-assign here. If Avatar re-initializes and drops
+            // settings, this will need a LoadAvatarSettings(avatar.CurrentSettings) call
+            // instead -- flagged as a possible regression, not confirmed.
 
             // Clear any stale MSGConversation from PlayerSpawned() — it was created
             // with the prefab's default empty name before Adopt set the real identity.
