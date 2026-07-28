@@ -5,36 +5,49 @@ using OverTheCounter.Utilities;
 namespace OverTheCounter.Patches
 {
     /// <summary>
-    /// Diagnostic-only: captures a full stack trace for the "Could not load type
-    /// 'Il2CppScheduleOne.DevUtilities.ExitAction'" failure that prevents S1API's
-    /// PhoneApp registration from registering ANY custom phone app (OTC's
-    /// CustomersApp/GreenTabApp, ModsApp, etc.) -- confirmed as the reason the OTC
-    /// icon never appears on the in-game phone home screen.
+    /// Diagnostic-only: captures full stack traces for "game update removed/renamed
+    /// a type S1API still references" failures -- the same bug class behind the
+    /// ExitAction/PhoneApp registration failure (blocks OTC's own phone app icon),
+    /// and also whatever is causing "[NPCPatches] [S1API] Failed to instantiate
+    /// custom NPC type 'X' with default data: Exception has been thrown by the
+    /// target of an invocation." for Bella/Static/Vic -- that message is just
+    /// TargetInvocationException's generic wrapper text, so the real cause (the
+    /// inner exception) never reaches the log at all.
     ///
-    /// S1API catches this exception INTERNALLY inside its own registration method
-    /// and only logs ex.Message ("[PhoneApp] Failed to register X: Could not load
-    /// type ...") -- never a stack trace -- so we can't tell exactly which S1API
-    /// method/line is responsible from that log line alone. Rather than guess (the
-    /// NPCLoader_Load_Prefix name mismatch earlier this session came from exactly
-    /// that kind of guess and cost a whole wasted round), we hook
-    /// AppDomain.FirstChanceException, which fires for EVERY exception the instant
-    /// it's thrown -- including ones a try/catch further up the call stack is about
-    /// to swallow. That gives us the full ex.ToString() trace for this specific
-    /// failure without touching or guessing at S1API's internals.
+    /// Originally scoped to only "ExitAction"-mentioning exceptions; broadened to
+    /// catch TypeLoadException/MissingMemberException (MissingMethodException and
+    /// MissingFieldException both derive from it) REGARDLESS of message content,
+    /// since those two exception types are specifically what "a game update
+    /// removed/renamed a member S1API's compiled code still references" throws --
+    /// rare enough in general Unity/game code that filtering by type alone (no
+    /// string-guessing) stays low-noise while catching any instance of this bug
+    /// class we haven't hit in a log yet, including the NPC-instantiate one above.
     ///
-    /// Subscribed as the very first line of Core.OnInitializeMelonImpl(), before
-    /// anything else runs, so it's active well before any save loads (which is when
-    /// the Phone -- and therefore this registration pass -- actually spins up).
+    /// S1API catches these exceptions INTERNALLY and only logs ex.Message (or, for
+    /// the NPC-instantiate case, just the wrapper's fixed generic text) -- never a
+    /// stack trace -- so we can't tell which S1API method/line is responsible from
+    /// the log line alone. Rather than guess (the NPCLoader_Load_Prefix name
+    /// mismatch earlier this session came from exactly that kind of guess and cost
+    /// a whole wasted round), we hook AppDomain.FirstChanceException, which fires
+    /// for EVERY exception the instant it's thrown -- including the INNER exception
+    /// of a reflection call, before it gets wrapped into a TargetInvocationException
+    /// and before any try/catch further up the stack swallows it.
+    ///
+    /// Subscribed as the very first line of Core.OnInitializeMelon(), before
+    /// anything else runs (including Config.Initialize()) -- so logging inside the
+    /// handler must never depend on Config being ready; use OTCLog.Warning (always
+    /// fires) rather than OTCLog.Msg (gated on Config.PatchVerboseLogging, which is
+    /// still null this early and would NRE).
     ///
     /// Purely diagnostic: never suppresses, alters, or rethrows anything. Filters
-    /// tightly on message content so it doesn't spam the log -- FirstChanceException
-    /// fires constantly for unrelated exceptions across the whole process.
+    /// on exception type so it doesn't spam the log -- FirstChanceException fires
+    /// constantly for unrelated exceptions across the whole process.
     /// </summary>
     public static class S1APIPhoneAppDiagnostic
     {
         private static bool _subscribed;
         private static int _logged;
-        private const int MaxLogged = 5; // avoid spam if this fires once per custom app
+        private const int MaxLogged = 30; // several distinct call sites can each fire a few times
 
         public static void Subscribe()
         {
@@ -44,8 +57,8 @@ namespace OverTheCounter.Patches
             try
             {
                 AppDomain.CurrentDomain.FirstChanceException += OnFirstChanceException;
-                OTCLog.Msg(OTCLog.Systems.Patch,
-                    "S1APIPhoneAppDiagnostic: subscribed to AppDomain.FirstChanceException to trace the ExitAction/PhoneApp registration failure.");
+                OTCLog.Warning(OTCLog.Systems.Patch,
+                    "S1APIPhoneAppDiagnostic: subscribed to AppDomain.FirstChanceException to trace TypeLoad/MissingMember failures.");
             }
             catch (Exception ex)
             {
@@ -57,15 +70,15 @@ namespace OverTheCounter.Patches
         {
             try
             {
-                var msg = e.Exception?.Message;
-                if (string.IsNullOrEmpty(msg)) return;
-                if (msg.IndexOf("ExitAction", StringComparison.OrdinalIgnoreCase) < 0) return;
+                var ex = e.Exception;
+                if (ex == null) return;
+                if (!(ex is TypeLoadException) && !(ex is MissingMemberException)) return;
                 if (System.Threading.Interlocked.Increment(ref _logged) > MaxLogged) return;
 
                 OTCLog.Warning(OTCLog.Systems.Patch,
-                    $"S1APIPhoneAppDiagnostic: captured full trace for an ExitAction-related exception " +
-                    $"(#{_logged}/{MaxLogged}) -- this is the bug blocking custom phone app registration " +
-                    $"(including OTC's own app icon):\n{e.Exception}");
+                    $"S1APIPhoneAppDiagnostic: captured full trace for a {ex.GetType().Name} " +
+                    $"(#{_logged}/{MaxLogged}) -- likely a game update removed/renamed a member " +
+                    $"still referenced somewhere in S1API or OTC:\n{ex}");
             }
             catch
             {
