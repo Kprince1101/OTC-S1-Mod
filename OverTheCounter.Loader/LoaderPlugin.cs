@@ -83,7 +83,7 @@ namespace OverTheCounter.Loader
 
             // Must run before MelonLoader loads S1API's Mods DLL into the CLR — once that
             // assembly is loaded, its broken IL is permanently baked in for this process.
-            PatchS1APIHasLastNameBug(modsPath, gameBranch == Branch.Il2Cpp);
+            PatchS1APIBugs(modsPath, gameBranch == Branch.Il2Cpp);
 
             // ── Pass 1: Restore all previously-disabled DLLs ─────────────────────
             // Runs first so branch switches are handled automatically.
@@ -289,56 +289,33 @@ namespace OverTheCounter.Loader
                 PromptRestart(firstTimeDisabled, firstTimeCount);
         }
 
-        // ── S1API hasLastName IL patch ──────────────────────────────────────────
+        // ── S1API binary IL patches ─────────────────────────────────────────────
+        //
+        // Both bugs below share the same shape: a game update removed a type/member
+        // that S1API's own compiled IL still references directly inside a method body
+        // (not behind a dead branch -- these execute/get-JIT-prepared unconditionally).
+        // Harmony can't fix either: it must fully JIT-prepare whatever method it
+        // targets (as patch OR unpatch) to build a redirect, and preparing a method
+        // whose own IL references a missing type/member throws immediately, before
+        // Harmony ever gets a chance to attach anything. The only fix point is before
+        // the CLR ever loads S1API's assembly -- rewriting the IL on disk. Since this
+        // plugin already runs via MelonPlugin.OnPreInitialization() (before MelonLoader
+        // loads any Mods, S1API included) and already depends on Mono.Cecil, we open
+        // S1API's DLL once, apply both patches to the in-memory module, and write it
+        // back. Idempotent and fail-open throughout: re-running finds nothing left to
+        // patch and no-ops; any failure (DLL missing, Cecil error, file locked) is
+        // caught and logged as a warning without blocking the rest of loading. If a
+        // future S1API release fixes either bug upstream, that patch just stops
+        // finding anything to do.
 
-        /// <summary>
-        /// Binary-patches S1API's compiled NPC.cs constructor(s) to remove calls to
-        /// Il2CppScheduleOne.NPCs.NPC.set_hasLastName(bool) -- a setter the current
-        /// game version no longer has. S1API (ifBars fork, confirmed still broken as
-        /// of v3.0.6/stable) calls this unconditionally from S1API.Entities.NPC's bare
-        /// parameterless constructor whenever an NPC has no last name at construction
-        /// time (which is every custom NPC built via NPCPrefabBuilder, since identity
-        /// isn't applied until after the base constructor runs) -- and, separately,
-        /// from an obsolete 4-arg constructor. Both funnel through the same broken IL.
-        ///
-        /// Why this can't be fixed with a normal Harmony patch (like everything else
-        /// OTC neutralizes from S1API): Harmony must fully JIT-prepare whatever method
-        /// it targets (patch OR unpatch) to build a redirect, and .NET JITs an entire
-        /// method body up front, resolving every call token in it -- including tokens
-        /// on branches that would never execute. Since set_hasLastName's token lives
-        /// directly in the constructor's own IL, JIT-preparing that constructor for
-        /// ANY reason throws immediately, so Harmony can never attach anything to it.
-        /// This crash is 100% unconditional: every custom NPC in OTC (Vic, Static,
-        /// Bella) fails to even construct, regardless of identity, schedule, or time
-        /// of day -- confirmed via S1APIPhoneAppDiagnostic capturing the exact trace:
-        /// "MissingMethodException: ... NPC.set_hasLastName(Boolean)" at
-        /// "S1API.Entities.NPC..ctor()" / "OverTheCounter.NPCs.VicNPC..ctor()".
-        ///
-        /// The only place this IS fixable is before the CLR ever loads S1API's
-        /// assembly -- i.e. rewriting the IL on disk. Since this plugin already runs
-        /// via MelonPlugin.OnPreInitialization() (before MelonLoader loads any Mods,
-        /// S1API included) and already depends on Mono.Cecil, we can open S1API's DLL,
-        /// find every call to set_hasLastName inside S1API.Entities.NPC's
-        /// constructor(s), and replace each call instruction with two pops (dropping
-        /// the instance reference and the bool argument the call would have consumed)
-        /// -- a stack-neutral no-op. hasLastName is just an internal display flag;
-        /// simply never writing to it is harmless since the flag doesn't exist on the
-        /// current game version anyway, and FirstName/LastName (which DO still work)
-        /// are unaffected.
-        ///
-        /// Idempotent and fail-open: re-running finds nothing to patch and no-ops; any
-        /// failure (DLL missing, Cecil error, file locked) is caught and logged as a
-        /// warning without blocking the rest of loading. If a future S1API release
-        /// fixes this upstream, this patch simply stops finding anything to do.
-        /// </summary>
-        private static void PatchS1APIHasLastNameBug(string modsPath, bool isIl2Cpp)
+        private static void PatchS1APIBugs(string modsPath, bool isIl2Cpp)
         {
             try
             {
                 string dllPath = FindS1APIDll(modsPath, isIl2Cpp);
                 if (dllPath == null)
                 {
-                    Logger.Msg("S1API DLL not found — skipping hasLastName patch.");
+                    Logger.Msg("S1API DLL not found — skipping binary IL patches.");
                     return;
                 }
 
@@ -350,41 +327,13 @@ namespace OverTheCounter.Loader
                 using var readStream = new MemoryStream(originalBytes);
                 using var module = ModuleDefinition.ReadModule(readStream);
 
-                var npcType = module.GetType("S1API.Entities.NPC");
-                if (npcType == null)
+                int hasLastNamePatched = PatchHasLastName(module);
+                int exitActionPatched = PatchExitAction(module);
+
+                if (hasLastNamePatched == 0 && exitActionPatched == 0)
                 {
-                    Logger.Msg("S1API.Entities.NPC type not found in " + Path.GetFileName(dllPath) + " — skipping hasLastName patch.");
-                    return;
-                }
-
-                int patchedCount = 0;
-                foreach (var method in npcType.Methods)
-                {
-                    if (!method.IsConstructor || !method.HasBody) continue;
-
-                    var il = method.Body.GetILProcessor();
-                    // Iterate backwards since we're replacing instructions in place by index.
-                    for (int i = method.Body.Instructions.Count - 1; i >= 0; i--)
-                    {
-                        var instr = method.Body.Instructions[i];
-                        bool isCall = instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt;
-                        if (!isCall || !(instr.Operand is MethodReference mref) || mref.Name != "set_hasLastName")
-                            continue;
-
-                        // set_hasLastName(bool) is an instance setter: by the time we reach the
-                        // call, the stack holds [instance, boolValue]. Two pops discard exactly
-                        // what the call would have consumed, leaving the stack balanced.
-                        var pop1 = il.Create(OpCodes.Pop);
-                        var pop2 = il.Create(OpCodes.Pop);
-                        il.Replace(instr, pop1);
-                        il.InsertAfter(pop1, pop2);
-                        patchedCount++;
-                    }
-                }
-
-                if (patchedCount == 0)
-                {
-                    Logger.Msg("No hasLastName calls found in S1API.Entities.NPC — already patched, or this S1API version doesn't need it.");
+                    Logger.Msg("No known S1API IL bugs found to patch in " + Path.GetFileName(dllPath) +
+                        " — already patched, or this S1API version doesn't need it.");
                     return;
                 }
 
@@ -394,13 +343,291 @@ namespace OverTheCounter.Loader
                     File.WriteAllBytes(dllPath, writeStream.ToArray());
                 }
 
-                Logger.Msg("Patched " + patchedCount + " broken set_hasLastName call(s) in S1API (" +
-                    Path.GetFileName(dllPath) + ") — custom NPCs (Vic/Static/Bella) can now construct.");
+                Logger.Msg("Patched S1API (" + Path.GetFileName(dllPath) + "): " +
+                    hasLastNamePatched + " broken set_hasLastName call(s) removed (custom NPCs — Vic/Static/Bella — can now construct), " +
+                    exitActionPatched + " broken ExitAction/ExitDelegate statement(s) removed (custom phone apps can now register their icons).");
             }
             catch (Exception ex)
             {
-                Logger.Warning("PatchS1APIHasLastNameBug failed (non-fatal, custom NPCs will keep failing to spawn): " + ex.Message);
+                Logger.Warning("PatchS1APIBugs failed (non-fatal, the underlying bugs will keep occurring): " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// See the class-level notes above: S1API's <c>NPC()</c> base constructor unconditionally
+        /// calls <c>set_hasLastName(bool)</c>, a setter the current game version no longer has.
+        /// Every call is a simple instance-setter invocation of the form
+        /// <c>[push instance][push bool][call set_hasLastName]</c> with the result discarded, so
+        /// replacing the call with two pops (dropping exactly what it would have consumed) is
+        /// stack-neutral and requires no further IL adjustment.
+        /// </summary>
+        private static int PatchHasLastName(ModuleDefinition module)
+        {
+            var npcType = module.GetType("S1API.Entities.NPC");
+            if (npcType == null) return 0;
+
+            int patchedCount = 0;
+            foreach (var method in npcType.Methods)
+            {
+                if (!method.IsConstructor || !method.HasBody) continue;
+
+                var il = method.Body.GetILProcessor();
+                // Iterate backwards since we're replacing instructions in place by index.
+                for (int i = method.Body.Instructions.Count - 1; i >= 0; i--)
+                {
+                    var instr = method.Body.Instructions[i];
+                    bool isCall = instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt;
+                    if (!isCall || !(instr.Operand is MethodReference mref) || mref.Name != "set_hasLastName")
+                        continue;
+
+                    var pop1 = il.Create(OpCodes.Pop);
+                    var pop2 = il.Create(OpCodes.Pop);
+                    il.Replace(instr, pop1);
+                    il.InsertAfter(pop1, pop2);
+                    patchedCount++;
+                }
+            }
+            return patchedCount;
+        }
+
+        /// <summary>
+        /// S1API.PhoneApp.PhoneApp.SpawnUI wires up an exit/back-button listener via
+        /// <c>Il2CppScheduleOne.DevUtilities.ExitAction</c> -- a type the current game version no
+        /// longer has. Confirmed (via reading S1API's actual source, both released and unreleased
+        /// branches) unconditionally broken: every custom phone app (OTC's CustomersApp/GreenTabApp,
+        /// even the built-in ModsApp) fails to register its icon with a TypeLoadException on
+        /// ExitAction, thrown from inside the interop delegate conversion S1API uses to hook the
+        /// exit chain (S1API.PhoneApp.PhoneApp.OnDestroyed has the matching teardown call and would
+        /// hit the same problem once triggered).
+        ///
+        /// Unlike hasLastName (a single self-contained setter call), the broken code here is a
+        /// small chain of nested expressions ("build a delegate, convert it, register it" / "read
+        /// the field, deregister, null it out"), so a single call->2-pops swap isn't enough --
+        /// removing an inner instruction changes what the next instruction up the chain actually
+        /// has waiting on the stack. Instead: find each *terminal* (stack-neutral, push=0)
+        /// instruction whose operand mentions ExitAction/ExitDelegate (a void call or a field
+        /// store), then walk backward from it counting "still need N more values" against each
+        /// preceding instruction's own push/pop -- this naturally traces back through however many
+        /// nested pushes feed it (delegate construction, generic conversion call, etc.) to the
+        /// exact point the stack was last balanced, which is the true start of that statement.
+        /// Removing that whole [start..landmark] range is safe because, by construction, it nets to
+        /// zero stack effect. As a safety net: if the backward walk can't fully resolve (crosses a
+        /// branch/loop boundary) or the range would delete a branch target or an exception-handler
+        /// boundary, that occurrence is skipped and logged rather than risking corrupted IL.
+        /// </summary>
+        private static int PatchExitAction(ModuleDefinition module)
+        {
+            int patched = 0;
+            string[] keywords = { "ExitAction", "ExitDelegate" };
+
+            var phoneApp = module.GetType("S1API.PhoneApp.PhoneApp");
+            if (phoneApp != null) patched += RemoveStatementsReferencing(phoneApp, keywords);
+
+            // TVApp has the identical pattern in S1API's source. OTC doesn't use TVApp today, but
+            // patching it too costs nothing extra and pre-empts the same crash for any future
+            // TV-based feature (or another mod sharing this S1API copy).
+            var tvApp = module.GetType("S1API.TVApp.TVApp");
+            if (tvApp != null) patched += RemoveStatementsReferencing(tvApp, keywords);
+
+            return patched;
+        }
+
+        /// <summary>
+        /// Removes every self-contained IL statement in <paramref name="type"/>'s methods whose
+        /// outermost (stack-neutral) instruction references a type/method/field whose name
+        /// contains any of <paramref name="keywords"/>. See <see cref="PatchExitAction"/> for the
+        /// reasoning. Arrays (not List/Dictionary) throughout: this plugin must also load under the
+        /// Mono branch of the game, whose CLR lacks the System.Collections v6.0.0.0 that generic
+        /// collections pull in.
+        /// </summary>
+        private static int RemoveStatementsReferencing(TypeDefinition type, string[] keywords)
+        {
+            int removedStatements = 0;
+
+            foreach (var method in type.Methods)
+            {
+                if (!method.HasBody) continue;
+                var body = method.Body;
+
+                Instruction[] landmarks = new Instruction[64];
+                int landmarkCount = 0;
+                foreach (var instr in body.Instructions)
+                {
+                    if (instr.Operand == null) continue;
+                    if (GetPushCount(instr) != 0) continue; // only terminal (void-effect) instructions
+                    if (!MentionsAny(instr.Operand, keywords)) continue;
+                    if (landmarkCount < landmarks.Length)
+                        landmarks[landmarkCount++] = instr;
+                }
+                if (landmarkCount == 0) continue;
+
+                var il = body.GetILProcessor();
+                // Process last-to-first so removing one range doesn't shift indices for the rest.
+                for (int li = landmarkCount - 1; li >= 0; li--)
+                {
+                    var landmark = landmarks[li];
+                    int landmarkIndex = body.Instructions.IndexOf(landmark);
+                    if (landmarkIndex < 0) continue; // already swept up by a later removal
+
+                    int needed = GetPopCount(landmark);
+                    int idx = landmarkIndex - 1;
+                    while (needed > 0 && idx >= 0)
+                    {
+                        needed -= GetPushCount(body.Instructions[idx]);
+                        needed += GetPopCount(body.Instructions[idx]);
+                        idx--;
+                    }
+                    int start = idx + 1;
+
+                    if (needed != 0)
+                    {
+                        Logger.Warning("ExitAction patch: could not cleanly bound a statement around " +
+                            landmark.OpCode + " in " + type.Name + "." + method.Name + " -- skipping that occurrence (non-fatal).");
+                        continue;
+                    }
+
+                    bool touchesControlFlow = false;
+                    for (int r = start; r <= landmarkIndex && !touchesControlFlow; r++)
+                    {
+                        var candidate = body.Instructions[r];
+                        foreach (var other in body.Instructions)
+                        {
+                            if (other.Operand is Instruction t && t == candidate) { touchesControlFlow = true; break; }
+                            if (other.Operand is Instruction[] ts)
+                            {
+                                bool isTarget = false;
+                                for (int ti = 0; ti < ts.Length; ti++)
+                                    if (ts[ti] == candidate) { isTarget = true; break; }
+                                if (isTarget) { touchesControlFlow = true; break; }
+                            }
+                        }
+                        if (!touchesControlFlow && body.HasExceptionHandlers)
+                        {
+                            foreach (var eh in body.ExceptionHandlers)
+                            {
+                                if (eh.TryStart == candidate || eh.TryEnd == candidate ||
+                                    eh.HandlerStart == candidate || eh.HandlerEnd == candidate ||
+                                    eh.FilterStart == candidate)
+                                { touchesControlFlow = true; break; }
+                            }
+                        }
+                    }
+                    if (touchesControlFlow)
+                    {
+                        Logger.Warning("ExitAction patch: statement around " + landmark.OpCode + " in " +
+                            type.Name + "." + method.Name + " overlaps a branch target or exception-handler boundary -- skipping that occurrence (non-fatal).");
+                        continue;
+                    }
+
+                    for (int r = landmarkIndex; r >= start; r--)
+                        il.Remove(body.Instructions[r]);
+                    removedStatements++;
+                }
+            }
+
+            return removedStatements;
+        }
+
+        private static bool MentionsAny(object operand, string[] keywords)
+        {
+            switch (operand)
+            {
+                case FieldReference fref:
+                    return NameMentionsAny(fref.FieldType, keywords) || NameMentionsAny(fref.DeclaringType, keywords);
+                case MethodReference mref:
+                    if (NameMentionsAny(mref.ReturnType, keywords) || NameMentionsAny(mref.DeclaringType, keywords)) return true;
+                    foreach (var p in mref.Parameters)
+                        if (NameMentionsAny(p.ParameterType, keywords)) return true;
+                    if (mref is GenericInstanceMethod gim)
+                        foreach (var ga in gim.GenericArguments)
+                            if (NameMentionsAny(ga, keywords)) return true;
+                    return false;
+                case TypeReference tref:
+                    return NameMentionsAny(tref, keywords);
+                default:
+                    return false;
+            }
+        }
+
+        private static bool NameMentionsAny(TypeReference t, string[] keywords)
+        {
+            if (t == null) return false;
+            string n = t.FullName ?? "";
+            foreach (var kw in keywords)
+                if (n.Contains(kw)) return true;
+            if (t is GenericInstanceType git)
+                foreach (var ga in git.GenericArguments)
+                    if (NameMentionsAny(ga, keywords)) return true;
+            return false;
+        }
+
+        private static int GetPopCount(Instruction instr)
+        {
+            switch (instr.OpCode.StackBehaviourPop)
+            {
+                case StackBehaviour.Pop0: return 0;
+                case StackBehaviour.Pop1:
+                case StackBehaviour.Popi:
+                case StackBehaviour.Popref:
+                    return 1;
+                case StackBehaviour.Pop1_pop1:
+                case StackBehaviour.Popi_pop1:
+                case StackBehaviour.Popi_popi:
+                case StackBehaviour.Popi_popi8:
+                case StackBehaviour.Popi_popr4:
+                case StackBehaviour.Popi_popr8:
+                case StackBehaviour.Popref_pop1:
+                case StackBehaviour.Popref_popi:
+                    return 2;
+                case StackBehaviour.Popref_popi_popi:
+                case StackBehaviour.Popref_popi_popi8:
+                case StackBehaviour.Popref_popi_popr4:
+                case StackBehaviour.Popref_popi_popr8:
+                case StackBehaviour.Popref_popi_popref:
+                    return 3;
+                case StackBehaviour.Varpop:
+                    return GetVarPopCount(instr);
+                default:
+                    return 0;
+            }
+        }
+
+        private static int GetVarPopCount(Instruction instr)
+        {
+            if (!(instr.Operand is MethodReference mref)) return 0;
+            int count = mref.Parameters.Count;
+            if (instr.OpCode == OpCodes.Newobj) return count; // newobj: no separate 'this' pop, runtime allocates it
+            if (mref.HasThis) count += 1;
+            return count;
+        }
+
+        private static int GetPushCount(Instruction instr)
+        {
+            switch (instr.OpCode.StackBehaviourPush)
+            {
+                case StackBehaviour.Push0: return 0;
+                case StackBehaviour.Push1:
+                case StackBehaviour.Pushi:
+                case StackBehaviour.Pushi8:
+                case StackBehaviour.Pushr4:
+                case StackBehaviour.Pushr8:
+                case StackBehaviour.Pushref:
+                    return 1;
+                case StackBehaviour.Push1_push1:
+                    return 2;
+                case StackBehaviour.Varpush:
+                    return GetVarPushCount(instr);
+                default:
+                    return 0;
+            }
+        }
+
+        private static int GetVarPushCount(Instruction instr)
+        {
+            if (instr.OpCode == OpCodes.Newobj) return 1;
+            if (instr.Operand is MethodReference mref)
+                return mref.ReturnType.MetadataType == MetadataType.Void ? 0 : 1;
+            return 0;
         }
 
         /// <summary>Finds S1API's main Mods-folder DLL for the currently running branch (IL2CPP vs Mono).</summary>
