@@ -110,11 +110,23 @@ namespace OverTheCounter.NPCs
                     av.WithBodyLayer(Shirts.FlannelButtonUp, new Color(0.25f, 0.12f, 0.12f));
                     av.WithBodyLayer(Pants.Jeans, new Color(0.15f, 0.15f, 0.2f));
                     av.WithAccessoryLayer(Feet.Sneakers, new Color(0.15f, 0.15f, 0.15f));
-                })
-                .WithSchedule(plan =>
-                {
-                    plan.WalkTo(SpawnPosition, 10, true, 1f, true);
                 });
+
+            // NOTE: .WithSchedule(plan => plan.WalkTo(SpawnPosition, ...)) used to be
+            // here, but on the current game version S1API.Entities.NPCPrefabBuilder
+            // .WithSchedule() -> PrecreateActionsForSpecs() unconditionally throws
+            // TypeLoadException on 'Il2CppScheduleOne.NPCs.Schedules.NPCSignal_WaitForDelivery'
+            // (a type that no longer exists), regardless of what's actually in the
+            // spec list -- this crashed schedule registration for Static (and VicNPC,
+            // same symptom) and left their prefab in a state where the game later
+            // fails to instantiate them at all ("Failed to instantiate custom NPC type
+            // ... with default data"). It's not a Harmony patch, so there's no
+            // Unpatch-based fix -- S1API just calls into its own broken code directly.
+            //
+            // BellaNPC already established the working pattern: skip .WithSchedule()
+            // entirely and rely on WithSpawnPosition() + WarpToSpawn() (below) to place
+            // the NPC. Static doesn't patrol -- his old "schedule" was just WalkTo his
+            // own spawn point on a loop, which WithSpawnPosition + WarpToSpawn already cover.
         }
 
         protected override void OnCreated()
@@ -156,15 +168,15 @@ namespace OverTheCounter.NPCs
 
             EnsureVoiceDatabase();
 
-            // Schedule + pathfinding run on host only. The host's Movement.Warp()
+            // Pathfinding placement runs on host only. The host's Movement.Warp()
             // sends a FishNet RPC to sync position to clients. WarpToSpawn()
             // pre-snaps Y via NavMesh.SamplePosition so the RPC sends correct
             // ground-level coordinates regardless of client NavMeshAgent state.
-            if (NetworkHelper.IsHost)
-            {
-                Schedule.Enable();
-                Schedule.EnforceState();
-            }
+            //
+            // Schedule.Enable()/EnforceState() used to run here too, but there's no
+            // schedule plan configured anymore (see ConfigurePrefab) -- enabling an
+            // unconfigured schedule isn't something BellaNPC (the working precedent
+            // for schedule-less custom NPCs) does either, so we don't call it.
 
             try
             {
