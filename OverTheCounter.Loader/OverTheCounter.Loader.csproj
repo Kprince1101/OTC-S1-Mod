@@ -13,7 +13,7 @@
 	</PropertyGroup>
 
 	<!-- The Loader ships as its own package (hdlmrell-OTCLoader) in the r2modman profile,
-	     separate from the main mod's package (hdlmrell-OverTheCounter) -- it needs its own
+	     separate from the main mod's package (hdlmrell-OverTheCounter); it needs its own
 	     output folder, not the main mod's $(ModOutputPath)/$(MonoModOutputPath). Prefer an
 	     explicit OTCLoaderOutputPath/MonoOTCLoaderOutputPath if LocalPaths.targets defines
 	     one; otherwise derive it automatically by swapping the package folder name, so this
