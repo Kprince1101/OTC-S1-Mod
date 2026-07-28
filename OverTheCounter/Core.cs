@@ -57,6 +57,7 @@ namespace OverTheCounter
             Config.SubscribeToChanges();
             CustomersApp.ApplyHireMeDefaults();
             SafeTypeLoadPatch.Apply(HarmonyInstance);
+            S1APINPCInventoryFixPatch.Apply(HarmonyInstance);
             foreach (var type in typeof(Core).Assembly.GetValidTypes())
                 try { HarmonyInstance.CreateClassProcessor(type).Patch(); }
                 catch (Exception ex) { OTCLog.Error(OTCLog.Systems.Patch, $"Failed to patch {type.FullName}: {ex.Message}"); }
