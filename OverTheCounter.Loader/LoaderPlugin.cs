@@ -378,57 +378,175 @@ namespace OverTheCounter.Loader
         }
 
         /// <summary>
-        /// See the class-level notes above: S1API's <c>NPC()</c> base constructor unconditionally
-        /// calls a handful of setters on the game's own NPC type that this game version no longer
-        /// has -- confirmed so far: <c>set_hasLastName(bool)</c>, <c>set_MugshotSprite(Sprite)</c>,
-        /// and <c>set_LastName(string)</c>.
-        /// Each showed up the same way: fix one, rebuild, the constructor's JIT gets past that call
-        /// and immediately hits the next broken one further down the same method body (expected --
-        /// the whole method is resolved eagerly, so every broken call in it is "real", not
-        /// conditional; we only find out about each one once the prior one stops masking it).
-        /// Every call found so far is a simple instance-setter invocation of the form
-        /// <c>[push instance][push value][call set_X]</c> with the result discarded, so replacing
-        /// the call with two pops (dropping exactly what it would have consumed) is stack-neutral
-        /// and requires no further IL adjustment. Add new names to <see cref="BrokenNpcSetterNames"/>
-        /// as they surface -- same fix, same risk profile, no other code changes needed.
+        /// S1API's NPC construction path (the base constructor plus every helper method it calls --
+        /// InitializeHealthComponent, InitializeAwarenessComponent, InitializeBehaviourComponents,
+        /// InitializeVisionComponents, InitializeInteractables, InitializeInventoryComponent,
+        /// InitializeRelationshipData, RestoreRuntimeAvatarAppearance, the conversation-category
+        /// helpers, NPCAppearance.ApplyDefaultSettings, NPCPrefabIdentity.CreateAvatarSettings, the
+        /// Customer/Dealer data builders, etc.) calls a large number of setters on the game's own
+        /// types that this game version no longer exposes as property setters. Traced the *entire*
+        /// broken set at once by loading the actual S1API DLL and the real game assembly
+        /// (Cpp2IL's cpp2il_out/Assembly-CSharp.dll) side by side with Mono.Cecil and diffing what
+        /// S1API's construction call graph calls against what the live game type actually has --
+        /// rather than continuing to discover these one crash/rebuild/relaunch at a time.
+        ///
+        /// Verified: most of these (~58 of 66) still exist as plain public *fields* on the real
+        /// type -- the game's interop layer just stopped generating a set_X wrapper method for
+        /// them. A small number (~8: NPC.set_ConversationCategories, NPC.set_intObj,
+        /// NPCInventory.set_PickpocketIntObj, NPCHealth.set_MaxHealth, CustomerData.
+        /// set_DefaultAffinityData, Dealer.set_Cut/set_DealerType/set_SigningFee) have no matching
+        /// field at all and may be genuinely gone or renamed.
+        ///
+        /// For now every entry here gets the same treatment as the original hasLastName fix: the
+        /// call is replaced with two pops (stack-neutral no-op), which reliably stops the
+        /// MissingMethodException and lets custom NPCs (Vic/Static/Bella) finish constructing. This
+        /// is NOT a full fix for the field-backed ones -- popping means whatever value S1API meant
+        /// to assign (avatar appearance data, behaviour-component wiring, health/awareness event
+        /// hookups, dealer config, etc.) is silently dropped instead of applied. A more complete fix
+        /// would rewrite the call into a direct field store (same stack shape: [push instance][push
+        /// value][stfld] lines up exactly with [push instance][push value][call set_X]) instead of
+        /// discarding the value, but that requires matching each field's real interop type at
+        /// runtime to build a correct FieldReference, which needs testing against the live game
+        /// process (not just the static Cpp2IL dump this analysis used) to get right. Left as a
+        /// follow-up -- flagging here so a symptom like "Vic has default appearance" or "Vic doesn't
+        /// react to being shot" isn't a mystery later.
+        ///
+        /// Matching is by (declaring type simple name, method name) pair, not method name alone --
+        /// name-only matching is NOT safe here: e.g. set_Responses exists as a legitimate, working
+        /// call on NPC itself AND as a broken call on NPCAwareness, in the same helper method.
+        /// Popping the working NPC.set_Responses call by name-only accident would silently regress
+        /// working functionality while "fixing" an unrelated crash.
         /// </summary>
-        private static readonly string[] BrokenNpcSetterNames =
+        private static readonly (string DeclaringType, string MethodName)[] BrokenNpcSetterCalls =
         {
-            "set_hasLastName",
-            "set_MugshotSprite",
-            "set_LastName",
+            // NPC itself -- these show up directly in the parameterless constructor / are called
+            // from it eagerly; confirmed via repeated build/relaunch cycles plus the full-graph scan.
+            ("NPC", "set_hasLastName"),
+            ("NPC", "set_MugshotSprite"),
+            ("NPC", "set_LastName"),
+            ("NPC", "set_FirstName"),
+            ("NPC", "set_ID"),
+            ("NPC", "set_BakedGUID"),
+            ("NPC", "set_intObj"),
+            ("NPC", "set_RelationData"),
+            ("NPC", "set_ConversationCategories"),
+
+            // NPCHealth (InitializeHealthComponent)
+            ("NPCHealth", "set_onDie"),
+            ("NPCHealth", "set_onKnockedOut"),
+            ("NPCHealth", "set_MaxHealth"),
+
+            // NPCAwareness (InitializeAwarenessComponent / InitializeVisionComponents) -- note
+            // set_Responses here is NPCAwareness's, distinct from the working NPC.set_Responses.
+            ("NPCAwareness", "set_onExplosionHeard"),
+            ("NPCAwareness", "set_onGunshotHeard"),
+            ("NPCAwareness", "set_onHitByCar"),
+            ("NPCAwareness", "set_onNoticedDrugDealing"),
+            ("NPCAwareness", "set_onNoticedGeneralCrime"),
+            ("NPCAwareness", "set_onNoticedPettyCrime"),
+            ("NPCAwareness", "set_onNoticedPlayerViolatingCurfew"),
+            ("NPCAwareness", "set_onNoticedSuspiciousPlayer"),
+            ("NPCAwareness", "set_Listener"),
+            ("NPCAwareness", "set_Responses"),
+            ("NPCAwareness", "set_VisionCone"),
+
+            // NPCBehaviour (InitializeBehaviourComponents)
+            ("NPCBehaviour", "set_CoweringBehaviour"),
+            ("NPCBehaviour", "set_FleeBehaviour"),
+            ("NPCBehaviour", "set_GenericDialogueBehaviour"),
+            ("NPCBehaviour", "set_RequestProductBehaviour"),
+            ("NPCBehaviour", "set_CallPoliceBehaviour"),
+            ("NPCBehaviour", "set_CombatBehaviour"),
+            ("NPCBehaviour", "set_StationaryBehaviour"),
+            ("NPCBehaviour", "set_FaceTargetBehaviour"),
+            ("NPCBehaviour", "set_ConsumeProductBehaviour"),
+            ("NPCBehaviour", "set_UnconsciousBehaviour"),
+            ("NPCBehaviour", "set_DeadBehaviour"),
+
+            // VisionCone / StateContainer (InitializeVisionComponents)
+            ("VisionCone", "set_DefaultStatesOfInterest"),
+            ("VisionCone", "set_QuestionMarkPopup"),
+            ("StateContainer", "set_state"),
+
+            // NPCInventory (InitializeInventoryComponent)
+            ("NPCInventory", "set_PickpocketIntObj"),
+
+            // AvatarSettings (NPCAppearance.ApplyDefaultSettings, NPCPrefabIdentity.CreateAvatarSettings)
+            ("AvatarSettings", "set_SkinColor"),
+            ("AvatarSettings", "set_Height"),
+            ("AvatarSettings", "set_Gender"),
+            ("AvatarSettings", "set_Weight"),
+            ("AvatarSettings", "set_EyebrowScale"),
+            ("AvatarSettings", "set_EyebrowThickness"),
+            ("AvatarSettings", "set_EyebrowRestingHeight"),
+            ("AvatarSettings", "set_EyebrowRestingAngle"),
+            ("AvatarSettings", "set_LeftEyeLidColor"),
+            ("AvatarSettings", "set_RightEyeLidColor"),
+            ("AvatarSettings", "set_LeftEyeRestingState"),
+            ("AvatarSettings", "set_RightEyeRestingState"),
+            ("AvatarSettings", "set_EyeballMaterialIdentifier"),
+            ("AvatarSettings", "set_EyeBallTint"),
+            ("AvatarSettings", "set_PupilDilation"),
+            ("AvatarSettings", "set_HairPath"),
+            ("AvatarSettings", "set_HairColor"),
+            ("AvatarSettings", "set_ImpostorTexture"),
+            ("AvatarSettings", "set_FaceLayerSettings"),
+            ("AvatarSettings", "set_BodyLayerSettings"),
+            ("AvatarSettings", "set_AccessorySettings"),
+            ("LayerSetting", "set_layerPath"),
+            ("LayerSetting", "set_layerTint"),
+            ("AccessorySetting", "set_path"),
+            ("AccessorySetting", "set_color"),
+
+            // Customer / Dealer / CustomerData (TrySetCustomerDataOnComponent, TryApplyDealerDefaults,
+            // CustomerDataBuilder..ctor)
+            ("Customer", "set_customerData"),
+            ("Customer", "set_currentAffinityData"),
+            ("Dealer", "set_SigningFee"),
+            ("Dealer", "set_Cut"),
+            ("Dealer", "set_DealerType"),
+            ("CustomerData", "set_DefaultAffinityData"),
         };
 
         private static int PatchHasLastName(ModuleDefinition module)
         {
-            var npcType = module.GetType("S1API.Entities.NPC");
-            if (npcType == null) return 0;
-
             int patchedCount = 0;
-            foreach (var method in npcType.Methods)
+
+            // Scan every method in the whole module (not just S1API.Entities.NPC's own
+            // constructors) -- the broken calls live in helper methods across several
+            // S1API types (NPCAppearance, NPCPrefabIdentity, the Customer/Dealer data
+            // builders), not just in NPC's own constructor body.
+            foreach (var type in module.Types)
             {
-                if (!method.IsConstructor || !method.HasBody) continue;
-
-                var il = method.Body.GetILProcessor();
-                // Iterate backwards since we're replacing instructions in place by index.
-                for (int i = method.Body.Instructions.Count - 1; i >= 0; i--)
+                foreach (var method in type.Methods)
                 {
-                    var instr = method.Body.Instructions[i];
-                    bool isCall = instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt;
-                    if (!isCall || !(instr.Operand is MethodReference mref)) continue;
+                    if (!method.HasBody) continue;
 
-                    bool isKnownBroken = false;
-                    for (int n = 0; n < BrokenNpcSetterNames.Length; n++)
+                    var il = method.Body.GetILProcessor();
+                    // Iterate backwards since we're replacing instructions in place by index.
+                    for (int i = method.Body.Instructions.Count - 1; i >= 0; i--)
                     {
-                        if (mref.Name == BrokenNpcSetterNames[n]) { isKnownBroken = true; break; }
-                    }
-                    if (!isKnownBroken) continue;
+                        var instr = method.Body.Instructions[i];
+                        bool isCall = instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt;
+                        if (!isCall || !(instr.Operand is MethodReference mref)) continue;
 
-                    var pop1 = il.Create(OpCodes.Pop);
-                    var pop2 = il.Create(OpCodes.Pop);
-                    il.Replace(instr, pop1);
-                    il.InsertAfter(pop1, pop2);
-                    patchedCount++;
+                        var declaringName = mref.DeclaringType?.Name;
+                        if (declaringName == null) continue;
+
+                        bool isKnownBroken = false;
+                        for (int n = 0; n < BrokenNpcSetterCalls.Length; n++)
+                        {
+                            var (t, m) = BrokenNpcSetterCalls[n];
+                            if (mref.Name == m && declaringName == t) { isKnownBroken = true; break; }
+                        }
+                        if (!isKnownBroken) continue;
+
+                        var pop1 = il.Create(OpCodes.Pop);
+                        var pop2 = il.Create(OpCodes.Pop);
+                        il.Replace(instr, pop1);
+                        il.InsertAfter(pop1, pop2);
+                        patchedCount++;
+                    }
                 }
             }
             return patchedCount;
