@@ -320,7 +320,7 @@ namespace OverTheCounter.Logic.Placement
             // Clear trees/objects around building footprint + apron
             var buildingSize = new Vector3(RoomWidth, RoomHeight, RoomDepth + ApronDepth);
             TerrainClearer.ClearAroundBuilding(_building, buildingSize,
-                new ClearingOptions { Padding = 5f });
+                new ClearingOptions { Padding = 2f });
         }
 
         private static GameObject SpawnNetworkedAt(S1MAPI.Core.PrefabRef prefab, Vector3 worldPos, Quaternion worldRot, Action<GameObject> preSpawnConfigure = null)

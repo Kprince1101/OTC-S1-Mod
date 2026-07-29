@@ -180,7 +180,7 @@ namespace OverTheCounter.Logic.Placement
             if (_building == null) return;
             var buildingSize = new Vector3(Width, WallHeight, Depth);
             TerrainClearer.ClearAroundBuilding(_building, buildingSize,
-                new ClearingOptions { Padding = 5f });
+                new ClearingOptions { Padding = 4f });
         }
 
         /// <summary>Rebuilds interior pathfinding after furniture is placed or moved.</summary>

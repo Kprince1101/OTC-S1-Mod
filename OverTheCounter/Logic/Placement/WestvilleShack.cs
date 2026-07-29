@@ -281,7 +281,7 @@ namespace OverTheCounter.Logic.Placement
         {
             if (_building == null) return;
             TerrainClearer.ClearAroundBuilding(_building, new Vector3(RoomWidth, RoomHeight, RoomDepth),
-                new ClearingOptions { Padding = 5f });
+                new ClearingOptions { Padding = 4f });
         }
 
         /// <summary>
