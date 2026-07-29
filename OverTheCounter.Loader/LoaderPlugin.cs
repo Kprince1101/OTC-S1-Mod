@@ -380,8 +380,9 @@ namespace OverTheCounter.Loader
         /// <summary>
         /// See the class-level notes above: S1API's <c>NPC()</c> base constructor unconditionally
         /// calls a handful of setters on the game's own NPC type that this game version no longer
-        /// has -- confirmed so far: <c>set_hasLastName(bool)</c> and <c>set_MugshotSprite(Sprite)</c>.
-        /// Both showed up the same way: fix one, rebuild, the constructor's JIT gets past that call
+        /// has -- confirmed so far: <c>set_hasLastName(bool)</c>, <c>set_MugshotSprite(Sprite)</c>,
+        /// and <c>set_LastName(string)</c>.
+        /// Each showed up the same way: fix one, rebuild, the constructor's JIT gets past that call
         /// and immediately hits the next broken one further down the same method body (expected --
         /// the whole method is resolved eagerly, so every broken call in it is "real", not
         /// conditional; we only find out about each one once the prior one stops masking it).
@@ -395,6 +396,7 @@ namespace OverTheCounter.Loader
         {
             "set_hasLastName",
             "set_MugshotSprite",
+            "set_LastName",
         };
 
         private static int PatchHasLastName(ModuleDefinition module)
