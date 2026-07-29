@@ -778,33 +778,66 @@ namespace OverTheCounter.Loader
                     }
 
                     // Pass 2: BrokenGettersThrowOnOffSceneConstruction -- wrap in try/catch instead of
-                    // removing. Run as a separate backward pass (rather than folded into pass 1's loop)
-                    // since WrapCallInTryCatchDefaultNull inserts a variable-length instruction sequence
-                    // AFTER the call, which pass 1's index bookkeeping isn't designed to account for.
-                    // Iterating this second pass backward from body.Instructions.Count (re-read fresh,
-                    // after pass 1 may have changed it) is still safe: insertions from processing one
-                    // call site land after that call's index, i.e. strictly above every index this
-                    // descending loop still has left to visit, so they're never revisited or double-
-                    // processed.
-                    for (int i = body.Instructions.Count - 1; i >= 0; i--)
+                    // removing. This MUST snapshot the matching Instruction objects up front rather than
+                    // walking body.Instructions by index (as pass 1 does) -- a plain descending index
+                    // scan is only safe if every mutation lands strictly AFTER the current index (pure
+                    // insertion, as pass 1 and the original version of this pass performed). Once
+                    // WrapCallInTryCatchDefaultNull can RELOCATE a "extra" stack-value prefix (see
+                    // TryFindRelocatablePrefix), it also REMOVES instructions that sit BEFORE the call
+                    // being processed -- which shifts every later index down by the removed count. A
+                    // descending index-based loop doesn't account for that shift, so after one relocating
+                    // wrap it can land back on an index that now holds an instruction already processed
+                    // (confirmed via the patch-harness: every call site needing relocation was visited
+                    // twice, back-to-back, the second time against its own already-rewritten remains --
+                    // usually a harmless no-op since the shape no longer matches, but in the null-
+                    // conditional case where the second pass's re-derived bounds happened to still look
+                    // valid, it actually SUCCEEDED AGAIN, adding a second, redundant nested try/catch
+                    // around the same already-wrapped call). Snapshotting the actual Instruction
+                    // references first sidesteps this: each matched instruction is visited exactly once,
+                    // regardless of how much later processing reshuffles positions around it.
+                    int throwOnOffSceneCount = 0;
+                    for (int i = 0; i < body.Instructions.Count; i++)
                     {
                         var instr = body.Instructions[i];
                         bool isCall = instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt;
                         if (!isCall || !(instr.Operand is MethodReference mref)) continue;
-
                         var declaringName = mref.DeclaringType?.Name;
                         if (declaringName == null) continue;
-
-                        bool isThrowOnOffScene = false;
                         for (int n = 0; n < BrokenGettersThrowOnOffSceneConstruction.Length; n++)
                         {
                             var (t, m) = BrokenGettersThrowOnOffSceneConstruction[n];
-                            if (mref.Name == m && declaringName == t) { isThrowOnOffScene = true; break; }
+                            if (mref.Name == m && declaringName == t) { throwOnOffSceneCount++; break; }
                         }
-                        if (!isThrowOnOffScene) continue;
+                    }
 
-                        if (WrapCallInTryCatchDefaultNull(method, instr))
-                            patchedCount++;
+                    if (throwOnOffSceneCount > 0)
+                    {
+                        var throwOnOffSceneCandidates = new Instruction[throwOnOffSceneCount];
+                        int candidateWriteIdx = 0;
+                        for (int i = 0; i < body.Instructions.Count; i++)
+                        {
+                            var instr = body.Instructions[i];
+                            bool isCall = instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt;
+                            if (!isCall || !(instr.Operand is MethodReference mref)) continue;
+                            var declaringName = mref.DeclaringType?.Name;
+                            if (declaringName == null) continue;
+
+                            bool isThrowOnOffScene = false;
+                            for (int n = 0; n < BrokenGettersThrowOnOffSceneConstruction.Length; n++)
+                            {
+                                var (t, m) = BrokenGettersThrowOnOffSceneConstruction[n];
+                                if (mref.Name == m && declaringName == t) { isThrowOnOffScene = true; break; }
+                            }
+                            if (!isThrowOnOffScene) continue;
+
+                            throwOnOffSceneCandidates[candidateWriteIdx++] = instr;
+                        }
+
+                        for (int c = 0; c < throwOnOffSceneCandidates.Length; c++)
+                        {
+                            if (WrapCallInTryCatchDefaultNull(method, throwOnOffSceneCandidates[c]))
+                                patchedCount++;
+                        }
                     }
                 }
             }
@@ -868,6 +901,25 @@ namespace OverTheCounter.Loader
                 return NullConditionalWrap(method, callInstr, condBr, mref);
             }
 
+            // Reload-based variant of the same `x?.Y` idiom: when x is a cheap, side-effect-free
+            // ldarg/ldloc, the compiler skips dup+pop entirely and just reloads the same parameter/local
+            // a second time after the branch instead of keeping a duplicate on the stack. Confirmed via
+            // the patch-harness in CreateWrapperForNetworkSpawnedNPC's own exception-logging code
+            // (`baseNpc?.ID` where baseNpc is a method parameter): [ldarg N; brtrue L; ldnull; br M; L:
+            // ldarg N; call get_X(); M: ...] -- no pop before the fallback ldnull, since brtrue already
+            // fully consumed the one-and-only copy of the value. Crucially, the branch here targets the
+            // RELOAD instruction immediately before the call, not the call itself, so it has to be
+            // looked up separately from the dup case's condBr (which does target callInstr directly).
+            Instruction condBrReload = callInstr.Previous != null ? FindBranchTargeting(body, callInstr.Previous) : null;
+            if (condBrReload != null && (condBrReload.OpCode == OpCodes.Brtrue || condBrReload.OpCode == OpCodes.Brtrue_S) &&
+                condBrReload.Previous != null &&
+                TryGetLoadIndex(condBrReload.Previous, out bool isArg1, out int idx1) &&
+                TryGetLoadIndex(callInstr.Previous, out bool isArg2, out int idx2) &&
+                isArg1 == isArg2 && idx1 == idx2)
+            {
+                return NullConditionalWrapReload(method, callInstr, condBrReload, mref);
+            }
+
             int callIndex = body.Instructions.IndexOf(callInstr);
             if (callIndex < 0) return false;
 
@@ -886,6 +938,30 @@ namespace OverTheCounter.Loader
                 Logger.Warning("Broken-getter try/catch patch: could not cleanly bound the statement around " +
                     mref.Name + " in " + method.DeclaringType.FullName + "." + method.Name + " -- skipping that occurrence (non-fatal).");
                 return false;
+            }
+
+            // "needed == 0" only proves the SPECIFIC value(s) callInstr consumes have been fully
+            // accounted for walking backward this far -- it says nothing about whether OTHER,
+            // unrelated values are ALSO sitting on the stack at this point (e.g. this call is the
+            // 3rd argument of a 4-argument String.Concat -- the first two arguments are already
+            // pushed and waiting). A try region requires the stack to be genuinely EMPTY at
+            // TryStart, for every way of reaching it, not just "balanced relative to one consumer" --
+            // see ComputeStackDepths' doc comment for how this is verified properly. If the stack
+            // isn't empty, try to relocate the offending prefix out of the way instead of giving up
+            // outright -- see TryFindRelocatablePrefix's doc comment for why that's safe and when it
+            // isn't possible.
+            int[] depths = ComputeStackDepths(body);
+            Instruction[] relocate = Array.Empty<Instruction>();
+            if (depths[startIndex] != 0)
+            {
+                relocate = TryFindRelocatablePrefix(body, startIndex, depths[startIndex]);
+                if (relocate == null)
+                {
+                    Logger.Warning("Broken-getter try/catch patch: statement around " + mref.Name + " in " +
+                        method.DeclaringType.FullName + "." + method.Name + " does not start with an empty evaluation stack (depth " +
+                        depths[startIndex] + ") and the preceding value(s) aren't safely relocatable -- skipping that occurrence (non-fatal).");
+                    return false;
+                }
             }
 
             var start = body.Instructions[startIndex];
@@ -924,6 +1000,11 @@ namespace OverTheCounter.Loader
                 }
             }
 
+            // Detach the relocatable prefix now (before it's shadowed by anything we insert) --
+            // RemoveExactly is safe here since TryFindRelocatablePrefix already proved none of these
+            // instructions are themselves referenced from elsewhere.
+            foreach (var r in relocate) il.Remove(r);
+
             var exceptionType = FindExceptionCatchType(method.Module);
             var tempLocal = new VariableDefinition(mref.ReturnType);
             body.Variables.Add(tempLocal);
@@ -932,7 +1013,8 @@ namespace OverTheCounter.Loader
             var popEx = il.Create(OpCodes.Pop);
             var ldnullEx = il.Create(OpCodes.Ldnull);
             var stlocEx = il.Create(OpCodes.Stloc, tempLocal);
-            var landing = il.Create(OpCodes.Ldloc, tempLocal);
+            var landing = il.Create(OpCodes.Nop);
+            var loadResult = il.Create(OpCodes.Ldloc, tempLocal);
             var leaveOk = il.Create(OpCodes.Leave, landing);
             var leaveEx = il.Create(OpCodes.Leave, landing);
 
@@ -945,6 +1027,15 @@ namespace OverTheCounter.Loader
             il.InsertAfter(ldnullEx, stlocEx);
             il.InsertAfter(stlocEx, leaveEx);
             il.InsertAfter(leaveEx, landing);
+
+            // Re-emit the relocated prefix (same Instruction objects, so any FAR-AWAY reference
+            // outside this whole region -- already proven not to exist by TryFindRelocatablePrefix,
+            // but re-stated here for clarity -- would remain valid regardless) right after landing,
+            // then push our real-or-substituted result LAST so the final stack order matches exactly
+            // what the original code before this call expected: [relocated values..., our result].
+            var insertAfter = landing;
+            foreach (var r in relocate) { il.InsertAfter(insertAfter, r); insertAfter = r; }
+            il.InsertAfter(insertAfter, loadResult);
 
             body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
             {
@@ -1022,6 +1113,28 @@ namespace OverTheCounter.Loader
                 return false;
             }
 
+            // Same reasoning as the plain case's identical check -- see WrapCallInTryCatchDefaultNull.
+            // Confirmed via real-world testing to matter here too: EnsureMessageConversationReady and
+            // EnsureMessageConversationInstance both build log/diagnostic messages where `S1NPC?.ID` is
+            // the 2nd/3rd argument of a String.Concat -- earlier arguments (a Logger reference, a
+            // string literal) are already pushed and waiting when the null-conditional load begins, so
+            // "needed == 0" was satisfied while the actual stack was very much non-empty. That produced
+            // a real InvalidProgramException in-game before this check was added. Try relocating the
+            // offending prefix (see TryFindRelocatablePrefix) before giving up.
+            int[] depths = ComputeStackDepths(body);
+            Instruction[] relocate = Array.Empty<Instruction>();
+            if (depths[startIndex] != 0)
+            {
+                relocate = TryFindRelocatablePrefix(body, startIndex, depths[startIndex]);
+                if (relocate == null)
+                {
+                    Logger.Warning("Broken-getter try/catch patch: null-conditional statement around " + mref.Name + " in " +
+                        method.DeclaringType.FullName + "." + method.Name + " does not start with an empty evaluation stack (depth " +
+                        depths[startIndex] + ") and the preceding value(s) aren't safely relocatable -- skipping that occurrence (non-fatal).");
+                    return false;
+                }
+            }
+
             var start = body.Instructions[startIndex];
 
             var popFallback = condBr.Next;
@@ -1076,6 +1189,11 @@ namespace OverTheCounter.Loader
                 }
             }
 
+            // Detach the relocatable prefix now, before it's shadowed by anything we insert --
+            // TryFindRelocatablePrefix already proved none of these instructions are themselves
+            // referenced from elsewhere.
+            foreach (var r in relocate) il.Remove(r);
+
             var exceptionType = FindExceptionCatchType(method.Module);
             var tempLocal = new VariableDefinition(mref.ReturnType);
             body.Variables.Add(tempLocal);
@@ -1084,7 +1202,8 @@ namespace OverTheCounter.Loader
             var popEx = il.Create(OpCodes.Pop);
             var ldnullEx = il.Create(OpCodes.Ldnull);
             var stlocEx = il.Create(OpCodes.Stloc, tempLocal);
-            var landing = il.Create(OpCodes.Ldloc, tempLocal);
+            var landing = il.Create(OpCodes.Nop);
+            var loadResult = il.Create(OpCodes.Ldloc, tempLocal);
             var leaveOk = il.Create(OpCodes.Leave, landing);
 
             // Rewrite the existing fallback's "br(.s) M" in place -- same Instruction object, so
@@ -1104,6 +1223,211 @@ namespace OverTheCounter.Loader
             var leaveEx = il.Create(OpCodes.Leave, landing);
             il.InsertAfter(stlocEx, leaveEx);
             il.InsertAfter(leaveEx, landing);
+
+            // Re-emit the relocated prefix right after landing, then push our real-or-substituted
+            // result LAST so the final stack order matches exactly what the original code expected:
+            // [relocated values..., our result]. See the identical comment in
+            // WrapCallInTryCatchDefaultNull for the full reasoning.
+            var insertAfter = landing;
+            foreach (var r in relocate) { il.InsertAfter(insertAfter, r); insertAfter = r; }
+            il.InsertAfter(insertAfter, loadResult);
+
+            body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+            {
+                CatchType = exceptionType,
+                TryStart = start,
+                TryEnd = popEx,
+                HandlerStart = popEx,
+                HandlerEnd = landing,
+            });
+
+            return true;
+        }
+
+        /// <summary>
+        /// If <paramref name="instr"/> is a simple, side-effect-free "ldarg N" or "ldloc N" (any of the
+        /// short-form, long-form, or indexed opcodes), returns true and reports which kind and index.
+        /// Used to recognize the reload-based null-conditional idiom -- see
+        /// <see cref="NullConditionalWrapReload"/> -- by comparing the load before the `brtrue` check
+        /// against the reload right before the getter call: same kind + same index means "same
+        /// parameter/local reloaded twice", which is exactly what the compiler emits instead of
+        /// dup+pop when the instance expression is cheap enough to just re-evaluate.
+        /// </summary>
+        private static bool TryGetLoadIndex(Instruction instr, out bool isArg, out int index)
+        {
+            isArg = false;
+            index = -1;
+            if (instr == null) return false;
+
+            var op = instr.OpCode;
+            if (op == OpCodes.Ldarg_0) { isArg = true; index = 0; return true; }
+            if (op == OpCodes.Ldarg_1) { isArg = true; index = 1; return true; }
+            if (op == OpCodes.Ldarg_2) { isArg = true; index = 2; return true; }
+            if (op == OpCodes.Ldarg_3) { isArg = true; index = 3; return true; }
+            if (op == OpCodes.Ldarg || op == OpCodes.Ldarg_S)
+            {
+                if (instr.Operand is ParameterDefinition pd) { isArg = true; index = pd.Index; return true; }
+                return false;
+            }
+            if (op == OpCodes.Ldloc_0) { isArg = false; index = 0; return true; }
+            if (op == OpCodes.Ldloc_1) { isArg = false; index = 1; return true; }
+            if (op == OpCodes.Ldloc_2) { isArg = false; index = 2; return true; }
+            if (op == OpCodes.Ldloc_3) { isArg = false; index = 3; return true; }
+            if (op == OpCodes.Ldloc || op == OpCodes.Ldloc_S)
+            {
+                if (instr.Operand is VariableDefinition vd) { isArg = false; index = vd.Index; return true; }
+                return false;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Handles the reload-based variant of the `x?.Member` idiom -- see the doc comment where this
+        /// is dispatched from <see cref="WrapCallInTryCatchDefaultNull"/> for the exact shape. Confirmed
+        /// via the patch-harness in <c>CreateWrapperForNetworkSpawnedNPC</c>'s own exception-logging code
+        /// (`baseNpc?.ID` where baseNpc is a method parameter, inside the catch handler that reports why
+        /// wrapper construction failed):
+        ///
+        ///   [instance-load]     -- e.g. ldarg.1; stack is empty beforehand
+        ///   brtrue.s L          -- condBr; fully consumes the one-and-only copy of the value
+        ///   ldnull              -- fallback: NO pop first (nothing left to discard, unlike the dup case)
+        ///   br.s M              -- M == callInstr.Next
+        ///   L: [instance-reload]  -- same parameter/local reloaded fresh
+        ///      call get_X()     -- == callInstr
+        ///   M: ...
+        ///
+        /// Structurally identical to <see cref="NullConditionalWrap"/> otherwise: same try/catch
+        /// mechanics, same stack-depth verification + relocation for the "extra values already on the
+        /// stack" problem, same in-place rewrite of the fallback's `br(.s)` into `stloc temp; leave
+        /// landing`. The only differences are (a) bounding starts from the first instance-load rather
+        /// than a `dup`, and (b) the fallback shape has no leading `pop`.
+        /// </summary>
+        private static bool NullConditionalWrapReload(MethodDefinition method, Instruction callInstr, Instruction condBr, MethodReference mref)
+        {
+            var body = method.Body;
+            var il = body.GetILProcessor();
+
+            var loadFirst = condBr.Previous;
+            int loadIndex = body.Instructions.IndexOf(loadFirst);
+            if (loadIndex < 0) return false;
+
+            int needed = GetPopCount(loadFirst);
+            int idx = loadIndex - 1;
+            while (needed > 0 && idx >= 0)
+            {
+                needed -= GetPushCount(body.Instructions[idx]);
+                needed += GetPopCount(body.Instructions[idx]);
+                idx--;
+            }
+            int startIndex = idx + 1;
+
+            if (needed != 0)
+            {
+                Logger.Warning("Broken-getter try/catch patch: could not cleanly bound the reload-based null-conditional instance load around " +
+                    mref.Name + " in " + method.DeclaringType.FullName + "." + method.Name + " -- skipping that occurrence (non-fatal).");
+                return false;
+            }
+
+            // Same reasoning as NullConditionalWrap's identical check.
+            int[] depths = ComputeStackDepths(body);
+            Instruction[] relocate = Array.Empty<Instruction>();
+            if (depths[startIndex] != 0)
+            {
+                relocate = TryFindRelocatablePrefix(body, startIndex, depths[startIndex]);
+                if (relocate == null)
+                {
+                    Logger.Warning("Broken-getter try/catch patch: reload-based null-conditional statement around " + mref.Name + " in " +
+                        method.DeclaringType.FullName + "." + method.Name + " does not start with an empty evaluation stack (depth " +
+                        depths[startIndex] + ") and the preceding value(s) aren't safely relocatable -- skipping that occurrence (non-fatal).");
+                    return false;
+                }
+            }
+
+            var start = body.Instructions[startIndex];
+
+            var ldnullFallback = condBr.Next;
+            var brFallback = ldnullFallback?.Next;
+            bool shapeMatches = ldnullFallback != null && ldnullFallback.OpCode == OpCodes.Ldnull &&
+                brFallback != null && (brFallback.OpCode == OpCodes.Br || brFallback.OpCode == OpCodes.Br_S) &&
+                brFallback.Operand is Instruction brTarget && brTarget == callInstr.Next &&
+                brFallback.Next == callInstr.Previous;
+
+            if (!shapeMatches)
+            {
+                Logger.Warning("Broken-getter try/catch patch: " + mref.Name + " in " + method.DeclaringType.FullName + "." + method.Name +
+                    " looked like a reload-based null-conditional access but didn't match the expected shape exactly -- skipping that occurrence (non-fatal).");
+                return false;
+            }
+
+            int callIndex = body.Instructions.IndexOf(callInstr);
+            int reloadIndex = callIndex - 1;
+
+            // Refuse if anything strictly inside (start, callInstr] -- excluding the reload instruction
+            // right before callInstr, which we KNOW is targeted by condBr and is handled by construction
+            // -- is targeted by some OTHER branch/EH boundary from elsewhere in the method.
+            for (int r = startIndex + 1; r <= callIndex; r++)
+            {
+                if (r == reloadIndex) continue;
+                var candidate = body.Instructions[r];
+                bool isTarget = false;
+                foreach (var other in body.Instructions)
+                {
+                    if (other == candidate) continue;
+                    if (other.Operand is Instruction t && t == candidate) { isTarget = true; break; }
+                    if (other.Operand is Instruction[] ts)
+                    {
+                        foreach (var tt in ts) if (tt == candidate) { isTarget = true; break; }
+                        if (isTarget) break;
+                    }
+                }
+                if (!isTarget && body.HasExceptionHandlers)
+                {
+                    foreach (var eh in body.ExceptionHandlers)
+                    {
+                        if (eh.TryStart == candidate || eh.TryEnd == candidate || eh.HandlerStart == candidate ||
+                            eh.HandlerEnd == candidate || eh.FilterStart == candidate) { isTarget = true; break; }
+                    }
+                }
+                if (isTarget)
+                {
+                    Logger.Warning("Broken-getter try/catch patch: reload-based null-conditional statement around " + mref.Name + " in " +
+                        method.DeclaringType.FullName + "." + method.Name + " has an unexpected branch/EH boundary landing mid-statement -- skipping that occurrence (non-fatal).");
+                    return false;
+                }
+            }
+
+            foreach (var r in relocate) il.Remove(r);
+
+            var exceptionType = FindExceptionCatchType(method.Module);
+            var tempLocal = new VariableDefinition(mref.ReturnType);
+            body.Variables.Add(tempLocal);
+
+            var stlocOk = il.Create(OpCodes.Stloc, tempLocal);
+            var popEx = il.Create(OpCodes.Pop);
+            var ldnullEx = il.Create(OpCodes.Ldnull);
+            var stlocEx = il.Create(OpCodes.Stloc, tempLocal);
+            var landing = il.Create(OpCodes.Nop);
+            var loadResult = il.Create(OpCodes.Ldloc, tempLocal);
+            var leaveOk = il.Create(OpCodes.Leave, landing);
+
+            // Rewrite the existing fallback's "br(.s) M" in place, same as NullConditionalWrap.
+            var stlocFallback = il.Create(OpCodes.Stloc, tempLocal);
+            il.InsertBefore(brFallback, stlocFallback);
+            brFallback.OpCode = OpCodes.Leave;
+            brFallback.Operand = landing;
+
+            il.InsertAfter(callInstr, stlocOk);
+            il.InsertAfter(stlocOk, leaveOk);
+            il.InsertAfter(leaveOk, popEx);
+            il.InsertAfter(popEx, ldnullEx);
+            il.InsertAfter(ldnullEx, stlocEx);
+            var leaveEx = il.Create(OpCodes.Leave, landing);
+            il.InsertAfter(stlocEx, leaveEx);
+            il.InsertAfter(leaveEx, landing);
+
+            var insertAfter = landing;
+            foreach (var r in relocate) { il.InsertAfter(insertAfter, r); insertAfter = r; }
+            il.InsertAfter(insertAfter, loadResult);
 
             body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
             {
@@ -1401,6 +1725,162 @@ namespace OverTheCounter.Loader
             if (instr.Operand is MethodReference mref)
                 return mref.ReturnType.MetadataType == MetadataType.Void ? 0 : 1;
             return 0;
+        }
+
+        /// <summary>
+        /// Computes the evaluation-stack depth immediately BEFORE each instruction in
+        /// <paramref name="body"/>, returned as a parallel array indexed the same as
+        /// <c>body.Instructions</c> (-1 for any instruction never proven reachable from a known-depth
+        /// point, e.g. genuinely dead code).
+        ///
+        /// Needed because "local" stack-balance walks (like the ones in
+        /// <see cref="WrapCallInTryCatchDefaultNull"/> and <see cref="NullConditionalWrap"/>, and in
+        /// <see cref="RemoveStatementsReferencing"/>) only prove that ONE particular downstream
+        /// consumer's inputs have been fully accounted for walking backward -- they say nothing about
+        /// whether OTHER, unrelated values are ALSO sitting on the stack at that point (e.g. a call is
+        /// the 3rd argument of a 4-argument String.Concat -- the first two arguments are already
+        /// pushed and waiting, invisible to a walk that only tracks what ITS OWN caller needs). A new
+        /// try region requires the stack to be genuinely EMPTY at TryStart, for every way of reaching
+        /// it -- confirmed the hard way: EnsureMessageConversationReady's `S1NPC?.ID` read is the 3rd
+        /// Concat argument inside a catch handler's logging code, and wrapping just that local
+        /// expression (ignoring the two already-pushed arguments underneath) produced IL that passed
+        /// every other check here but still threw InvalidProgramException in-game.
+        ///
+        /// Standard depth-propagation worklist, seeded at every point guaranteed to have a known depth
+        /// (method entry = 0; each try region's TryStart = 0; each catch/filter HandlerStart = 1, for
+        /// the exception object the CLR pushes; each finally/fault HandlerStart = 0; each FilterStart =
+        /// 1), then relaxed forward across fallthrough and branch edges using GetPopCount/GetPushCount
+        /// until no instruction's depth changes. Plain arrays throughout (no List/Dictionary/Queue) --
+        /// same Mono-compatibility reason as everywhere else in this file (see LoaderConfig.Whitelist).
+        /// </summary>
+        private static int[] ComputeStackDepths(Mono.Cecil.Cil.MethodBody body)
+        {
+            int n = body.Instructions.Count;
+            int[] depth = new int[n];
+            for (int i = 0; i < n; i++) depth[i] = -1;
+            if (n == 0) return depth;
+
+            depth[0] = 0;
+            if (body.HasExceptionHandlers)
+            {
+                foreach (var eh in body.ExceptionHandlers)
+                {
+                    int tryIdx = body.Instructions.IndexOf(eh.TryStart);
+                    if (tryIdx >= 0) depth[tryIdx] = 0;
+
+                    int handlerIdx = eh.HandlerStart != null ? body.Instructions.IndexOf(eh.HandlerStart) : -1;
+                    if (handlerIdx >= 0)
+                    {
+                        bool pushesException = eh.HandlerType == ExceptionHandlerType.Catch || eh.HandlerType == ExceptionHandlerType.Filter;
+                        depth[handlerIdx] = pushesException ? 1 : 0;
+                    }
+
+                    if (eh.FilterStart != null)
+                    {
+                        int filterIdx = body.Instructions.IndexOf(eh.FilterStart);
+                        if (filterIdx >= 0) depth[filterIdx] = 1;
+                    }
+                }
+            }
+
+            for (int pass = 0; pass < 4; pass++)
+            {
+                bool changed = false;
+                for (int i = 0; i < n; i++)
+                {
+                    if (depth[i] < 0) continue;
+                    var instr = body.Instructions[i];
+                    int after = depth[i] - GetPopCount(instr) + GetPushCount(instr);
+
+                    bool falls = true;
+                    if (instr.OpCode == OpCodes.Br || instr.OpCode == OpCodes.Br_S ||
+                        instr.OpCode == OpCodes.Leave || instr.OpCode == OpCodes.Leave_S ||
+                        instr.OpCode == OpCodes.Ret || instr.OpCode == OpCodes.Throw ||
+                        instr.OpCode == OpCodes.Endfinally || instr.OpCode == OpCodes.Endfilter ||
+                        instr.OpCode == OpCodes.Rethrow)
+                        falls = false;
+
+                    if (falls && i + 1 < n && depth[i + 1] < 0) { depth[i + 1] = after; changed = true; }
+
+                    if (instr.Operand is Instruction single)
+                    {
+                        int ti = body.Instructions.IndexOf(single);
+                        if (ti >= 0 && depth[ti] < 0) { depth[ti] = after; changed = true; }
+                    }
+                    else if (instr.Operand is Instruction[] many)
+                    {
+                        for (int k = 0; k < many.Length; k++)
+                        {
+                            int ti = body.Instructions.IndexOf(many[k]);
+                            if (ti >= 0 && depth[ti] < 0) { depth[ti] = after; changed = true; }
+                        }
+                    }
+                }
+                if (!changed) break;
+            }
+
+            return depth;
+        }
+
+        /// <summary>
+        /// When ComputeStackDepths shows <paramref name="extra"/> unrelated values already sitting on
+        /// the stack below <paramref name="startIndex"/>, this looks for a way to make wrapping
+        /// possible anyway by RELOCATING those <paramref name="extra"/> immediately-preceding
+        /// instructions to run AFTER the new try/catch instead of before it, rather than giving up.
+        ///
+        /// This needs no type inference (unlike hoisting into typed temp locals would) because it only
+        /// fires when each of the <paramref name="extra"/> instructions is a "pure" single-value load
+        /// (Push1/Pop0 -- e.g. ldsfld/ldstr/ldarg/ldfld/ldloc; nothing that consumes anything or has
+        /// any other stack effect) that is not itself targeted by any branch or exception-handler
+        /// boundary elsewhere in the method. Moving such an instruction changes only WHEN it executes,
+        /// not WHAT it produces (same field/arg/local/literal read, still idempotent), and confirming
+        /// no existing reference points at it means relocating can't silently corrupt some OTHER
+        /// branch/EH region that happened to use it as a boundary marker.
+        ///
+        /// Confirmed exactly this shape in practice: EnsureMessageConversationReady and
+        /// EnsureMessageConversationInstance both build a log/diagnostic message via String.Concat,
+        /// where `S1NPC?.ID` is a middle argument and a Logger reference plus a string literal are
+        /// already pushed as earlier Concat arguments -- exactly two pure, reference-typed loads
+        /// immediately before the null-conditional's own instance-load begins.
+        ///
+        /// Returns the instructions to relocate (in original order, empty array if extra is 0), or
+        /// null if the preceding instructions don't all match this safe shape (caller should then give
+        /// up as before).
+        /// </summary>
+        private static Instruction[] TryFindRelocatablePrefix(Mono.Cecil.Cil.MethodBody body, int startIndex, int extra)
+        {
+            if (extra <= 0) return Array.Empty<Instruction>();
+            if (startIndex - extra < 0) return null;
+
+            var candidates = new Instruction[extra];
+            for (int k = 0; k < extra; k++)
+            {
+                var instr = body.Instructions[startIndex - extra + k];
+                if (GetPushCount(instr) != 1 || GetPopCount(instr) != 0) return null;
+                candidates[k] = instr;
+            }
+
+            foreach (var candidate in candidates)
+            {
+                foreach (var other in body.Instructions)
+                {
+                    if (other == candidate) continue;
+                    if (other.Operand is Instruction t && t == candidate) return null;
+                    if (other.Operand is Instruction[] ts)
+                        foreach (var tt in ts) if (tt == candidate) return null;
+                }
+                if (body.HasExceptionHandlers)
+                {
+                    foreach (var eh in body.ExceptionHandlers)
+                    {
+                        if (eh.TryStart == candidate || eh.TryEnd == candidate || eh.HandlerStart == candidate ||
+                            eh.HandlerEnd == candidate || eh.FilterStart == candidate)
+                            return null;
+                    }
+                }
+            }
+
+            return candidates;
         }
 
         /// <summary>Finds S1API's main Mods-folder DLL for the currently running branch (IL2CPP vs Mono).</summary>
