@@ -522,11 +522,12 @@ namespace OverTheCounter.Loader
                 {
                     if (!method.HasBody) continue;
 
-                    var il = method.Body.GetILProcessor();
+                    var body = method.Body;
+                    var il = body.GetILProcessor();
                     // Iterate backwards since we're replacing instructions in place by index.
-                    for (int i = method.Body.Instructions.Count - 1; i >= 0; i--)
+                    for (int i = body.Instructions.Count - 1; i >= 0; i--)
                     {
-                        var instr = method.Body.Instructions[i];
+                        var instr = body.Instructions[i];
                         bool isCall = instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt;
                         if (!isCall || !(instr.Operand is MethodReference mref)) continue;
 
@@ -543,13 +544,62 @@ namespace OverTheCounter.Loader
 
                         var pop1 = il.Create(OpCodes.Pop);
                         var pop2 = il.Create(OpCodes.Pop);
-                        il.Replace(instr, pop1);
-                        il.InsertAfter(pop1, pop2);
+
+                        // Insert the replacement pair *before* the call, redirect every reference
+                        // to the call instruction (branch targets elsewhere in the method, AND
+                        // exception-handler Try/Handler/Filter boundaries) onto pop1, THEN remove
+                        // the call. Cecil's ILProcessor.Replace/Remove do NOT do this redirection
+                        // themselves -- if the removed instruction happened to also be an
+                        // ExceptionHandler boundary marker (this module has several EH-heavy
+                        // methods, e.g. NPCPrefabBuilder.WithAppearanceDefaults has 4 EH regions),
+                        // the naive Replace() left that boundary field pointing at an Instruction
+                        // object no longer in the method body. Cecil's writer doesn't throw on
+                        // that -- it silently serializes a stale/wrong byte offset -- so the DLL
+                        // still loads fine and only the CLR's JIT-time IL verifier ever catches it,
+                        // as InvalidProgramException. This was a real regression introduced by the
+                        // original call->2-pops patch; fixed by always repointing references before
+                        // removing.
+                        il.InsertBefore(instr, pop1);
+                        il.InsertBefore(instr, pop2);
+                        RedirectReferences(body, instr, pop1);
+                        il.Remove(instr);
+
                         patchedCount++;
                     }
                 }
             }
             return patchedCount;
+        }
+
+        /// <summary>
+        /// Repoints every reference to <paramref name="oldTarget"/> -- branch operands (including
+        /// switch-statement target arrays) anywhere in <paramref name="body"/>, and exception-handler
+        /// TryStart/TryEnd/HandlerStart/HandlerEnd/FilterStart boundaries -- onto
+        /// <paramref name="newTarget"/>. Must be called before removing an instruction that might be
+        /// referenced either way; see the comment in <see cref="PatchHasLastName"/> for why.
+        /// </summary>
+        private static void RedirectReferences(Mono.Cecil.Cil.MethodBody body, Instruction oldTarget, Instruction newTarget)
+        {
+            foreach (var other in body.Instructions)
+            {
+                if (other.Operand is Instruction single && single == oldTarget)
+                    other.Operand = newTarget;
+                else if (other.Operand is Instruction[] many)
+                {
+                    for (int k = 0; k < many.Length; k++)
+                        if (many[k] == oldTarget) many[k] = newTarget;
+                }
+            }
+
+            if (!body.HasExceptionHandlers) return;
+            foreach (var eh in body.ExceptionHandlers)
+            {
+                if (eh.TryStart == oldTarget) eh.TryStart = newTarget;
+                if (eh.TryEnd == oldTarget) eh.TryEnd = newTarget;
+                if (eh.HandlerStart == oldTarget) eh.HandlerStart = newTarget;
+                if (eh.HandlerEnd == oldTarget) eh.HandlerEnd = newTarget;
+                if (eh.FilterStart == oldTarget) eh.FilterStart = newTarget;
+            }
         }
 
         /// <summary>
