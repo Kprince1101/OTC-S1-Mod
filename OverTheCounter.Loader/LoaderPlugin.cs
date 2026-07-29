@@ -353,8 +353,9 @@ namespace OverTheCounter.Loader
 
                 int hasLastNamePatched = PatchHasLastName(module);
                 int exitActionPatched = PatchExitAction(module);
+                int brokenGettersPatched = PatchBrokenGetters(module);
 
-                if (hasLastNamePatched == 0 && exitActionPatched == 0)
+                if (hasLastNamePatched == 0 && exitActionPatched == 0 && brokenGettersPatched == 0)
                 {
                     Logger.Msg("No known S1API IL bugs found to patch in " + Path.GetFileName(dllPath) +
                         " — already patched, or this S1API version doesn't need it.");
@@ -369,7 +370,8 @@ namespace OverTheCounter.Loader
 
                 Logger.Msg("Patched S1API (" + Path.GetFileName(dllPath) + "): " +
                     hasLastNamePatched + " broken NPC constructor setter call(s) removed (custom NPCs — Vic/Static/Bella — can now construct further), " +
-                    exitActionPatched + " broken ExitAction/ExitDelegate statement(s) removed (custom phone apps can now register their icons).");
+                    exitActionPatched + " broken ExitAction/ExitDelegate statement(s) removed (custom phone apps can now register their icons), " +
+                    brokenGettersPatched + " broken getter call(s) neutralized (getters that exist but throw internally on off-scene template construction).");
             }
             catch (Exception ex)
             {
@@ -600,6 +602,91 @@ namespace OverTheCounter.Loader
                 if (eh.HandlerEnd == oldTarget) eh.HandlerEnd = newTarget;
                 if (eh.FilterStart == oldTarget) eh.FilterStart = newTarget;
             }
+        }
+
+        /// <summary>
+        /// Getters that exist on the real game type (unlike the BrokenNpcSetterCalls list, these
+        /// are NOT missing members -- calling them compiles and resolves fine) but throw internally
+        /// when called on an NPC built via S1API's off-scene "prefab template" construction path
+        /// (Activator.CreateInstance -> parameterless constructor), rather than the normal in-scene
+        /// spawn lifecycle that would have populated whatever backing state the getter reads.
+        ///
+        /// Confirmed via live log for NPC.get_MugshotSprite: S1API.Entities.NPC..ctor() does
+        /// `if (icon != null) S1NPC.MugshotSprite = icon;` (a *setter* -- already neutralized by
+        /// BrokenNpcSetterCalls above) immediately followed by
+        /// `if (S1NPC.MugshotSprite == null) S1NPC.MugshotSprite = <default icon>;` -- that second
+        /// line's read throws System.NullReferenceException inside the real game's getter
+        /// implementation itself. This only ever surfaced once the InvalidProgramException/
+        /// MissingMethodException blockers above were cleared -- construction never reached this
+        /// line before. Because the member genuinely exists, this category can't be found by
+        /// diffing S1API's call graph against the real assembly's member list (the technique used
+        /// to build BrokenNpcSetterCalls) -- only by actually running the game and hitting the
+        /// exception, so add entries here reactively as they're confirmed.
+        /// </summary>
+        private static readonly (string DeclaringType, string MethodName)[] BrokenNpcGetterCalls =
+        {
+            ("NPC", "get_MugshotSprite"),
+        };
+
+        /// <summary>
+        /// Neutralizes each call in <see cref="BrokenNpcGetterCalls"/> by replacing it with
+        /// `pop; ldnull` -- pops the same instance reference the call would have consumed, then
+        /// pushes a null reference in place of whatever the call would have returned. Stack-neutral
+        /// (call: pop 1/push 1; replacement: pop 1/push 1), so it's a drop-in swap. Only safe for
+        /// reference-typed return values (ldnull requires one); a value-typed match is skipped with
+        /// a warning rather than risking invalid IL, since no getter in the list needs that today.
+        /// Uses the same EH/branch-reference redirect as <see cref="PatchHasLastName"/> for the same
+        /// reason -- removing an instruction that happens to be an exception-handler boundary or
+        /// branch target without redirecting those references first corrupts the method.
+        /// </summary>
+        private static int PatchBrokenGetters(ModuleDefinition module)
+        {
+            int patchedCount = 0;
+            foreach (var type in module.Types)
+            {
+                foreach (var method in type.Methods)
+                {
+                    if (!method.HasBody) continue;
+
+                    var body = method.Body;
+                    var il = body.GetILProcessor();
+                    for (int i = body.Instructions.Count - 1; i >= 0; i--)
+                    {
+                        var instr = body.Instructions[i];
+                        bool isCall = instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt;
+                        if (!isCall || !(instr.Operand is MethodReference mref)) continue;
+
+                        var declaringName = mref.DeclaringType?.Name;
+                        if (declaringName == null) continue;
+
+                        bool isKnownBroken = false;
+                        for (int n = 0; n < BrokenNpcGetterCalls.Length; n++)
+                        {
+                            var (t, m) = BrokenNpcGetterCalls[n];
+                            if (mref.Name == m && declaringName == t) { isKnownBroken = true; break; }
+                        }
+                        if (!isKnownBroken) continue;
+
+                        if (mref.ReturnType.IsValueType)
+                        {
+                            Logger.Warning("Broken-getter patch: " + declaringName + "." + mref.Name +
+                                " returns a value type -- ldnull can't stand in for it, skipping in " +
+                                method.DeclaringType.FullName + "." + method.Name + " (non-fatal, needs a dedicated fix).");
+                            continue;
+                        }
+
+                        var popThis = il.Create(OpCodes.Pop);
+                        var pushNull = il.Create(OpCodes.Ldnull);
+                        il.InsertBefore(instr, popThis);
+                        il.InsertBefore(instr, pushNull);
+                        RedirectReferences(body, instr, popThis);
+                        il.Remove(instr);
+
+                        patchedCount++;
+                    }
+                }
+            }
+            return patchedCount;
         }
 
         /// <summary>
