@@ -375,7 +375,21 @@ namespace OverTheCounter.Loader
             }
             catch (Exception ex)
             {
-                Logger.Warning("PatchS1APIBugs failed (non-fatal, the underlying bugs will keep occurring): " + ex.Message);
+                // ex.Message alone ("Value cannot be null. (Parameter 'key')") isn't enough to find
+                // which of PatchHasLastName/PatchExitAction/PatchBrokenGetters/module.Write() threw,
+                // or which line -- a harness rebuilt to byte-for-byte match this method (same live
+                // DLL, same resolver search directories, same Mono.Cecil.dll, reading via the same
+                // in-memory-stream approach) could NOT reproduce this exception, so guessing further
+                // from outside isn't productive. Log everything needed to pinpoint it for real.
+                Logger.Warning("PatchS1APIBugs failed (non-fatal, the underlying bugs will keep occurring): " +
+                    ex.GetType().FullName + ": " + ex.Message);
+                Logger.Warning("PatchS1APIBugs exception stack trace:\n" + ex.StackTrace);
+                if (ex.InnerException != null)
+                {
+                    Logger.Warning("PatchS1APIBugs inner exception: " +
+                        ex.InnerException.GetType().FullName + ": " + ex.InnerException.Message + "\n" +
+                        ex.InnerException.StackTrace);
+                }
             }
         }
 
