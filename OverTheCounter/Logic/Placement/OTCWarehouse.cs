@@ -180,7 +180,7 @@ namespace OverTheCounter.Logic.Placement
             if (_building == null) return;
             var buildingSize = new Vector3(Width, WallHeight, Depth);
             TerrainClearer.ClearAroundBuilding(_building, buildingSize,
-                new ClearingOptions { Padding = 4f });
+                new ClearingOptions { Padding = 5f });
         }
 
         /// <summary>Rebuilds interior pathfinding after furniture is placed or moved.</summary>
@@ -230,6 +230,28 @@ namespace OverTheCounter.Logic.Placement
             if (_building == null) return;
             if (_networkedObjects.Count > 0) return;
 
+            // S1MAPI's built-in ModularSwitch prefab isn't always registered the instant
+            // onLoadComplete fires, so retry a few times instead of giving up after one miss.
+            MelonCoroutines.Start(SpawnLightSwitchRoutine());
+        }
+
+        private static System.Collections.IEnumerator SpawnLightSwitchRoutine()
+        {
+            const int maxAttempts = 5;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                if (TrySpawnLightSwitch())
+                    yield break;
+
+                if (attempt < maxAttempts)
+                    yield return new WaitForSeconds(1f);
+            }
+            OTCLog.Warning(OTCLog.Systems.Patch,
+                $"Warehouse light switch: ModularSwitch prefab still not found after {maxAttempts} attempts — giving up.");
+        }
+
+        private static bool TrySpawnLightSwitch()
+        {
             try
             {
                 // Light switch on interior wall near entrance
@@ -237,28 +259,30 @@ namespace OverTheCounter.Logic.Placement
                 var switchGo = SpawnNetworkedAt(Prefabs.ModularSwitch,
                     _building.transform.TransformPoint(lightLocalPos),
                     _building.transform.rotation * Quaternion.Euler(0f, 270f, 0f));
-                if (switchGo != null)
+                if (switchGo == null)
+                    return false;
+
+                switchGo.name = "OTC_WH_LightSwitch";
+                _networkedObjects.Add(switchGo);
+                _lightSwitch = new ModularSwitch(switchGo);
+                _lightSwitch.SetInteractionMessages("Turn Off Lights", "Turn On Lights");
+                _lightSwitch.OnToggled += isOn =>
                 {
-                    switchGo.name = "OTC_WH_LightSwitch";
-                    _networkedObjects.Add(switchGo);
-                    _lightSwitch = new ModularSwitch(switchGo);
-                    _lightSwitch.SetInteractionMessages("Turn Off Lights", "Turn On Lights");
-                    _lightSwitch.OnToggled += isOn =>
+                    SetLightsEnabled(isOn);
+                    if (!_suppressSwitchSync)
                     {
-                        SetLightsEnabled(isOn);
-                        if (!_suppressSwitchSync)
-                        {
-                            if (NetworkHelper.IsHost)
-                                ConfigSyncData.MarkGameStateDirty();
-                            else
-                                ConfigSyncData.SendQuestAction($"WH_LIGHTS:{(isOn ? 1 : 0)}");
-                        }
-                    };
-                }
+                        if (NetworkHelper.IsHost)
+                            ConfigSyncData.MarkGameStateDirty();
+                        else
+                            ConfigSyncData.SendQuestAction($"WH_LIGHTS:{(isOn ? 1 : 0)}");
+                    }
+                };
+                return true;
             }
             catch (Exception ex)
             {
                 OTCLog.Error(OTCLog.Systems.Patch, $"Warehouse light switch spawn failed: {ex.Message}");
+                return false;
             }
         }
 

@@ -320,7 +320,7 @@ namespace OverTheCounter.Logic.Placement
             // Clear trees/objects around building footprint + apron
             var buildingSize = new Vector3(RoomWidth, RoomHeight, RoomDepth + ApronDepth);
             TerrainClearer.ClearAroundBuilding(_building, buildingSize,
-                new ClearingOptions { Padding = 2f });
+                new ClearingOptions { Padding = 5f });
         }
 
         private static GameObject SpawnNetworkedAt(S1MAPI.Core.PrefabRef prefab, Vector3 worldPos, Quaternion worldRot, Action<GameObject> preSpawnConfigure = null)
@@ -432,37 +432,10 @@ namespace OverTheCounter.Logic.Placement
                 OTCLog.Error(OTCLog.Systems.Patch, $"Dispensary door spawn failed: {ex.Message}");
             }
 
-            // Light switch — lobby side of lobby/showroom wall
-            try
-            {
-                var lightLocalPos = new Vector3(RoomWidth - 0.1f, 1.2f, LobbyWallZ + 0.3f);
-                var switchGo = SpawnNetworkedAt(Prefabs.ModularSwitch,
-                    _building.transform.TransformPoint(lightLocalPos),
-                    _building.transform.rotation * Quaternion.Euler(0f, 270f, 0f));
-                if (switchGo != null)
-                {
-                    switchGo.name = "OTC_LightSwitch";
-                    _networkedObjects.Add(switchGo);
-                    _lightSwitchGo = switchGo;
-                    _lightSwitch = new ModularSwitch(switchGo);
-                    _lightSwitch.SetInteractionMessages("Turn Off Lights", "Turn On Lights");
-                    _lightSwitch.OnToggled += isOn =>
-                    {
-                        SetLightsEnabled(isOn);
-                        if (!_suppressSwitchSync)
-                        {
-                            if (NetworkHelper.IsHost)
-                                ConfigSyncData.MarkGameStateDirty();
-                            else
-                                ConfigSyncData.SendQuestAction($"DISP_LIGHTS:{(isOn ? 1 : 0)}");
-                        }
-                    };
-                }
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Patch, $"Dispensary light switch spawn failed: {ex.Message}");
-            }
+            // Light switch — lobby side of lobby/showroom wall.
+            // S1MAPI's built-in ModularSwitch prefab isn't always registered the instant
+            // onLoadComplete fires, so retry a few times instead of giving up after one miss.
+            MelonCoroutines.Start(SpawnLightSwitchRoutine());
 
             // Trash can is placed as MeshVault furniture in the Furniture array (decorative only)
 
@@ -493,6 +466,57 @@ namespace OverTheCounter.Logic.Placement
                 var floorStyle = FloorStyle.Get(CurrentFloorStyleId);
                 var floorMat = Materials.Find(floorStyle.MaterialName);
                 if (floorMat != null) SwapFloorMaterial(floorMat);
+            }
+        }
+
+        private static System.Collections.IEnumerator SpawnLightSwitchRoutine()
+        {
+            const int maxAttempts = 5;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                if (TrySpawnLightSwitch())
+                    yield break;
+
+                if (attempt < maxAttempts)
+                    yield return new WaitForSeconds(1f);
+            }
+            OTCLog.Warning(OTCLog.Systems.Patch,
+                $"Dispensary light switch: ModularSwitch prefab still not found after {maxAttempts} attempts — giving up.");
+        }
+
+        private static bool TrySpawnLightSwitch()
+        {
+            try
+            {
+                var lightLocalPos = new Vector3(RoomWidth - 0.1f, 1.2f, LobbyWallZ + 0.3f);
+                var switchGo = SpawnNetworkedAt(Prefabs.ModularSwitch,
+                    _building.transform.TransformPoint(lightLocalPos),
+                    _building.transform.rotation * Quaternion.Euler(0f, 270f, 0f));
+                if (switchGo == null)
+                    return false;
+
+                switchGo.name = "OTC_LightSwitch";
+                _networkedObjects.Add(switchGo);
+                _lightSwitchGo = switchGo;
+                _lightSwitch = new ModularSwitch(switchGo);
+                _lightSwitch.SetInteractionMessages("Turn Off Lights", "Turn On Lights");
+                _lightSwitch.OnToggled += isOn =>
+                {
+                    SetLightsEnabled(isOn);
+                    if (!_suppressSwitchSync)
+                    {
+                        if (NetworkHelper.IsHost)
+                            ConfigSyncData.MarkGameStateDirty();
+                        else
+                            ConfigSyncData.SendQuestAction($"DISP_LIGHTS:{(isOn ? 1 : 0)}");
+                    }
+                };
+                return true;
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Error(OTCLog.Systems.Patch, $"Dispensary light switch spawn failed: {ex.Message}");
+                return false;
             }
         }
 
