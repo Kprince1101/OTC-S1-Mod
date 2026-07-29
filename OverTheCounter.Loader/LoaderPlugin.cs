@@ -371,7 +371,7 @@ namespace OverTheCounter.Loader
                 Logger.Msg("Patched S1API (" + Path.GetFileName(dllPath) + "): " +
                     hasLastNamePatched + " broken NPC constructor setter call(s) removed (custom NPCs — Vic/Static/Bella — can now construct further), " +
                     exitActionPatched + " broken ExitAction/ExitDelegate statement(s) removed (custom phone apps can now register their icons), " +
-                    brokenGettersPatched + " broken getter call(s) neutralized (getters that exist but throw internally on off-scene template construction).");
+                    brokenGettersPatched + " broken getter call(s) fixed (genuinely-missing getters removed entirely; getters that exist but throw on off-scene template construction wrapped in try/catch so they only fall back to null when they actually throw).");
             }
             catch (Exception ex)
             {
@@ -517,8 +517,9 @@ namespace OverTheCounter.Loader
             // Scan every method in the whole module (not just S1API.Entities.NPC's own
             // constructors) -- the broken calls live in helper methods across several
             // S1API types (NPCAppearance, NPCPrefabIdentity, the Customer/Dealer data
-            // builders), not just in NPC's own constructor body.
-            foreach (var type in module.Types)
+            // builders), not just in NPC's own constructor body. AllTypes (not module.Types) --
+            // see that helper's doc comment for why nested/compiler-generated types matter here too.
+            foreach (var type in AllTypes(module))
             {
                 foreach (var method in type.Methods)
                 {
@@ -605,44 +606,133 @@ namespace OverTheCounter.Loader
         }
 
         /// <summary>
-        /// Getters that exist on the real game type (unlike the BrokenNpcSetterCalls list, these
-        /// are NOT missing members -- calling them compiles and resolves fine) but throw internally
-        /// when called on an NPC built via S1API's off-scene "prefab template" construction path
-        /// (Activator.CreateInstance -> parameterless constructor), rather than the normal in-scene
-        /// spawn lifecycle that would have populated whatever backing state the getter reads.
+        /// Yields every type in <paramref name="module"/>, INCLUDING nested types recursively --
+        /// unlike a bare `module.Types` enumeration, which only covers top-level types.
         ///
-        /// Confirmed via live log for NPC.get_MugshotSprite: S1API.Entities.NPC..ctor() does
-        /// `if (icon != null) S1NPC.MugshotSprite = icon;` (a *setter* -- already neutralized by
-        /// BrokenNpcSetterCalls above) immediately followed by
-        /// `if (S1NPC.MugshotSprite == null) S1NPC.MugshotSprite = <default icon>;` -- that second
-        /// line's read throws System.NullReferenceException inside the real game's getter
-        /// implementation itself. This only ever surfaced once the InvalidProgramException/
-        /// MissingMethodException blockers above were cleared -- construction never reached this
-        /// line before. Because the member genuinely exists, this category can't be found by
-        /// diffing S1API's call graph against the real assembly's member list (the technique used
-        /// to build BrokenNpcSetterCalls) -- only by actually running the game and hitting the
-        /// exception, so add entries here reactively as they're confirmed.
+        /// Found via the patch-harness (built to verify the try/catch getter fix below): every one of
+        /// the ~100 built-in-NPC-lookup lambdas (npc => npc.ID == "...", one per named NPC like
+        /// S1API.Entities.NPCs.Northtown.MickLubbin) compiles into a method on a compiler-generated
+        /// nested closure type (e.g. MickLubbin/&lt;&gt;c), NOT a method directly on the outer type --
+        /// same story for any lambda/local function capturing state, and for iterator/async state
+        /// machines (MoveNext on a nested `&lt;Foo&gt;d__N` type). All of PatchHasLastName,
+        /// PatchBrokenGetters, and RemoveStatementsReferencing (via PatchExitAction) used to iterate
+        /// `module.Types` directly, meaning every broken call living inside one of these compiler-
+        /// generated nested types was silently invisible to every patch in this file -- not just the
+        /// getter fix being added here, but the ALREADY-DEPLOYED setter and ExitAction fixes too. Vic's
+        /// own construction crash happened to route entirely through NPC's own directly-declared
+        /// methods (confirmed via the harness -- zero "unexpected" misses there), so this gap didn't
+        /// block progress so far, but it was silently leaving an unknown number of other broken calls
+        /// (in lambdas, closures, state machines) completely unpatched anywhere in the module. Fixed
+        /// once, here, for every patch that walks `module.Types` -- rather than finding this the same
+        /// way the getter list itself was found: one crash at a time.
         /// </summary>
-        private static readonly (string DeclaringType, string MethodName)[] BrokenNpcGetterCalls =
+        private static System.Collections.Generic.IEnumerable<TypeDefinition> AllTypes(ModuleDefinition module)
         {
-            ("NPC", "get_MugshotSprite"),
+            foreach (var type in module.Types)
+                foreach (var t in FlattenWithNested(type))
+                    yield return t;
+        }
+
+        /// <summary>Yields <paramref name="type"/> itself, then every nested type recursively. See <see cref="AllTypes"/>.</summary>
+        private static System.Collections.Generic.IEnumerable<TypeDefinition> FlattenWithNested(TypeDefinition type)
+        {
+            yield return type;
+            foreach (var nested in type.NestedTypes)
+                foreach (var t in FlattenWithNested(nested))
+                    yield return t;
+        }
+
+        /// <summary>
+        /// Getters that are MISSING entirely from the real game type -- exactly the same root cause
+        /// as BrokenNpcSetterCalls above, just the getter half instead of the setter half. Found by
+        /// tracing the full call graph reachable from S1API.Entities.NPC..ctor() (same BFS technique
+        /// used to build the setter list) and diffing every "get_X" call on an
+        /// Il2CppScheduleOne.* type against the real game assembly (Cpp2IL's
+        /// cpp2il_out/Assembly-CSharp.dll). Since the member genuinely doesn't exist anywhere on the
+        /// type, calling it can never legitimately succeed regardless of which NPC instance it's
+        /// called on -- so unlike BrokenGettersOnOwnS1NpcFieldOnly below, these are safe to
+        /// neutralize at every call site in the whole module, not just ones reachable from
+        /// construction. Confirmed: NPC.get_ConversationCategories (matches the recurring "Method not
+        /// found" MissingMethodException seen live in
+        /// EnsureConversationCategoriesInitialized/ResetConversationCategoriesToDefaults),
+        /// NPC.get_intObj, NPCInventory.get_PickpocketIntObj, Behaviour.get_onDisable/get_onEnable,
+        /// CustomerData.get_DefaultAffinityData.
+        /// </summary>
+        private static readonly (string DeclaringType, string MethodName)[] BrokenGettersMissingEverywhere =
+        {
+            ("NPC", "get_ConversationCategories"),
+            ("NPC", "get_intObj"),
+            ("NPCInventory", "get_PickpocketIntObj"),
+            ("Behaviour", "get_onDisable"),
+            ("Behaviour", "get_onEnable"),
+            ("CustomerData", "get_DefaultAffinityData"),
         };
 
         /// <summary>
-        /// Neutralizes each call in <see cref="BrokenNpcGetterCalls"/> by replacing it with
-        /// `pop; ldnull` -- pops the same instance reference the call would have consumed, then
-        /// pushes a null reference in place of whatever the call would have returned. Stack-neutral
-        /// (call: pop 1/push 1; replacement: pop 1/push 1), so it's a drop-in swap. Only safe for
-        /// reference-typed return values (ldnull requires one); a value-typed match is skipped with
-        /// a warning rather than risking invalid IL, since no getter in the list needs that today.
-        /// Uses the same EH/branch-reference redirect as <see cref="PatchHasLastName"/> for the same
-        /// reason -- removing an instruction that happens to be an exception-handler boundary or
-        /// branch target without redirecting those references first corrupts the method.
+        /// Getters that EXIST on the real game type (calling them compiles and resolves fine
+        /// everywhere) but throw internally when called on an NPC built via S1API's off-scene
+        /// "prefab template" construction path (Activator.CreateInstance -> parameterless
+        /// constructor), because that path never runs the normal in-scene spawn lifecycle that would
+        /// populate whatever backing state the getter reads. Can't be found by diffing member lists
+        /// (the member isn't missing) -- only by actually running the game and hitting the exception.
+        /// Confirmed live: NPC.get_MugshotSprite (System.NullReferenceException, in NPC..ctor()'s "use
+        /// default icon if none was set" check) and NPC.get_ID (same exception, in
+        /// EnsureMessageConversationReady and other InitializeXxx helpers that read the NPC's own ID).
+        ///
+        /// UNLIKE BrokenGettersMissingEverywhere, these getters work perfectly fine when called on a
+        /// real, already-spawned NPC -- e.g. S1API generates one lambda per built-in named NPC
+        /// (S1API.Entities.NPCs.Northtown.MickLubbin, .Downtown.EugeneBuckley, etc.) whose whole job is
+        /// `npc => npc.ID == "<built-in id>"`, comparing a REAL live game NPC's ID to find it.
+        ///
+        /// An earlier version of this fix tried to scope the pop;ldnull swap to only call sites shaped
+        /// like `ldfld ...::S1NPC; call get_X` (S1API.Entities.NPC reading its own backing field) to
+        /// avoid also neutralizing those lookup lambdas. That was proven insufficient two ways: (1) a
+        /// harness run over every remaining call site still found 6 "unexpected" get_ID calls that
+        /// didn't fit the field-scoped shape but still needed the same fix, and (2) more decisively, a
+        /// grep confirmed EnsureMessageConversationReady -- which contains exactly the get_ID call site
+        /// this list targets -- is legitimately called AGAIN, post-spawn, on a real live NPC from
+        /// NPCPatches.cs:778. Since the exact same call site is sometimes reached with our not-yet-
+        /// populated template and sometimes with a fully-populated live NPC, no static IL shape (field
+        /// pattern, method name, declaring type, or otherwise) can safely distinguish "about to crash"
+        /// from "about to succeed" here -- the two cases are the identical instruction sequence.
+        ///
+        /// So instead of removing the call, these are wrapped in a try/catch(Exception) via
+        /// <see cref="WrapCallInTryCatchDefaultNull"/> that substitutes null ONLY if the call actually
+        /// throws at runtime. This is safe unconditionally: a legitimate call on a live NPC just
+        /// succeeds and the try/catch is a no-op overhead-wise, while a call on our off-scene template
+        /// throws exactly as before but now gets caught and neutralized instead of crashing
+        /// construction.
+        /// </summary>
+        private static readonly (string DeclaringType, string MethodName)[] BrokenGettersThrowOnOffSceneConstruction =
+        {
+            ("NPC", "get_MugshotSprite"),
+            ("NPC", "get_ID"),
+        };
+
+        /// <summary>
+        /// Applies both getter-fix lists above.
+        ///
+        /// BrokenGettersMissingEverywhere: each match is replaced with `pop; ldnull` -- pops the same
+        /// instance reference the call would have consumed, then pushes a null reference in place of
+        /// whatever the call would have returned. Stack-neutral (call: pop 1/push 1; replacement: pop
+        /// 1/push 1), so it's a drop-in swap. Safe at every call site module-wide since the member
+        /// genuinely doesn't exist anywhere. Uses the same EH/branch-reference redirect as
+        /// <see cref="PatchHasLastName"/> -- removing an instruction that happens to be an
+        /// exception-handler boundary or branch target without redirecting those references first
+        /// corrupts the method.
+        ///
+        /// BrokenGettersThrowOnOffSceneConstruction: each match is wrapped in a try/catch via
+        /// <see cref="WrapCallInTryCatchDefaultNull"/> instead of removed -- see that list's doc
+        /// comment for why a blanket match is only safe with a runtime try/catch, not a static removal.
+        ///
+        /// Both lists only substitute null for reference-typed return values; a value-typed match is
+        /// skipped with a warning rather than risking invalid IL, since no getter in either list needs
+        /// that today.
         /// </summary>
         private static int PatchBrokenGetters(ModuleDefinition module)
         {
             int patchedCount = 0;
-            foreach (var type in module.Types)
+            foreach (var type in AllTypes(module))
             {
                 foreach (var method in type.Methods)
                 {
@@ -650,6 +740,8 @@ namespace OverTheCounter.Loader
 
                     var body = method.Body;
                     var il = body.GetILProcessor();
+
+                    // Pass 1: BrokenGettersMissingEverywhere -- blanket pop;ldnull removal.
                     for (int i = body.Instructions.Count - 1; i >= 0; i--)
                     {
                         var instr = body.Instructions[i];
@@ -659,13 +751,13 @@ namespace OverTheCounter.Loader
                         var declaringName = mref.DeclaringType?.Name;
                         if (declaringName == null) continue;
 
-                        bool isKnownBroken = false;
-                        for (int n = 0; n < BrokenNpcGetterCalls.Length; n++)
+                        bool isMissingEverywhere = false;
+                        for (int n = 0; n < BrokenGettersMissingEverywhere.Length; n++)
                         {
-                            var (t, m) = BrokenNpcGetterCalls[n];
-                            if (mref.Name == m && declaringName == t) { isKnownBroken = true; break; }
+                            var (t, m) = BrokenGettersMissingEverywhere[n];
+                            if (mref.Name == m && declaringName == t) { isMissingEverywhere = true; break; }
                         }
-                        if (!isKnownBroken) continue;
+                        if (!isMissingEverywhere) continue;
 
                         if (mref.ReturnType.IsValueType)
                         {
@@ -684,9 +776,386 @@ namespace OverTheCounter.Loader
 
                         patchedCount++;
                     }
+
+                    // Pass 2: BrokenGettersThrowOnOffSceneConstruction -- wrap in try/catch instead of
+                    // removing. Run as a separate backward pass (rather than folded into pass 1's loop)
+                    // since WrapCallInTryCatchDefaultNull inserts a variable-length instruction sequence
+                    // AFTER the call, which pass 1's index bookkeeping isn't designed to account for.
+                    // Iterating this second pass backward from body.Instructions.Count (re-read fresh,
+                    // after pass 1 may have changed it) is still safe: insertions from processing one
+                    // call site land after that call's index, i.e. strictly above every index this
+                    // descending loop still has left to visit, so they're never revisited or double-
+                    // processed.
+                    for (int i = body.Instructions.Count - 1; i >= 0; i--)
+                    {
+                        var instr = body.Instructions[i];
+                        bool isCall = instr.OpCode == OpCodes.Call || instr.OpCode == OpCodes.Callvirt;
+                        if (!isCall || !(instr.Operand is MethodReference mref)) continue;
+
+                        var declaringName = mref.DeclaringType?.Name;
+                        if (declaringName == null) continue;
+
+                        bool isThrowOnOffScene = false;
+                        for (int n = 0; n < BrokenGettersThrowOnOffSceneConstruction.Length; n++)
+                        {
+                            var (t, m) = BrokenGettersThrowOnOffSceneConstruction[n];
+                            if (mref.Name == m && declaringName == t) { isThrowOnOffScene = true; break; }
+                        }
+                        if (!isThrowOnOffScene) continue;
+
+                        if (WrapCallInTryCatchDefaultNull(method, instr))
+                            patchedCount++;
+                    }
                 }
             }
             return patchedCount;
+        }
+
+        /// <summary>
+        /// Wraps the expression that loads the target instance and calls <paramref name="callInstr"/>
+        /// (a getter call) in a try/catch(System.Exception) that substitutes a null reference if the
+        /// call throws, leaving the call itself untouched otherwise. Unlike the pop;ldnull swap used
+        /// for BrokenGettersMissingEverywhere, this can't remove the call -- the exact same call site
+        /// is legitimately reached both by our off-scene template (where it throws) and by real live
+        /// NPCs elsewhere (where it must keep working), so the fix has to be a runtime fallback, not a
+        /// static rewrite.
+        ///
+        /// First checks for the null-conditional (`s1Npc?.ID`) compiler idiom -- confirmed via the
+        /// patch-harness to be the OVERWHELMINGLY dominant shape for these two getters throughout
+        /// S1API, including NPC..ctor() and EnsureMessageConversationReady themselves -- and hands off
+        /// to <see cref="NullConditionalWrap"/> if found, since that shape needs different handling
+        /// (see its doc comment for why). Otherwise falls through to the plain case below.
+        ///
+        /// Plain case: the instance-loading instructions immediately before the call (e.g. `ldfld
+        /// ...::S1NPC`, or just `ldarg`/`ldloc` for a parameter/local) are found via the same backward
+        /// stack-balance walk used elsewhere in this file (see RemoveStatementsReferencing /
+        /// GetPopCount / GetPushCount), except seeded with the CALL's own pop requirement (1, for the
+        /// instance -- this getter takes no other arguments) instead of 0, since a getter call isn't
+        /// stack-neutral by itself: it pushes the return value the rest of the statement goes on to
+        /// consume.
+        ///
+        /// Once the range [start..callInstr] is found, the surrounding statement becomes:
+        ///   try     { start..callInstr; stloc temp; leave landing }
+        ///   catch   { pop; ldnull; stloc temp; leave landing }
+        ///   landing:  ldloc temp   -- same single value on the stack the call itself used to leave,
+        ///                             so everything after this point in the method is untouched.
+        ///
+        /// Skips (logs a warning, leaves the original call in place -- i.e. no worse than before this
+        /// fix) if: the backward walk can't cleanly resolve (crosses a branch/loop boundary), any
+        /// instruction strictly inside the range besides the start itself is targeted by a branch or
+        /// exception-handler boundary from elsewhere in the method (would mean jumping into the middle
+        /// of the new try region, which is invalid IL), or the return type is a value type (ldnull
+        /// needs a reference-typed local).
+        /// </summary>
+        private static bool WrapCallInTryCatchDefaultNull(MethodDefinition method, Instruction callInstr)
+        {
+            var body = method.Body;
+            var il = body.GetILProcessor();
+
+            if (!(callInstr.Operand is MethodReference mref)) return false;
+            if (mref.ReturnType.IsValueType)
+            {
+                Logger.Warning("Broken-getter try/catch patch: " + mref.DeclaringType?.Name + "." + mref.Name +
+                    " returns a value type -- this technique needs a reference-typed local, skipping in " +
+                    method.DeclaringType.FullName + "." + method.Name + " (non-fatal, needs a dedicated fix).");
+                return false;
+            }
+
+            Instruction condBr = FindBranchTargeting(body, callInstr);
+            if (condBr != null && (condBr.OpCode == OpCodes.Brtrue || condBr.OpCode == OpCodes.Brtrue_S) &&
+                condBr.Previous != null && condBr.Previous.OpCode == OpCodes.Dup)
+            {
+                return NullConditionalWrap(method, callInstr, condBr, mref);
+            }
+
+            int callIndex = body.Instructions.IndexOf(callInstr);
+            if (callIndex < 0) return false;
+
+            int needed = GetPopCount(callInstr);
+            int idx = callIndex - 1;
+            while (needed > 0 && idx >= 0)
+            {
+                needed -= GetPushCount(body.Instructions[idx]);
+                needed += GetPopCount(body.Instructions[idx]);
+                idx--;
+            }
+            int startIndex = idx + 1;
+
+            if (needed != 0)
+            {
+                Logger.Warning("Broken-getter try/catch patch: could not cleanly bound the statement around " +
+                    mref.Name + " in " + method.DeclaringType.FullName + "." + method.Name + " -- skipping that occurrence (non-fatal).");
+                return false;
+            }
+
+            var start = body.Instructions[startIndex];
+
+            // Refuse if anything strictly inside (start, callInstr] is targeted by a branch/EH
+            // boundary from elsewhere in the method -- that would mean jumping into the middle of the
+            // new try region, which is invalid IL. (Branching to `start` itself is fine -- that's the
+            // try region's legitimate entry point.)
+            for (int r = startIndex + 1; r <= callIndex; r++)
+            {
+                var candidate = body.Instructions[r];
+                bool isTarget = false;
+                foreach (var other in body.Instructions)
+                {
+                    if (other == candidate) continue;
+                    if (other.Operand is Instruction t && t == candidate) { isTarget = true; break; }
+                    if (other.Operand is Instruction[] ts)
+                    {
+                        foreach (var tt in ts) if (tt == candidate) { isTarget = true; break; }
+                        if (isTarget) break;
+                    }
+                }
+                if (!isTarget && body.HasExceptionHandlers)
+                {
+                    foreach (var eh in body.ExceptionHandlers)
+                    {
+                        if (eh.TryStart == candidate || eh.TryEnd == candidate || eh.HandlerStart == candidate ||
+                            eh.HandlerEnd == candidate || eh.FilterStart == candidate) { isTarget = true; break; }
+                    }
+                }
+                if (isTarget)
+                {
+                    Logger.Warning("Broken-getter try/catch patch: statement around " + mref.Name + " in " +
+                        method.DeclaringType.FullName + "." + method.Name + " has a branch/EH boundary landing mid-statement -- skipping that occurrence (non-fatal).");
+                    return false;
+                }
+            }
+
+            var exceptionType = FindExceptionCatchType(method.Module);
+            var tempLocal = new VariableDefinition(mref.ReturnType);
+            body.Variables.Add(tempLocal);
+
+            var stlocOk = il.Create(OpCodes.Stloc, tempLocal);
+            var popEx = il.Create(OpCodes.Pop);
+            var ldnullEx = il.Create(OpCodes.Ldnull);
+            var stlocEx = il.Create(OpCodes.Stloc, tempLocal);
+            var landing = il.Create(OpCodes.Ldloc, tempLocal);
+            var leaveOk = il.Create(OpCodes.Leave, landing);
+            var leaveEx = il.Create(OpCodes.Leave, landing);
+
+            // Splice in, in order, right after the original call instruction. [start..callInstr] is
+            // left completely unchanged and becomes the try body.
+            il.InsertAfter(callInstr, stlocOk);
+            il.InsertAfter(stlocOk, leaveOk);
+            il.InsertAfter(leaveOk, popEx);
+            il.InsertAfter(popEx, ldnullEx);
+            il.InsertAfter(ldnullEx, stlocEx);
+            il.InsertAfter(stlocEx, leaveEx);
+            il.InsertAfter(leaveEx, landing);
+
+            body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+            {
+                CatchType = exceptionType,
+                TryStart = start,
+                TryEnd = popEx,
+                HandlerStart = popEx,
+                HandlerEnd = landing,
+            });
+
+            return true;
+        }
+
+        /// <summary>
+        /// Handles the `x?.Member` null-conditional idiom the C# compiler emits around
+        /// get_ID/get_MugshotSprite call sites throughout S1API -- confirmed via the patch-harness to
+        /// be the dominant shape, not an edge case (NPC..ctor(), EnsureMessageConversationReady, and
+        /// most other reachable call sites all use it). Recognized shape:
+        ///
+        ///   [instance-load]     -- pushes the target instance; stack is empty beforehand
+        ///   dup
+        ///   brtrue.s L          -- condBr; jumps directly to the call when the instance is non-null
+        ///   pop
+        ///   ldnull
+        ///   br.s M              -- M == callInstr.Next; the merge point where either path's value is used
+        ///   L: call get_X()     -- == callInstr
+        ///   M: ...
+        ///
+        /// The generic backward-walk in <see cref="WrapCallInTryCatchDefaultNull"/> mis-binds this: it
+        /// finds "ldnull; br.s" nets to zero stack balance and treats that as the whole statement, when
+        /// the call is actually reached via a completely different control-flow path (the brtrue jump)
+        /// -- its own safety check then (correctly) refuses to touch it, since callInstr is itself a
+        /// branch target, but that means this dominant shape would otherwise never get fixed at all.
+        ///
+        /// This method recognizes the idiom explicitly and rewrites the whole contiguous range from
+        /// where the instance starts loading through the call into a single try region: entry is at
+        /// the instance-load, with an empty stack exactly like the plain case, then execution branches
+        /// internally (via the untouched condBr) to the call when non-null. The existing null-fallback's
+        /// `br.s M` is rewritten in place (same Instruction object, so anything that happened to
+        /// reference it stays valid) into `stloc temp; leave landing` -- it's now exiting a protected
+        /// region, which requires `leave` rather than a bare `br`, and the stack (currently just the
+        /// fallback `null`) has to be stashed in the same shared temp the try/catch already uses rather
+        /// than carried across the leave. The call itself gets the same `stloc temp; leave landing`
+        /// appended, and a catch(Exception) does the same null substitution as the plain case.
+        /// `landing: ldloc temp` then continues exactly where M used to start.
+        ///
+        /// Skips (logs a warning, leaves the original call in place) if the instance-load can't be
+        /// cleanly bounded, the fallback block doesn't match this exact shape (some other null-
+        /// conditional variant this technique hasn't been taught), or anything else in the range is
+        /// targeted from elsewhere in the method -- all non-fatal, same safety posture as the plain case.
+        /// </summary>
+        private static bool NullConditionalWrap(MethodDefinition method, Instruction callInstr, Instruction condBr, MethodReference mref)
+        {
+            var body = method.Body;
+            var il = body.GetILProcessor();
+
+            var dup = condBr.Previous;
+            int dupIndex = body.Instructions.IndexOf(dup);
+            if (dupIndex < 0) return false;
+
+            int needed = GetPopCount(dup);
+            int idx = dupIndex - 1;
+            while (needed > 0 && idx >= 0)
+            {
+                needed -= GetPushCount(body.Instructions[idx]);
+                needed += GetPopCount(body.Instructions[idx]);
+                idx--;
+            }
+            int startIndex = idx + 1;
+
+            if (needed != 0)
+            {
+                Logger.Warning("Broken-getter try/catch patch: could not cleanly bound the null-conditional instance load around " +
+                    mref.Name + " in " + method.DeclaringType.FullName + "." + method.Name + " -- skipping that occurrence (non-fatal).");
+                return false;
+            }
+
+            var start = body.Instructions[startIndex];
+
+            var popFallback = condBr.Next;
+            var ldnullFallback = popFallback?.Next;
+            var brFallback = ldnullFallback?.Next;
+            bool shapeMatches = popFallback != null && popFallback.OpCode == OpCodes.Pop &&
+                ldnullFallback != null && ldnullFallback.OpCode == OpCodes.Ldnull &&
+                brFallback != null && (brFallback.OpCode == OpCodes.Br || brFallback.OpCode == OpCodes.Br_S) &&
+                brFallback.Operand is Instruction brTarget && brTarget == callInstr.Next &&
+                brFallback.Next == callInstr;
+
+            if (!shapeMatches)
+            {
+                Logger.Warning("Broken-getter try/catch patch: " + mref.Name + " in " + method.DeclaringType.FullName + "." + method.Name +
+                    " looked like a null-conditional access but didn't match the expected shape exactly -- skipping that occurrence (non-fatal).");
+                return false;
+            }
+
+            int callIndex = body.Instructions.IndexOf(callInstr);
+
+            // Refuse if anything strictly inside (start, callInstr) -- excluding callInstr itself,
+            // which we KNOW is targeted by condBr and is handled by construction -- is targeted by some
+            // OTHER branch/EH boundary from elsewhere in the method. That would mean a stray jump into
+            // the middle of the new composite try region.
+            for (int r = startIndex + 1; r < callIndex; r++)
+            {
+                var candidate = body.Instructions[r];
+                bool isTarget = false;
+                foreach (var other in body.Instructions)
+                {
+                    if (other == candidate) continue;
+                    if (other.Operand is Instruction t && t == candidate) { isTarget = true; break; }
+                    if (other.Operand is Instruction[] ts)
+                    {
+                        foreach (var tt in ts) if (tt == candidate) { isTarget = true; break; }
+                        if (isTarget) break;
+                    }
+                }
+                if (!isTarget && body.HasExceptionHandlers)
+                {
+                    foreach (var eh in body.ExceptionHandlers)
+                    {
+                        if (eh.TryStart == candidate || eh.TryEnd == candidate || eh.HandlerStart == candidate ||
+                            eh.HandlerEnd == candidate || eh.FilterStart == candidate) { isTarget = true; break; }
+                    }
+                }
+                if (isTarget)
+                {
+                    Logger.Warning("Broken-getter try/catch patch: null-conditional statement around " + mref.Name + " in " +
+                        method.DeclaringType.FullName + "." + method.Name + " has an unexpected branch/EH boundary landing mid-statement -- skipping that occurrence (non-fatal).");
+                    return false;
+                }
+            }
+
+            var exceptionType = FindExceptionCatchType(method.Module);
+            var tempLocal = new VariableDefinition(mref.ReturnType);
+            body.Variables.Add(tempLocal);
+
+            var stlocOk = il.Create(OpCodes.Stloc, tempLocal);
+            var popEx = il.Create(OpCodes.Pop);
+            var ldnullEx = il.Create(OpCodes.Ldnull);
+            var stlocEx = il.Create(OpCodes.Stloc, tempLocal);
+            var landing = il.Create(OpCodes.Ldloc, tempLocal);
+            var leaveOk = il.Create(OpCodes.Leave, landing);
+
+            // Rewrite the existing fallback's "br(.s) M" in place -- same Instruction object, so
+            // anything that happened to reference it (nothing should, in the confirmed shape, but this
+            // is free insurance) stays valid without needing RedirectReferences.
+            var stlocFallback = il.Create(OpCodes.Stloc, tempLocal);
+            il.InsertBefore(brFallback, stlocFallback);
+            brFallback.OpCode = OpCodes.Leave;
+            brFallback.Operand = landing;
+
+            // Normal-completion path: right after the call itself.
+            il.InsertAfter(callInstr, stlocOk);
+            il.InsertAfter(stlocOk, leaveOk);
+            il.InsertAfter(leaveOk, popEx);
+            il.InsertAfter(popEx, ldnullEx);
+            il.InsertAfter(ldnullEx, stlocEx);
+            var leaveEx = il.Create(OpCodes.Leave, landing);
+            il.InsertAfter(stlocEx, leaveEx);
+            il.InsertAfter(leaveEx, landing);
+
+            body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+            {
+                CatchType = exceptionType,
+                TryStart = start,
+                TryEnd = popEx,
+                HandlerStart = popEx,
+                HandlerEnd = landing,
+            });
+
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the first instruction in <paramref name="body"/> whose operand is a direct branch
+        /// reference to <paramref name="target"/> (a plain single-instruction branch operand, not a
+        /// switch-target array), or null if none exists. Used to detect the null-conditional idiom's
+        /// `brtrue.s` jumping directly to a getter call -- see <see cref="NullConditionalWrap"/>.
+        /// </summary>
+        private static Instruction FindBranchTargeting(Mono.Cecil.Cil.MethodBody body, Instruction target)
+        {
+            foreach (var instr in body.Instructions)
+            {
+                if (instr.Operand is Instruction single && single == target) return instr;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Finds an existing `System.Exception` TypeReference already present in this module (e.g. the
+        /// Catch region NPCPrefabBuilder.WithAppearanceDefaults already has) to reuse as the CatchType
+        /// for new handlers added by <see cref="WrapCallInTryCatchDefaultNull"/> -- avoids any risk of
+        /// importing a corlib reference that doesn't exactly match the identity/version this module was
+        /// already compiled against. Falls back to importing typeof(Exception) if no existing Catch
+        /// region is found.
+        /// </summary>
+        private static TypeReference FindExceptionCatchType(ModuleDefinition module)
+        {
+            foreach (var type in AllTypes(module))
+            {
+                foreach (var method in type.Methods)
+                {
+                    if (!method.HasBody || !method.Body.HasExceptionHandlers) continue;
+                    foreach (var eh in method.Body.ExceptionHandlers)
+                    {
+                        if (eh.HandlerType == ExceptionHandlerType.Catch && eh.CatchType != null &&
+                            eh.CatchType.FullName == "System.Exception")
+                            return eh.CatchType;
+                    }
+                }
+            }
+            return module.ImportReference(typeof(Exception));
         }
 
         /// <summary>
@@ -743,7 +1212,12 @@ namespace OverTheCounter.Loader
         {
             int removedStatements = 0;
 
-            foreach (var method in type.Methods)
+            // Include nested types (compiler-generated closures/lambdas capturing locals, iterator
+            // and async state machines) -- see AllTypes' doc comment for why this matters. PhoneApp's
+            // exit-chain wiring is exactly the kind of code that gets compiled into a closure when it
+            // captures outer locals for a delegate.
+            foreach (var nestedOrSelfType in FlattenWithNested(type))
+            foreach (var method in nestedOrSelfType.Methods)
             {
                 if (!method.HasBody) continue;
                 var body = method.Body;
